@@ -4,8 +4,9 @@
  *
  *   - `tomAi_getActiveQuest`  — resolves the current quest from the
  *                               open .code-workspace filename.
- *   - `tomAi_listQuests`      — enumerates quest folders under
- *                               `_ai/quests/`.
+ *   - `tomAi_listQuests`      — the window's workspace quests
+ *                               (`_ai/workspaces/<workspace>.yaml`), or
+ *                               every quest folder under `_ai/quests/`.
  *   - `tomAi_listProjects`    — the workspace's projects as buildkit
  *                               sees them (`buildkit :projects --all --json`).
  *   - `tomAi_listDocuments`   — walks a workspace document category
@@ -40,6 +41,7 @@
 
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
+import type { WorkspaceQuests } from '../utils/aiWorkspace';
 import { PROJECTS_SOURCE, PROJECTS_SOURCE_JS, type ProjectListing, type WorkspaceProject } from '../services/workspaceProjects';
 
 // ===========================================================================
@@ -67,6 +69,10 @@ export interface QuestSource {
     listTodoFiles(questId: string): string[];
     /** Workspace-relative path string for the quest folder, used in responses. */
     questFolderRelative(questId: string): string;
+    /** The window's AI workspace and its quests (utils/aiWorkspace.ts); undefined: no workspace (every quest). */
+    workspaceQuests?(): WorkspaceQuests | undefined;
+    /** The text of `short_description.<quest>.md` (vscimpb145). */
+    shortDescription?(questId: string): string | undefined;
 }
 
 /** The workspace's projects for `tomAi_listProjects` (services/workspaceProjects.ts; a fake in tests). */
@@ -105,8 +111,12 @@ export interface GetActiveQuestInput {
 }
 
 export interface ListQuestsInput {
-    /** When `true`, each entry becomes `{id, overviewFile, todoFileCount}` instead of a bare id. */
+    /** When `true`, each entry also carries `overviewFile` and `todoFileCount`. */
     includeOverview?: boolean;
+    /** `workspace` (default): the window's workspace quests; `all`: every quest. */
+    scope?: 'workspace' | 'all';
+    /** Every quest (the same as `scope: "all"`). */
+    all?: boolean;
 }
 
 export interface ListProjectsInput {
@@ -179,23 +189,35 @@ export const GET_ACTIVE_QUEST_TOOL: SharedToolDefinition<GetActiveQuestInput> = 
 
 export async function listQuestsImpl(quests: QuestSource, input: ListQuestsInput): Promise<string> {
     try {
-        const questIds = quests.listQuestIds();
-        if (!input.includeOverview) {
-            return ok({
-                discoveredFrom: '_ai/quests/*',
-                count: questIds.length,
-                quests: questIds,
-            });
-        }
-        const enriched = questIds.map((id) => ({
-            id,
-            overviewFile: quests.hasOverviewFile(id) ? `overview.${id}.md` : null,
-            todoFileCount: quests.listTodoFiles(id).length,
-        }));
+        const all = quests.listQuestIds();
+        const scope: 'workspace' | 'all' = input.all === true || input.scope === 'all' ? 'all' : 'workspace';
+        const ws = quests.workspaceQuests?.();
+        const ids = scope === 'all' || !ws ? all : ws.quests;
+        const entries = ids.map((id) => {
+            const shortDescription = quests.shortDescription?.(id);
+            return {
+                id,
+                ...(shortDescription !== undefined ? { shortDescription } : {}),
+                ...(input.includeOverview ? {
+                    overviewFile: quests.hasOverviewFile(id) ? `overview.${id}.md` : null,
+                    todoFileCount: quests.listTodoFiles(id).length,
+                } : {}),
+            };
+        });
         return ok({
             discoveredFrom: '_ai/quests/*',
-            count: enriched.length,
-            quests: enriched,
+            scope,
+            workspace: ws?.workspace ?? null,
+            ...(ws ? {
+                workspaceFile: `${quests.questFolderRelative('').replace(/\/quests\/?$/, '')}/workspaces/${ws.workspace}.yaml`,
+                workspaceSource: ws.source,
+                listApplied: scope === 'workspace' && ws.source === 'list',
+                ...(ws.unknown.length ? { unknownQuests: ws.unknown } : {}),
+                ...(ws.error ? { workspaceFileError: ws.error } : {}),
+            } : {}),
+            allCount: all.length,
+            count: entries.length,
+            quests: entries,
         });
     } catch (e) {
         return err((e as Error).message);
@@ -203,16 +225,13 @@ export async function listQuestsImpl(quests: QuestSource, input: ListQuestsInput
 }
 
 export const LIST_QUESTS_DESCRIPTION =
-    'List every quest folder under `_ai/quests/`. Discovery is a ' +
-    'filesystem walk of the `_ai/quests/` directory — directory entries are returned in ' +
-    'alphabetical order. Quest ids are free-form directory names; no format ' +
-    'is enforced (the convention is snake_case but neither this tool nor ' +
-    'the manager rejects other names). By default returns ' +
-    '`{ok, discoveredFrom, count, quests: string[]}`. With `includeOverview: ' +
-    'true`, each entry becomes `{id, overviewFile, todoFileCount}` — ' +
-    '`overviewFile` is the conventional `overview.<id>.md` filename when ' +
-    'present, `null` when absent; `todoFileCount` is the number of ' +
-    '`*.todo.yaml` files in the quest folder.';
+    'List the quests (folders under `_ai/quests/`), by default the window\'s workspace quests: the ' +
+    '`quests` list of `_ai/workspaces/<workspace>.yaml` (`<workspace>` the window\'s root folder name; ' +
+    'edited in the AI Workspace Quests editor), else every quest. `all: true` (or `scope: "all"`) lists ' +
+    'every quest. Answers `{ok, scope, workspace, workspaceFile, workspaceSource (list | recorded | all), ' +
+    'listApplied, unknownQuests (listed but missing), allCount, count, quests: [{id, shortDescription}]}` ' +
+    '— `shortDescription` the text of `short_description.<quest>.md`; `includeOverview: true` adds ' +
+    '`overviewFile` (`overview.<id>.md` or null) and `todoFileCount`. Alphabetical, or the list\'s order.';
 
 export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
     name: 'tomAi_listQuests',
@@ -225,7 +244,16 @@ export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
         properties: {
             includeOverview: {
                 type: 'boolean',
-                description: 'When true, each entry becomes `{id, overviewFile, todoFileCount}` instead of a bare id string. Default false.',
+                description: 'When true, each entry also carries `overviewFile` and `todoFileCount`. Default false.',
+            },
+            scope: {
+                type: 'string',
+                enum: ['workspace', 'all'],
+                description: '`workspace` (default): the window\'s workspace quests; `all`: every quest.',
+            },
+            all: {
+                type: 'boolean',
+                description: 'Every quest (the same as `scope: "all"`). Default false.',
             },
         },
     },

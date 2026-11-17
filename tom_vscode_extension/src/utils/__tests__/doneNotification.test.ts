@@ -37,7 +37,7 @@ import {
     planDoneNotification,
     type DoneNotificationItem,
 } from '../doneNotification.js';
-import { questPicks, runPicks } from '../doneNotificationTargets.js';
+import { ALL_QUESTS_PICK, questPicks, runPicks } from '../doneNotificationTargets.js';
 import { unescapePlaceholders } from '../placeholderEscape.js';
 import { planInboxConversion } from '../questInbox.js';
 import { HEARTBEAT_STALE_MS, isWindowAlive, liveWindowsOf, serverSummary, withHeartbeat } from '../windowHeartbeat.js';
@@ -233,6 +233,11 @@ describe('done-notification', () => {
             ['q4', 'q4', 'a window is running'],
             ['q3', 'q3', 'no window running: waits in its inbox until one starts'],
         ]);
+        // The workspace's quests first, All quests… for every quest (vscimpb144).
+        assert.deepEqual(questPicks('q1', ['q3', 'q1', 'q2', 'q4'], new Set(['q4']), ['q4', 'q3']).map((p) => [p.label, p.value]), [
+            ['q1', ''], ['q4', 'q4'], ['q3', 'q3'], ['$(list-flat) All quests…', ALL_QUESTS_PICK],
+        ]);
+        assert.equal(questPicks('q1', ['q1', 'q2'], new Set(), ['q1', 'q2']).some((p) => p.value === ALL_QUESTS_PICK), false, 'the workspace has every quest: no escape needed');
         assert.deepEqual(runPicks(['r2', 'default', 'r1'], true, 'r1').map((p) => [p.label, p.value]),
             [['r1', ''], ['default', 'default'], ['r2', 'r2']], 'this quest: the item\'s run is the default');
         assert.deepEqual(runPicks(['rx'], false, 'r1').map((p) => [p.label, p.value]), [['default', ''], ['rx', 'rx']], 'another quest: default');

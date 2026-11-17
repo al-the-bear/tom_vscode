@@ -22,6 +22,7 @@ import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemF
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
+import { questShortDescription, windowWorkspaceQuests, workspaceQuestChoices } from '../services/aiWorkspaceLive';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as questTodo from '../managers/questTodoManager.js';
@@ -1603,12 +1604,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             }
             let dest: questTodo.TodoMoveDestination;
             if (picked.choice.kind === 'pickQuest') {
-                const quest = await vscode.window.showQuickPick(
-                    listQuestIds().map(q => ({ label: q, description: `todos.${q}.todo.yaml` })),
-                    { title: title.replace(/…$/, ' quest…'), placeHolder: 'Select the quest' },
-                );
-                if (!quest) return true;
-                dest = { kind: 'quest', questId: quest.label };
+                const questId = await _pickQuestWithAllEscape(title.replace(/…$/, ' quest…'), (q) => `todos.${q}.todo.yaml`);
+                if (!questId) return true;
+                dest = { kind: 'quest', questId };
             } else {
                 dest = picked.choice;
             }
@@ -2422,10 +2420,17 @@ function _openWindowQuests(): string[] {
     }
 }
 
-function _scopeSources(): { all: string[]; open: string[]; windowQuest: string } {
+function _scopeSources(): { all: string[]; open: string[]; windowQuest: string; workspace?: string[]; workspaceName?: string } {
     const windowQuest = _windowQuest();
     const open = _openWindowQuests();
-    return { all: listQuestIds(), open: windowQuest && !open.includes(windowQuest) ? [windowQuest, ...open] : open, windowQuest };
+    const ws = windowWorkspaceQuests();
+    return {
+        all: listQuestIds(),
+        open: windowQuest && !open.includes(windowQuest) ? [windowQuest, ...open] : open,
+        windowQuest,
+        ...(ws && ws.source !== 'all' ? { workspace: ws.quests } : {}),
+        ...(ws ? { workspaceName: ws.workspace } : {}),
+    };
 }
 
 /** The panel's scope: stored per instance; unset, its own quest (the @WS section's last quest, else the window's). */
@@ -2433,11 +2438,28 @@ function _scopeOf(instance: string, cfg: QuestTodoViewConfig): TodoPanelScope {
     const stored = _extensionContext?.workspaceState.get<unknown>(todoPanelScopeKey(instance));
     const own = cfg.fixedQuestId || (instance === 'ws' ? (_loadPanelState().questId || '') : '') || _windowQuest();
     if (stored) { return normalizeTodoPanelScope(stored, own); }
-    // An instance with a start of its own (@TOM TODO: the open windows' quests); without an active quest, all quests.
+    // An instance with a start of its own (@TOM TODO: the workspace's quests); without an active quest, the workspace's quests.
     if (cfg.defaultScopeKind && cfg.defaultScopeKind !== 'one') {
-        return normalizeTodoPanelScope({ kind: _windowQuest() ? cfg.defaultScopeKind : 'all' }, own);
+        return normalizeTodoPanelScope({ kind: _windowQuest() ? cfg.defaultScopeKind : 'workspace' }, own);
     }
     return defaultTodoPanelScope(own);
+}
+
+/**
+ * A quest from the workspace's quests (vscimpb144), with **All quests…** to choose among every quest. Without a
+ * workspace list it is one pick of every quest.
+ */
+async function _pickQuestWithAllEscape(title: string, describe?: (q: string) => string): Promise<string | undefined> {
+    const choices = workspaceQuestChoices(_windowQuest());
+    type Item = vscode.QuickPickItem & { quest?: string; all?: boolean };
+    const toItem = (q: string): Item => ({ label: q, description: describe?.(q), detail: questShortDescription(q)?.split('\n')[0], quest: q });
+    const items: Item[] = choices.quests.map(toItem);
+    if (choices.limited) { items.push({ label: '$(list-flat) All quests…', description: `every quest (${choices.all.length})`, all: true }); }
+    const picked = await vscode.window.showQuickPick(items, { title, placeHolder: choices.limited ? "The workspace's quests, or All quests…" : 'Select the quest', matchOnDetail: true });
+    if (!picked) { return undefined; }
+    if (!picked.all) { return picked.quest; }
+    const any = await vscode.window.showQuickPick(choices.all.map(toItem), { title: `${title} (all quests)`, placeHolder: 'Select the quest', matchOnDetail: true });
+    return any?.quest;
 }
 
 async function _saveScope(instance: string, scope: TodoPanelScope): Promise<void> {
@@ -2468,21 +2490,29 @@ function _postScope(cfg: QuestTodoViewConfig, post: (m: any) => void): void {
     });
 }
 
-/** The scope picker: one quest, the open windows' quests, or all quests (then which, with checkboxes). */
+/** The scope picker: the workspace's quests, the open windows' quests, all quests (then which, with checkboxes), or one quest. */
 async function _pickScope(current: TodoPanelScope): Promise<TodoPanelScope | undefined> {
     const sources = _scopeSources();
     type Item = vscode.QuickPickItem & { scope?: Partial<TodoPanelScope> };
     const items: Item[] = [
+        {
+            label: '$(folder-library) Workspace quests',
+            description: sources.workspace
+                ? `${sources.workspaceName ?? 'this workspace'}: ${sources.workspace.length} quest${sources.workspace.length === 1 ? '' : 's'}`
+                : `${sources.workspaceName ?? 'this workspace'} lists none: every quest`,
+            scope: { kind: 'workspace' }, picked: current.kind === 'workspace',
+        },
         { label: "$(window) Open windows' quests", description: sources.open.join(', ') || 'none open', scope: { kind: 'open' }, picked: current.kind === 'open' },
         { label: '$(list-tree) All quests…', description: 'choose which with checkboxes', scope: { kind: 'all' }, picked: current.kind === 'all' },
         { label: 'One quest', kind: vscode.QuickPickItemKind.Separator },
         ...sources.all.map((q): Item => ({
             label: q,
             description: [q === sources.windowQuest ? 'this window' : '', current.kind === 'one' && current.quest === q ? 'shown' : ''].filter(Boolean).join(' · ') || undefined,
+            detail: questShortDescription(q)?.split('\n')[0],
             scope: { kind: 'one', quest: q },
         })),
     ];
-    const choice = await vscode.window.showQuickPick(items, { title: 'Quests the todo panel shows', placeHolder: "One quest, the open windows' quests, or all quests" });
+    const choice = await vscode.window.showQuickPick(items, { title: 'Quests the todo panel shows', placeHolder: "The workspace's quests, the open windows' quests, all quests, or one quest" });
     if (!choice?.scope) { return undefined; }
     const next: TodoPanelScope = { ...current, kind: choice.scope.kind!, quest: choice.scope.quest, picked: undefined };
     if (next.kind !== 'one') { delete next.quest; }

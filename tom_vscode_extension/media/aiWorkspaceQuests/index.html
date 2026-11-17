@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  AI Workspace Quests (src/handlers/aiWorkspaceQuestsEditor-handler.ts, vscimpb144): the quests of this workspace,
+  _ai/workspaces/<workspace>.yaml. First paint from window.__INIT__ = { workspace, file, fileExists, listed, quests:
+  [{ id, checked, shortDescription }], unknown, error, message }, then `state` messages. No inline handlers.
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="wq-wrap">
+    <h2 id="wqTitle">AI Workspace Quests</h2>
+    <p class="wq-intro" id="wqIntro"></p>
+    <div class="wq-bar">
+        <button id="wqSave" class="primary">Save</button>
+        <button id="wqAll">All quests (remove the list)</button>
+        <button id="wqOpen">Open the file</button>
+        <span class="wq-gap"></span>
+        <button id="wqTickAll" class="small">Tick all</button>
+        <button id="wqTickNone" class="small">Tick none</button>
+        <input id="wqFilter" type="search" placeholder="Filter quests">
+    </div>
+    <p class="wq-message" id="wqMessage" hidden></p>
+    <p class="wq-error" id="wqError" hidden></p>
+    <p class="wq-unknown" id="wqUnknown" hidden></p>
+    <table class="wq-list">
+        <thead><tr><th></th><th>Quest</th><th>Short description</th></tr></thead>
+        <tbody id="wqRows"></tbody>
+    </table>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

@@ -9,6 +9,8 @@
  *   PS-5 the quest prefix: off with one quest, on with several, on by default where asked, the scope's choice wins
  *   PS-6 the button text; the retired kind of a file
  *   PS-7 liveTodoFileName
+ *   PS-9 the workspace's quests (vscimpb144): its quests that exist, in the list's order; without a list every
+ *        quest; the button text; kept by normalising
  *   PS-8 Restore: an archived and a deleted todo back into their live file without their stamp; refused when the
  *        live file holds the id, from a live file, for an unknown id
  */
@@ -132,5 +134,16 @@ describe('todo panel quest scope', () => {
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+    test('PS-9: the workspace\'s quests', () => {
+        const scope = normalizeTodoPanelScope({ kind: 'workspace' }, 'q1');
+        assert.equal(scope.kind, 'workspace');
+        assert.deepEqual(resolveScopeQuests(scope, { all: ['q1', 'q2', 'q3'], open: [], windowQuest: 'q1', workspace: ['q3', 'gone', 'q1'] }), ['q3', 'q1']);
+        assert.deepEqual(resolveScopeQuests(scope, { all: ['q2', 'q1'], open: [], windowQuest: 'q1' }), ['q1', 'q2'], 'no list: every quest');
+        assert.equal(scopeButtonText(scope, ['q3', 'q1'], 3), 'Workspace quests (2)');
+        // The panel's choice: a Workspace quests entry in the scope picker; the cross-quest @TOM TODO starts on it.
+        const src = (rel: string): string => fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', rel), 'utf8');
+        assert.match(src('handlers/questTodoPanel-handler.ts'), /label: '\$\(folder-library\) Workspace quests',[\s\S]{0,400}scope: \{ kind: 'workspace' \}/);
+        assert.match(src('handlers/sidebarNotes-handler.ts'), /defaultScopeKind: 'workspace',/);
     });
 });

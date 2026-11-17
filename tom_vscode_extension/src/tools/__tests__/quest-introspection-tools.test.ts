@@ -3,7 +3,7 @@
  * project introspection tools (coverage entry #23):
  *
  *   - tomAi_getActiveQuest
- *   - tomAi_listQuests
+ *   - tomAi_listQuests (the workspace's quests by default, every quest with `all`)
  *   - tomAi_listProjects
  *   - tomAi_listDocuments
  *
@@ -221,23 +221,44 @@ describe('getActiveQuestImpl', () => {
 
 describe('listQuestsImpl', () => {
 
-    test('typical: no enrichment returns plain id list (alphabetical)', async () => {
+    test('typical: every quest when no workspace is known (alphabetical)', async () => {
         const raw = await withTiming('tomAi_listQuests:typical', () =>
             listQuestsImpl(questSourceFor('alpha'), {}));
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
         assert.equal(r.discoveredFrom, '_ai/quests/*');
+        assert.equal(r.scope, 'workspace');
+        assert.equal(r.workspace, null);
         assert.equal(r.count, 2);
-        assert.deepEqual(r.quests, ['alpha', 'beta']);
+        assert.equal(r.allCount, 2);
+        assert.deepEqual(r.quests, [{ id: 'alpha' }, { id: 'beta' }]);
     });
 
-    test('includeOverview: each entry → {id, overviewFile, todoFileCount}', async () => {
+    test('includeOverview: each entry also carries overviewFile and todoFileCount', async () => {
         const r = JSON.parse(await listQuestsImpl(questSourceFor('alpha'), { includeOverview: true }));
         assert.equal(r.count, 2);
         assert.deepEqual(r.quests, [
             { id: 'alpha', overviewFile: 'overview.alpha.md', todoFileCount: 1 },
             { id: 'beta',  overviewFile: null,                todoFileCount: 2 },
         ]);
+    });
+
+    test('the two scopes: the workspace\'s quests by default, every quest with all (vscimpb144)', async () => {
+        const src: QuestSource = {
+            ...questSourceFor('alpha'),
+            workspaceQuests: () => ({ workspace: 'tom_agent_container', file: '/x/_ai/workspaces/tom_agent_container.yaml', fileExists: true, source: 'list', quests: ['beta'], unknown: ['gone'] }),
+            shortDescription: (id) => (id === 'beta' ? 'Beta quest.' : undefined),
+        };
+        const ws = JSON.parse(await listQuestsImpl(src, {}));
+        assert.deepEqual([ws.scope, ws.workspace, ws.workspaceFile, ws.workspaceSource, ws.listApplied, ws.unknownQuests, ws.count, ws.allCount],
+            ['workspace', 'tom_agent_container', '_ai/workspaces/tom_agent_container.yaml', 'list', true, ['gone'], 1, 2]);
+        assert.deepEqual(ws.quests, [{ id: 'beta', shortDescription: 'Beta quest.' }]);
+        const all = JSON.parse(await listQuestsImpl(src, { all: true }));
+        assert.deepEqual([all.scope, all.listApplied, all.count], ['all', false, 2]);
+        assert.deepEqual(all.quests, [{ id: 'alpha' }, { id: 'beta', shortDescription: 'Beta quest.' }]);
+        assert.equal(JSON.parse(await listQuestsImpl(src, { scope: 'all' })).count, 2);
+        const noList = JSON.parse(await listQuestsImpl({ ...src, workspaceQuests: () => ({ workspace: 'w', file: '/x/_ai/workspaces/w.yaml', fileExists: false, source: 'all', quests: ['alpha', 'beta'], unknown: [] }) }, {}));
+        assert.deepEqual([noList.workspaceSource, noList.listApplied, noList.count], ['all', false, 2]);
     });
 
     test('empty workspace → count: 0, quests: []', async () => {

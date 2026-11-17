@@ -81,6 +81,7 @@ function fakeWorkspace(): string {
     put('.github/copilot-instructions.md', '# Rules\n');
     put('_ai/roles/default/role.md', '# Role\n');
     put('.tom/json-schema/roles/role-type.schema.json', '{}\n');
+    put('.tom/json-schema/workspaces/ai-workspace.schema.json', '{}\n');
     put('_ai/role-types/coder/role-type.yaml', 'tools:\n  mode: profileDefault\n');
     put('_ai/processes/README.md', '# Processes\n');
     put('_ai/schemas/todo.schema.json', '{}\n');

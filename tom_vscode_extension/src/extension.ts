@@ -142,6 +142,7 @@ import { registerSessionsView } from './handlers/sessionsView-handler';
 import { registerVscResourcesView } from './handlers/vscResourcesView-handler';
 import { registerProcessEditor } from './handlers/processEditor-handler';
 import { registerProcessTemplateEditor } from './handlers/processTemplateEditor-handler';
+import { registerAiWorkspaceQuestsEditor } from './handlers/aiWorkspaceQuestsEditor-handler';
 import { registerGroupPromptEditor } from './handlers/groupPromptEditor-handler';
 import { AnthropicHandler } from './handlers/anthropic-handler';
 import { TwoTierMemoryService } from './services/memory-service';
@@ -562,6 +563,8 @@ export async function activate(context: vscode.ExtensionContext) {
     registerVscResourcesView(context);
     registerProcessEditor(context);
     registerProcessTemplateEditor(context);
+    // AI Workspace Quests: the quests of this workspace, _ai/workspaces/<workspace>.yaml (vscimpb144).
+    registerAiWorkspaceQuestsEditor(context);
     registerGroupPromptEditor(context);
     timeStep('processViews', stepStart);
 

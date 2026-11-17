@@ -36,6 +36,24 @@ Both subpanels are queue-compatible.
   `_ai/.gitattributes`; see *Upgrading the workspace* › Merge drivers) and asks
   what to open: the introduction quest or the folder, each in a new window, or
   stay here.
+- **AI workspaces** — one `_ai` folder serves several workspace folders (e.g.
+  `tom_agent_container` and `al_the_bear`), and a workspace works on some of
+  the quests. `_ai/workspaces/<workspace>.yaml` lists them (`quests:`; a quest
+  may be in several workspaces); `<workspace>` is the name of the window's root
+  folder. **@T: Open AI Workspace Quests** (`tomAi.editor.aiWorkspaceQuests`,
+  also in Extension Tools) shows every quest with a checkbox and its short
+  description: **Save** writes the list (creating the file), **All quests**
+  removes it, **Open the file** shows it as text; a listed quest that no longer
+  exists is named. The workspace's quests come first wherever quests are chosen
+  — the todo panel's *Workspace quests* scope (where @TOM TODO starts), moving a
+  todo to another quest, the done notification's quest in the queue editor, the
+  chat panel's quest prompt scopes, `tomAi_listQuests` and
+  `tomAi_getQuestWindowStatus` — and **All quests…** (or the other quests,
+  marked) reaches every quest. Without a list the workspace has every quest.
+  Open a quest's `.code-workspace` from inside its workspace folder (the
+  folder first, then the file's *Open Workspace* button): opened directly
+  through a symlinked `_ai`, VS Code takes the symlink's target folder as the
+  root, and the workspace name follows it.
 - **Create New Quest** (`@T: Create New Quest`) asks the quest id (letters,
   digits and `_`, not taken) and a name, creates `_ai/quests/<id>/` with the
   quest's files (empty but for their headings), adds the quest to the Active
@@ -328,9 +346,9 @@ The Quest TODO panel (the @TOM QUEST TODOS view, the `@WS` Quest TODO section, t
 
 #### Quests and files shown
 
-The quest todo views (@TOM QUEST TODOS, @WS › Quest TODO, @TOM TODO) are todo managers across quests. QUEST TODOS and the @WS section start on their own quest — the window's — and look and work as always until another quest is added; @TOM TODO starts on the open windows' quests. Their top bar has:
+The quest todo views (@TOM QUEST TODOS, @WS › Quest TODO, @TOM TODO) are todo managers across quests. QUEST TODOS and the @WS section start on their own quest — the window's — and look and work as always until another quest is added; @TOM TODO starts on the workspace's quests (see *AI workspaces* below). Their top bar has:
 
-- **Quest scope** — the button with the library icon, showing the quest (or *Open windows (n)* / *All quests (n)*). A click opens a picker: **one quest** (any quest folder), the **open windows' quests** (the windows on this machine with a live heartbeat, this window's first), or **all quests** — then a second picker with a checkbox per quest chooses which to see. The scope is kept per view, in this window.
+- **Quest scope** — the button with the library icon, showing the quest (or *Workspace quests (n)* / *Open windows (n)* / *All quests (n)*). A click opens a picker: the **workspace quests** (the quests this workspace lists, every quest without a list), the **open windows' quests** (the windows on this machine with a live heartbeat, this window's first), **all quests** — then a second picker with a checkbox per quest chooses which to see — or **one quest** (any quest folder, each with its short description). The scope is kept per view, in this window.
 - **Which files** — three toggle icons: **live todos** (the checklist, on by default), **archived todos** (the box) and **deleted todos** (the bin): the `-archived` / `-deleted` siblings. An archived or deleted todo is shown greyed, marked *archived* / *deleted*, and read-only — in its detail every field is disabled — with one action, **↩️ Restore**: it goes back into the live file it came from, without its archive stamp. Restore is refused when the live file already holds a todo with that id.
 - **Order** (shown when more than one quest is in the list) — **Groups of all quests** (a prefix group holds the todos of that prefix from every quest shown), **By quest, then groups** (each quest a collapsible level, its prefix groups and group todos under it), **By quest, then list** (each quest's todos as a list).
 - **Quest prefix** — a toggle that shows the quest in front of every todo id (`vscode_extension/vscimpb137_…`). Off by default with one quest, on by default with several and in @TOM TODO; once you set it, the view keeps your choice.

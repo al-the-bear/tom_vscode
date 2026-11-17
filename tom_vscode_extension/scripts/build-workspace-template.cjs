@@ -63,6 +63,8 @@ const SOURCES = [
     { path: '_ai/role-types', kind: 'dir', optional: true },
     // The schemas of role-type.yaml and role-config.yaml their `$schema` lines point at.
     { path: '.tom/json-schema/roles', kind: 'dir' },
+    // The schema of _ai/workspaces/<workspace>.yaml (the workspace's quests, vscimpb144).
+    { path: '.tom/json-schema/workspaces', kind: 'dir', optional: true },
     { path: '_ai/processes', kind: 'dir' },
     { path: '_ai/schemas', kind: 'dir' },
     { path: '_ai/prompt', kind: 'dir' },

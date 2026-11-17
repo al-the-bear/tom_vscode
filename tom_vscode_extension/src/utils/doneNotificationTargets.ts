@@ -19,7 +19,20 @@ export interface TargetPick {
  * them), then every other quest — a notification for those waits in their
  * inbox until a window starts.
  */
-export function questPicks(ownQuest: string, allQuests: readonly string[], liveQuests: ReadonlySet<string>): TargetPick[] {
+/** The pick that opens the choice among every quest (the workspace's quests come first, vscimpb144). */
+export const ALL_QUESTS_PICK = '__all_quests__';
+
+export function questPicks(ownQuest: string, allQuests: readonly string[], liveQuests: ReadonlySet<string>, workspaceQuests?: readonly string[]): TargetPick[] {
+    if (workspaceQuests) {
+        const inWorkspace = new Set(workspaceQuests);
+        const shown = allQuests.filter((q) => q === ownQuest || inWorkspace.has(q));
+        if (shown.length < allQuests.length) {
+            return [
+                ...questPicks(ownQuest, shown, liveQuests),
+                { label: '$(list-flat) All quests…', value: ALL_QUESTS_PICK, description: `every quest (${allQuests.length})` },
+            ];
+        }
+    }
     const others = allQuests.filter((q) => q !== ownQuest);
     const live = others.filter((q) => liveQuests.has(q)).sort();
     const idle = others.filter((q) => !liveQuests.has(q)).sort();

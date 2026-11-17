@@ -11,6 +11,7 @@
 
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { buildQuestWindowStatus, type QuestWindowStatusInput } from '../utils/questWindowStatus';
+import type { WorkspaceQuests } from '../utils/aiWorkspace';
 
 export interface GetQuestWindowStatusInput {
     quest?: string;
@@ -23,6 +24,8 @@ export interface QuestWindowStatusAccess {
     questExists(quest: string): boolean;
     /** Everything but the input's `quest` / `includeGone`. */
     snapshot(): Omit<QuestWindowStatusInput, 'quest' | 'includeGone'>;
+    /** The window's AI workspace and its quests (utils/aiWorkspace.ts, vscimpb144). */
+    workspaceQuests?(): WorkspaceQuests | undefined;
 }
 
 export async function getQuestWindowStatusImpl(access: QuestWindowStatusAccess, input: GetQuestWindowStatusInput): Promise<string> {
@@ -32,14 +35,29 @@ export async function getQuestWindowStatusImpl(access: QuestWindowStatusAccess, 
             return JSON.stringify({ ok: false, code: 'unknownQuest', error: `There is no quest "${quest}" (_ai/quests/${quest}/).` });
         }
         const status = buildQuestWindowStatus({ ...access.snapshot(), ...(quest ? { quest } : {}), includeGone: input.includeGone === true });
-        return JSON.stringify({ ok: true, ...status }, null, 2);
+        // The window's workspace quests (vscimpb144): the quests to send to first; every quest stays listed.
+        const ws = access.workspaceQuests?.();
+        if (!ws) { return JSON.stringify({ ok: true, ...status }, null, 2); }
+        const limited = ws.source !== 'all';
+        const inWorkspace = new Set(ws.quests);
+        return JSON.stringify({
+            ok: true,
+            ...status,
+            quests: status.quests.map((q) => (limited ? { ...q, inWorkspace: inWorkspace.has(q.quest) } : q)),
+            workspace: {
+                name: ws.workspace,
+                source: ws.source,
+                quests: ws.quests,
+                ...(ws.unknown.length ? { unknownQuests: ws.unknown } : {}),
+            },
+        }, null, 2);
     } catch (e) {
         return JSON.stringify({ ok: false, error: (e as Error).message });
     }
 }
 
 export const GET_QUEST_WINDOW_STATUS_DESCRIPTION =
-    'The VS Code windows on THIS machine and what each is doing, each quest\'s sessions and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: quest, `alive` (heartbeat within 90 s), servers, role, process position, the ANTHROPIC/LLM panel\'s profile and session, the queue, `build` (`reloadNeeded`), `dartBinaries` (tom_bs / validate_codespecs / spec_checks on its platform), `runs` (every process run of its quest: run, process, position, subject, `state` — waiting for user / waiting for event / waiting on task / running / paused / idle — with `detail`, what it waits for, and `pending`). `quests`: sessions with the profile each runs with. `profiles`: what a sent item may name (`noApiKey`). `quest` narrows it; `includeGone` adds windows without a heartbeat. Read-only.';
+    'The VS Code windows on THIS machine and what each is doing, each quest\'s sessions and the Anthropic profiles — what to look up before tomAi_sendItemToQuest. `windows`: quest, `alive` (heartbeat within 90 s), servers, role, process position, the ANTHROPIC/LLM panel\'s profile and session, the queue, `build` (`reloadNeeded`), `dartBinaries` (tom_bs / validate_codespecs / spec_checks on its platform), `runs` (every process run of its quest: run, process, position, subject, `state` — waiting for user / waiting for event / waiting on task / running / paused / idle — with `detail`, what it waits for, and `pending`). `quests`: sessions with the profile each runs with, and `inWorkspace` when the window\'s workspace lists its quests. `workspace`: the window\'s AI workspace (`_ai/workspaces/<workspace>.yaml`): `name`, `source` (list | recorded | all), its `quests` — the quests to send to first. `profiles`: what a sent item may name (`noApiKey`). `quest` narrows it; `includeGone` adds windows without a heartbeat. Read-only.';
 
 export const GET_QUEST_WINDOW_STATUS_TOOL: SharedToolDefinition<GetQuestWindowStatusInput> = {
     name: 'tomAi_getQuestWindowStatus',

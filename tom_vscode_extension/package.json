@@ -433,6 +433,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.editor.aiWorkspaceQuests",
+        "title": "@T: Open AI Workspace Quests",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.editor.groupPrompts",
         "title": "@T: Open Group Prompt Editor",
         "category": "@Tom"

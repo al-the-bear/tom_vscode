@@ -21,6 +21,7 @@ import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, user
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
+import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1153,7 +1154,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         if (!fs.existsSync(questsDir) || !fs.statSync(questsDir).isDirectory()) {
             return [];
         }
-        return fs.readdirSync(questsDir, { withFileTypes: true })
+        const scopes = fs.readdirSync(questsDir, { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
             .map((entry) => {
                 const questId = entry.name;
@@ -1164,6 +1165,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 };
             })
             .sort((a, b) => a.label.localeCompare(b.label));
+        // The workspace's quests first (vscimpb144); the others follow, marked, as the escape to every quest.
+        const ws = windowWorkspaceQuests();
+        if (!ws || ws.source === 'all') { return scopes; }
+        const inWorkspace = new Set(ws.quests);
+        const own = scopes.filter((sc) => inWorkspace.has(sc.id));
+        const others = scopes.filter((sc) => !inWorkspace.has(sc.id)).map((sc) => ({ ...sc, label: `${sc.label} (not in ${ws.workspace})` }));
+        return [...own, ...others];
     }
 
     private _parseReusablePromptId(reusableId: string): { filePath: string; fileName: string } | null {

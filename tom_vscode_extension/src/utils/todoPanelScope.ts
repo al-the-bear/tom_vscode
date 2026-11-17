@@ -4,6 +4,8 @@
  *
  * - **one** quest (any quest folder; default the window's quest);
  * - **open**: the quests of the windows with a live heartbeat;
+ * - **workspace**: the window's workspace quests (`_ai/workspaces/<workspace>.yaml`,
+ *   utils/aiWorkspace.ts; every quest without a list; vscimpb144);
  * - **all**: every quest, narrowed by the quests ticked in `picked` (unset:
  *   every quest).
  *
@@ -20,7 +22,7 @@
 
 import type { TodoFileScope } from './todoArchiveNames';
 
-export type TodoPanelScopeKind = 'one' | 'open' | 'all';
+export type TodoPanelScopeKind = 'one' | 'open' | 'workspace' | 'all';
 export type TodoPanelQuestOrder = 'combined' | 'quest-groups' | 'quest-list';
 
 export interface TodoPanelFiles {
@@ -41,14 +43,16 @@ export interface TodoPanelScope {
     prefix?: boolean;
 }
 
-/** The quests the scope may name: every quest folder, the open windows' quests, the window's own. */
+/** The quests the scope may name: every quest folder, the open windows' quests, the window's own, the workspace's. */
 export interface TodoPanelQuestSources {
     all: readonly string[];
     open: readonly string[];
     windowQuest: string;
+    /** The window's workspace quests; unset: every quest. */
+    workspace?: readonly string[];
 }
 
-const KINDS: readonly TodoPanelScopeKind[] = ['one', 'open', 'all'];
+const KINDS: readonly TodoPanelScopeKind[] = ['one', 'open', 'workspace', 'all'];
 const ORDERS: readonly TodoPanelQuestOrder[] = ['combined', 'quest-groups', 'quest-list'];
 
 /** The panel's start: the window's quest, live todos, the groups combined, the prefix by default. */
@@ -82,7 +86,8 @@ export function normalizeTodoPanelScope(raw: unknown, windowQuest: string): Todo
 /**
  * The quests a scope shows, in order: `one` its quest (the window's when it no
  * longer exists); `open` the open windows' quests that exist, the window's
- * quest first; `all` every quest, or the ticked ones.
+ * quest first; `workspace` the workspace's quests that exist, in the list's order;
+ * `all` every quest, or the ticked ones.
  */
 export function resolveScopeQuests(scope: TodoPanelScope, sources: TodoPanelQuestSources): string[] {
     const exists = new Set(sources.all);
@@ -95,6 +100,10 @@ export function resolveScopeQuests(scope: TodoPanelScope, sources: TodoPanelQues
         const own = open.indexOf(sources.windowQuest);
         if (own > 0) { open.splice(own, 1); open.unshift(sources.windowQuest); }
         return open;
+    }
+    if (scope.kind === 'workspace') {
+        if (!sources.workspace) { return [...sources.all].sort(); }
+        return [...new Set(sources.workspace)].filter((q) => exists.has(q));
     }
     const all = [...sources.all].sort();
     if (!scope.picked) { return all; }
@@ -125,6 +134,7 @@ export function questPrefixShown(scope: TodoPanelScope, questCount: number, alwa
 export function scopeButtonText(scope: TodoPanelScope, quests: readonly string[], allCount: number): string {
     if (scope.kind === 'one') { return quests[0] ?? scope.quest ?? '(no quest)'; }
     if (scope.kind === 'open') { return `Open windows (${quests.length})`; }
+    if (scope.kind === 'workspace') { return `Workspace quests (${quests.length})`; }
     return scope.picked ? `All quests (${quests.length}/${allCount})` : `All quests (${allCount})`;
 }
 

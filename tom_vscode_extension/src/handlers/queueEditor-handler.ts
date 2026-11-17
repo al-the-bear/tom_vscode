@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
+import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
 import { SOFT_INTERRUPT_TIMEOUT_MS, type SoftInterruptState } from '../services/softInterrupt';
 import type { LaneSummary } from '../utils/queueLanes';
@@ -39,7 +40,7 @@ import { positionText } from '../utils/processActionPrompt';
 import { isLoopItem, runningLoopAbove } from '../utils/queueSendBetween';
 import { itemUsageSummaryLine } from '../utils/usageCost';
 import { repetitionAnswersFromTrail, walkPrefixOf } from '../utils/repetitionAnswers';
-import { questPicks, runPicks } from '../utils/doneNotificationTargets';
+import { questPicks, runPicks, ALL_QUESTS_PICK } from '../utils/doneNotificationTargets';
 import { ProcessRepository } from '../utils/processRepository';
 import { continueOptions, continuePrompt, waitingSinceLabel, type ContinueAction } from '../utils/pendingQuestion';
 import { backgroundWaitLine, formatLimit, listBackgroundWork } from '../utils/backgroundWait';
@@ -831,9 +832,11 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { liveQuestSendAccess } = require('../tools/chat-enhancement-tools') as typeof import('../tools/chat-enhancement-tools');
             const live = new Set(allQuests.filter((q) => q !== ownQuest && liveQuestSendAccess.liveWindows(q).length > 0));
-            const quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live), {
-                title: 'Post the done notification to the quest', placeHolder: `Now: ${item.doneNotificationQuest ?? ownQuest}`,
-            });
+            // The workspace's quests first (vscimpb144), All quests… for every quest.
+            const ws = windowWorkspaceQuests();
+            const pickOptions = { title: 'Post the done notification to the quest', placeHolder: `Now: ${item.doneNotificationQuest ?? ownQuest}` };
+            let quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live, ws && ws.source !== 'all' ? ws.quests : undefined), pickOptions);
+            if (quest?.value === ALL_QUESTS_PICK) { quest = await vscode.window.showQuickPick(questPicks(ownQuest, allQuests, live), pickOptions); }
             if (!quest) { break; }
             const targetQuest = quest.value || ownQuest;
             const processes = WsPaths.ai('processes');

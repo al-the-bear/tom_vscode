@@ -10,7 +10,7 @@
  *        file holds the id
  *   SC-5 a todo file changed: the panel is asked to reload what it shows (not handed the window's quest list)
  *   SC-6 views without a scope: session and workspace-file panels answer `available: false`
- *   SC-7 @TOM TODO (vscimpb138): an instance of its own — it starts on the open windows' quests with the quest
+ *   SC-7 @TOM TODO (vscimpb138): an instance of its own — it starts on the workspace's quests (vscimpb144) with the quest
  *        prefix on, its scope and its sort / filter state apart from the other panels'; without an active quest it
  *        starts on all quests
  */
@@ -192,14 +192,14 @@ describe('the todo panel across quests', () => {
     });
 
     test('SC-7: @TOM TODO', async () => {
-        const TOM_TODO = { scopeInstance: 'tom-todo', defaultScopeKind: 'open', questPrefixByDefault: true, hideQuestSelect: true };
+        const TOM_TODO = { scopeInstance: 'tom-todo', defaultScopeKind: 'workspace', questPrefixByDefault: true, hideQuestSelect: true };
         const { webview, posted } = view(TOM_TODO);
         await send(webview, { type: 'qtGetScope' });
         const s = last(posted, 'qtScope');
-        assert.equal(s.scope.kind, 'open', 'the open windows\' quests');
-        assert.deepEqual(s.quests, ['alpha'], 'this window\'s quest (no other window runs here)');
-        assert.equal(s.prefix, true, 'the quest prefix on, even with one quest');
-        assert.equal(s.buttonText, 'Open windows (1)');
+        assert.equal(s.scope.kind, 'workspace', 'the workspace\'s quests (vscimpb144)');
+        assert.deepEqual(s.quests, ['alpha', 'beta', 'gamma'], 'no workspace list: every quest');
+        assert.equal(s.prefix, true, 'the quest prefix on');
+        assert.equal(s.buttonText, 'Workspace quests (3)');
         assert.equal(s.plain, false);
         // Its own scope: changing it leaves QUEST TODOS as it is, and the other way round.
         await send(webview, { type: 'qtSetScope', scope: { ...s.scope, files: { live: true, archived: true, deleted: true } } });
@@ -212,7 +212,7 @@ describe('the todo panel across quests', () => {
         await send(sidebar.webview, { type: 'qtSaveState', state: { sortFields: [{ field: 'id', asc: false }] } });
         await send(webview, { type: 'qtGetState' });
         assert.deepEqual(last(posted, 'qtState').state.sortFields, [{ field: 'title', asc: true }]);
-        // Without an active quest (a window on `default`): all quests.
+        // Without an active quest (a window on `default`): the workspace's quests.
         const ws = vscodeStub.stub.workspace as Record<string, unknown>;
         const file = ws.workspaceFile;
         ws.workspaceFile = { fsPath: path.join(WS, 'default.code-workspace'), scheme: 'file' };
@@ -220,7 +220,7 @@ describe('the todo panel across quests', () => {
             const fresh = view({ ...TOM_TODO, scopeInstance: 'tom-todo-2' });
             await send(fresh.webview, { type: 'qtGetScope' });
             const none = last(fresh.posted, 'qtScope');
-            assert.equal(none.scope.kind, 'all');
+            assert.equal(none.scope.kind, 'workspace');
             assert.deepEqual(none.quests, ['alpha', 'beta', 'gamma']);
             assert.equal(none.prefix, true);
         } finally {

@@ -129,6 +129,7 @@ import {
     listDocumentsImpl,
 } from './quest-introspection-tools';
 import { listWorkspaceProjects } from '../services/workspaceProjects';
+import { questShortDescription, windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 
 // — QuestSource bridge ——————————————————————————————————————————————
 
@@ -151,6 +152,8 @@ const liveQuestSource: QuestSource = {
     questFolderRelative(questId): string {
         return `${WsPaths.aiFolder}/quests/${questId}`;
     },
+    workspaceQuests: () => windowWorkspaceQuests(),
+    shortDescription: (questId) => questShortDescription(questId),
 };
 
 export const DETERMINE_QUEST_TOOL: SharedToolDefinition<IntroGetActiveQuestInput> = {
@@ -895,6 +898,7 @@ import { GET_QUEST_WINDOW_STATUS_TOOL as GET_QUEST_WINDOW_STATUS_DEF, getQuestWi
 
 const liveQuestWindowStatusAccess: QuestWindowStatusAccess = {
     questExists: (quest) => liveQuestSendAccess.questExists(quest),
+    workspaceQuests: () => windowWorkspaceQuests(),
     snapshot: () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { loadAllWindowStates } = require('../handlers/windowStatusPanel-handler') as typeof import('../handlers/windowStatusPanel-handler');

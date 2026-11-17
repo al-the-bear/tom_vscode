@@ -532,7 +532,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     // its own scope and toggles, starting on the open windows' quests with the quest prefix shown.
     const tomTodoProvider = new QuestTodoEmbeddedViewProvider(context.extensionUri, context, {
         scopeInstance: 'tom-todo',
-        defaultScopeKind: 'open',
+        defaultScopeKind: 'workspace',
         questPrefixByDefault: true,
         hideQuestSelect: true,
     });

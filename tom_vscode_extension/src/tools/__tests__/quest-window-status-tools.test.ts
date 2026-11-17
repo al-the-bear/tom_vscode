@@ -45,6 +45,13 @@ describe('tomAi_getQuestWindowStatus', () => {
         const all = JSON.parse(await getQuestWindowStatusImpl(access, {}));
         assert.deepEqual(all.quests.map((q: { quest: string }) => q.quest), ['tom_uam', 'vscode_extension'], 'every quest with a live window');
         assert.deepEqual(all.profiles, [{ id: 'opus', name: 'Opus', transport: 'direct', isDefault: true, noApiKey: false }]);
+        // The window's workspace quests (vscimpb144): every quest stays, each marked.
+        const withWs = JSON.parse(await getQuestWindowStatusImpl({
+            ...access,
+            workspaceQuests: () => ({ workspace: 'tom_agent_container', file: '/x', fileExists: true, source: 'list', quests: ['vscode_extension'], unknown: ['gone'] }),
+        }, {}));
+        assert.deepEqual(withWs.workspace, { name: 'tom_agent_container', source: 'list', quests: ['vscode_extension'], unknownQuests: ['gone'] });
+        assert.deepEqual(withWs.quests.map((q: { quest: string; inWorkspace?: boolean }) => [q.quest, q.inWorkspace]), [['tom_uam', false], ['vscode_extension', true]]);
         assert.equal(GET_QUEST_WINDOW_STATUS_TOOL.readOnly, true);
         assert.equal(GET_QUEST_WINDOW_STATUS_TOOL.name, 'tomAi_getQuestWindowStatus');
     });
