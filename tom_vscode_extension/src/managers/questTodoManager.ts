@@ -166,6 +166,18 @@ export interface QuestTodoItem {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     repeat_count?: number;
     /**
+     * The target completion date, `YYYY-MM-DD`. Past it, a todo not completed
+     * or cancelled is overdue (utils/todoDue.ts); on it, the user gets one
+     * reminder (services/todoDueReminders.ts).
+     */
+    due?: string;
+    /**
+     * When the one reminder for `due` was sent (local time with offset), so it
+     * is sent once across windows and hosts; a change of `due` removes it.
+     */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    due_reminded?: string;
+    /**
      * The final answer (Markdown) of the queue run that executed and completed
      * the todo; only the last run's is kept. Written by the prompt queue
      * (todoLastAnswer.ts), stripped on archive, not edited by hand.
@@ -625,6 +637,10 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (title) { item.title = title; }
     const priority = getStr('priority');
     if (priority) { item.priority = priority as QuestTodoItem['priority']; }
+    const due = getStr('due');
+    if (due) { item.due = due; }
+    const dueReminded = getStr('due_reminded');
+    if (dueReminded) { item.due_reminded = dueReminded; }
     const tags = getArr('tags');
     if (tags) { item.tags = tags; }
     const deps = getArr('dependencies');
@@ -839,7 +855,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'id', 'description', 'status', 'title', 'priority', 'tags', 'notes',
     'dependencies', 'blocked_by', 'blocking', 'comprised_of', 'part_of', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
-    'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by',
+    'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by', 'due', 'due_reminded',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -874,6 +890,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     };
     if (todo.title) { plain.title = todo.title; }
     if (todo.priority) { plain.priority = todo.priority; }
+    if (todo.due) { plain.due = toTodoDate('due', todo.due); }
     if (todo.tags && todo.tags.length) { plain.tags = todo.tags; }
     if (todo.notes) { plain.notes = todo.notes; }
     if (todo.dependencies && todo.dependencies.length) { plain.dependencies = todo.dependencies; }
@@ -899,6 +916,7 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.repeat) { plain.repeat = todo.repeat; }
     if (todo.next_repeat) { plain.next_repeat = todo.next_repeat; }
     if (todo.repeat_count !== undefined) { plain.repeat_count = todo.repeat_count; }
+    if (todo.due && todo.due_reminded) { plain.due_reminded = todo.due_reminded; }
     const onDone = normaliseOnDone(todo.on_done);
     if (onDone) { plain.on_done = onDone; }
     if (todo.filed_by && Object.keys(todo.filed_by).length) { plain.filed_by = todo.filed_by; }
@@ -953,7 +971,29 @@ function applyTodoUpdates(
     if (updates.next_repeat && !parseRepeatMoment(updates.next_repeat)) {
         throw new Error(`next_repeat must read YYYY-MM-DDTHH:MM with Z or an offset, not "${updates.next_repeat}"`);
     }
+    if (updates.due_reminded && !parseRepeatMoment(updates.due_reminded)) {
+        throw new Error(`due_reminded must read YYYY-MM-DDTHH:MM with Z or an offset, not "${updates.due_reminded}"`);
+    }
+    const due = updates.due === undefined ? undefined : (toTodoDate('due', updates.due ?? '') ?? '');
+    const created = updates.created === undefined ? undefined : toTodoDate('created', updates.created);
     const applied: Record<string, unknown> = {};
+    if (due !== undefined) {
+        const before = item.get('due');
+        const beforeDate = before === undefined || before === null ? '' : String(before);
+        setOrDelete(item, 'due', due || undefined);
+        applied.due = due || undefined;
+        // Another date gets its own reminder (vscimpb152aa): the record of the old one goes.
+        if (due !== beforeDate && updates.due_reminded === undefined && item.has('due_reminded')) {
+            item.delete('due_reminded');
+            applied.due_reminded = undefined;
+        }
+    }
+    if (updates.due_reminded !== undefined) {
+        setOrDelete(item, 'due_reminded', updates.due_reminded || undefined);
+        applied.due_reminded = updates.due_reminded || undefined;
+    }
+    // The todo panel's Created date (it was sent and never written).
+    if (created) { item.set('created', created); applied.created = created; }
     if (updates.title !== undefined) { setOrDelete(item, 'title', updates.title); applied.title = updates.title; }
     if (updates.description !== undefined) { item.set('description', updates.description); applied.description = updates.description; }
     if (updates.status !== undefined) { item.set('status', updates.status); applied.status = updates.status; }
@@ -2138,4 +2178,65 @@ export function collectScopeValues(): { projects: string[], modules: string[], a
         modules: [...modules].sort(),
         areas: [...areas].sort(),
     };
+}
+
+/** A due-reminder lock older than this belongs to a window that died holding it. */
+const DUE_REMINDER_LOCK_STALE_MS = 60_000;
+
+/**
+ * Record that the one reminder for todo `todoId`'s `due` was sent at `stamp`
+ * — only when the todo still has that `due` and no record yet. Answers true
+ * when this call wrote it (the caller then sends the reminder), false when
+ * another window or host already did, the date changed, or the todo is gone.
+ *
+ * The check and the write happen under a lock directory beside the todo file
+ * (`<file>.due-reminder.lock`, created atomically by `mkdir`), re-reading the
+ * file inside it, so two controllers on the same file send one reminder
+ * (vscimpb152aa). A lock held by another writer answers false; it is retried
+ * at the next tick. A stale lock is taken over.
+ */
+export function markDueReminded(questId: string, todoId: string, due: string, stamp: string): boolean {
+    if (!parseRepeatMoment(stamp)) { throw new Error(`due_reminded must read YYYY-MM-DDTHH:MM with Z or an offset, not "${stamp}"`); }
+    const folder = questFolder(questId);
+    for (const fileName of listTodoFiles(questId)) {
+        const filePath = path.join(folder, fileName);
+        const doc = loadDocument(filePath);
+        const todosNode = doc.get('todos', true);
+        if (!isSeq(todosNode) || !todosNode.items.some((i) => isMap(i) && String(i.get('id')) === todoId)) { continue; }
+        const lock = `${filePath}.due-reminder.lock`;
+        try {
+            fs.mkdirSync(lock);
+        } catch {
+            try {
+                if (Date.now() - fs.statSync(lock).mtimeMs <= DUE_REMINDER_LOCK_STALE_MS) { return false; }
+                fs.rmdirSync(lock);
+                fs.mkdirSync(lock);
+            } catch {
+                return false;
+            }
+        }
+        try {
+            // Read again inside the lock: what another writer stored before is what counts.
+            const fresh = loadDocument(filePath);
+            const seq = fresh.get('todos', true);
+            if (!isSeq(seq)) { return false; }
+            for (const item of seq.items) {
+                if (!isMap(item) || String(item.get('id')) !== todoId) { continue; }
+                const current = item.get('due');
+                const currentDue = current === undefined || current === null ? '' : String(current).slice(0, 10);
+                const reminded = item.get('due_reminded');
+                if (currentDue !== due || (reminded !== undefined && reminded !== null && String(reminded).trim())) { return false; }
+                const before = nodeToTodo(item as YAMLMap, fileName);
+                item.set('due_reminded', stamp);
+                saveDocument(filePath, fresh);
+                assertTodoFieldsPersisted(filePath, todoId, { due_reminded: stamp }, 'markDueReminded');
+                notifyTodoUpdated(questId, before, nodeToTodo(item as YAMLMap, fileName));
+                return true;
+            }
+            return false;
+        } finally {
+            try { fs.rmdirSync(lock); } catch { /* already gone */ }
+        }
+    }
+    return false;
 }

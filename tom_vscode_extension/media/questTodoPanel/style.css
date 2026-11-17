@@ -215,6 +215,13 @@
 /* The user's own todos (user_action: true): 👤 before the title and a purple title,
    a colour no status uses (blocked's border is the warning yellow, in-progress's the info blue). */
 .qt-todo-item.user-action .ttitle { color: var(--vscode-charts-purple, #b180d7); }
+/* A todo's target date (due): a quiet chip; overdue (passed and still open) red, and the title too (vscimpb152aa). */
+.qt-todo-item .qt-due { flex-shrink: 0; font-size: 0.8em; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.qt-todo-item .qt-due .codicon { font-size: 0.95em; }
+.qt-todo-item .qt-due.qt-overdue { color: var(--vscode-errorForeground, #f14c4c); font-weight: 600; }
+.qt-todo-item.overdue .ttitle { color: var(--vscode-errorForeground, #f14c4c); }
+.qt-overdue-input { border-color: var(--vscode-errorForeground, #f14c4c) !important; color: var(--vscode-errorForeground, #f14c4c); }
+.qt-due-reminded { margin-left: 6px; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
 .qt-group-header .qt-group-queued { margin-left: 6px; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .qt-id-row { display: flex; align-items: center; gap: 4px; flex: 1; }
 .qt-id-row input { flex: 1; }

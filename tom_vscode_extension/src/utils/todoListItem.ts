@@ -15,6 +15,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import { describeRepeat, repeatRuleError, type TodoRepeat } from './todoRepeat';
+import { isTodoOverdue, localDate } from './todoDue';
 
 /** What a list row is built from: a todo as the todo manager reads it. */
 export interface TodoListSource {
@@ -27,6 +28,8 @@ export interface TodoListSource {
     created?: string;
     updated?: string;
     completed_date?: string;
+    /** The target completion date (YYYY-MM-DD). */
+    due?: string;
     user_action?: boolean;
     blocking?: string[];
     /** A group todo's members (vscimpb125). */
@@ -46,6 +49,10 @@ export interface TodoListItem {
     created?: string;
     updated?: string;
     completed_date?: string;
+    /** The target completion date (YYYY-MM-DD), when it has one. */
+    due?: string;
+    /** Present, and true, when `due` has passed and the todo is open (derived; the row's overdue mark). */
+    overdue?: true;
     /** Present, and true, only for the user's own todos. */
     user_action?: true;
     /** The todos this one blocks (the reverse of their `blocked_by`); present only when there are any. */
@@ -111,7 +118,7 @@ const TITLE_FALLBACK_LENGTH = 60;
  * The list row of `todo`, read from `sourceFile`. `id` replaces the todo's own
  * id where the list shows a composed one (session todos).
  */
-export function todoListItem(todo: TodoListSource, sourceFile: string, id: string = todo.id): TodoListItem {
+export function todoListItem(todo: TodoListSource, sourceFile: string, id: string = todo.id, today: string = localDate(new Date())): TodoListItem {
     const row: TodoListItem = {
         id,
         title: todo.title ?? todo.description?.substring(0, TITLE_FALLBACK_LENGTH),
@@ -123,6 +130,8 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
         sourceFile,
     };
     if (todo.completed_date) { row.completed_date = todo.completed_date; }
+    if (todo.due) { row.due = todo.due; }
+    if (isTodoOverdue(todo, today)) { row.overdue = true; }
     if (todo.comprised_of?.length) { row.comprised_of = [...todo.comprised_of]; }
     if (todo.user_action === true) { row.user_action = true; }
     if (todo.blocking && todo.blocking.length) { row.blocking = todo.blocking; }

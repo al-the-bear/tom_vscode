@@ -86,6 +86,12 @@ export interface SendToChatConfig {
          * queued into the run and session that queued the todo. Unset: none.
          */
         doneNotificationTemplate?: string;
+        /**
+         * The local time (`HH:MM`) on a todo's `due` date when its one due
+         * reminder goes out (src/services/todoDueReminders.ts); a later check
+         * sends it at its first tick after. Unset: 09:00.
+         */
+        dueReminderTime?: string;
     };
     copilot?: {
         /**

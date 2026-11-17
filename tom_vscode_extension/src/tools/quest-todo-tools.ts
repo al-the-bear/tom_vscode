@@ -57,6 +57,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
 import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
+import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { onDoneShapeError, onDoneTargetRefusal, TODO_ON_DONE_ACTIONS, type TodoFiledBy, type TodoOnDone } from '../utils/todoOnDone';
 
 export type { QuestTodoStatus, TodoDecision };
@@ -92,6 +93,12 @@ export interface QuestTodoFull {
     updated?: string;
     completed_date?: string;
     completed_by?: string;
+    /** The target completion date (YYYY-MM-DD); past it an open todo is overdue (utils/todoDue.ts). */
+    due?: string;
+    /** When the one reminder for `due` was sent (written by the extension; a change of `due` removes it). */
+    due_reminded?: string;
+    /** Derived, never stored: `due` has passed and the todo is neither completed nor cancelled. */
+    overdue?: boolean;
     /** Worktracker orchestration fields (optional strings, see ORCHESTRATION_SCHEMA). */
     execution_role?: string;
     qa_role?: string;
@@ -121,6 +128,10 @@ export interface QuestTodoSummary {
     status: QuestTodoStatus;
     priority?: QuestTodoPriority;
     tags?: string[];
+    /** The target completion date (YYYY-MM-DD), when it has one. */
+    due?: string;
+    /** Derived: present (true) when `due` has passed and the todo is open. */
+    overdue?: boolean;
     sourceFile?: string;
 }
 
@@ -143,6 +154,13 @@ export interface QuestTodoToolsDeps {
     onMutate?(): void;
     /** The groups todo `todoId` of `questId` is a member of (`part_of`, derived; vscimpb125). */
     partOf?(questId: string, todoId: string): string[];
+    /** Today's local date (YYYY-MM-DD), against which `overdue` is computed; a test seam. */
+    today?(): string;
+}
+
+/** Today for the overdue state: the deps' clock, else the local date now. */
+function todayOf(deps: QuestTodoToolsDeps): string {
+    return deps.today?.() ?? localDate(new Date());
 }
 
 /**
@@ -321,6 +339,8 @@ export interface ListQuestTodosInput {
     /** Specific YAML file name, or `"all"` (default) to aggregate across all files in the quest folder. */
     file?: string;
     tags?: string[];
+    /** true: only the overdue todos; false: only the others. */
+    overdue?: boolean;
 }
 
 export async function listQuestTodosImpl(deps: QuestTodoToolsDeps, input: ListQuestTodosInput): Promise<string> {
@@ -335,6 +355,12 @@ export async function listQuestTodosImpl(deps: QuestTodoToolsDeps, input: ListQu
         if (input.tags && input.tags.length > 0) {
             const tagSet = new Set(input.tags);
             items = items.filter((t) => (t.tags ?? []).some((tag) => tagSet.has(tag)));
+        }
+        // The overdue state is derived (TD-21): `due` before today, not completed / cancelled.
+        const today = todayOf(deps);
+        items = items.map((t) => (isTodoOverdue(t, today) ? { ...t, overdue: true } : t));
+        if (input.overdue !== undefined) {
+            items = items.filter((t) => !!t.overdue === input.overdue);
         }
         return JSON.stringify({ ok: true, questId: input.questId, count: items.length, items }, null, 2);
     } catch (err) {
@@ -351,9 +377,10 @@ export const LIST_QUEST_TODOS_DESCRIPTION =
     '(e.g. `"todos.vscode_extension.todo.yaml"`) to scope to one. **`status`** ' +
     '(`not-started` / `in-progress` / `blocked` / `decision-needed` / ' +
     '`completed` / `cancelled`) ' +
-    'and **`tags`** (any-match) filter the result. Response is the **summary** ' +
-    'shape (`id`, `title`, `description`, `status`, `priority`, `tags`, ' +
-    '`sourceFile`) — call `tomAi_getQuestTodo` for the full record including ' +
+    'and **`tags`** (any-match) filter the result; **`overdue: true`** keeps the ' +
+    'overdue todos (`due` before today, not completed / cancelled). Response is the **summary** ' +
+    'shape (`id`, `title`, `description`, `status`, `priority`, `tags`, `due` and ' +
+    '`overdue: true` when it is, `sourceFile`) — call `tomAi_getQuestTodo` for the full record including ' +
     '`scope`, `references`, `dependencies`, `blocked_by`, `notes`, timestamps.';
 
 export const LIST_QUEST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = {
@@ -370,6 +397,7 @@ export const LIST_QUEST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = 
             status: { type: 'string', enum: STATUS_ENUM },
             file: { type: 'string', description: '`"all"` (default) or a specific `*.todo.yaml` filename.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Any-match tag filter.' },
+            overdue: { type: 'boolean', description: 'true: only overdue todos (`due` before today, not completed / cancelled); false: only the others.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -397,8 +425,10 @@ export async function getQuestTodoImpl(deps: QuestTodoToolsDeps, input: GetQuest
             });
         }
         const partOf = deps.partOf?.(input.questId, input.todoId) ?? [];
+        // A todo with a date says whether it is overdue (derived, TD-21).
+        const dated = todo.due ? { ...todo, overdue: isTodoOverdue(todo, todayOf(deps)) } : todo;
         // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's key
-        return JSON.stringify({ ok: true, todo: partOf.length ? { ...todo, part_of: partOf } : todo }, null, 2);
+        return JSON.stringify({ ok: true, todo: partOf.length ? { ...dated, part_of: partOf } : dated }, null, 2);
     } catch (err) {
         return JSON.stringify({ ok: false, error: (err as Error).message });
     }
@@ -410,7 +440,7 @@ export const GET_QUEST_TODO_DESCRIPTION =
     '(`project`/`projects`/`module`/`area`/`files`), `references[]`, ' +
     '`dependencies`/`blocked_by`, `blocking` (the todos this one blocks, derived), `comprised_of` (a group todo\'s members, status `group`) and `part_of` (the groups it is a member of, derived), `decisions[]` (the open questions behind a ' +
     '`decision-needed` status), `on_done` (what happens when it is completed) and `filed_by` (who filed it), `notes`, `created`/`updated`/`completed_date`/' +
-    '`completed_by` timestamps, and `sourceFile` (which YAML file holds the ' +
+    '`completed_by` timestamps, `due` (the target date) with `overdue` (derived: passed and still open) and `due_reminded` (when its one reminder went out), and `sourceFile` (which YAML file holds the ' +
     'item). Use this when you need the full record; `tomAi_listQuestTodos` ' +
     'returns only the summary fields. Missing id surfaces structured ' +
     '`{ok: false, error: "..."}` with a pointer to `tomAi_listQuestTodos`.';
@@ -458,6 +488,8 @@ export interface CreateQuestTodoInput {
         /** A date (YYYY-MM-DD); a timestamp is written as the date it names. */
         completed_date?: string;
         completed_by?: string;
+        /** The target completion date (YYYY-MM-DD). */
+        due?: string;
         execution_role?: string;
         qa_role?: string;
         orchestration_role?: string;
@@ -691,6 +723,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     decisions: DECISIONS_SCHEMA,
                     references: { type: 'array', items: REFERENCE_SCHEMA },
                     completed_date: DATE_SCHEMA,
+                    due: { ...DATE_SCHEMA, description: 'The target completion date (YYYY-MM-DD). Past it, the todo is overdue while open; on it, the user gets one reminder. "" (update) removes it; another date re-arms the reminder.' },
                     completed_by: { type: 'string' },
                     ...ORCHESTRATION_SCHEMA,
                     ...USER_ACTION_SCHEMA,
@@ -719,6 +752,8 @@ export interface UpdateQuestTodoInput {
         notes?: string;
         completed_date?: string;
         completed_by?: string;
+        /** The target completion date (YYYY-MM-DD); "" removes it. */
+        due?: string;
         dependencies?: string[];
         blocked_by?: string[];
         comprised_of?: string[];
@@ -840,6 +875,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     notes: { type: 'string' },
                     decisions: DECISIONS_SCHEMA,
                     completed_date: DATE_SCHEMA,
+                    due: { ...DATE_SCHEMA, description: 'The target completion date (YYYY-MM-DD). Past it, the todo is overdue while open; on it, the user gets one reminder. "" (update) removes it; another date re-arms the reminder.' },
                     completed_by: { type: 'string' },
                     dependencies: { type: 'array', items: { type: 'string' } },
                     blocked_by: { type: 'array', items: { type: 'string' } },

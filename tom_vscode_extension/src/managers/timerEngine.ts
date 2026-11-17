@@ -13,6 +13,9 @@ import { PromptQueueManager } from './promptQueueManager';
 import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
 import { logTimed, logTimedError } from '../utils/queueLogger';
 import { liveRepeatedTodoPort, releaseDueRepeatedTodos } from '../services/repeatedTodoController';
+import { liveDueReminderPort, sendDueReminders } from '../services/todoDueReminders';
+import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { WsPaths } from '../utils/workspacePaths';
 import { isTimedItemOf } from '../utils/timedQueueItems';
 import { timerTickIntervalMs } from '../utils/vscodeSettings';
 
@@ -161,11 +164,29 @@ export class TimerEngine {
         } catch (err) {
             logTimedError('repeated-todo check', err);
         }
+        this.runDueReminders(now);
         entry.lastSentAt = now.toISOString();
         entry.sentCount = (entry.sentCount ?? 0) + released;
         this.saveEntries();
         this._onDidChange.fire();
         return released;
+    }
+
+    /**
+     * On the same tick: the one reminder of every todo of this window's quest
+     * whose `due` reminder moment has come (services/todoDueReminders.ts,
+     * vscimpb152aa). Only the window of the todo's quest sends; the todo
+     * records it, so it goes out once.
+     */
+    private runDueReminders(now: Date): void {
+        const quest = WsPaths.getWorkspaceQuestId();
+        if (!quest || quest === 'default') { return; }
+        let time: string | undefined;
+        try { time = loadSendToChatConfig()?.todoPanel?.dueReminderTime; } catch { time = undefined; }
+        void sendDueReminders(liveDueReminderPort(), [quest], now, time).then((result) => {
+            for (const r of result.sent) { logTimed(`Todo due reminder sent: ${r.questId}/${r.todoId} (due ${r.due})`); }
+            for (const f of result.failed) { logTimed(`Todo due reminder not sent (failed): ${f}`); }
+        }, (err) => logTimedError('todo due reminders', err));
     }
 
     static get instance(): TimerEngine {

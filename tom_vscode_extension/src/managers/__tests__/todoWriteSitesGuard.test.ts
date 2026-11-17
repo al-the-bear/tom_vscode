@@ -65,6 +65,7 @@ const CENSUS = [
     'questTodoManager.ts: deleteTodo → saveDocument(filePath)',
     'questTodoManager.ts: editLiveBlockedBy → saveDocument(filePath)',
     'questTodoManager.ts: ensureTodoFile → saveDocumentWithSchema(filePath)',
+    'questTodoManager.ts: markDueReminded → saveDocument(filePath)',
     'questTodoManager.ts: moveTodo → saveDocument(filePath)',
     'questTodoManager.ts: moveTodoToDestination → saveDocument(sourcePath)',
     'questTodoManager.ts: placeTodoInGroup → saveDocument(filePath)',

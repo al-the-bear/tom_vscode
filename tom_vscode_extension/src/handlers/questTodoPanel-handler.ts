@@ -27,6 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem, withTodoGroups, type TodoListItem } from '../utils/todoListItem';
+import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { groupListInfo } from '../utils/todoBlockingCascade';
 import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
@@ -2646,6 +2647,8 @@ function _sendTodoDetail(questId: string, todoId: string, post: (m: any) => void
     }
     const payload: any = todo ? { ...todo } : null;
     if (payload && resolvedQuestId !== questId) { payload._resolvedQuestId = resolvedQuestId; }
+    // The overdue state is derived (vscimpb152aa): the detail's Due field shows it.
+    if (payload && isTodoOverdue(payload, localDate(new Date()))) { payload.overdue = true; }
     // An archived or deleted todo is shown read-only, with Restore (vscimpb137).
     const retired = payload && sourceFile ? retiredKindOf(sourceFile) : undefined;
     if (retired) { payload._retired = retired; }

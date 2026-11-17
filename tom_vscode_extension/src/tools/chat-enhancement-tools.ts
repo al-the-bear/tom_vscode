@@ -225,6 +225,7 @@ function toSummary(t: questTodo.QuestTodoItem): QuestTodoSummary {
         status: t.status,
         priority: t.priority,
         tags: t.tags,
+        ...(t.due ? { due: t.due } : {}),
         sourceFile: t._sourceFile,
     };
 }

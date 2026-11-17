@@ -26,7 +26,7 @@ var qtTagPickerCallback = null;
 var qtFilterSearch = '';
 /** A filter that keeps every todo. `userAction`: [] all, ['yes'] the user's own todos, ['no'] the others. */
 function qtEmptyFilterState() {
-    return { status: [], priority: [], tags: [], userAction: [], blocking: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
+    return { status: [], priority: [], tags: [], userAction: [], blocking: [], overdue: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
 }
 var qtFilterState = qtEmptyFilterState();
 var qtSortFields = []; // [{field,asc}]
@@ -957,10 +957,24 @@ document.addEventListener('change', function(e) {
     }
 });
 
+/**
+ * A todo's target date (`due`): overdue (the date has passed and the todo is
+ * open, computed by the host) a red calendar with the date; otherwise the date
+ * as a quiet chip (vscimpb152aa).
+ */
+function qtDueMark(t) {
+    if (!t.due) return '';
+    if (t.overdue === true) {
+        return '<span class="qt-due qt-overdue" title="Overdue: it was due on ' + qtEsc(t.due) + '"><span class="codicon codicon-calendar"></span> ' + qtEsc(t.due) + '</span>';
+    }
+    return '<span class="qt-due" title="Due on ' + qtEsc(t.due) + '"><span class="codicon codicon-calendar"></span> ' + qtEsc(t.due) + '</span>';
+}
+
 function qtRenderTodoRow(t) {
     var icon = qtStatusIcon(t.status);
     var cls = 'qt-todo-item status-' + (t.status || 'not-started');
     if (t.user_action === true) cls += ' user-action';
+    if (t.overdue === true) cls += ' overdue';
     if (t.id === qtSelectedTodoId) cls += ' selected';
     var showSrc = (qtCurrentFile === 'all' || qtCurrentQuestId === '__all_quests__' || qtCurrentQuestId === '__all_workspace__') && t.sourceFile;
     var srcLabel = showSrc ? '<span class="source-file">' + qtEsc(t.sourceFile) + '</span>' : '';
@@ -1009,6 +1023,7 @@ function qtRenderTodoRow(t) {
         qtRepeatMark(t) +
         qtQueuedMark(t) +
         qtBlockingMark(t) +
+        qtDueMark(t) +
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         qtDecisionChip(t) +
         qtPartOfChips(t) +
@@ -1208,6 +1223,7 @@ function qtRenderList() {
         if (qtFilterState.completedFrom && (!t.completed_date || t.completed_date < qtFilterState.completedFrom)) return false;
         if (qtFilterState.completedTo && (!t.completed_date || t.completed_date > qtFilterState.completedTo)) return false;
         if (qtFilterState.blocking.length && qtFilterState.blocking.indexOf(qtOpenBlockedTodos(t).length ? 'yes' : 'no') === -1) return false;
+        if ((qtFilterState.overdue || []).length && qtFilterState.overdue.indexOf(t.overdue === true ? 'yes' : 'no') === -1) return false;
         if (qtFilterSearch) {
             var hay = ((t.id || '') + ' ' + (t.title || '') + ' ' + (t.sourceFile || '')).toLowerCase();
             if (hay.indexOf(qtFilterSearch) === -1) return false;
@@ -1553,7 +1569,7 @@ function qtToggleFilterPicker() {
 
 function qtHasActiveFilters() {
     return qtFilterState.status.length > 0 || qtFilterState.priority.length > 0 || qtFilterState.tags.length > 0 ||
-        qtFilterState.userAction.length > 0 || qtFilterState.blocking.length > 0 ||
+        qtFilterState.userAction.length > 0 || qtFilterState.blocking.length > 0 || (qtFilterState.overdue || []).length > 0 ||
         !!(qtFilterState.createdFrom || qtFilterState.createdTo || qtFilterState.updatedFrom || qtFilterState.updatedTo ||
             qtFilterState.completedFrom || qtFilterState.completedTo);
 }
@@ -1631,6 +1647,13 @@ function qtRenderFilterPicker() {
     [['yes', '⛓️ blocks open todos'], ['no', 'blocks no open todo']].forEach(function(o) {
         var checked = qtFilterState.blocking.indexOf(o[0]) >= 0;
         html += '<div class="qt-picker-option" data-qt-filter-type="blocking" data-qt-filter-val="' + o[0] + '">' +
+            '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + o[1] + '</div>';
+    });
+    html += '<div class="qt-picker-section-header">Overdue</div>';
+    if (!qtFilterState.overdue) qtFilterState.overdue = [];
+    [['yes', '📅 overdue (the due date has passed, still open)'], ['no', 'not overdue']].forEach(function(o) {
+        var checked = qtFilterState.overdue.indexOf(o[0]) >= 0;
+        html += '<div class="qt-picker-option" data-qt-filter-type="overdue" data-qt-filter-val="' + o[0] + '">' +
             '<span class="qt-check-box"><span class="codicon ' + (checked ? 'codicon-check' : '') + '"></span></span> ' + o[1] + '</div>';
     });
     html += '<div class="qt-picker-section-header">Date Ranges</div>';
@@ -2401,6 +2424,12 @@ function qtRenderDatesSection(todo) {
         qtFormRow('Created', '<input type="date" id="qt-d-created-date" value="' + qtEsc(todo.created || '') + '">') +
         qtFormRow('Updated', '<input type="date" value="' + qtEsc(todo.updated || '') + '" readonly class="qt-readonly">') +
         '</div>' +
+        // The target completion date (vscimpb152aa): past it, an open todo is overdue; on it, one reminder.
+        '<div class="qt-inline-row">' +
+        qtFormRow('Due', '<input type="date" id="qt-d-due-date" value="' + qtEsc(todo.due || '') + '"' +
+            (todo.overdue === true ? ' class="qt-overdue-input" title="Overdue"' : '') + '>' +
+            (todo.due_reminded ? '<span class="qt-due-reminded" title="The one reminder for this date went out">🔔 ' + qtEsc(String(todo.due_reminded).replace('T', ' ')) + '</span>' : '')) +
+        '</div>' +
         '<div class="qt-inline-row">' +
         qtFormRow('Completed', '<input type="date" id="qt-d-completed-date" value="' + qtEsc(todo.completed_date || '') + '">') +
         qtFormRow('By', '<input id="qt-d-completed-by" value="' + qtEsc(todo.completed_by || '') + '">') +
@@ -2475,6 +2504,8 @@ document.addEventListener('click', qtHandleMdButtonClick);
 // Wire autosave on date fields (called after section rendered)
 function qtAttachDateAutoSave() {
     var crEl = document.getElementById('qt-d-created-date');
+    var dueEl = document.getElementById('qt-d-due-date');
+    if (dueEl) dueEl.addEventListener('change', qtAutoSave);
     var cdEl = document.getElementById('qt-d-completed-date');
     var cbEl = document.getElementById('qt-d-completed-by');
     if (crEl) crEl.addEventListener('change', qtAutoSave);
@@ -2876,6 +2907,7 @@ function qtCollectFormData() {
     }
     var createdEl = document.getElementById('qt-d-created-date') || document.getElementById('qt-d-created');
     var createdValue = createdEl ? createdEl.value.trim() : '';
+    var dueEl = document.getElementById('qt-d-due-date');
     return {
         title: document.getElementById('qt-d-title') ? document.getElementById('qt-d-title').value : '',
         status: document.getElementById('qt-d-status') ? document.getElementById('qt-d-status').value : '',
@@ -2892,6 +2924,8 @@ function qtCollectFormData() {
         references: qtFormRefs.length ? qtFormRefs : undefined,
         decisions: qtFormDecisions.length ? qtFormDecisions : undefined,
         created: createdValue || undefined,
+        // '' clears the date (the host removes it); absent when the form has no Due field.
+        due: dueEl ? dueEl.value.trim() : undefined,
         completed_date: completedDateValue || undefined,
         completed_by: completedByValue || undefined,
         // Absent on the new-todo form (undefined: nothing to write); false
@@ -3523,6 +3557,7 @@ function qtHandleMessage(msg) {
                         tags: fs.tags || [],
                         userAction: fs.userAction || [],
                         blocking: fs.blocking || [],
+                        overdue: fs.overdue || [],
                         createdFrom: fs.createdFrom || '',
                         createdTo: fs.createdTo || '',
                         updatedFrom: fs.updatedFrom || '',

@@ -161,6 +161,11 @@
                 "doneNotificationTemplate": {
                     "type": "string",
                     "description": "The text of a todo's done notification (its on_done notify) when the todo has no notify_prompt of its own. It is queued into the run and session that queued the todo (the queue item's queuedBy). A todo without on_done notify gets none. Placeholders: ${todoId}, ${todoTitle}, ${todoFile}, ${todoStatus}, ${itemOutcome}, ${itemAnswer}, ${todoLastAnswer}, ${todoOnDone}, ${filedBy}, ${reportTo}, ${senderQuest}, ${senderRun}. Not set: no text — a notify without notify_prompt sends nothing, and the todo panel's Done notification box is disabled. Edited in the template editor (Todo — Done Notification)."
+                },
+                "dueReminderTime": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "description": "The local time (HH:MM) on a todo's due date when its one due reminder goes out (the repeated-todo controller's check, Timed Requests); a check after that time sends it at once. Not set: 09:00."
                 }
             },
             "additionalProperties": false
