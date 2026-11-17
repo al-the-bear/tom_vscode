@@ -2,19 +2,24 @@
  * The sessions of a process run (src/utils/runSessions.ts; vscimpb44) and how a process's session is named in a run
  * (processDefinition.effectiveSession, processActionPrompt.actionSession).
  *
- *   RS-1 `<session>@<run>` for a run other than `default`; the `default` run, the shared `default` / `chat`, a
- *        temporary session and a name that already has its run stay as they are; the run and the base name of a
- *        session; the sessions of runs
+ *   RS-1 `<session>@<run>` for a run other than `default`; the `default` run, the shared `chat`, a temporary
+ *        session and a name that already has its run stay as they are; a bare `default` is `default@default`
+ *        everywhere; the run and the base name of a session; the sessions of runs
  *   RS-2 a session name may carry `@<run>` (SESSION_NAME_PATTERN); a definition still may not
  *   RS-3 effectiveSession / actionSession in a run: the name with the run, iteration placeholders filled first; a
  *        `basedOn` the process names belongs to the run, another (a prepared context) stays shared; an override is
  *        taken as given
+ *   RS-4 the queue session of a run's item without its own: `default@<run>`, `default@default` in the default run
+ *   RS-5 every run's default session (vscimpb151): `default@<run>`; the bare `default` of older builds read as
+ *        `default@default`; which names are a run's default session
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runQueueSession, runSessionName, sessionBaseName, sessionRun, sessionsOfRuns } from '../runSessions.js';
+import {
+    DEFAULT_RUN_SESSION, canonicalSessionName, isRunDefaultSession, runDefaultSession, runQueueSession, runSessionName, sessionBaseName, sessionRun, sessionsOfRuns,
+} from '../runSessions.js';
 import { isValidSessionName } from '../agentSdkSessions.js';
 import { effectiveSession, parseProcessYaml, selectProcess, validateProcessDefinition } from '../processDefinition.js';
 import { actionSession } from '../processActionPrompt.js';
@@ -31,9 +36,11 @@ describe('run sessions', () => {
         assert.equal(runSessionName('work', 'chg1'), 'work@chg1');
         assert.equal(runSessionName('work', 'default'), 'work');
         assert.equal(runSessionName('work', undefined), 'work');
-        for (const shared of ['default', 'chat', 'tmp-261111-080000-ab12', 'work@chg2', '']) {
+        for (const shared of ['chat', 'tmp-261111-080000-ab12', 'work@chg2', '', 'default@default']) {
             assert.equal(runSessionName(shared, 'chg1'), shared, shared);
         }
+        assert.equal(runSessionName('default', 'chg1'), 'default@default', 'a bare default is the default run\'s default session');
+        assert.equal(runSessionName('default', 'default'), 'default@default');
         assert.equal(sessionRun('work@chg1'), 'chg1');
         assert.equal(sessionRun('work'), 'default');
         assert.equal(sessionBaseName('work@chg1'), 'work');
@@ -62,11 +69,28 @@ describe('run sessions', () => {
     test('RS-4: the queue session of a run\'s item without its own (qrun1)', () => {
         assert.equal(runQueueSession(undefined, 'collab'), 'default@collab', 'the queue\'s default session in the run');
         assert.equal(runQueueSession('work', 'collab'), 'work@collab', 'a named queue default too');
-        assert.equal(runQueueSession(undefined, 'default'), undefined, 'the default run keeps the queue default');
-        assert.equal(runQueueSession(undefined, undefined), undefined);
+        assert.equal(runQueueSession(undefined, 'default'), 'default@default', 'the default run\'s default session');
+        assert.equal(runQueueSession(undefined, undefined), 'default@default');
+        assert.equal(runQueueSession('default', 'default'), 'default@default', 'a stored bare default');
         assert.equal(runQueueSession('work', 'default'), 'work');
+        assert.equal(runQueueSession('default@default', 'collab'), 'default@collab', 'a queue default naming the default run, by its base in another run');
+        assert.equal(runQueueSession('default', 'collab'), 'default@collab');
+        assert.equal(runQueueSession('work@default', 'collab'), 'work@collab');
         assert.equal(runQueueSession('chat', 'collab'), 'chat', 'the panel\'s session stays shared');
         assert.equal(runQueueSession('tmp-x', 'collab'), 'tmp-x');
         assert.equal(runQueueSession('work@other', 'collab'), 'work@other', 'a name that names its run is kept');
+    });
+
+    test('RS-5: every run\'s default session (vscimpb151)', () => {
+        assert.equal(DEFAULT_RUN_SESSION, 'default@default');
+        assert.equal(runDefaultSession('default'), 'default@default');
+        assert.equal(runDefaultSession(undefined), 'default@default');
+        assert.equal(runDefaultSession('collab'), 'default@collab');
+        assert.equal(canonicalSessionName('default'), 'default@default', 'an older build\'s name');
+        for (const kept of ['default@default', 'default@collab', 'chat', 'work', 'defaults']) { assert.equal(canonicalSessionName(kept), kept); }
+        assert.equal(canonicalSessionName(undefined), undefined);
+        assert.equal(isValidSessionName(DEFAULT_RUN_SESSION), true);
+        for (const yes of ['default', 'default@default', 'default@collab']) { assert.equal(isRunDefaultSession(yes), true, yes); }
+        for (const no of ['chat', 'work@collab', 'defaults@x', undefined]) { assert.equal(isRunDefaultSession(no), false, String(no)); }
     });
 });

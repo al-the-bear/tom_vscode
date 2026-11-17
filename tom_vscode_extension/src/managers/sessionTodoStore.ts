@@ -35,6 +35,7 @@ import {
 import { sessionTodoCounts, sessionTodoFile, type SessionTodoCount } from '../services/sessionTodoFiles';
 import { getActiveToolTrail } from '../services/tool-trail';
 import { questHistoryRoot } from '../services/trailService';
+import { DEFAULT_RUN_SESSION, canonicalSessionName } from '../utils/runSessions';
 
 // ============================================================================
 // Types
@@ -85,7 +86,7 @@ export class SessionTodoStore {
     private readonly questId: string;
     private readonly historyRoot: string;
     /** The session the SESSION TODOS view shows; the default of a call outside any session. */
-    private viewSession = 'default';
+    private viewSession = DEFAULT_RUN_SESSION;
 
     /** The quest ID for this window. */
     get sessionQuestId(): string { return this.questId; }
@@ -101,15 +102,15 @@ export class SessionTodoStore {
 
     /** The session a call works on: the one named, else the tool call's, else the view's. */
     sessionOf(session?: string): string {
-        if (session && session.trim()) { return session.trim(); }
+        if (session && session.trim()) { return canonicalSessionName(session.trim()); }
         let caller: string | undefined;
         try { caller = getActiveToolTrail()?.session || undefined; } catch { caller = undefined; }
-        return caller || this.viewSession || 'default';
+        return canonicalSessionName(caller || this.viewSession || DEFAULT_RUN_SESSION);
     }
 
     /** The session the SESSION TODOS view shows (its switch sets it). */
     get shownSession(): string { return this.viewSession; }
-    set shownSession(session: string) { this.viewSession = session || 'default'; }
+    set shownSession(session: string) { this.viewSession = canonicalSessionName(session || DEFAULT_RUN_SESSION); }
 
     /** The todo file of `session` (default: {@link sessionOf}). */
     filePathFor(session?: string): string {
@@ -145,7 +146,7 @@ export class SessionTodoStore {
                         details: t.description,
                         priority: t.priority,
                         tags: Array.isArray(t.tags) ? t.tags : [],
-                    }, 'default');
+                    }, DEFAULT_RUN_SESSION);
                 }
                 fs.unlinkSync(file);
                 const stem = fileName.split('.')[0];

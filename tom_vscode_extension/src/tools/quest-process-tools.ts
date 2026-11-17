@@ -458,7 +458,7 @@ export const LIST_PROCESS_RUNS_TOOL: SharedToolDefinition<Record<string, never>>
 export const CREATE_PROCESS_RUN_TOOL: SharedToolDefinition<{ run: string; process?: string; select?: boolean }> = {
     name: 'tomAi_createProcessRun',
     displayName: 'Create Process Run',
-    description: 'Create a run of the active quest: `run` its name (letters, digits, `_`, `-`), `process` the process it follows from its first position (any process; default none yet). It is selected in this window unless `select: false`. Refused: a taken name, `default`, an unknown process.' + RUNS_NOTE,
+    description: 'Create a run of the active quest: `run` its name (letters, digits, `_`, `-`), `process` the process it follows from its first position (any process; default none yet). It is selected in this window unless `select: false`. Its default session `default@<run>` is created at once, based on `default@default` (the default run\'s default session): the queue\'s session for an item of the run that names none, the session a panel goes to when it switches to the run. Refused: a taken name, `default`, an unknown process.' + RUNS_NOTE,
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: false,

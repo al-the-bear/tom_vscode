@@ -167,10 +167,10 @@ describe('questLogLocation', () => {
 
     // The live trail and the trail pair are per session; the tabs show the queue's (`default`).
     const historyCases: [QuestLogTabId, string][] = [
-        ['mdTrail', 'sessions/default/live-trail.md'],
-        ['trail', 'sessions/default/live-trail.md'],
-        ['prompts', 'sessions/default/vscode_extension.anthropic.prompts.md'],
-        ['answers', 'sessions/default/vscode_extension.anthropic.answers.md'],
+        ['mdTrail', 'sessions/default@default/live-trail.md'],
+        ['trail', 'sessions/default@default/live-trail.md'],
+        ['prompts', 'sessions/default@default/vscode_extension.anthropic.prompts.md'],
+        ['answers', 'sessions/default@default/vscode_extension.anthropic.answers.md'],
     ];
 
     for (const [id, expected] of historyCases) {
@@ -189,13 +189,13 @@ describe('questLogLocation', () => {
         assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'chat'), { area: 'questHistory', fileName: 'sessions/chat/live-trail.md' });
         assert.deepEqual(questLogLocation('prompts', 'demo', undefined, 'tmp-261027-120000-a1'),
             { area: 'questHistory', fileName: 'sessions/tmp-261027-120000-a1/demo.anthropic.prompts.md' });
-        assert.deepEqual(questLogLocation('answers', 'demo'), { area: 'questHistory', fileName: 'sessions/default/demo.anthropic.answers.md' },
+        assert.deepEqual(questLogLocation('answers', 'demo'), { area: 'questHistory', fileName: 'sessions/default@default/demo.anthropic.answers.md' },
             'no session: the queue\'s');
-        assert.equal(questLogLocation('trail', 'demo', undefined, '../../etc').fileName, 'sessions/default/live-trail.md', 'a bad name cannot leave the folder');
+        assert.equal(questLogLocation('trail', 'demo', undefined, '../../etc').fileName, 'sessions/default@default/live-trail.md', 'a bad name cannot leave the folder');
         assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'default@collab'), { area: 'questHistory', fileName: 'sessions/default@collab/live-trail.md' },
             'a run\'s session reads its own folder, not default\'s');
         assert.notEqual(questLogViewKey('mdTrail', undefined, 'default@collab'), questLogViewKey('mdTrail', undefined, 'default@another'), 'two runs\' sessions: two keys');
-        assert.equal(questLogLocation('trail', 'demo', undefined, 'x@../etc').fileName, 'sessions/default/live-trail.md', 'an @ name cannot leave the folder either');
+        assert.equal(questLogLocation('trail', 'demo', undefined, 'x@../etc').fileName, 'sessions/default@default/live-trail.md', 'an @ name cannot leave the folder either');
         assert.deepEqual(questLogLocation('progress', 'demo', undefined, 'chat'), { area: 'quest', fileName: 'progress.demo.md' }, 'a quest document has no session');
     });
 

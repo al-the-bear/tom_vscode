@@ -136,6 +136,7 @@ import { pickAnthropicProfile } from '../utils/anthropicApiKeyCheck';
 import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
 import { emitNotifications } from '../services/notificationLog';
 import { queueItemDraft } from '../utils/notificationDrafts';
+import { DEFAULT_RUN_SESSION, canonicalSessionName, isRunDefaultSession } from '../utils/runSessions';
 
 // ============================================================================
 // Types
@@ -3953,7 +3954,7 @@ export class PromptQueueManager {
     /** The session a queue item runs in when it runs on the Anthropic transport, else undefined. */
     private anthropicSessionOf(item: QueuedPrompt): string | undefined {
         const resolved = this.resolveStageTransport(item);
-        return resolved.transport === 'anthropic' ? (resolved.session ?? 'default') : undefined;
+        return resolved.transport === 'anthropic' ? canonicalSessionName(resolved.session ?? DEFAULT_RUN_SESSION) : undefined;
     }
 
     /** Whether a `chat` item's send still runs: this window's active send, or one of another live window. */
@@ -3991,7 +3992,7 @@ export class PromptQueueManager {
         if (!item) { return undefined; }
         const resolved = this.resolveStageTransport(item);
         if ((item.lastDispatched?.transport ?? resolved.transport) === 'copilot') { return undefined; }
-        return resolved.session || 'default';
+        return canonicalSessionName(resolved.session || DEFAULT_RUN_SESSION);
     }
 
     /** The transport item `id`'s running stage went out on (its last dispatch, else as resolved now). */
@@ -4801,7 +4802,7 @@ export class PromptQueueManager {
             profileId,
             ...(profile?.name ? { profileName: profile.name } : {}),
             ...(model ? { model } : {}),
-            session: resolved.session ?? 'default',
+            session: canonicalSessionName(resolved.session ?? DEFAULT_RUN_SESSION),
             message,
             at: new Date().toISOString(),
             ...(decision.kind === 'ask' && decision.suggestedProfileId ? { suggestedProfileId: decision.suggestedProfileId } : {}),
@@ -4850,12 +4851,12 @@ export class PromptQueueManager {
         const resolved = this.resolveStageTransport(item);
         const mark: OutOfBudgetMark = item.outOfBudget ?? {
             profileId: last.anthropicProfileId ?? resolved.anthropicProfileId ?? '',
-            session: resolved.session ?? 'default',
+            session: canonicalSessionName(resolved.session ?? DEFAULT_RUN_SESSION),
             message: item.error ?? 'The API credit balance is too low.',
             at: last.dispatchedAt,
         };
         const session = mark.session;
-        const runsInSession = sessionTransportMismatch(this.sessionsFolder(), session, lookupProfile(section, profileId)) ? 'default' : session;
+        const runsInSession = sessionTransportMismatch(this.sessionsFolder(), session, lookupProfile(section, profileId)) ? DEFAULT_RUN_SESSION : session;
         const quest = await_import_ChatVariablesStore()?.quest || undefined;
         const text = outOfBudgetPrompt(mark, {
             quest,
@@ -4885,7 +4886,7 @@ export class PromptQueueManager {
             const questId = await_import_ChatVariablesStore()?.quest || undefined;
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { TwoTierMemoryService } = require('../services/memory-service');
-            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, item.session ?? runQueueSession(this._itemSettings(item).defaultAgentSdkSession, item.run));
+            TwoTierMemoryService.instance.clearAgentSdkSessionId(questId, canonicalSessionName(item.session) ?? runQueueSession(this._itemSettings(item).defaultAgentSdkSession, item.run));
             logQueue(`Item ${item.id} (${scope}): cleared Agent SDK session (previous_message_id 400) for quest '${questId ?? 'none'}' before retry`);
         } catch (e) {
             logQueue(`Item ${item.id} (${scope}): failed to clear Agent SDK session before retry: ${String(e)}`);
@@ -5165,7 +5166,8 @@ export class PromptQueueManager {
     ): { transport: QueuedTransport; anthropicProfileId?: string; anthropicConfigId?: string; session?: string; processRun?: ProcessRun; iterationKey?: string; item?: QueuedPrompt } {
         // A run's item without its own session runs in the run's queue session (default@<run>), never in another run's.
         const runDefaults = this._itemSettings(item);
-        const session = item.session ?? runQueueSession(runDefaults.defaultAgentSdkSession, item.run);
+        // A stored bare `default` (an older build's) is `default@default`.
+        const session = canonicalSessionName(item.session) ?? runQueueSession(runDefaults.defaultAgentSdkSession, item.run);
         const processRun = item.processRun;
         // The profile: the stage's, else the item's, else the session's, else the queue default.
         const sessionProfile = this.sessionProfileOf(session, session === item.session ? item.sessionCreate : undefined);
@@ -5890,7 +5892,7 @@ export class PromptQueueManager {
      * (src/services/sessionStorage.ts).
      */
     private _deleteTemporarySession(name: string): void {
-        if (name === 'default' || name === 'chat') { return; }
+        if (isRunDefaultSession(name) || name === 'chat') { return; }
         try {
             const folder = this.sessionsFolder();
             const result = deleteSession(folder, name);
@@ -6872,10 +6874,10 @@ export class PromptQueueManager {
      * Create the item's session when it is missing, before its first send:
      * from its spec (a missing base is created plainly; the profile is the
      * spec's, else the item's own), or — a bare name — a fresh `continue`
-     * session. The shared sessions (`chat`, `default`) are never created here.
+     * session. `chat` and the runs' default sessions (`default@<run>`, created with the run) are never created here.
      */
     private ensureItemSession(item: QueuedPrompt, sessionName: string | undefined): void {
-        if (!sessionName || sessionName === 'default' || sessionName === 'chat') { return; }
+        if (!sessionName || isRunDefaultSession(sessionName) || sessionName === 'chat') { return; }
         const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
         const spec: SessionSpec = sessionName === item.session ? { name: sessionName, ...(item.sessionCreate ?? {}) } : { name: sessionName };
         const result = ensureSession(this.sessionsFolder(), spec, (id) => lookupProfile(section, id), item.anthropicProfileId);

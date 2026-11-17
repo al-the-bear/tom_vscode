@@ -160,7 +160,7 @@ describe('todo groups in the todo panel', () => {
         assert.match(tile('rel1-release').querySelector('.qt-queue-item-btn').getAttribute('title'), /GROUP item/);
         window.qtRenderDetail({ ...TODOS[2], description: 'd' });
         const detailBtn = window.document.querySelector('.qt-queue-item-detail-btn');
-        assert.match(detailBtn.textContent, /Queue as todo item/);
+        assert.match(detailBtn.title, /^Queue as todo item/, 'an icon button: its tooltip names it');
         detailBtn.click();
         assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag' });
     });

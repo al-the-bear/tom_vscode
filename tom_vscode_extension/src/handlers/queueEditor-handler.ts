@@ -52,6 +52,7 @@ import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
+import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -419,7 +420,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             if (!item) { return; }
             const picked = await pickAgentSdkSession({
               questId: quest, current: item.session, title: 'Session of this queue item',
-              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
+              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || DEFAULT_RUN_SESSION})`,
             });
             if (picked !== undefined) {
               try {
@@ -552,7 +553,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             // Last step for an item: the Agent SDK session it runs in.
             const picked = await pickAgentSdkSession({
               questId: WsPaths.getWorkspaceQuestId(), current: item.session, title: 'Session of this queue item',
-              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || 'default'})`,
+              defaultLabel: `The queue default (${pqm.defaultAgentSdkSession || DEFAULT_RUN_SESSION})`,
             });
             if (picked !== undefined) { pqm.updateItemSession(id, picked); sendState(); }
           }

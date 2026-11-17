@@ -35,6 +35,7 @@ import { COMPACTED_HISTORY_FILENAME } from './compacted-history';
 import { RAW_TURNS_FILENAME } from './raw-turns-store';
 import { sessionRoot } from './sessionStorage';
 import type { SessionRecord } from '../utils/agentSdkSessions';
+import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION } from '../utils/runSessions';
 import { conversationKindOf, transportMismatch, type SessionProfile } from '../utils/sessionSpecs';
 
 /**
@@ -43,7 +44,7 @@ import { conversationKindOf, transportMismatch, type SessionProfile } from '../u
  * kinds of conversation (an Agent SDK session id and our own history) from
  * before sessions existed, so the transport check does not apply to them.
  */
-export const BUILT_IN_SESSIONS: readonly string[] = ['chat', 'default'];
+export const BUILT_IN_SESSIONS: readonly string[] = ['chat', DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION];
 
 /** The compaction accumulator's file (compaction-rounds.ts; named here to keep this module vscode-free). */
 const COMPACTION_ROUNDS_FILE = 'compaction_rounds.json';

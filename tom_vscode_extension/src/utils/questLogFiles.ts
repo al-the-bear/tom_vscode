@@ -23,6 +23,7 @@
  */
 
 import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSION_TRAIL_FOLDER, SESSIONS_FOLDER } from '../services/sessionStorage';
+import { canonicalSessionName } from './runSessions';
 import { sanitizeQuestSegment } from './questPaths.js';
 import { SESSION_NAME_PATTERN } from './agentSdkSessions.js';
 
@@ -300,7 +301,8 @@ export const DEFAULT_LOG_SESSION = MIGRATION_TARGET_SESSION;
  * to the default. Without the `@` every run's session read `default`'s files.
  */
 function safeSession(session: string | undefined | null): string {
-    return typeof session === 'string' && SESSION_NAME_PATTERN.test(session) ? session : DEFAULT_LOG_SESSION;
+    // An older build's bare `default` is `default@default` (vscimpb151).
+    return typeof session === 'string' && SESSION_NAME_PATTERN.test(session) ? canonicalSessionName(session) : DEFAULT_LOG_SESSION;
 }
 
 /** Type guard for values arriving from the webview / persisted state. */

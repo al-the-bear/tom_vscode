@@ -140,7 +140,7 @@ describe('a resumed session that no longer exists', () => {
         saveSessionId(folder, 'default', STALE, 'claude-test');
         saveSessionId(folder, 'walk', STALE, undefined, 'iteration-1');
         saveSessionId(folder, 'chat', 'alive-1');
-        assert.deepEqual(forgetSessionId(folder, STALE).sort(), ['default', 'walk']);
+        assert.deepEqual(forgetSessionId(folder, STALE).sort(), ['default@default', 'walk'], 'the default session under its name (vscimpb151)');
         assert.equal(readSession(folder, 'default')?.sessionId, undefined);
         assert.equal(readSession(folder, 'walk')?.iteration, undefined);
         assert.equal(readSession(folder, 'chat')?.sessionId, 'alive-1', 'another conversation is kept');

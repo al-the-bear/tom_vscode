@@ -61,7 +61,7 @@ describe('remove unused sessions: the plan', () => {
             ],
             defaultSession: 'queue-default',
         });
-        assert.match(reasonOf(p, 'default')!, /prompt queue/);
+        assert.match(reasonOf(p, 'default@default')!, /prompt queue/);
         assert.match(reasonOf(p, 'chat')!, /ANTHROPIC\/LLM panel/);
         assert.equal(reasonOf(p, 'running'), 'queue item i1 (sending) runs in it');
         assert.equal(reasonOf(p, 'staged-in'), 'queue item i2 (staged) runs in it');

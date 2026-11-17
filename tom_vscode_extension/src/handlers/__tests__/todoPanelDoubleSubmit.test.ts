@@ -159,7 +159,7 @@ describe('the todo views: one action, one item', () => {
         walk.click(); walk.click(); walk.click();
         assert.equal(count('qtQueueGroupPrompt'), 1);
         const js = fs.readFileSync(path.join(EXT_ROOT, 'media', 'questTodoPanel', 'main.js'), 'utf-8');
-        assert.match(js, /if \(addQueueBtn\.disabled\) return;\s*qtPauseButton\(addQueueBtn\);/);
+        assert.match(js, /function qtQueueFromBar\(btn, defaultTarget\) \{[\s\S]{0,200}if \(btn\.disabled\) return;\s*qtPauseButton\(btn\);/, 'both bar queue buttons go through qtQueueFromBar');
         // One script per view: the side view's page and the @WS panel's include it once each.
         const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         const ws = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'wsPanel-handler.ts'), 'utf-8');

@@ -4,6 +4,7 @@
  */
 
 import type { WindowQueueSummary } from './questWindowStatus';
+import { DEFAULT_RUN_SESSION, canonicalSessionName } from './runSessions';
 
 /** A queue item, as far as the summary reads it. */
 export interface SummaryItem {
@@ -68,7 +69,7 @@ export function summarizeQueue(q: SummaryQueue): WindowQueueSummary {
                 ...(ld?.kind && STAGE[ld.kind] ? { stage: STAGE[ld.kind] } : {}),
                 ...(transport ? { transport } : {}),
                 ...(profileId ? { profileId } : {}),
-                ...(transport === 'anthropic' ? { session: sending.session ?? q.defaultSession ?? 'default' } : {}),
+                ...(transport === 'anthropic' ? { session: canonicalSessionName(sending.session ?? q.defaultSession ?? DEFAULT_RUN_SESSION) } : {}),
                 ...((ld?.dispatchedAt ?? sending.sentAt) ? { since: ld?.dispatchedAt ?? sending.sentAt } : {}),
                 ...(sending.waitingFor ? { waitingFor: { reason: sending.waitingFor.reason, until: sending.waitingFor.until } } : {}),
             },

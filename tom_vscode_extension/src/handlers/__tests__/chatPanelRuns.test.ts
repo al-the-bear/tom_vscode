@@ -9,8 +9,9 @@
  *        (the other one stays), per window and quest; the ANTHROPIC/LLM subpanel then shows the run's session
  *   CR-3 a send into a non-default run while the window works on `default`: it runs in the run's session, with
  *        the run's chat variables and the run's process position (variables, run); the window's own stay
- *   CR-4 Save to Queue carries the subpanel's run (its session becomes the run's); a Copilot subpanel's queue add
- *        carries the Copilot subpanel's run
+ *   CR-4 Save to Queue with the panel's target carries the subpanel's run (its session becomes the run's), for
+ *        Copilot too; plain Save to Queue / Queue next go to the default run with nothing pinned (vscimpb151); a run
+ *        switch in the ANTHROPIC/LLM subpanel selects that run's default session, created when missing
  *   CR-5 the fallback: a run deleted elsewhere is `default` again for the subpanel that was on it, the pick
  *        forgotten, and the webview is told
  *   CR-6 the webview: each subpanel has a run select; `chatRuns` fills both (the run each is on selected; one not
@@ -177,9 +178,22 @@ describe('the chat panels\' run pickers', () => {
         const item = queue().items.find((i) => i.originalText === 'queued from anthropic')!;
         assert.equal(item.run, 'chg1');
         assert.equal(item.session, chatRunSession(provider()._chatSessionKey(), 'chg1'), 'the run\'s session');
+        await provider()._handleAddToQueue('plain from anthropic', 'tpl-x', '1', 0, { transport: 'anthropic' }, { section: 'anthropic' });
+        const plain = queue().items.find((i) => i.originalText === 'plain from anthropic')!;
+        assert.deepEqual([plain.run, plain.session, plain.anthropicProfileId], ['default', undefined, undefined], 'the default run, nothing pinned');
+        assert.notEqual(plain.template, 'tpl-x', 'the queue\'s default template, not the panel\'s pick');
         await provider()._setChatRun('copilot', 'chg2');
         await provider()._handleAddToQueue('queued from copilot', '', '1', 0, undefined, {});
-        assert.equal(queue().items.find((i) => i.originalText === 'queued from copilot')!.run, 'chg2', 'the Copilot subpanel\'s run');
+        assert.equal(queue().items.find((i) => i.originalText === 'queued from copilot')!.run, 'default', 'plain Save to Queue: the default run');
+        await provider()._handleAddToQueue('copilot with the panel', '', '1', 0, { usePanelTarget: true }, { section: 'copilot' });
+        assert.equal(queue().items.find((i) => i.originalText === 'copilot with the panel')!.run, 'chg2', 'with the panel\'s target: the Copilot subpanel\'s run');
+        // A run switch selects the run's default session (created when missing); the picker stays free.
+        await provider()._setChatRun('anthropic', 'chg2');
+        assert.equal(provider()._chatSessionKey(), 'default@chg2');
+        await provider()._setChatRun('anthropic', 'default');
+        assert.equal(provider()._chatSessionKey(), 'default@default');
+        await provider()._setChatRun('anthropic', 'chg1');
+        assert.equal(provider()._chatSessionKey(), 'default@chg1');
         for (const i of [...queue().items]) { queue().remove(i.id); }
     });
 
@@ -208,7 +222,7 @@ describe('the chat panels\' run pickers', () => {
                 options: [{ run: 'default', label: 'default (PROCESS view)' }, { run: 'chg2', label: 'chg2' }],
                 selected: { anthropic: 'default', copilot: 'chg2' },
             } }));
-            assert.deepEqual([...sel('copilot').options].map((o: Json) => o.textContent), ['Run: default (PROCESS view)', 'Run: chg2']);
+            assert.deepEqual([...sel('copilot').options].map((o: Json) => o.textContent), ['default (PROCESS view)', 'chg2'], 'no "Run:" prefix (vscimpb151)');
             assert.equal(sel('copilot').value, 'chg2');
             assert.equal(sel('anthropic').value, 'default');
             assert.equal(sel('copilot').classList.contains('run-other'), true, 'on another run than the PROCESS view\'s');

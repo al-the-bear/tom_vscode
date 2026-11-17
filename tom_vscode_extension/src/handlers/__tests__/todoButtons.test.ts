@@ -95,8 +95,8 @@ describe('todo detail: Send and Queue buttons', () => {
             const send = w.document.querySelector('.qt-todo-btn[data-qt-todo-btn="chat"]');
             const queue = w.document.querySelector('.qt-todo-btn[data-qt-todo-btn="queue"]');
             assert.ok(send && queue, `${todo.id}: both buttons, whatever the status`);
-            assert.match(send.textContent, /Send/);
-            assert.match(queue.textContent, /Queue/);
+            assert.match(send.title, /^Send this todo now/, 'icon buttons: the tooltips name them');
+            assert.match(queue.title, /^Add this todo to a prompt queue/);
             assert.match(send.title, new RegExp(`template for ${which} todos`));
             send.click();
             assert.deepEqual(posted.pop(), { type: 'qtTodoButton', target: 'chat', questId: 'vscode_extension', todoId: todo.id, ...('_sourceFile' in todo ? { sourceFile: todo._sourceFile } : {}) });

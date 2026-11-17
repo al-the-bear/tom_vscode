@@ -43,7 +43,7 @@ describe('SESSIONS view', () => {
     test('SV-1: the rows', () => {
         const rows = sessionRows(RECORDS);
         assert.deepEqual(rows.map((r) => [r.name, r.usedBy ?? '', r.hasFile]), [
-            ['default', 'the prompt queue', true], ['chat', 'the ANTHROPIC/LLM panel', false],
+            ['default@default', 'the prompt queue (the default run\'s default session)', true], ['chat', 'the ANTHROPIC/LLM panel', false],
             ['prep', '', true], ['solo', '', true], ['walk', '', true],
         ]);
         const by = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -64,7 +64,7 @@ describe('SESSIONS view', () => {
         ];
         const rows = sessionRows(records);
         assert.deepEqual(rows.map((r) => [r.name, !!r.temporary]), [
-            ['default', false], ['chat', false], ['prep', false], ['tmpl', false], ['tmp-261027-123456-a1b2c3d4', true],
+            ['default@default', false], ['chat', false], ['prep', false], ['tmpl', false], ['tmp-261027-123456-a1b2c3d4', true],
         ]);
         const dom = new JSDOM(source('media', 'sessionsView', 'index.html').replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' });
         const w = dom.window as Win;
@@ -89,7 +89,7 @@ describe('SESSIONS view', () => {
         assert.deepEqual(posted.shift(), { type: 'ready' });
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: 'q', rows: sessionRows(RECORDS) } }));
         const row = (name: string): Win => w.document.querySelector(`.session[data-name="${name}"]`);
-        assert.equal(row('default').querySelector('.tag').textContent, 'the prompt queue');
+        assert.equal(row('default@default').querySelector('.tag').textContent, 'the prompt queue (the default run\'s default session)');
         assert.match(row('walk').querySelector('.meta').textContent, /^based on prep — per iteration — opus · claude-opus-5-5 — no conversation yet — used /);
         const btn = (name: string, op: string): Win => row(name).querySelector(`button[data-op="${op}"]`);
         assert.equal(btn('prep', 'reset').disabled, false, 'a conversation to forget');
@@ -135,7 +135,7 @@ describe('SESSIONS view', () => {
         ];
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: 'q', rows: sessionRows(records) } }));
         const order = [...w.document.querySelectorAll('.run-group, .session')].map((e: Win) => e.classList.contains('run-group') ? `[${e.textContent.trim()}]` : e.dataset.name);
-        assert.deepEqual(order, ['default', 'chat', 'work', '[Run chg1]', 'review@chg1', 'work@chg1', '[Run chg2]', 'work@chg2']);
+        assert.deepEqual(order, ['default@default', 'chat', 'work', '[Run chg1]', 'review@chg1', 'work@chg1', '[Run chg2]', 'work@chg2']);
         const row = w.document.querySelector('.session[data-name="work@chg1"]');
         assert.equal(row.querySelector('.name').textContent, 'work');
         assert.equal(row.querySelector('.name').title, 'work@chg1');

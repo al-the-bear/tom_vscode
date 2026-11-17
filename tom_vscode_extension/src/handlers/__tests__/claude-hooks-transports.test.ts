@@ -162,7 +162,7 @@ describe('Claude Code hooks on the transports', () => {
         await runTool('tomAi_readFile', 'ask.txt');
         assert.deepEqual(asked, ['tomAi_readFile'], 'ask: even a reader asks');
         const pre = inputs().find((i) => i.hook_event_name === 'PreToolUse')!;
-        assert.deepEqual([pre.tool_name, pre.tool_input, pre.cwd, pre.session_id], ['tomAi_editFile', { filePath: 'deny.txt' }, ws, 'test_quest:default']);
+        assert.deepEqual([pre.tool_name, pre.tool_input, pre.cwd, pre.session_id], ['tomAi_editFile', { filePath: 'deny.txt' }, ws, 'test_quest:default@default']);
         const post = inputs().find((i) => i.hook_event_name === 'PostToolUse')!;
         assert.equal(post.tool_response, 'tomAi_editFile done');
     });

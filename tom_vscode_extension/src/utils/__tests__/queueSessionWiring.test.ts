@@ -59,7 +59,7 @@ describe('queue session wiring', () => {
         assert.ok(dispatch.indexOf("resolved.transport === 'copilot'") < ensure, 'only on the Anthropic transport');
         const make = body(queue, 'private ensureItemSession(');
         assert.match(make, /ensureSession\(this\.sessionsFolder\(\), spec, \(id\) => lookupProfile\(section, id\), item\.anthropicProfileId\)/);
-        assert.match(make, /sessionName === 'default' \|\| sessionName === 'chat'/, 'the shared sessions are never created here');
+        assert.match(make, /isRunDefaultSession\(sessionName\) \|\| sessionName === 'chat'/, 'chat and the runs\' default sessions (made with their run) are never created here');
     });
 
     test('QW-3: profile precedence', () => {

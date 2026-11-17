@@ -9,9 +9,17 @@
  *        (and the markdown buttons) or its error; no queue controls; the count line says a chat runs
  *   CB-4 the @CHAT Logs panel shows the six session actions behind the session switch; each posts
  *        qlogSessionAction with the selected session; the host runs runChatSessionAction
- *   CB-5 the host: Save to Queue pins nothing unless usePanelTarget; Queue next goes through
- *        enqueueNext, pending; queueAdded names the section and slot; the Logs actions go to the chat
- *        panel's runSessionAction
+ *   CB-5 the host: Save to Queue / Queue next pin nothing unless usePanelTarget, and then go to the default run
+ *        with the queue's default template; with the panel's target they take the panel's run, session, profile
+ *        and template; Queue next goes through enqueueNext, pending; queueAdded names the section and slot; the
+ *        Logs actions go to the chat panel's runSessionAction
+ *   CB-14 the action rows (vscimpb151): ANTHROPIC/LLM — Save to Queue and Queue next (the default run) before the
+ *        session button and the Run select, Send, Stop and the two panel-target queue buttons after them; the new
+ *        "Queue next with this panel's session and run" posts addToQueue with next and usePanelTarget; Copilot —
+ *        Save to Queue before its Run select, Send and Save to Queue in this panel's run after it; every action
+ *        button an icon button; the Run select narrow, its options without a "Run:" prefix
+ *   CB-15 the host's run switch (vscimpb151): switching the ANTHROPIC/LLM run selects that run's default session,
+ *        created when missing
  *   CB-6 Queue next (+ and the send-between icon) posts addToQueue with next, on Anthropic, nothing pinned
  *   CB-8 a chat send in the queue shown like a normal entry: the complete prompt (every line, nothing cut, as
  *        mainprompt-content), the header without a prompt excerpt; a long answer's first 600 characters with
@@ -64,12 +72,12 @@ type Win = any;
 const open: Win[] = [];
 afterEach(() => { while (open.length) { open.pop().close(); } });
 
-function chatPanel(): { w: Win; posted: Array<Record<string, unknown>> } {
+function chatPanel(expanded: string[] = ['anthropic']): { w: Win; posted: Array<Record<string, unknown>> } {
     const html = media('chatPanel', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
     const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
     open.push(w);
     const posted: Array<Record<string, unknown>> = [];
-    w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic'], pinned: [] }) });
+    w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded, pinned: [] }) });
     w.__INIT__ = {};
     w.eval(media('chatPanel', 'main.js'));
     return { w, posted };
@@ -89,7 +97,7 @@ describe('chat sends and the queue buttons', () => {
         w.document.querySelector('[data-action="addToQueue"][data-id="anthropic"]').click();
         const first = posted.filter((m) => m.type === 'addToQueue').pop() as Record<string, unknown>;
         assert.equal(first.transport, 'anthropic');
-        assert.equal(first.anthropicProfileId, undefined, 'the queue\'s own profile');
+        assert.equal(first.anthropicProfileId, undefined, 'the queue\'s own profile (and the default run, on the host)');
         assert.equal(first.usePanelTarget, undefined);
         w.document.getElementById('anthropic-text').value = 'Do it';
         w.document.querySelector('[data-action="addToQueuePanelTarget"][data-id="anthropic"]').click();
@@ -154,7 +162,12 @@ describe('chat sends and the queue buttons', () => {
 
     test('CB-5: the hosts', () => {
         const panel = src('handlers', 'chatPanel-handler.ts');
-        assert.match(panel, /transport === 'anthropic' && transportOpts\?\.usePanelTarget && !next\s*\?\s*\{ anthropicProfileId: transportOpts\.anthropicProfileId, anthropicConfigId: transportOpts\.anthropicConfigId, session: this\._chatSessionKey\(\) \}/);
+        assert.match(panel, /transport === 'anthropic' && panelTarget\s*\?\s*\{ anthropicProfileId: transportOpts\?\.anthropicProfileId, anthropicConfigId: transportOpts\?\.anthropicConfigId, session: this\._chatSessionKey\(\) \}/,
+            'the panel\'s profile and session with its target, Queue next too');
+        assert.match(panel, /const run = panelTarget \? this\._chatRun\(section\) : DEFAULT_RUN;/, 'the default run unless the panel\'s target');
+        assert.match(panel, /const queueTemplate = queue\.runQueueSettings\(DEFAULT_RUN\)\.defaultMessageTemplateId \|\| undefined;/);
+        assert.match(panel, /template: panelTarget \? \(template \|\| undefined\) : queueTemplate,/, 'the queue\'s default template unless the panel\'s target');
+        assert.match(panel, /run,\s*\/\/ The default run named outright[^\n]*\n\s*runIsExplicit: true,/);
         // Queue next goes through enqueueNext, pending (not deferred); the origin is echoed in queueAdded.
         assert.match(panel, /await \(next \? queue\.enqueueNext\.bind\(queue\) : queue\.enqueue\.bind\(queue\)\)\(\{/);
         assert.match(panel, /deferSend: !next,/);
@@ -502,5 +515,50 @@ describe('chat sends and the queue buttons', () => {
         assert.match(panel, /message\.fresh === true/);
         assert.match(src('services', 'assistLiveDeps.ts'), /deleteSession: \(folder, name\) => \{ discardSessionCompletely\(/, 'the assists discard theirs completely too');
     });
-});
 
+    test('CB-14: the action rows', () => {
+        const { w, posted } = chatPanel(['anthropic', 'copilot']);
+        const actions = (section: string): string[] => [...w.document.querySelectorAll(`[data-section="${section}"] .toolbar [data-action], #${section}-run`)]
+            .filter((el: Win) => el.closest('[data-action]') === el || el.id === `${section}-run`)
+            .map((el: Win) => (el.id === `${section}-run` ? 'RUN' : el.getAttribute('data-action')));
+        const a = actions('anthropic');
+        const at = (x: string): number => a.indexOf(x);
+        for (const x of ['addToQueue', 'addToQueueNext', 'pickAnthropicSession', 'RUN', 'send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) {
+            assert.ok(at(x) >= 0, `${x} in ${a.join(', ')}`);
+        }
+        assert.ok(at('addToQueue') < at('pickAnthropicSession') && at('addToQueueNext') < at('pickAnthropicSession'), 'the default-run buttons first');
+        assert.ok(at('pickAnthropicSession') < at('RUN'));
+        for (const x of ['send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) { assert.ok(at(x) > at('RUN'), `${x} after the run`); }
+        const c = actions('copilot');
+        assert.ok(c.indexOf('addToQueue') < c.indexOf('RUN') && c.indexOf('RUN') < c.indexOf('send') && c.indexOf('send') < c.indexOf('addToQueuePanelTarget'), c.join(', '));
+        // Every action button an icon button.
+        for (const section of ['anthropic', 'copilot']) {
+            const plain = [...w.document.querySelectorAll(`[data-section="${section}"] .toolbar button[data-action]`)].filter((b: Win) => !b.classList.contains('icon-btn') && !b.closest('.modal-popup') && b.getAttribute('data-action') !== 'switchSlot');
+            assert.deepEqual(plain.map((b: Win) => b.getAttribute('data-action')), [], section);
+        }
+        // The new button: next with the panel's target.
+        w.document.getElementById('anthropic-profile').innerHTML = '<option value="opus-direct" selected>Opus</option>';
+        w.document.getElementById('anthropic-text').value = 'Mine';
+        w.document.querySelector('[data-action="addToQueueNextPanelTarget"][data-id="anthropic"]').click();
+        const m = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
+        assert.deepEqual([m.next, m.usePanelTarget, m.anthropicProfileId, m.transport, m.section], [true, true, 'opus-direct', 'anthropic', 'anthropic']);
+        // Copilot's Save to Queue in this panel's run.
+        pauseOver(w);
+        w.document.getElementById('copilot-text').value = 'Copilot here';
+        w.document.querySelector('[data-action="addToQueuePanelTarget"][data-id="copilot"]').click();
+        const cm = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
+        assert.deepEqual([cm.usePanelTarget, cm.section, cm.transport], [true, 'copilot', undefined]);
+        // The Run select: narrow, no "Run:" prefix in its options, the full name in its tooltip.
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { anthropic: 'collab' }, windowRun: 'default' } }));
+        const sel = w.document.getElementById('anthropic-run');
+        assert.deepEqual([...sel.options].map((o: Win) => o.textContent), ['default', 'collab — the subject']);
+        assert.match(sel.title, /^Run: collab — the subject/);
+        assert.match(media('chatPanel', 'style.css'), /\.run-select \{ max-width: 4\.5em;/, 'half its width');
+    });
+
+    test('CB-15: the run switch selects the run\'s default session', () => {
+        const panel = src('handlers', 'chatPanel-handler.ts');
+        assert.match(panel, /case 'setChatRun':[\s\S]{0,300}this\._setChatRun\(section, message\.run\)/);
+        assert.match(panel, /if \(section === 'anthropic'\) \{\s*try \{ ensureRunDefaultSession\(sessionsFolder\(quest\), name\); \} catch[^\n]*\n\s*await setChatSessionFor\(this\._context\.workspaceState, quest, runDefaultSession\(name\)\);/);
+    });
+});

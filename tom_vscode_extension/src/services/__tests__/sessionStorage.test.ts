@@ -7,9 +7,12 @@
  *        session never overwrite a stored result
  *   SS-3 removing a session removes its whole storage and its memory, nothing of another session
  *   SS-4 the migration of a quest in the per-quest layout: history files, the Anthropic pair, the live trail, the
- *        raw trail and the quest memory become the `default` session's; Local LLM and other subsystems' files stay;
+ *        raw trail and the quest memory become the `default@default` session's; Local LLM and other subsystems' files stay;
  *        the current-prompt and last-request files stay where the Logs tab reads them; a second run does nothing;
  *        a file whose target exists stays (named)
+ *   SS-6 the bare `default` session becomes `default@default` (vscimpb151): its session file, storage root and
+ *        quest memory move (into what is there entry by entry, an existing file kept and named), the sessions
+ *        based on it are rebased, the path helpers read `default` as `default@default`; a second run does nothing
  *   SS-5 the .gitignore rules: per session the compacted history, its snapshot and the live trail are tracked,
  *        the rest is ignored (checked with git itself)
  */
@@ -23,6 +26,7 @@ import * as path from 'node:path';
 
 import {
     SESSION_STORAGE_GITIGNORE_RULES,
+    migrateDefaultSessionName,
     migrateQuestToSessionStorage,
     nextFreeToolResultIndex,
     removeSessionStorage,
@@ -175,7 +179,7 @@ describe('per-session storage', () => {
         for (const [rel, text] of Object.entries(moved)) {
             assert.equal(fs.readFileSync(path.join(def, rel), 'utf8'), text, rel);
         }
-        assert.equal(fs.readFileSync(path.join(memoryRoot, 'q', 'default', 'facts.md'), 'utf8'), 'facts');
+        assert.equal(fs.readFileSync(path.join(memoryRoot, 'q', 'default@default', 'facts.md'), 'utf8'), 'facts', 'the default run\'s default session (vscimpb151)');
         for (const f of Object.keys(legacy)) { assert.equal(fs.existsSync(f), false, `moved away: ${f}`); }
         for (const [f, t] of Object.entries(staying)) { assert.equal(fs.readFileSync(f, 'utf8'), t, `stays: ${f}`); }
         assert.equal(report.moved.length, Object.keys(legacy).length, 'one move each (the raw trail\'s folders move as folders)');
@@ -195,6 +199,43 @@ describe('per-session storage', () => {
         const empty = path.join(ai, 'quests', 'e');
         const none = migrateQuestToSessionStorage({ quest: 'e', questFolder: empty, historyRoot: path.join(empty, 'history'), memoryRoot, rawTrailFolder: path.join(ai, 'trail', 'anthropic', 'e') });
         assert.deepEqual([none.migrated, none.moved], [true, []]);
+    });
+
+    test('SS-6: the bare default session becomes default@default', () => {
+        const ai = tmp();
+        const historyRoot = path.join(ai, 'quests', 'q', 'history');
+        const memoryRoot = path.join(ai, 'memory');
+        put(path.join(historyRoot, 'default.session.json'), JSON.stringify({ sessionId: 'abc', model: 'm' }));
+        put(path.join(historyRoot, 'work.session.json'), JSON.stringify({ mode: 'continue', basedOn: 'default' }));
+        put(path.join(historyRoot, 'other.session.json'), JSON.stringify({ mode: 'continue', basedOn: 'work' }));
+        put(path.join(historyRoot, 'sessions', 'default', 'live-trail.md'), 'old live');
+        put(path.join(historyRoot, 'sessions', 'default', 'trail', 'tool_results', 't1.json'), 'tool');
+        put(path.join(historyRoot, 'sessions', 'default', 'history.md'), 'old history');
+        // Something of the new name already there (another machine, an earlier start): kept.
+        put(path.join(historyRoot, 'sessions', 'default@default', 'history.md'), 'new history');
+        put(path.join(memoryRoot, 'q', 'default', 'facts.md'), 'facts');
+
+        const report = migrateDefaultSessionName({ quest: 'q', historyRoot, memoryRoot });
+        assert.equal(report.migrated, true);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(historyRoot, 'default@default.session.json'), 'utf8')).sessionId, 'abc');
+        assert.equal(fs.existsSync(path.join(historyRoot, 'default.session.json')), false);
+        const root = path.join(historyRoot, 'sessions', 'default@default');
+        assert.equal(fs.readFileSync(path.join(root, 'live-trail.md'), 'utf8'), 'old live');
+        assert.equal(fs.readFileSync(path.join(root, 'trail', 'tool_results', 't1.json'), 'utf8'), 'tool');
+        assert.equal(fs.readFileSync(path.join(root, 'history.md'), 'utf8'), 'new history', 'an existing file is kept');
+        assert.deepEqual(report.kept, [path.join(historyRoot, 'sessions', 'default', 'history.md')], 'and named');
+        assert.equal(fs.readFileSync(path.join(historyRoot, 'sessions', 'default', 'history.md'), 'utf8'), 'old history', 'the kept file stays where it was');
+        assert.equal(fs.readFileSync(path.join(memoryRoot, 'q', 'default@default', 'facts.md'), 'utf8'), 'facts');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(historyRoot, 'work.session.json'), 'utf8')).basedOn, 'default@default', 'rebased');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(historyRoot, 'other.session.json'), 'utf8')).basedOn, 'work', 'another base kept');
+        // The path helpers read a bare default as default@default.
+        assert.equal(sessionRoot(historyRoot, 'default'), root);
+        assert.equal(sessionMemoryFolder(memoryRoot, 'q', 'default'), path.join(memoryRoot, 'q', 'default@default'));
+        // Again: only the kept file is still there; nothing moves.
+        fs.rmSync(path.join(historyRoot, 'sessions', 'default'), { recursive: true, force: true });
+        const again = migrateDefaultSessionName({ quest: 'q', historyRoot, memoryRoot });
+        assert.deepEqual([again.migrated, again.moved, again.kept, again.rebased], [false, [], [], []]);
+        fs.rmSync(ai, { recursive: true, force: true });
     });
 
     test('SS-5: what git tracks', () => {

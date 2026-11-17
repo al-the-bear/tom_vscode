@@ -2,7 +2,8 @@
  * Where a session's conversation artefacts live — one folder per session.
  *
  * Every named session of a quest, `chat` (the ANTHROPIC panel's) and
- * `default` (the prompt queue's) included, has its own storage root:
+ * `default@default` (the default run's default session, the prompt queue's)
+ * included, has its own storage root:
  *
  *     _ai/quests/<quest>/history/sessions/<name>/
  *         compacted_history.md, history.json, history.md   the compacted history and its snapshot (tracked)
@@ -20,8 +21,11 @@
  * `<name>.session.json` stays beside the `sessions/` folder.
  *
  * {@link migrateQuestToSessionStorage} moves a quest's files from the layout
- * before (one set per quest, chat and queue together) into the `default`
- * session, once per quest.
+ * before (one set per quest, chat and queue together) into the
+ * `default@default` session, once per quest; {@link migrateDefaultSessionName}
+ * moves what an older build kept under the bare name `default` there
+ * (vscimpb151). The path functions read a bare `default` as `default@default`,
+ * so a name an older entry still carries reaches the same files.
  *
  * vscode-free.
  */
@@ -29,19 +33,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION, canonicalSessionName } from '../utils/runSessions';
+
 export const SESSIONS_FOLDER = 'sessions';
 export const SESSION_TRAIL_FOLDER = 'trail';
 export const SESSION_LIVE_TRAIL_FILE = 'live-trail.md';
 export const TOOL_RESULTS_FOLDER = 'tool_results';
-/** The session the files of the per-quest layout became (decision: the queue's). */
-export const MIGRATION_TARGET_SESSION = 'default';
+/** The session the files of the per-quest layout became (decision: the queue's): the default run's default session. */
+export const MIGRATION_TARGET_SESSION = DEFAULT_RUN_SESSION;
 /** Written into `history/sessions/` once a quest's files were migrated. */
 export const MIGRATION_MARKER_FILE = '.storage-version';
 export const STORAGE_VERSION = '2';
 
 /** The storage root of session `name`; `historyRoot` is the quest's `history/` folder. */
 export function sessionRoot(historyRoot: string, name: string): string {
-    return path.join(historyRoot, SESSIONS_FOLDER, name);
+    return path.join(historyRoot, SESSIONS_FOLDER, canonicalSessionName(name));
 }
 
 /** The raw per-call trail of session `name`, or of one of its categories. */
@@ -67,7 +73,7 @@ export function sessionLiveTrailFile(historyRoot: string, name: string): string 
 
 /** The quest memory of session `name`; `memoryRoot` is `_ai/memory`. */
 export function sessionMemoryFolder(memoryRoot: string, quest: string, name: string): string {
-    return path.join(memoryRoot, quest, name);
+    return path.join(memoryRoot, quest, canonicalSessionName(name));
 }
 
 /** The sessions that have a storage root (a folder under `history/sessions/`). */
@@ -241,6 +247,70 @@ export function migrateQuestToSessionStorage(layout: LegacyQuestLayout): Migrati
     fs.mkdirSync(sessions, { recursive: true });
     fs.writeFileSync(marker, `${STORAGE_VERSION}\n`);
     report.migrated = true;
+    return report;
+}
+
+// ---------------------------------------------------------------------------
+// The bare `default` session becomes `default@default` (vscimpb151)
+// ---------------------------------------------------------------------------
+
+/** What {@link migrateDefaultSessionName} did. */
+export interface DefaultSessionMigrationReport {
+    /** False when nothing of the old name was there. */
+    migrated: boolean;
+    moved: string[];
+    /** Files left where they were because the target already exists. */
+    kept: string[];
+    /** Session files whose `basedOn: "default"` now names `default@default`. */
+    rebased: string[];
+}
+
+/** Move `from` (a file or a folder) to `to`; into an existing folder entry by entry, keeping what is there. */
+function moveMerging(from: string, to: string, report: DefaultSessionMigrationReport): void {
+    let st: fs.Stats;
+    try { st = fs.statSync(from); } catch { return; }
+    if (!fs.existsSync(to)) {
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.renameSync(from, to);
+        report.moved.push(`${from} -> ${to}`);
+        return;
+    }
+    if (!st.isDirectory() || !fs.statSync(to).isDirectory()) { report.kept.push(from); return; }
+    for (const e of fs.readdirSync(from)) { moveMerging(path.join(from, e), path.join(to, e), report); }
+    try { if (fs.readdirSync(from).length === 0) { fs.rmdirSync(from); } } catch { /* kept entries stay */ }
+}
+
+/**
+ * The bare `default` session of an older build becomes `default@default`, the
+ * default run's default session (vscimpb151, decision (a)): its session file
+ * (`history/default.session.json`), its storage root (`history/sessions/default/`)
+ * and its quest memory (`_ai/memory/<quest>/default/`) move to the new name —
+ * into what is already there entry by entry, an existing file kept (named in
+ * `kept`) — and every other session file of the quest based on `default` is
+ * based on `default@default`. Safe to run at every start: with nothing under
+ * the old name it does nothing.
+ */
+export function migrateDefaultSessionName(layout: { quest: string; historyRoot: string; memoryRoot: string }): DefaultSessionMigrationReport {
+    const report: DefaultSessionMigrationReport = { migrated: false, moved: [], kept: [], rebased: [] };
+    const oldName = LEGACY_DEFAULT_SESSION;
+    const newName = DEFAULT_RUN_SESSION;
+    moveMerging(path.join(layout.historyRoot, `${oldName}.session.json`), path.join(layout.historyRoot, `${newName}.session.json`), report);
+    moveMerging(path.join(layout.historyRoot, SESSIONS_FOLDER, oldName), path.join(layout.historyRoot, SESSIONS_FOLDER, newName), report);
+    moveMerging(path.join(layout.memoryRoot, layout.quest, oldName), path.join(layout.memoryRoot, layout.quest, newName), report);
+    let files: string[] = [];
+    try { files = fs.readdirSync(layout.historyRoot).filter((f) => f.endsWith('.session.json')); } catch { /* no history yet */ }
+    for (const f of files) {
+        const file = path.join(layout.historyRoot, f);
+        try {
+            const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+            if (raw && raw.basedOn === oldName) {
+                raw.basedOn = newName;
+                fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
+                report.rebased.push(file);
+            }
+        } catch { /* not a session file we can read: left as it is */ }
+    }
+    report.migrated = report.moved.length > 0 || report.rebased.length > 0;
     return report;
 }
 

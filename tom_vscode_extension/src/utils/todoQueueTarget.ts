@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_RUN } from './processRuns';
-import { runSessionName, sessionRun } from './runSessions';
+import { canonicalSessionName, runDefaultSession, runSessionName, sessionRun } from './runSessions';
 
 export type TodoQueuePosition = 'next' | 'end';
 
@@ -117,23 +117,27 @@ export function runPickItems(runs: readonly TodoRunChoice[], preselect?: string)
 
 /**
  * The sessions of run `run` among a quest's session names: the ones of that run (`default` run: names without a
- * run), as they are named in the run, `chat` among them when `withChat`; never `default` (the queue default has its
- * own entry), each once.
+ * run), as they are named in the run, `chat` among them when `withChat`; never the run's default session
+ * (`default@<run>`: it has its own entry), each once.
  */
 export function runSessionCandidates(sessionNames: readonly string[], run: string, withChat: boolean): string[] {
-    const own = sessionNames.filter((n) => sessionRun(n) === (run || DEFAULT_RUN) && n !== 'default');
+    const own = sessionNames.map((n) => canonicalSessionName(n)).filter((n) => sessionRun(n) === (run || DEFAULT_RUN) && n !== runDefaultSession(run));
     const all = withChat ? [runSessionName('chat', run), ...own] : own;
     return [...new Set(all)];
 }
 
-/** The session pick: the free sessions, the run's queue default, a new session; the last choice preselected. */
+/**
+ * The session pick: the free sessions, the run's default session (the queue default of the run), a new session;
+ * the last choice in this run preselected, else the run's default session — picking a run selects its default
+ * session (vscimpb151).
+ */
 export function sessionPickItems(free: readonly string[], run: string, preselect?: { session?: string; newSession?: boolean }): Array<TodoPickItem<{ session?: string } | { newSession: true }>> {
     const items: Array<TodoPickItem<{ session?: string } | { newSession: true }>> = free.map((s) => ({ label: s, description: 'free', value: { session: s } }));
-    items.push({ label: '$(list-ordered) Queue default', description: `the queue's default session of run ${run}`, value: {} });
+    items.push({ label: `$(list-ordered) ${runDefaultSession(run)}`, description: `the default session of run ${run}`, value: { session: runDefaultSession(run) } });
     items.push({ label: '$(add) New session…', description: 'a name; made when the item is sent', value: { newSession: true } });
     const idx = preselect?.newSession ? items.length - 1
         : preselect?.session ? items.findIndex((i) => 'session' in i.value && i.value.session === preselect.session)
-            : preselect ? items.length - 2 : 0;
+            : items.length - 2;
     const at = idx >= 0 ? idx : 0;
     return items.map((i, k) => (k === at ? { ...i, active: true } : i));
 }
@@ -171,7 +175,7 @@ export function busySessionsOfEntries(entries: ReadonlyArray<{ status?: string; 
     for (const e of entries) {
         if (e.status !== 'sending' && e.status !== 'chat') { continue; }
         const run = e.run || DEFAULT_RUN;
-        busy.add(e.session || (run === DEFAULT_RUN ? 'default' : `default@${run}`));
+        busy.add(canonicalSessionName(e.session) || runDefaultSession(run));
     }
     return busy;
 }

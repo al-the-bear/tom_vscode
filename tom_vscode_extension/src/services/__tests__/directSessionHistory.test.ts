@@ -44,7 +44,7 @@ const records = (list: SessionRecord[]): ((n: string) => SessionRecord | undefin
 
 describe('direct-transport session history', () => {
     test('DH-1: the plan', () => {
-        assert.deepEqual([...BUILT_IN_SESSIONS], ['chat', 'default']);
+        assert.deepEqual([...BUILT_IN_SESSIONS], ['chat', 'default@default', 'default'], 'the default run\'s default session, also under an older build\'s name');
         const read = records([
             { name: 'prep', mode: 'continue' },
             { name: 'work', mode: 'continue', basedOn: 'prep' },
@@ -73,7 +73,7 @@ describe('direct-transport session history', () => {
 
     test('DH-2: the folders', () => {
         const root = path.join('q', 'history');
-        assert.equal(sessionHistoryFolder(root, 'default'), path.join(root, 'sessions', 'default'));
+        assert.equal(sessionHistoryFolder(root, 'default'), path.join(root, 'sessions', 'default@default'), 'a bare default is default@default (vscimpb151)');
         assert.equal(sessionHistoryFolder(root, 'chat'), path.join(root, 'sessions', 'chat'));
         assert.notEqual(sessionHistoryFolder(root, 'chat'), sessionHistoryFolder(root, 'default'), 'the panel and the queue are split');
         assert.equal(sessionHistoryFolder(root, 'p2s3r1'), path.join(root, 'sessions', 'p2s3r1'));
@@ -92,7 +92,7 @@ describe('direct-transport session history', () => {
         const prepFolder = path.join(root, 'sessions', 'prep');
         write(prepFolder, 'compacted_history.md', 'prep blocks');
         write(prepFolder, 'rawTurns.json', '{"rounds":[["prep"]]}');
-        const defaultFolder = path.join(root, 'sessions', 'default');
+        const defaultFolder = path.join(root, 'sessions', 'default@default');
         write(defaultFolder, 'rawTurns.json', '{"rounds":[["queue"]]}');
 
         const queue = resolveHistoryScope('q1', root, 'default');

@@ -86,7 +86,6 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, vi
 
 import {
     MIGRATION_MARKER_FILE,
-    MIGRATION_TARGET_SESSION,
     SESSIONS_FOLDER,
     SESSION_LIVE_TRAIL_FILE,
     SESSION_TRAIL_FOLDER,
@@ -94,10 +93,9 @@ import {
     TOOL_RESULTS_FOLDER,
     isLegacyHistoryFile,
     nextFreeToolResultIndex,
-    sessionMemoryFolder,
-    sessionRoot,
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
+import { LEGACY_DEFAULT_SESSION } from './runSessions';
 import { renameExplainTemplate } from './explainTodoTemplate';
 import { dropCopilotTemplates } from './copilotTemplates';
 import { convertTemplateText } from './templateExpression';
@@ -266,7 +264,9 @@ class Run {
         const ai = this.opts.aiRoot;
         const questFolder = path.join(ai, 'quests', quest);
         const historyRoot = path.join(questFolder, 'history');
-        const target = sessionRoot(historyRoot, MIGRATION_TARGET_SESSION);
+        // The format this step migrates to kept the queue's session under the bare name `default`; a window's start
+        // moves it on to `default@default` (sessionStorage.migrateDefaultSessionName, vscimpb151).
+        const target = path.join(historyRoot, SESSIONS_FOLDER, LEGACY_DEFAULT_SESSION);
         let touched = false;
 
         for (const e of list(historyRoot)) {
@@ -302,7 +302,7 @@ class Run {
         const flatMemory = path.join(ai, 'memory', quest);
         for (const e of list(flatMemory)) {
             if (e.isFile() && e.name.endsWith('.md')) {
-                const to = path.join(sessionMemoryFolder(path.join(ai, 'memory'), quest, MIGRATION_TARGET_SESSION), e.name);
+                const to = path.join(ai, 'memory', quest, LEGACY_DEFAULT_SESSION, e.name);
                 touched = this.place(quest, path.join(flatMemory, e.name), to) || touched;
             }
         }

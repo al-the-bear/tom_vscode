@@ -107,7 +107,7 @@ describe('session live trails', () => {
         try {
             const history = TwoTierMemoryService.instance.historyFolder(quest);
             const file = (s: string): string => path.join(history, 'sessions', s, 'live-trail.md');
-            for (const s of ['default', 'chat', 'review']) {
+            for (const s of ['default@default', 'chat', 'review']) {
                 const w = new LiveTrailWriter(quest, undefined, s);
                 w.setExtraBlockAllowance(10);
                 prompts(w, 9);
@@ -120,10 +120,10 @@ describe('session live trails', () => {
             const sent: string[] = [];
             await QuestRefreshService.instance.runRefresh('anthropic', async (t) => { sent.push(t); }, quest);
             assert.equal(sent.length, 1);
-            const order = ['default', 'review', 'chat'].map((s) => sent[0].indexOf(`\`${s}\``));
+            const order = ['default@default', 'review', 'chat'].map((s) => sent[0].indexOf(`\`${s}\``));
             assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], sent[0]);
             assert.doesNotMatch(sent[0], /\$\{refreshSessions\}/);
-            for (const s of ['default', 'chat', 'review']) { assert.ok(blocks(file(s)) <= 5, `${s} trimmed to base`); }
+            for (const s of ['default@default', 'chat', 'review']) { assert.ok(blocks(file(s)) <= 5, `${s} trimmed to base`); }
             const last = QuestRefreshStore.instance.lastRefreshAt('anthropic', quest);
             assert.ok(last && Date.now() - last.getTime() < 10_000, 'the refresh time is recorded');
             assert.equal(QuestRefreshStore.instance.getPanelState('anthropic', quest).count, 0);

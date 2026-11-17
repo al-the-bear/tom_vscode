@@ -770,7 +770,7 @@ describe('every tool over MCP, in a sandbox', () => {
 
     test('MA-4: the right answers', () => {
         assert.match(answerOf('tomAi_readFile'), /# Demo workspace/);
-        assert.match(answerOf('tomAi_getQuestWindowStatus'), /"quest": "other"[\s\S]*"name": "default"/, 'the quest asked for, with its implicit sessions');
+        assert.match(answerOf('tomAi_getQuestWindowStatus'), /"quest": "other"[\s\S]*"name": "default@default"/, 'the quest asked for, with its implicit sessions');
         assert.match(answerOf('tomAi_findTextInFiles'), /notes\/plain\.md:3:alpha/);
         assert.match(answerOf('tomAi_gitRead'), /fixture/);
         assert.match(answerOf('tomAi_runCommand'), /sandbox/);

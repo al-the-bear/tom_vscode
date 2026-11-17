@@ -68,7 +68,7 @@
 ## Quest TODO Panel — top bar
 
 - Quest scope button (one quest / the open windows' quests / all quests with checkboxes; kept per view), file toggles (live, archived, deleted — archived and deleted read-only with ↩️ Restore), order with several quests (groups of all quests / by quest then groups / by quest then list), quest prefix toggle (on by default with several quests)
-- Right end: **Done notification** toggle (bell, pressed = on, kept per quest), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue, Send
+- Right end: **Done notification** toggle (bell, pressed = on, kept per quest; off by default, disabled while no Todo — Done Notification template is set; on: the panel's items record the run and session they are queued into, where a todo's After done notify is delivered), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue in the default run (`default@default`, the end, no questions), Save to Queue (asks quest, run, session, next / end), Send
 
 ## Quest TODO Panel — where a todo goes
 
@@ -135,6 +135,11 @@
   workspace template the VSIX carries into a folder (also a button on the
   placeholder panels of a folder without `.tom/` and at the top of the Status
   Page)
+- `tomAi.migrateAiFormats` — @T: Migrate _ai Formats: the page Upgrade the
+  workspace (the `_ai` format migration: a dry run, the warning, Migrate now);
+  opens by itself, and is the button **Upgrade the workspace…** of every
+  panel, while the workspace's `_ai` files are older than the build (Tom AI
+  does not start until then)
 - `tomAi.showDartBinariesHelp` — the Missing Dart Binaries page (DartScript / CodeSpecs validation on this platform; also the status-bar item *Dart binaries missing* and the Status Page's **Dart binaries** section)
 - `tomAi.showPendingQuestion` — @T: Show Pending Question: the user-input panel (questions, approvals, plans, pickers, MD Browser asks; one tab per process run), also after it was closed; also the status-bar item *Waiting for you*
 - `tomAi.showUserInteraction` — what a queue item waits for (`{itemId}`): the user-input panel on its run's tab, or its MD Browser; run by the item's waiting badge and **Open question** button
@@ -154,6 +159,20 @@
   quest's files and the `questsetup1` todo that defines the quest with you.
 - **No quest is open** banner: in @CHAT, @WS and the @TOM quest views while
   the window's quest is `default`, with both buttons.
+- **Upgrade the workspace** (`tomAi.migrateAiFormats`): while the `_ai` files
+  are in an older format than the build (or a newer one), Tom AI does not
+  start; the panels show the versions, the page migrates and asks for a
+  reload.
+- **Reload required**: after another window migrated the `_ai` files, every
+  panel of this window shows only that it needs a reload (Reload window, Show
+  running prompts); new chat sends are refused, running ones finish.
+- **`_ai` merge drivers**: the extension carries its own drivers for the `_ai`
+  files (live trails, session histories, compacted histories, YAML); the
+  migration merges with them, and git can use them once registered for the
+  `_ai` repository (offered on an upgrade).
+- **AI workspaces** (`tomAi.editor.aiWorkspaceQuests`, @T: Open AI Workspace
+  Quests): `_ai/workspaces/<workspace>.yaml` lists the workspace's quests; the
+  quest choosers and `tomAi_listQuests` offer them first.
 - **The quest overview** opens in the MD Browser the first time a quest's
   window opens on a machine (globalState `tomAi.questOverview.shown`).
 
@@ -178,6 +197,7 @@
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
 | Role Editor / Role Type Editor | `tomAi.rolesEditor` | `tomAi.editor.roles` / `tomAi.editor.roleTypes` |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
+| AI Workspace Quests | `tomAi.aiWorkspaceQuests` | `tomAi.editor.aiWorkspaceQuests` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |
 | Group Prompt Editor | `tomAi.groupPromptEditor` | `tomAi.editor.groupPrompts`, or the last entry of a todo group's Queue Group Prompt picker (🔁) |
 | Process Action Page | `tomAi.processAction` | The Proceed (▶) button of the PROCESS view's action bar (at a user action Proceed asks for a confirmation instead) |
@@ -189,8 +209,8 @@
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; Send (the picked session), Save to Queue (the queue's profile and session), Save to Queue with the panel's profile and session, Queue next (sent next — between a running loop's iterations — with the queue's profile and session), Keep per prompt slot (keep or clear the text after Send / queue), Fresh (Send in a one-prompt session based on the panel's session, deleted once answered) and the queue mode (Save to Queue adds pending, the default, or staged); Keep, Fresh and the queue mode are icon toggle buttons. Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
-| Copilot | `codicon-copilot` | Copilot integration with R/W action bar; Wrap, Keep and the queue mode (pending / staged) as icon toggle buttons |
+| ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; the action row: Save to Queue and Queue next (sent next — between a running loop's iterations) into the default run with the queue's profile, session `default@default` and default template; then the session button and the narrow Run select (switching the run selects its default session `default@<run>`, created when missing); then Send (the picked session), Save to Queue with the panel's session, run, profile and template, and Queue next with the panel's session and run; Keep per prompt slot (keep or clear the text after Send / queue), Fresh (Send in a one-prompt session based on the panel's session, deleted once answered) and the queue mode (Save to Queue adds pending, the default, or staged); Keep, Fresh and the queue mode are icon toggle buttons. Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
+| Copilot | `codicon-copilot` | Copilot integration with R/W action bar; Wrap, Keep and the queue mode (pending / staged) as icon toggle buttons; Save to Queue (the default run, the queue's default template), then the narrow Run select, then Send and Save to Queue in this panel's run |
 | Logs | `codicon-output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 
 The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.

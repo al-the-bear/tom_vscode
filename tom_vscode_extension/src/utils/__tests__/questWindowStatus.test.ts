@@ -129,8 +129,9 @@ describe('quest window status', () => {
         assert.deepEqual(q.windows, ['aaaa1111_mach0001']);
         assert.equal(q.queueDefaultSession, 'default');
         const by = Object.fromEntries(q.sessions.map((s) => [s.name, s]));
-        assert.deepEqual(q.sessions.map((s) => s.name), ['default', 'chat', 'prep', 'walk', 'tmp-261027-120000-ab12'], 'implicit first, temporary last, as the SESSIONS view');
-        assert.deepEqual([by.default.implicit, by.default.usedBy, by.default.hasConversation], [true, 'the prompt queue', true]);
+        assert.deepEqual(q.sessions.map((s) => s.name), ['default@default', 'chat', 'prep', 'walk', 'tmp-261027-120000-ab12'], 'implicit first, temporary last, as the SESSIONS view');
+        const queueSession = by['default@default'];
+        assert.deepEqual([queueSession.implicit, queueSession.usedBy, queueSession.hasConversation], [true, 'the prompt queue (the default run\'s default session)', true], 'an older build\'s `default` file read as default@default');
         assert.deepEqual([by.chat.implicit, by.chat.hasConversation], [true, false], 'chat without a file');
         assert.deepEqual(by.prep, {
             name: 'prep', lifetime: 'continue',
@@ -150,7 +151,7 @@ describe('quest window status', () => {
             ['opus-direct', false, false], ['opus-sdk', true, false], ['haiku-direct', false, true],
         ]);
         assert.deepEqual(s.windows, [], 'no window of cli_tools');
-        assert.deepEqual(s.quests.map((q) => [q.quest, q.windows, q.sessions.map((x) => x.name)]), [['cli_tools', [], ['default', 'chat']]]);
+        assert.deepEqual(s.quests.map((q) => [q.quest, q.windows, q.sessions.map((x) => x.name)]), [['cli_tools', [], ['default@default', 'chat']]]);
         assert.equal(s.quests[0].sessions[0].effectiveProfile?.id, 'opus-sdk', 'without a live queue: the configured default profile');
     });
 });

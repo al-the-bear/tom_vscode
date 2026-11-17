@@ -134,6 +134,7 @@ import { initializeToolDescriptions } from './tools/guideline-tools';
 // Chat Enhancement stores & managers
 import { ChatVariablesStore } from './managers/chatVariablesStore';
 import { ProcessStateStore } from './managers/processStateStore';
+import { ensureRunDefaultSession } from './services/agentSdkSessionStore';
 import { registerProcessView } from './handlers/processPanel-handler';
 import { installProcessMoveMarkers, onSuggestionsDue } from './services/processActionService';
 import { openProcessBranchingEditor } from './handlers/processBranching-handler';
@@ -867,6 +868,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // Memory service + panel (Phase 3 of anthropic_sdk_integration)
     stepStart = performance.now();
     TwoTierMemoryService.init(context);
+    // The window's quest moves to per-session storage, and the bare `default` session of an older build becomes
+    // `default@default` (vscimpb151): at window start, before anything sends in it.
+    try { TwoTierMemoryService.instance.ensureSessionStorage(WsPaths.getWorkspaceQuestId() || undefined); } catch { /* reported in the storage log */ }
+    // A new run gets its default session, default@<run> based on default@default, when it is created (vscimpb151).
+    ProcessStateStore.runCreatedHook = (quest, run) => {
+        ensureRunDefaultSession(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), run);
+    };
     registerMemoryPanelCommand(context);
     timeStep('memoryServiceAndPanel', stepStart);
 

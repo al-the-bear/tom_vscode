@@ -40,6 +40,8 @@ import type { RunActivityEntry } from '../utils/runActivity';
 import type { InboxItem } from '../utils/questInbox';
 import { todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 import { queuedByOfItem, type QueuedBy } from '../utils/queuedBy';
+import { runDefaultSession } from '../utils/runSessions';
+import { DEFAULT_RUN } from '../utils/processRuns';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { busySessionWarning } from './sendToChatState.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
@@ -366,8 +368,22 @@ function _busyTest(quest: string): (session: string) => boolean {
  * todo's own when it has one, else the window's) → run (with its state) → a free session of the run, the queue
  * default or a new one → next or end. "Last: …" first queues where the last item went. Escape at any step: none.
  */
+/**
+ * Set while a message of the panel's default queue buttons is handled (`defaultTarget: true`, vscimpb151): the
+ * queue target is then the todo's quest, its default run and that run's default session (`default@default`), at the
+ * end of the queue, without asking — the flow's own buttons still ask.
+ */
+let _queueToDefaultTarget = false;
+
+/** The target of the default queue buttons: the default run of the todo's quest, its default session, the end. */
+export function defaultTodoQueueTarget(todoQuest: string | undefined, windowQuest: string): TodoQueueTarget {
+    const quest = todoQuest && !todoQuest.startsWith('__') ? todoQuest : windowQuest;
+    return { quest, run: DEFAULT_RUN, session: runDefaultSession(DEFAULT_RUN), position: 'end' };
+}
+
 async function pickTodoQueueTarget(instance: string, todoQuest: string | undefined, what: string): Promise<TodoQueueTarget | undefined> {
     const windowQuest = _windowQuest();
+    if (_queueToDefaultTarget) { return defaultTodoQueueTarget(todoQuest, windowQuest); }
     const open = _openQuestsNow();
     if (!open.length) {
         void vscode.window.showWarningMessage('Queue: no quest has an open window on this machine.');
@@ -706,8 +722,17 @@ export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
 // Backend message handler (for WS panel integration)
 // ============================================================================
 
-/** Handle Quest TODO messages from the webview. Call from WS panel message handler. */
+/**
+ * Handle Quest TODO messages from the webview. Call from WS panel message handler. A message of the default queue
+ * buttons (`defaultTarget: true`) queues into the default run's default session without asking (vscimpb151).
+ */
 export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promise<boolean> {
+    if (msg?.defaultTarget !== true) { return _handleQuestTodoMessage(msg, webview); }
+    _queueToDefaultTarget = true;
+    try { return await _handleQuestTodoMessage(msg, webview); } finally { _queueToDefaultTarget = false; }
+}
+
+async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promise<boolean> {
     const post = (m: any) => webview.postMessage(_withQueueMarks(m, webview));
     const cfg = _webviewConfigs.get(webview) || {};
 

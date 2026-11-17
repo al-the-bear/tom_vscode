@@ -853,7 +853,7 @@ async function runCompactionDryRun(settings: {
     const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
     const sessions = await pickSessions(quest, {
         title: 'Compaction dry run: whose rolling history',
-        current: 'default',
+        current: DEFAULT_RUN_SESSION,
         extra: sessionsWithStorage(historyRoot),
     });
     if (!sessions) { return; }
@@ -1227,7 +1227,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             // The Anthropic raw trail is per session (history/sessions/<name>/trail/): open the chosen ones.
             const quest = WsPaths.getWorkspaceQuestId() ?? '';
             const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
-            const names = await pickSessions(quest, { title: 'Open the raw trail', current: 'default', extra: sessionsWithStorage(historyRoot) });
+            const names = await pickSessions(quest, { title: 'Open the raw trail', current: DEFAULT_RUN_SESSION, extra: sessionsWithStorage(historyRoot) });
             if (!names) { break; }
             const folders = names.map((n) => sessionTrailFolder(historyRoot, n)).filter((f) => fs.existsSync(f));
             if (folders.length === 0) {
@@ -3240,6 +3240,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
  */
 import { getEmbeddedStatusStyles } from './statusPage/statusPageStyles';
 import { configuredToolResultRetention } from '../services/tool-result-store';
+import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 export { getEmbeddedStatusStyles };
 
 

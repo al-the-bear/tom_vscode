@@ -55,7 +55,10 @@
              The hidden select holds the templates offered and the selection, as before. -->
         <button type="button" class="qt-template-btn" id="qt-template-btn" title="Template: (None) — click to pick another"><span class="codicon codicon-file-code"></span><span class="qt-template-name">(None)</span></button>
         <select id="qt-template-select" hidden aria-hidden="true"><option value="__none__">(None)</option></select>
-        <button class="icon-btn" id="qt-btn-add-queue" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>
+        <!-- vscimpb151: the default queue button (the default run, default@default, at the end) comes first; the next
+             one asks quest, run, session and next / end. -->
+        <button class="icon-btn" id="qt-btn-add-queue-default" title="Save to Queue in the default run (default@default), at the end — the stacked todos, else the selected one"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>
+        <button class="icon-btn" id="qt-btn-add-queue" title="Save to Queue — asks the quest, run, session and next / end"><span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>
         <button class="icon-btn primary" id="qt-btn-send-copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>
     </div>
 </div>

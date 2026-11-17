@@ -15,6 +15,9 @@
  *   SS-8  ensureSession: a missing session is created from a bare name (fresh, continue) or a spec (its
  *         missing base first, plainly; the spec's profile, else the fallback profile, else the base's);
  *         an existing one is left alone; an unknown spec profile is refused and nothing is created
+ *   SS-11 a run's default session (vscimpb151): `default@<run>` created when missing, based on
+ *         `default@default` (made first, fresh, when missing); `default@default` itself fresh; an existing one
+ *         left alone; an older build's `default.session.json` is read as `default@default`
  *   SS-10 deleting a session: refused while another is based on it (naming them), a leaf's file goes, the
  *         direct-API history folder stays; every write and removal notifies the listeners
  *   SS-9  the transport check on files: an SDK conversation refuses a profile with our own history and
@@ -31,6 +34,7 @@ import {
     clearSessionId,
     createSession,
     deleteSession,
+    ensureRunDefaultSession,
     ensureSession,
     listSessions,
     onSessionsChanged,
@@ -167,6 +171,22 @@ describe('session files', () => {
         assert.equal(refused.ok, false);
         assert.match((refused as { error: string }).error, /no Anthropic profile "nope"/);
         assert.deepEqual([readSession(dir, 'ghost'), readSession(dir, 'ghost-base')], [undefined, undefined], 'nothing created');
+    });
+
+    test('SS-11: a run\'s default session', () => {
+        const dir = folder();
+        assert.deepEqual(ensureRunDefaultSession(dir, 'collab'), ['default@default', 'default@collab'], 'the base first');
+        assert.deepEqual([readSession(dir, 'default@collab')?.basedOn, readSession(dir, 'default@collab')?.mode], ['default@default', 'continue']);
+        assert.equal(readSession(dir, 'default@default')?.basedOn, undefined, 'default@default fresh');
+        assert.deepEqual(ensureRunDefaultSession(dir, 'collab'), [], 'there already');
+        assert.deepEqual(ensureRunDefaultSession(dir, 'default'), []);
+        assert.deepEqual(ensureRunDefaultSession(dir, 'another'), ['default@another'], 'the base exists');
+        // An older build's default session, not moved yet, becomes default@default: the base, not made again.
+        const old = folder();
+        fs.writeFileSync(path.join(old, 'default.session.json'), JSON.stringify({ sessionId: 'abc' }));
+        assert.deepEqual(ensureRunDefaultSession(old, 'collab'), ['default@collab']);
+        assert.equal(readSession(old, 'default@default')?.sessionId, 'abc', 'its conversation kept under the new name');
+        assert.equal(fs.existsSync(path.join(old, 'default.session.json')), false);
     });
 
     test('SS-9: the transport check on files', () => {

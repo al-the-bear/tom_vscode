@@ -8,6 +8,8 @@
  *   TD-2 the todo detail's Run row has Send, Queue and Queue as todo item, without a session or a run, and their
  *        tooltips say the host asks where
  *   TD-3 the host's qtDoneNotification sets the toggle; the buttons post their messages with no run or session
+ *   TD-4 the default queue buttons (vscimpb151): the bar's default Save to Queue first, then the one that asks; the
+ *        detail's default queue button first; both post `defaultTarget: true`; the detail's buttons are icon buttons
  */
 
 import test, { describe } from 'node:test';
@@ -78,6 +80,28 @@ for (const [name, config] of VIEWS) {
             assert.ok(msg, 'the Queue button posts qtTodoButton');
             assert.equal(msg.target, 'queue');
             assert.equal('run' in msg || 'session' in msg, false, 'no run or session: the host asks');
+        });
+
+        test('TD-4: the default queue buttons', (t) => {
+            const { w, posted } = setup(t, config);
+            const bar = w.document.querySelector('.qt-top-chat-group');
+            const ids = [...bar.querySelectorAll('button')].map((b: Win) => b.id).filter(Boolean);
+            assert.ok(ids.indexOf('qt-btn-add-queue-default') >= 0 && ids.indexOf('qt-btn-add-queue-default') < ids.indexOf('qt-btn-add-queue'), ids.join(', '));
+            w.qtRenderDetail({ id: 'a1', title: 'A', status: 'not-started', _sourceFile: 'todos.q1.todo.yaml' });
+            const row = w.document.querySelector('#qt-detail-pane .qt-todo-buttons');
+            const kinds = [...row.querySelectorAll('.qt-todo-btn')].map((b: Win) => b.getAttribute('data-qt-todo-btn'));
+            assert.deepEqual(kinds, ['queueDefault', 'chat', 'queue'], 'the default queue button first');
+            for (const b of row.querySelectorAll('button')) { assert.equal((b as Win).textContent.trim(), '', 'icon only'); }
+            posted.length = 0;
+            row.querySelector('[data-qt-todo-btn="queueDefault"]').click();
+            const msg = posted.find((m) => m.type === 'qtTodoButton');
+            assert.deepEqual([msg.target, msg.defaultTarget], ['queue', true]);
+            posted.length = 0;
+            w.qtSelectedTodoId = 'a1';
+            w.document.getElementById('qt-btn-add-queue-default').click();
+            const bm = posted.find((m) => m.type === 'qtAddCurrentTodoToQueue');
+            assert.ok(bm, posted.map((m) => m.type).join(', '));
+            assert.deepEqual([bm.todoId, bm.defaultTarget], ['a1', true]);
         });
     });
 }

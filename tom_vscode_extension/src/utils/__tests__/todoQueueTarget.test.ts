@@ -6,11 +6,14 @@
  *   QT-2 the quest pick: "Last: …" first while its quest has a window (preselected), then the default quest, then the
  *        others; without Last the default is preselected
  *   QT-3 the run pick: `default` first, busy / paused / idle states, the last run (else this window's) preselected
- *   QT-4 the sessions of a run: that run's names, `chat` only where asked, never `default`; the session pick: the
- *        free ones, the queue default, a new session; the last choice preselected
+ *   QT-4 the sessions of a run: that run's names, `chat` only where asked, never the run's default session
+ *        (`default@<run>`; a bare `default` is `default@default`); the session pick: the free ones, the run's default
+ *        session (`default@<run>`), a new session; the last choice in this run preselected, else the run's default
+ *        session — picking a run selects its default session (vscimpb151)
  *   QT-5 the position pick: next or end, end by default
  *   QT-6 the direct send's pick: "Last: …" first while that session is free
- *   QT-7 busy sessions from queue entries on disk: sending and chat items hold their session (or the run's queue default)
+ *   QT-7 busy sessions from queue entries on disk: sending and chat items hold their session (or the run's default
+ *        session, `default@default` in the default run; a stored bare `default` is `default@default`)
  *   QT-8 the texts; the stored targets checked; the keys per panel instance
  */
 
@@ -69,17 +72,19 @@ describe('the queue-target flow\'s picks', () => {
     });
 
     test('QT-4: the sessions', () => {
-        const names = ['default', 'work', 'work@r2', 'other@r2', 'x@r3'];
+        const names = ['default', 'default@default', 'work', 'work@r2', 'other@r2', 'default@r2', 'x@r3'];
         assert.deepEqual(runSessionCandidates(names, 'default', true), ['chat', 'work']);
-        assert.deepEqual(runSessionCandidates(names, 'r2', false), ['work@r2', 'other@r2']);
+        assert.deepEqual(runSessionCandidates(names, 'r2', false), ['work@r2', 'other@r2'], 'never the run\'s default session');
         assert.deepEqual(runSessionCandidates(names, 'r2', true), ['chat', 'work@r2', 'other@r2'], 'chat is shared by every run');
         const items = sessionPickItems(['work@r2'], 'r2');
-        assert.deepEqual(items.map((i) => i.label), ['work@r2', '$(list-ordered) Queue default', '$(add) New session…']);
-        assert.equal(active(items), 'work@r2');
-        assert.deepEqual(items[1].value, {});
+        assert.deepEqual(items.map((i) => i.label), ['work@r2', '$(list-ordered) default@r2', '$(add) New session…']);
+        assert.equal(active(items), '$(list-ordered) default@r2', 'a picked run selects its default session');
+        assert.deepEqual(items[1].value, { session: 'default@r2' });
+        assert.equal(sessionPickItems([], 'default')[0].label, '$(list-ordered) default@default');
         assert.deepEqual(items[2].value, { newSession: true });
         assert.equal(active(sessionPickItems(['a', 'b'], 'r', { session: 'b' })), 'b');
-        assert.equal(active(sessionPickItems(['a'], 'r', {})), '$(list-ordered) Queue default', 'last: the queue default');
+        assert.equal(active(sessionPickItems(['a'], 'r', {})), '$(list-ordered) default@r', 'last: the run\'s default session');
+        assert.equal(active(sessionPickItems(['a'], 'r', { session: 'default@r' })), '$(list-ordered) default@r');
         assert.equal(active(sessionPickItems(['a'], 'r', { session: 'gone' })), 'a', 'a last session no longer free: the first');
     });
 
@@ -108,8 +113,9 @@ describe('the queue-target flow\'s picks', () => {
             { status: 'sending' },
             { status: 'pending', session: 'p' },
             { status: 'sent', session: 's' },
+            { status: 'sending', session: 'default' },
         ]);
-        assert.deepEqual([...busy].sort(), ['a', 'chat', 'default', 'default@r2']);
+        assert.deepEqual([...busy].sort(), ['a', 'chat', 'default@default', 'default@r2']);
     });
 
     test('QT-8: texts and stored targets', () => {

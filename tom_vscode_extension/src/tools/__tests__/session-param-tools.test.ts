@@ -63,7 +63,7 @@ describe('sessions — prompt history', () => {
         setActiveToolTrail(new ToolTrail());
         const none = JSON.parse(await listPromptPairsImpl(tmp, { questId: QUEST }));
         assert.deepEqual(ids(none), ['req-C', 'req-K', 'req-W'], 'a call in no session: every session');
-        assert.deepEqual(none.sessions, ['default', 'chat', 'walk']);
+        assert.deepEqual(none.sessions, ['default@default', 'chat', 'walk']);
         const walk = JSON.parse(await withTiming('tomAi_listPromptPairs:sessions', () => listPromptPairsImpl(tmp, { questId: QUEST, sessions: 'walk' })));
         assert.deepEqual(ids(walk), ['req-K', 'req-W'], 'walk, and the copilot pair (no sessions there)');
         assert.deepEqual(ids(JSON.parse(await listPromptPairsImpl(tmp, { questId: QUEST, sessions: ['walk', 'chat'] }))), ['req-C', 'req-K', 'req-W']);
@@ -71,7 +71,7 @@ describe('sessions — prompt history', () => {
         setActiveToolTrail(new ToolTrail({ session: 'chat' }));
         assert.deepEqual(ids(JSON.parse(await listPromptPairsImpl(tmp, { questId: QUEST }))), ['req-C', 'req-K'], "the caller's own session");
         const unknown = JSON.parse(await listPromptPairsImpl(tmp, { questId: QUEST, sessions: ['walk', 'nope'] }));
-        assert.deepEqual([unknown.ok, unknown.code, unknown.sessions], [false, 'unknownSession', ['default', 'chat', 'walk']]);
+        assert.deepEqual([unknown.ok, unknown.code, unknown.sessions], [false, 'unknownSession', ['default@default', 'chat', 'walk']]);
         const got = JSON.parse(await getPromptPairImpl(tmp, { questId: QUEST, sessions: 'walk', requestId: 'req-W' }));
         assert.deepEqual(got.pairs.map((p: { requestId: string }) => p.requestId), ['req-W']);
         const notThere = JSON.parse(await getPromptPairImpl(tmp, { questId: QUEST, sessions: 'chat', requestId: 'req-W' }));

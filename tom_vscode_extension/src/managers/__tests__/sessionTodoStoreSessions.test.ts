@@ -82,7 +82,7 @@ describe('session todos per session', () => {
         store.add('second in beta', 'copilot', undefined, 'beta');
         const counts = sessionTodoCounts(historyRoot, statuses);
         const bySession = Object.fromEntries(counts.map((c) => [c.session, [c.open, c.total]]));
-        assert.deepEqual(bySession, { alpha: [0, 1], beta: [2, 2], default: [1, 1] });
+        assert.deepEqual(bySession, { alpha: [0, 1], beta: [2, 2], 'default@default': [1, 1] });
         assert.equal(counts[0].session, 'beta', 'most recently written first');
         assert.equal(sessionTodoSourceFile('beta'), 'history/sessions/beta/session-todos.todo.yaml');
         assert.equal(sessionOfTodoSourceFile('history/sessions/beta/session-todos.todo.yaml'), 'beta');
@@ -93,6 +93,6 @@ describe('session todos per session', () => {
     test('ST-4: deleting a session takes its todos', () => {
         removeSessionStorage(historyRoot, path.join(tmpRoot, '_ai', 'memory'), QUEST, 'beta');
         assert.deepEqual(store.list({ status: 'all' }, 'beta'), []);
-        assert.deepEqual(sessionTodoCounts(historyRoot, statuses).map((c) => c.session).sort(), ['alpha', 'default']);
+        assert.deepEqual(sessionTodoCounts(historyRoot, statuses).map((c) => c.session).sort(), ['alpha', 'default@default']);
     });
 });

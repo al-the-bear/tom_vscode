@@ -1,7 +1,7 @@
 /**
  * Tests for per-key Agent SDK session-id persistence.
  *
- * The prompt queue keeps its SDK continuity in `default.session.json`;
+ * The prompt queue keeps its SDK continuity in `default@default.session.json` (the default run's default session);
  * the Anthropic chat panel keeps its own in `chat.session.json`. Both
  * live in the quest's history folder. These tests pin the file naming
  * and, crucially, that the two keys are isolated so a chat send never
@@ -43,9 +43,9 @@ describe('TwoTierMemoryService Agent SDK session keys', () => {
         root = freshWorkspace();
     });
 
-    test('default key persists to default.session.json', () => {
+    test('default key persists to default@default.session.json', () => {
         svc.saveAgentSdkSessionId('sess-default', QUEST, 'claude-x');
-        assert.ok(fs.existsSync(sessionFile(root, 'default')), 'default.session.json should exist');
+        assert.ok(fs.existsSync(sessionFile(root, 'default@default')), 'default@default.session.json should exist');
         assert.equal(svc.loadAgentSdkSessionId(QUEST), 'sess-default');
     });
 

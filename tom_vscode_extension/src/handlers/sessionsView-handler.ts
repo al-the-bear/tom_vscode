@@ -49,6 +49,7 @@ import { newSessionViaPicker, sessionsFolder } from './sessionPicker';
 import { PromptQueueManager } from '../managers/promptQueueManager';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { planUnusedSessions } from '../utils/unusedSessions';
+import { isRunDefaultSession } from '../utils/runSessions';
 
 export const SESSIONS_VIEW_ID = 'tomAi.sessions';
 export const ADD_SESSION_COMMAND = 'tomAi.sessions.add';
@@ -233,7 +234,7 @@ async function removeUnusedSessions(): Promise<void> {
         processes: [...processes.definitions().values()],
         runs,
     });
-    const namedKept = plan.kept.filter((k) => k.name !== 'default' && k.name !== 'chat');
+    const namedKept = plan.kept.filter((k) => !isRunDefaultSession(k.name) && k.name !== 'chat');
     if (plan.offered.length === 0) {
         void vscode.window.showInformationMessage(`No unused sessions in ${quest}.` +
             (namedKept.length ? ` In use: ${namedKept.map((k) => `${k.name} (${k.reason})`).join('; ')}.` : ''));

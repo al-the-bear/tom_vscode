@@ -24,7 +24,7 @@
 import type { ProcessDefinition, ProcessSessionSpec } from './processDefinition';
 import type { SessionRow } from './sessionsViewRows';
 import { DEFAULT_RUN } from './processRuns';
-import { sessionBaseName, sessionRun } from './runSessions';
+import { canonicalSessionName, isRunDefaultSession, sessionBaseName, sessionRun } from './runSessions';
 
 /** What the plan needs of a queue item. */
 export interface SessionUsingItem {
@@ -117,7 +117,11 @@ function keepReason(row: SessionRow, input: UnusedSessionsInput, uses: ReturnTyp
     if (!row.hasFile) { return 'no session file'; }
     if (row.temporary) { return 'temporary: removed with its item'; }
     if (row.dependents.length > 0) { return `the base of ${row.dependents.join(', ')}`; }
-    if (input.queueDefaultSession === row.name) { return 'the queue\'s default session'; }
+    if (canonicalSessionName(input.queueDefaultSession) === row.name) { return 'the queue\'s default session'; }
+    // Every run's default session (vscimpb151), while its run exists.
+    if (isRunDefaultSession(row.name) && (sessionRun(row.name) === DEFAULT_RUN || input.runs.includes(sessionRun(row.name)))) {
+        return `the default session of run ${sessionRun(row.name)}`;
+    }
     const item = input.queueItems.find((i) => i.status !== 'sent' && (i.session === row.name || i.sessionCreate?.basedOn === row.name));
     if (item) { return `queue item ${item.id} (${item.status}) ${item.session === row.name ? 'runs in it' : 'is created from it'}`; }
     return processReason(row.name, input.runs, uses);

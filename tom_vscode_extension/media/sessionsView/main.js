@@ -45,8 +45,9 @@
             root.innerHTML = '<div class="muted">No active quest.</div>';
             return;
         }
-        // A process run's sessions (`<session>@<run>`) come after the others, grouped by run.
-        var runOf = function (r) { var at = r.name.indexOf('@'); return at > 0 ? r.name.slice(at + 1) : ''; };
+        // A process run's sessions (`<session>@<run>`) come after the others, grouped by run; the default run's
+        // (`default@default`, vscimpb151) stay with the sessions without a run.
+        var runOf = function (r) { var at = r.name.indexOf('@'); var run = at > 0 ? r.name.slice(at + 1) : ''; return run === 'default' ? '' : run; };
         var rows = state.rows.map(function (r, i) { return { r: r, i: i, run: runOf(r) }; });
         rows.sort(function (a, b) { return (a.run === b.run ? 0 : !a.run ? -1 : !b.run ? 1 : a.run < b.run ? -1 : 1) || a.i - b.i; });
         var lastRun = '';

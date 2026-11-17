@@ -11,16 +11,17 @@
 
 import type { SessionRecord } from './agentSdkSessions';
 import { isTemporarySessionName } from './questInbox';
+import { DEFAULT_RUN_SESSION, canonicalSessionName } from './runSessions';
 
 /** The sessions every quest has, with what uses them. */
 export const IMPLICIT_SESSIONS: ReadonlyArray<{ name: string; usedBy: string }> = [
-    { name: 'default', usedBy: 'the prompt queue' },
+    { name: DEFAULT_RUN_SESSION, usedBy: 'the prompt queue (the default run\'s default session)' },
     { name: 'chat', usedBy: 'the ANTHROPIC/LLM panel' },
 ];
 
 export interface SessionRow {
     name: string;
-    /** What uses an implicit session (`default`, `chat`). */
+    /** What uses an implicit session (`default@default`, `chat`). */
     usedBy?: string;
     /** A `.session.json` exists (Reset and Delete act on it). */
     hasFile: boolean;
@@ -38,7 +39,9 @@ export interface SessionRow {
     temporary?: boolean;
 }
 
-export function sessionRows(records: readonly SessionRecord[]): SessionRow[] {
+export function sessionRows(input: readonly SessionRecord[]): SessionRow[] {
+    // An older build's `default` session file is `default@default` (vscimpb151).
+    const records = input.map((r) => ({ ...r, name: canonicalSessionName(r.name), ...(r.basedOn ? { basedOn: canonicalSessionName(r.basedOn) } : {}) }));
     const byName = new Map(records.map((r) => [r.name, r]));
     const row = (name: string, usedBy?: string): SessionRow => {
         const r = byName.get(name);

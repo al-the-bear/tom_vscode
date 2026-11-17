@@ -23,6 +23,9 @@
  *        the toggle is off by default and cannot be turned on without a template (vscimpb146); on, the items queued
  *        here and through another quest's inbox record who queued them (the run and session chosen); off, none
  *   QF-8 a Send as another run runs with that run's process position (processRunFor)
+ *   QF-9 the default queue buttons (`defaultTarget`, vscimpb151): the bar's Save to Queue, the stack and the detail's
+ *        queue button go straight into the default run's default session (`default@default`) at the end, no pick;
+ *        the flow's buttons still ask; a run created now has its default session `default@<run>` at once
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -190,7 +193,7 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.match(picks[0].items[1].description ?? '', /inbox/);
         assert.deepEqual(labels(1), ['default', 'r2'], 'the window\'s runs, default first');
         assert.match(picks[1].items[0].description ?? '', /this window's run/);
-        assert.deepEqual(labels(2), ['work@r2', '$(list-ordered) Queue default', '$(add) New session…'], 'only the free sessions: chat (a chat send) and busy@r2 (a queue item) are not offered');
+        assert.deepEqual(labels(2), ['work@r2', '$(list-ordered) default@r2', '$(add) New session…'], 'only the free sessions: chat (a chat send) and busy@r2 (a queue item) are not offered');
         assert.deepEqual(labels(3), ['$(arrow-up) Next', '$(arrow-down) End of the queue']);
         assert.equal(active(3), '$(arrow-down) End of the queue', 'end preselected');
         assert.equal(enqueued.length, 1);
@@ -239,7 +242,7 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.deepEqual(labels(1), ['default', 'rq'], 'its runs from its window\'s run list');
         assert.match(picks[1].items[0].description ?? '', /^busy — running: item z, 1 pending/);
         assert.match(picks[1].items[1].description ?? '', /^paused/);
-        assert.deepEqual(labels(2), ['other', '$(list-ordered) Queue default', '$(add) New session…'], 'other2 is busy (its queue entry on disk), no chat session there');
+        assert.deepEqual(labels(2), ['other', '$(list-ordered) default@default', '$(add) New session…'], 'other2 is busy (its queue entry on disk), no chat session there');
         assert.equal(enqueued.length, 0, 'not this window\'s queue');
         let items = inbox();
         assert.equal(items.length, 1);
@@ -266,9 +269,9 @@ describe('the todo panel\'s queue-target flow', () => {
     test('QF-5: TODO / GROUP items, the walk, the stack', async () => {
         const { webview } = view();
         enqueued.length = 0;
-        answers = ['q1', 'default', '$(list-ordered) Queue default', '$(arrow-down) End'];
+        answers = ['q1', 'default', '$(list-ordered) default@default', '$(arrow-down) End'];
         await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'a1' });
-        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].run, enqueued[0].session, enqueued[0].template], ['a1', 'anthropic', 'default', undefined, 'execute-todo'], 'the queue default: no session named');
+        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].run, enqueued[0].session, enqueued[0].template], ['a1', 'anthropic', 'default', 'default@default', 'execute-todo'], 'the run\'s default session, named');
         // A TODO item walks its own quest's todos: into another quest it is refused.
         enqueued.length = 0;
         const before = inbox().length;
@@ -379,6 +382,24 @@ describe('the todo panel\'s queue-target flow', () => {
         }
         const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         assert.doesNotMatch(host, /case 'qtPickSession'|case 'qtSetRun'|case 'qtGetRunSession'|todoPanelSelectionNow|todoPanelQueueTarget/);
+    });
+
+    test('QF-9: the default queue buttons', async () => {
+        const { webview } = view();
+        picks.length = 0;
+        enqueued.length = 0;
+        answers = [];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl(), defaultTarget: true });
+        assert.equal(picks.length, 0, 'nothing asked');
+        assert.deepEqual([enqueued[0].how, enqueued[0].run, enqueued[0].session, enqueued[0].todoIdPattern], ['end', 'default', 'default@default', 'a1']);
+        await new Promise((r) => setTimeout(r, 3100)); // past the 3 s double-click guard
+        await send(webview, { type: 'qtTodoButton', target: 'queue', todoId: 'a2', defaultTarget: true });
+        assert.equal(picks.length, 0);
+        assert.deepEqual([enqueued[1].run, enqueued[1].session], ['default', 'default@default'], 'the detail\'s default queue button');
+        // The flow's own button still asks.
+        answers = [undefined];
+        await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+        assert.equal(picks.length, 1, 'the quest asked');
     });
 
     test('QF-8: a Send as another run', () => {

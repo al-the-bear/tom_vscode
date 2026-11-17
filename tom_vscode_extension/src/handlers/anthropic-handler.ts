@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwners';
 import { commandsFinishedMessage, reminderForRunningCommands, waitForOwnedCommands } from '../services/backgroundCommandWait';
 import { backgroundWorkReminder } from '../utils/backgroundWorkReminder';
+import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 import { commandsOfOwner } from '../tools/process-tools';
 import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
@@ -433,7 +434,7 @@ export interface AnthropicSendOptions {
 }
 
 /** Prompt-queue Agent SDK session bucket → `default.session.json`. */
-export const DEFAULT_AGENT_SDK_SESSION_KEY = 'default';
+export const DEFAULT_AGENT_SDK_SESSION_KEY = DEFAULT_RUN_SESSION;
 /** Anthropic chat-panel Agent SDK session bucket → `chat.session.json`. */
 export const ANTHROPIC_CHAT_SESSION_KEY = 'chat';
 

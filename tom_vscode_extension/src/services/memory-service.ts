@@ -22,7 +22,8 @@ import { FsUtils } from '../utils/fsUtils';
 import { WsPaths } from '../utils/workspacePaths';
 import { toolLog } from '../utils/toolLog';
 import { logInfo as logStorageInfo } from './compaction-log';
-import { MIGRATION_TARGET_SESSION, migrateQuestToSessionStorage, sessionMemoryFolder } from './sessionStorage';
+import { MIGRATION_TARGET_SESSION, migrateDefaultSessionName, migrateQuestToSessionStorage, sessionMemoryFolder } from './sessionStorage';
+import { DEFAULT_RUN_SESSION, canonicalSessionName } from '../utils/runSessions';
 import { resolveTrailPath } from './trailPathResolver';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
@@ -238,9 +239,11 @@ export class TwoTierMemoryService {
     /**
      * Move the quest's files from the per-quest layout (one history, trail
      * pair, live trail, raw trail and quest memory for chat and queue
-     * together) into the `default` session's storage, once per quest
+     * together) into the `default@default` session's storage, once per quest
      * (src/services/sessionStorage.ts). Idempotent: a marker in
      * `history/sessions/` says it is done; a file whose target exists stays.
+     * Then what an older build kept under the bare session name `default`
+     * moves to `default@default` (migrateDefaultSessionName, every start).
      */
     ensureSessionStorage(questId?: string): void {
         const quest = questId || this.currentQuest() || 'default';
@@ -259,6 +262,14 @@ export class TwoTierMemoryService {
                 logStorageInfo(
                     `session storage: quest "${quest}" moved to per-session storage — ${report.moved.length} file(s) now belong to `
                     + `session "${MIGRATION_TARGET_SESSION}"${report.kept.length > 0 ? `; ${report.kept.length} left in place (the target existed): ${report.kept.join(', ')}` : ''}`,
+                );
+            }
+            // The bare `default` session of an older build is `default@default` (vscimpb151).
+            const renamed = migrateDefaultSessionName({ quest, historyRoot, memoryRoot: this.memoryRoot() });
+            if (renamed.migrated || renamed.kept.length > 0) {
+                logStorageInfo(
+                    `session storage: quest "${quest}" — the session "default" is now "${DEFAULT_RUN_SESSION}": ${renamed.moved.length} moved, `
+                    + `${renamed.rebased.length} session(s) rebased${renamed.kept.length > 0 ? `; ${renamed.kept.length} left in place (the target existed): ${renamed.kept.join(', ')}` : ''}`,
                 );
             }
         } catch (e) {
@@ -798,8 +809,8 @@ export class TwoTierMemoryService {
      * keyed on windowId, which defeated that goal (every reload produced an
      * orphan file and lost continuity).
      */
-    private agentSdkSessionFile(questId?: string, sessionKey: string = 'default'): string {
-        return path.join(this.historyFolder(questId), `${sessionKey}.session.json`);
+    private agentSdkSessionFile(questId?: string, sessionKey: string = DEFAULT_RUN_SESSION): string {
+        return path.join(this.historyFolder(questId), `${canonicalSessionName(sessionKey)}.session.json`);
     }
 
     /**
@@ -810,7 +821,7 @@ export class TwoTierMemoryService {
      * reload, and leaving it around would mask a good value from older
      * turns that aren't the user's fault.
      */
-    loadAgentSdkSessionId(questId?: string, sessionKey: string = 'default'): string | undefined {
+    loadAgentSdkSessionId(questId?: string, sessionKey: string = DEFAULT_RUN_SESSION): string | undefined {
         try {
             const file = this.agentSdkSessionFile(questId, sessionKey);
             if (!fs.existsSync(file)) { return undefined; }
@@ -847,7 +858,7 @@ export class TwoTierMemoryService {
      * looks like a fresh session and forks a new Claude Code session
      * per prompt).
      */
-    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = 'default', iterationKey?: string): void {
+    saveAgentSdkSessionId(sessionId: string, questId?: string, model?: string, sessionKey: string = DEFAULT_RUN_SESSION, iterationKey?: string): void {
         try {
             // Through the session store: written atomically (tmp + rename) and
             // merged, so a session's `basedOn` / `mode` survive every save. With
@@ -864,7 +875,7 @@ export class TwoTierMemoryService {
     }
 
     /** Remove the session-id file for `sessionKey` (used by clearSession). */
-    clearAgentSdkSessionId(questId?: string, sessionKey: string = 'default'): void {
+    clearAgentSdkSessionId(questId?: string, sessionKey: string = DEFAULT_RUN_SESSION): void {
         try {
             clearSessionId(this.historyFolder(questId), sessionKey);
         } catch {

@@ -27,13 +27,13 @@ const KNOWN = ROWS.map((r) => r.name);
 describe('session selection', () => {
     test('SL-1: the items', () => {
         const items = sessionSelectionItems(ROWS, 'chat');
-        assert.deepEqual(items.map((i) => i.label), [ALL_SESSIONS_LABEL, 'default', 'chat', 'prep', 'walk', 'tmp-261027-120000-ab12']);
+        assert.deepEqual(items.map((i) => i.label), [ALL_SESSIONS_LABEL, 'default@default', 'chat', 'prep', 'walk', 'tmp-261027-120000-ab12']);
         assert.deepEqual(items.filter((i) => i.picked).map((i) => i.label), ['chat'], 'the current session preselected');
         assert.equal(items[0].all, true);
         assert.equal(items[0].description, '5 sessions');
         assert.match(items.find((i) => i.label === 'tmp-261027-120000-ab12')!.description, /temporary/);
         assert.match(items.find((i) => i.label === 'walk')!.description, /based on prep · per prompt · no conversation yet/);
-        assert.match(items.find((i) => i.label === 'default')!.description, /the prompt queue/);
+        assert.match(items.find((i) => i.label === 'default@default')!.description, /the prompt queue/);
         const withOrphan = sessionSelectionItems(ROWS, 'gone', ['prep', 'gone']);
         assert.deepEqual(withOrphan.slice(-1).map((i) => [i.label, i.description, i.picked]), [['gone', 'storage only (no session file)', true]]);
         assert.equal(withOrphan[0].description, '6 sessions');

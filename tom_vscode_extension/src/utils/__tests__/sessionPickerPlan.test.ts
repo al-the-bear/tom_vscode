@@ -84,7 +84,7 @@ describe('session picker plans', () => {
     test('PP-5: the ANTHROPIC panel', () => {
         const handler = source('src', 'handlers', 'chatPanel-handler.ts');
         const queue = handler.slice(handler.indexOf('private async _handleAddToQueue('));
-        assert.match(queue.slice(0, queue.indexOf('\n    }\n')), /transportOpts\?\.usePanelTarget[\s\S]{0,200}session: this\._chatSessionKey\(\)/,
+        assert.match(queue.slice(0, queue.indexOf('\n    }\n')), /panelTarget[\s\S]{0,200}session: this\._chatSessionKey\(\)/,
             'Save to Queue with the panel\'s target carries the panel\'s session (plain Save to Queue: the queue\'s own)');
         assert.match(handler, /const \{ label, tooltip \} = sessionLabel\(name, record\);/);
         assert.match(handler, /this\._sendChatSession\(picked !== undefined\);/, 'a pick preselects the session\'s profile');

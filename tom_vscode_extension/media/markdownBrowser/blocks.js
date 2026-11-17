@@ -320,6 +320,10 @@ function mdbResolveSectionRef(ids, fullIds) {
  * Several headings with that last id (the same id under different parents):
  * the first in document order, as a section reference without context. The
  * index into `fullIds` (document order), or -1.
+ *
+ * @param {string} anchor
+ * @param {string[]} fullIds
+ * @returns {number}
  */
 function mdbSectionAnchorIndex(anchor, fullIds) {
     if (!anchor) { return -1; }

@@ -47,7 +47,8 @@ import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_C
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { chatSessionFor, pickAgentSdkSession, sessionsFolder, setChatSessionFor } from './sessionPicker';
-import { createSession, readSession } from '../services/agentSdkSessionStore';
+import { createSession, ensureRunDefaultSession, readSession } from '../services/agentSdkSessionStore';
+import { canonicalSessionName, runDefaultSession, runSessionName } from '../utils/runSessions';
 import { createTemporarySession, discardSessionCompletely } from '../services/temporarySessions';
 import { sessionTransportMismatch } from '../services/directSessionHistory';
 import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
@@ -872,7 +873,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /** The session the panel sends in: the one chosen for the quest, else `chat`. */
     private _chatSessionKey(): string {
-        return chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY);
+        return canonicalSessionName(chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY));
     }
 
     // ----- the run pickers (vscimpb48, src/utils/chatPanelRuns.ts) ---------------
@@ -902,8 +903,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _setChatRun(section: ChatRunSection, run: string): Promise<void> {
+        const quest = WsPaths.getWorkspaceQuestId();
         const name = effectiveChatRun(run, this._questRuns().runs);
-        await this._context.workspaceState.update(chatRunKey(WsPaths.getWorkspaceQuestId(), section), name === DEFAULT_RUN ? undefined : name);
+        await this._context.workspaceState.update(chatRunKey(quest, section), name === DEFAULT_RUN ? undefined : name);
+        // A run switch selects the run's default session, default@<run>, created when missing (vscimpb151).
+        // The session picker stays free afterwards.
+        if (section === 'anthropic') {
+            try { ensureRunDefaultSession(sessionsFolder(quest), name); } catch { /* made by the first send */ }
+            await setChatSessionFor(this._context.workspaceState, quest, runDefaultSession(name));
+        }
     }
 
     /**
@@ -2212,7 +2220,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             transport?: 'copilot' | 'anthropic';
             anthropicProfileId?: string;
             anthropicConfigId?: string;
-            /** Pin this panel's profile and session; without it the queue's own apply. */
+            /**
+             * The panel's target: its session, run, profile and template. Without it (Save to Queue, Queue next)
+             * the default run with the queue's profile, session (`default@default`) and default template (vscimpb151).
+             */
             usePanelTarget?: boolean;
             /** Queue next: pending at the front, between a running loop's iterations (enqueueNext). */
             next?: boolean;
@@ -2228,9 +2239,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             if (queue) {
                 const transport = transportOpts?.transport ?? 'copilot';
                 const next = transportOpts?.next === true;
+                const panelTarget = transportOpts?.usePanelTarget === true;
+                const section: ChatRunSection = origin?.section === 'anthropic' || (!origin?.section && transport === 'anthropic') ? 'anthropic' : 'copilot';
+                // The panel's target: its run (its session there, `<session>@<run>`); else the default run with the
+                // queue's own settings and default template, nothing from the panel (vscimpb151).
+                const run = panelTarget ? this._chatRun(section) : DEFAULT_RUN;
+                const queueTemplate = queue.runQueueSettings(DEFAULT_RUN).defaultMessageTemplateId || undefined;
                 await (next ? queue.enqueueNext.bind(queue) : queue.enqueue.bind(queue))({
                     originalText: text,
-                    template: template || undefined,
+                    template: panelTarget ? (template || undefined) : queueTemplate,
                     // Preserve non-numeric strings (chat variables, `prefix*`
                     // patterns like `tod*`) verbatim so they resolve when the
                     // item is processed; only coerce actual numeric input.
@@ -2247,19 +2264,21 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     deferSend: !next,
                     initialStatus: !next && transportOpts?.staged ? 'staged' : 'pending',
                     transport: transport === 'anthropic' ? 'anthropic' : undefined,
-                    // Save to Queue: the prompt queue's own profile and session (nothing pinned).
-                    // Save to Queue with the panel's target: this panel's profile and session,
+                    // Save to Queue / Queue next: the prompt queue's own profile and session (nothing pinned).
+                    // With the panel's target (Save to Queue, Queue next): this panel's profile and session,
                     // so the queued prompt continues the panel's conversation as Send would.
-                    ...(transport === 'anthropic' && transportOpts?.usePanelTarget && !next
-                        ? { anthropicProfileId: transportOpts.anthropicProfileId, anthropicConfigId: transportOpts.anthropicConfigId, session: this._chatSessionKey() }
+                    ...(transport === 'anthropic' && panelTarget
+                        ? { anthropicProfileId: transportOpts?.anthropicProfileId, anthropicConfigId: transportOpts?.anthropicConfigId, session: this._chatSessionKey() }
                         : {}),
-                    // The run the subpanel is on (its session becomes the run's, `<session>@<run>`).
-                    run: this._chatRun(origin?.section === 'anthropic' || (!origin?.section && transport === 'anthropic') ? 'anthropic' : 'copilot'),
+                    run,
+                    // The default run named outright: the queue does not take the run of a Proceed running now.
+                    runIsExplicit: true,
                 });
                 const count = queue.items.length;
+                const where = panelTarget ? `run ${run}${transport === 'anthropic' ? `, session ${runSessionName(this._chatSessionKey(), run)}` : ''}` : `run ${DEFAULT_RUN}`;
                 vscode.window.showInformationMessage(next
-                    ? `Queued next (${count} items, ${transport})`
-                    : `Added to prompt queue ${transportOpts?.staged ? 'staged' : 'pending'} (${count} items, ${transport})`);
+                    ? `Queued next (${where}; ${count} items, ${transport})`
+                    : `Added to prompt queue ${transportOpts?.staged ? 'staged' : 'pending'} (${where}; ${count} items, ${transport})`);
                 this._view?.webview.postMessage({ type: 'queueAdded', count, ...(origin?.section ? { section: origin.section } : {}), ...(origin?.slot ? { slot: origin.slot } : {}) });
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');

@@ -374,10 +374,13 @@ function renderChatRunSelects() {
         if (!sel) { return; }
         var current = chatRunsState.selected[section] || 'default';
         sel.innerHTML = chatRunsState.options.map(function(o) {
-            return '<option value="' + escapeAttr(o.run) + '"' + (o.run === current ? ' selected' : '') + '>Run: ' + escapeAttr(o.label) + '</option>';
+            return '<option value="' + escapeAttr(o.run) + '"' + (o.run === current ? ' selected' : '') + '>' + escapeAttr(o.label) + '</option>';
         }).join('');
         sel.value = current;
         sel.classList.toggle('run-other', current !== chatRunsState.windowRun);
+        // The select is narrow: its tooltip names the run in full.
+        var shown = chatRunsState.options.find(function(o) { return o.run === current; });
+        sel.title = 'Run: ' + (shown ? shown.label : current) + ' — the process run this subpanel works on: its session, chat variables and process position, the run of what it queues with the panel\'s target. Switching it selects the run\'s default session.';
         sel.onchange = function() {
             chatRunsState.selected[section] = sel.value;
             sel.classList.toggle('run-other', sel.value !== chatRunsState.windowRun);
@@ -396,24 +399,26 @@ function getSectionContent(id) {
             selectorClass: 'compact-select',
             selectorTitle: 'Template',
             toolbarClass: 'copilot-compact-toolbar',
-            // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
-            secondarySelectorHtml:
-                '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>',
             prefixButtons:
                 '<button class="icon-btn" data-action="openExtensionTools" data-id="copilot" title="Extension Tools"><span class="codicon codicon-tools"></span></button>',
             manageButtons:
                 '<button class="icon-btn" data-action="addTemplate" data-id="copilot" title="Add Template"><span class="codicon codicon-add"></span></button>' +
                 '<button class="icon-btn" data-action="editTemplate" data-id="copilot" title="Edit Template"><span class="codicon codicon-edit"></span></button>' +
                 '<button class="icon-btn danger" data-action="deleteTemplate" data-id="copilot" title="Delete Template"><span class="codicon codicon-trash"></span></button>',
+            // The action row (vscimpb151): the button that queues in the default run comes before the run select;
+            // the buttons that use the panel's run come after it.
             actionButtons:
                 '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
-                '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
                 toggleButtonHtml('copilot-wrap', 'codicon-word-wrap', 'Wrap', 'Wrap the send in the Copilot Queue Wrapper, so Copilot writes an answer file', false) +
                 toggleButtonHtml('copilot-keep-content', 'codicon-pin', 'Keep', 'Keep the text after Send or adding to the queue (not pressed: the text is cleared)', false) +
                 '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="text" id="copilot-repeat-count" value="1" style="width:24px"></label>' +
                 '<label class="checkbox-label compact-keep" title="Answer wait minutes (0 = wait for answer file)"><span style="opacity:0.8;">W</span><input type="text" id="copilot-answer-wait" value="0" style="width:24px"></label>' +
                 queueModeToggleHtml('copilot') +
-                '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
+                '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue — in the default run, with the prompt queue&#39;s settings and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
+                // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
+                '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
+                '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="copilot" title="Save to Queue in this panel&#39;s run, with its template"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
@@ -456,11 +461,6 @@ function getSectionContent(id) {
                 // dropdown — opens the Global Template Editor on the
                 // 'anthropicProfiles' category for the selected profile.
                 '<button class="icon-btn" data-action="editAnthropicProfile" data-id="anthropic" title="Edit Anthropic profile (system prompt)"><span class="codicon codicon-edit"></span></button>' +
-                // Agent SDK session: the button names the session the panel
-                // sends in; a click opens VS Code's picker (pick / new / based on).
-                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name">chat</span></button>' +
-                // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
-                '<select id="anthropic-run" class="run-select" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
                 // Config dropdown intentionally removed — the profile
                 // owns configurationId and the handler resolves via
                 // profile.configurationId → isDefault → first. Pick a
@@ -473,10 +473,10 @@ function getSectionContent(id) {
             // Intentionally empty: add/delete for profiles and user-message
             // templates is done inside the Global Template Editor, not here.
             manageButtons: '',
+            // The action row (vscimpb151): the buttons that queue in the default run (default@default, the queue's
+            // settings) come before the session and run; the buttons that use them come after.
             actionButtons:
-                '<button data-action="preview" data-id="anthropic" title="Preview expanded prompt">Preview</button>' +
-                '<button class="icon-btn primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic"><span class="codicon codicon-send"></span></button>' +
-                '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
+                '<button class="icon-btn" data-action="preview" data-id="anthropic" title="Preview expanded prompt"><span class="codicon codicon-eye"></span></button>' +
                 // Queue-only repeat count — applied when staging via "Save to Queue";
                 // ignored by the inline send button.
                 '<label class="checkbox-label compact-keep" title="Queue repeats (used when adding to queue)"><span style="opacity:0.8;">R</span><input type="text" id="anthropic-repeat-count" value="1" style="width:24px"></label>' +
@@ -485,16 +485,23 @@ function getSectionContent(id) {
                 // Fresh: Send runs the prompt in a new one-prompt session based on the panel's session,
                 // discarded when the answer is in — no follow-up reaches it (kept over a reload).
                 toggleButtonHtml('anthropic-fresh-session', 'codicon-sparkle', 'Fresh', 'Send in a fresh session: a new one-prompt session based on this panel&#39;s session (it starts from that conversation and changes nothing in it), deleted when the answer is in. No follow-up prompt reaches it: the next Send starts another fresh one.', false) +
-                // Queue buttons. Save to Queue adds the prompt (pending or staged, the queue-mode toggle) on the prompt queue's own
-                // profile and session; the second pins this panel's profile and session.
-                // Both keep the panel's user-message template and repeat count.
                 // Staged / pending: how both Save to Queue buttons add the prompt.
                 queueModeToggleHtml('anthropic') +
-                '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue — runs with the prompt queue&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
-                '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s profile and session"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
-                // Queue next: pending at the front of the queue, sent next — between two
-                // iterations when the item sending is a loop. The queue's profile and session.
-                '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — sent next, with the prompt queue&#39;s profile and session; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-debug-step-into"></span></button>' +
+                // Default run, default session: the queue's profile, session (default@default) and default template.
+                '<button class="icon-btn" data-action="addToQueue" data-id="anthropic" title="Save to Queue — in the default run (default@default), with the prompt queue&#39;s profile, session and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
+                // Queue next: pending at the front of the default run's queue, sent next — between two iterations when
+                // the item sending is a loop.
+                '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — in the default run (default@default), sent next, with the prompt queue&#39;s profile, session and default template; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-debug-step-into"></span></button>' +
+                // Agent SDK session: the button names the session the panel sends in; a click opens VS Code's picker
+                // (pick / new / based on). A run switch selects the run's default session (vscimpb151).
+                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name">chat</span></button>' +
+                // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
+                '<select id="anthropic-run" class="run-select" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                // What uses the panel's session and run: Send, Stop, and the two queue buttons with the panel's target.
+                '<button class="icon-btn primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic"><span class="codicon codicon-send"></span></button>' +
+                '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
+                '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s session, run, profile and template"><span class="codicon codicon-add"></span><span class="codicon codicon-account"></span></button>' +
+                '<button class="icon-btn" data-action="addToQueueNextPanelTarget" data-id="anthropic" title="Queue next with this panel&#39;s session and run — sent next in the panel&#39;s run, with its profile and template; when a repeating item of that run is sending, between its iterations"><span class="codicon codicon-account"></span><span class="codicon codicon-debug-step-into"></span></button>' +
                 // The trail, history and memory buttons are in the @CHAT Logs panel, behind its session switch.
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
 
@@ -653,7 +660,7 @@ function updateResizeHandles() {
  * SUBMIT_PAUSE_MS after a click; the host also ignores an identical queue add
  * or send within 3 s (src/utils/duplicateSubmitGuard.ts).
  */
-var SUBMIT_ACTIONS = ['send', 'addToQueue', 'addToQueuePanelTarget', 'addToQueueNext'];
+var SUBMIT_ACTIONS = ['send', 'addToQueue', 'addToQueuePanelTarget', 'addToQueueNext', 'addToQueueNextPanelTarget'];
 var SUBMIT_PAUSE_MS = 2000;
 
 function isSubmitButtonPaused(btn) {
@@ -846,8 +853,12 @@ function handleAction(action, id, slot) {
             if (id === 'anthropic') { addAnthropicToQueue(false); }
             else { addCopilotToQueue(); }
             break;
-        case 'addToQueuePanelTarget': addAnthropicToQueue(true); break;
+        case 'addToQueuePanelTarget':
+            if (id === 'anthropic') { addAnthropicToQueue(true); }
+            else { addCopilotToQueue(true); }
+            break;
         case 'addToQueueNext': addAnthropicToQueue(false, true); break;
+        case 'addToQueueNextPanelTarget': addAnthropicToQueue(true, true); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
         case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
@@ -1617,7 +1628,8 @@ function normalizeRepeatField(raw) {
     return v;
 }
 
-function addCopilotToQueue() {
+/** Copilot's Save to Queue: the default run with the queue's template, or (usePanelTarget) this panel's run and template. */
+function addCopilotToQueue(usePanelTarget) {
     var text = document.getElementById('copilot-text');
     text = text ? text.value : '';
     if (!text.trim()) {return;}
@@ -1628,18 +1640,17 @@ function addCopilotToQueue() {
     var waitEl = document.getElementById('copilot-answer-wait');
     var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
     var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, slot: slot, initialStatus: queueInitialStatus('copilot') });
+    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, section: 'copilot', slot: slot, initialStatus: queueInitialStatus('copilot'), ...(usePanelTarget ? { usePanelTarget: true } : {}) });
     // Reset the repeat count to 1 so the next simple prompt isn't accidentally
     // queued again with a leftover (high) repeat count.
     if (repeatEl) { repeatEl.value = '1'; }
 }
 
 function addAnthropicToQueue(usePanelTarget, next) {
-    // Add a queue item with transport='anthropic' and the panel's
-    // user-message template. Profile and session: the prompt queue's own,
-    // unless usePanelTarget pins this panel's profile and session. `next`
-    // queues it pending at the front instead (sent next; between the
-    // iterations of a repeating item that is sending).
+    // Add a queue item with transport='anthropic'. Without usePanelTarget: the default run, the prompt queue's
+    // profile, session (default@default) and default template (vscimpb151). With it: this panel's session,
+    // run, profile and user-message template. `next` queues it pending at the front of that run's queue
+    // instead (sent next; between the iterations of a repeating item that is sending).
     var text = document.getElementById('anthropic-text');
     text = text ? text.value : '';
     if (!text.trim()) {return;}

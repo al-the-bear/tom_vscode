@@ -43,7 +43,7 @@ describe('window activity — the queue summary', () => {
         assert.doesNotMatch(s.sending!.preview, /\n/);
         const fresh = summarizeQueue({ items: [item('y', 'sending', { sentAt: '2026-10-27T11:00:00.000Z' })], autoSend: true, defaultTransport: 'anthropic', defaultProfileId: 'opus-sdk' });
         assert.deepEqual(fresh.sending, {
-            id: 'y', preview: 'prompt y', transport: 'anthropic', profileId: 'opus-sdk', session: 'default', since: '2026-10-27T11:00:00.000Z',
+            id: 'y', preview: 'prompt y', transport: 'anthropic', profileId: 'opus-sdk', session: 'default@default', since: '2026-10-27T11:00:00.000Z',
         }, 'no dispatch recorded yet: the item and the queue defaults');
     });
 

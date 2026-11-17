@@ -266,8 +266,13 @@ export class ProcessStateStore {
             const set = this.withRun(run, () => this.apply({ process }, source));
             if (!set.ok) { repo.deleteRun(this.quest, run); return set; }
         }
+        // A new run has its default session at once: default@<run>, based on default@default (vscimpb151).
+        try { ProcessStateStore.runCreatedHook?.(this.quest, run); } catch { /* the run stands; the session is made when first needed */ }
         return select ? this.selectRun(run) : { ok: true, state: repo.readState(this.quest, run) };
     }
+
+    /** Called after a run is created (extension.ts: creates the run's default session). */
+    static runCreatedHook: ((quest: string, run: string) => void) | undefined;
 
     /**
      * What a reset of `mode` would clear in `run` (default the window's;

@@ -23,11 +23,12 @@ import {
 } from '../utils/agentSdkSessions';
 import type { SessionProfile, SessionSpec } from '../utils/sessionSpecs';
 import { writeFileAtomic } from '../utils/atomicWrite';
+import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION, canonicalSessionName, runDefaultSession } from '../utils/runSessions';
 
 const SUFFIX = '.session.json';
 
 function fileOf(folder: string, name: string): string {
-    return path.join(folder, `${name}${SUFFIX}`);
+    return path.join(folder, `${canonicalSessionName(name)}${SUFFIX}`);
 }
 
 export function readSession(folder: string, name: string): SessionRecord | undefined {
@@ -234,6 +235,31 @@ export type EnsureSessionResult = { ok: true; created: string[] } | { ok: false;
  * the profile and its model, and an unknown spec profile is refused. Answers
  * the sessions it created.
  */
+/**
+ * The default session of run `run`, `default@<run>` (vscimpb151), created when missing: for the `default` run
+ * `default@default` fresh, for another run based on `default@default` (made first when missing). An older build's
+ * `default.session.json` not moved yet (the start's migrateDefaultSessionName moves the rest) is renamed to
+ * `default@default.session.json` first, so its conversation is the base. Answers the sessions it created.
+ */
+export function ensureRunDefaultSession(folder: string, run: string | undefined): string[] {
+    const legacy = path.join(folder, `${LEGACY_DEFAULT_SESSION}${SUFFIX}`);
+    const current = fileOf(folder, DEFAULT_RUN_SESSION);
+    if (fs.existsSync(legacy) && !fs.existsSync(current)) {
+        try { fs.renameSync(legacy, current); } catch { /* the start's migration moves it */ }
+    }
+    const name = runDefaultSession(run);
+    if (readSession(folder, name)) { return []; }
+    const created: string[] = [];
+    const baseThere = (): boolean => !!readSession(folder, DEFAULT_RUN_SESSION);
+    if (name !== DEFAULT_RUN_SESSION && !baseThere()) {
+        const base = createSession(folder, DEFAULT_RUN_SESSION, {});
+        if (base.ok) { created.push(DEFAULT_RUN_SESSION); }
+    }
+    const made = createSession(folder, name, name === DEFAULT_RUN_SESSION ? {} : { basedOn: DEFAULT_RUN_SESSION });
+    if (made.ok) { created.push(name); }
+    return created;
+}
+
 export function ensureSession(
     folder: string,
     spec: SessionSpec,

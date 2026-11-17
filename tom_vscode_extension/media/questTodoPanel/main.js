@@ -353,20 +353,26 @@ function qtNavPush(todoId) {
         e.preventDefault();
         qtPickTemplate();
     });
-    if (addQueueBtn) addQueueBtn.addEventListener('click', function() {
+    /**
+     * Save to Queue (the bar): the stacked todos, else the selected one. `defaultTarget` (the default queue
+     * button, vscimpb151): straight into the default run's default session (default@default) at the end;
+     * without it the host asks quest → run → session → next / end.
+     */
+    function qtQueueFromBar(btn, defaultTarget) {
         // Paused 2 s after a click: a double click or a bouncing mouse queues once (the host guards too).
-        if (addQueueBtn.disabled) return;
-        qtPauseButton(addQueueBtn);
+        if (btn.disabled) return;
+        qtPauseButton(btn);
         var tplId = qtSelectedTemplateId();
+        var target = defaultTarget ? { defaultTarget: true } : {};
         // Stacked todos win: one queue prompt per stacked todo, in stack order.
         if (qtStack.length) {
-            vscode.postMessage({
+            vscode.postMessage(Object.assign({
                 type: 'qtQueueStackedTodos',
                 questId: qtCurrentQuestId,
                 file: qtCurrentFile,
                 todos: qtStackPayload(),
                 template: tplId,
-            });
+            }, target));
             return;
         }
         if (!qtSelectedTodoId) {
@@ -374,15 +380,18 @@ function qtNavPush(todoId) {
             return;
         }
         var effectiveTodoId = (qtDetailTodo && qtDetailTodo.id) ? qtDetailTodo.id : qtSelectedTodoId;
-        vscode.postMessage({
+        vscode.postMessage(Object.assign({
             type: 'qtAddCurrentTodoToQueue',
             questId: qtCurrentQuestId,
             file: qtCurrentFile,
             todoId: effectiveTodoId,
             sourceFile: qtDetailTodo && qtDetailTodo._sourceFile ? qtDetailTodo._sourceFile : undefined,
             template: tplId,
-        });
-    });
+        }, target));
+    }
+    if (addQueueBtn) addQueueBtn.addEventListener('click', function() { qtQueueFromBar(addQueueBtn, false); });
+    var addQueueDefaultBtn = document.getElementById('qt-btn-add-queue-default');
+    if (addQueueDefaultBtn) addQueueDefaultBtn.addEventListener('click', function() { qtQueueFromBar(addQueueDefaultBtn, true); });
     if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
         if (sendCopilotBtn.disabled) return;
         qtPauseButton(sendCopilotBtn);
@@ -3212,15 +3221,19 @@ function qtUserActionRow(checked, withGuide) {
  */
 function qtTodoButtonsRow(todo) {
     var which = todo && todo.user_action === true ? 'user-action' : 'other';
+    // Icon buttons (vscimpb151): the default queue button first (the default run, default@default, the end),
+    // then the ones that ask where.
     return qtFormRow('Run', '<div class="qt-todo-buttons">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queueDefault" title="Queue this todo in the default run (default@default), at the end (Anthropic), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+            '<span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
         '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in a free session of this window (asked for), with the ANTHROPIC/LLM panel\'s profile and the Todo buttons template for ' + which + ' todos (Status Page)">' +
-            '<span class="codicon codicon-send"></span> Send</button>' +
+            '<span class="codicon codicon-send"></span></button>' +
         '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to a prompt queue (Anthropic): asks the quest, run, free session and next / end; with the Todo buttons template for ' + which + ' todos (Status Page)">' +
-            '<span class="codicon codicon-list-ordered"></span> Queue</button>' +
+            '<span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
         '<button class="icon-btn qt-queue-item-detail-btn" type="button" title="Queue as todo item: ' +
             (todo && (todo.status === 'group' || (Array.isArray(todo.comprised_of) && todo.comprised_of.length)) ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
             '; asks the quest, run, free session and next / end">' +
-            '<span class="codicon codicon-run-all"></span> Queue as todo item</button>' +
+            '<span class="codicon codicon-run-all"></span></button>' +
         '</div>');
 }
 
@@ -3240,13 +3253,14 @@ function qtHandleTodoButtonClick(e) {
     if (!btn || !qtDetailTodo || btn.disabled) { return; }
     e.preventDefault();
     qtPauseButton(btn);
-    vscode.postMessage({
+    var which = btn.getAttribute('data-qt-todo-btn');
+    vscode.postMessage(Object.assign({
         type: 'qtTodoButton',
-        target: btn.getAttribute('data-qt-todo-btn') === 'queue' ? 'queue' : 'chat',
+        target: which === 'queue' || which === 'queueDefault' ? 'queue' : 'chat',
         questId: qtCurrentQuestId,
         todoId: qtDetailTodo.id,
         sourceFile: qtDetailTodo._sourceFile || undefined,
-    });
+    }, which === 'queueDefault' ? { defaultTarget: true } : {}));
 }
 document.addEventListener('click', qtHandleTodoButtonClick);
 

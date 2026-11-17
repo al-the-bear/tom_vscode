@@ -27,6 +27,9 @@
  *        `<session>@<run>` (and `default` keeps the plain name), each created; a based-on session the process names
  *        belongs to the run too; the `session` variable says it; an item queued while a run's Proceed runs takes the
  *        run's session, `chat` stays shared; deleting the runs keeps their sessions (named) or deletes them on ask
+ *   RN-13 a new run has its default session at once (vscimpb151): createRun (the PROCESS view's +, the tool
+ *        tomAi_createProcessRun) calls the run-created hook, which the extension wires to ensureRunDefaultSession:
+ *        `default@<run>` based on `default@default`; a failing hook leaves the run standing
  *   RN-11 two runs of ONE process (vscimpb48): each moved on its own — by the tools (`run`) and in the store as the
  *        PROCESS view moves the selected run (Proceed / apply) — each into its own state file, the other unchanged
  *   RN-10 every queue item carries its run (vscimpb45): the window's run by default, a run named, the run of the
@@ -97,6 +100,7 @@ import { ADD_TO_PROMPT_QUEUE_TOOL, QUEUE_LIST_TOOL } from '../chat-enhancement-t
 import { handleRunMessage, type RunUiPort } from '../../services/processRunActions.js';
 import { liveRunStore } from '../../handlers/processPanel-handler.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
+import { ensureRunDefaultSession, readSession } from '../../services/agentSdkSessionStore.js';
 import { EMPTY_PROCESS_STATE } from '../../utils/processDefinition.js';
 import { DEFAULT_RUN, runNameError, runOfStateFile, runStateFileName } from '../../utils/processRuns.js';
 import {
@@ -530,5 +534,29 @@ describe('process runs', () => {
         store().deleteRuns(['moved']);
         fs.writeFileSync(fileOf(DEFAULT_RUN), 'levels:\n  - process: ""\n');
         clean();
+    });
+
+    test('RN-13: a new run has its default session at once', async () => {
+        clean();
+        const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'rn13-sessions-'));
+        const seen: string[] = [];
+        // As the extension wires it (extension.ts).
+        ProcessStateStore.runCreatedHook = (quest, run) => { seen.push(`${quest}/${run}`); ensureRunDefaultSession(folder, run); };
+        try {
+            assert.equal(store().createRun('nd1', undefined, 'user', false).ok, true);
+            const made = await call(CREATE_PROCESS_RUN_TOOL, { run: 'nd2', select: false });
+            assert.equal(made.ok, true, JSON.stringify(made));
+            assert.deepEqual(seen, [`${QUEST}/nd1`, `${QUEST}/nd2`]);
+            assert.deepEqual([readSession(folder, 'default@nd1')?.basedOn, readSession(folder, 'default@nd2')?.basedOn], ['default@default', 'default@default']);
+            assert.ok(readSession(folder, 'default@default'), 'the base made first');
+            ProcessStateStore.runCreatedHook = () => { throw new Error('boom'); };
+            assert.equal(store().createRun('nd3', undefined, 'user', false).ok, true, 'a failing hook leaves the run standing');
+            const ext = fs.readFileSync(path.join(EXT_ROOT, 'src', 'extension.ts'), 'utf8');
+            assert.match(ext, /ProcessStateStore\.runCreatedHook = \(quest, run\) => \{\s*ensureRunDefaultSession\(TwoTierMemoryService\.instance\.agentSdkSessionsFolder\(quest\), run\);/);
+        } finally {
+            ProcessStateStore.runCreatedHook = undefined;
+            fs.rmSync(folder, { recursive: true, force: true });
+            clean();
+        }
     });
 });

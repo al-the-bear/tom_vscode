@@ -38,7 +38,7 @@ describe('current-prompt files', () => {
     test('CP-1: into the session\'s trail folder only', () => {
         const quest = 'cpq1';
         beginCurrentPrompt({ source: 'queue', literal: 'do it', questId: quest, session: 'default' });
-        const folder = `_ai/quests/${quest}/history/sessions/default/trail`;
+        const folder = `_ai/quests/${quest}/history/sessions/default@default/trail`;
         assert.deepEqual(filesUnder(ws).filter((f) => f.includes(quest)), [
             `${folder}/current_prompt.queue.literal.md`,
             `${folder}/current_prompt.queue.system.md`,
