@@ -2,7 +2,7 @@
   "name": "tom-tac-service",
   "version": "0.1.0",
   "description": "The TAC (Tom Agent Collaboration) coordination service: store, HTTP and WebSocket API, command line. Local mode.",
-  "license": "SEE LICENSE IN ../LICENSE.md",
+  "license": "BSD-3-Clause",
   "private": true,
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
