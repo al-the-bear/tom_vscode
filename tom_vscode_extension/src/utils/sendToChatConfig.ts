@@ -9,6 +9,7 @@
  * rather than the full variable resolver.
  */
 
+import { layoutWorkspaceFolder } from './workspaceLayout';
 import { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID as EXPLAIN_TODO_ID, explainTodoTemplateEntry } from './explainTodoTemplate';
 import { ASK_TOOLS_PARAGRAPH, ensureSeededUserMessageTemplates } from './userMessageTemplateSeeds';
 import * as vscode from 'vscode';
@@ -770,7 +771,7 @@ function expandHomePath(p: string): string {
         result = path.join(home, result.slice(2));
     }
     result = result.replace(/\$\{home\}/g, home);
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (wsRoot) {
         result = result.replace(/\$\{workspaceFolder\}/g, wsRoot);
     }
@@ -1027,7 +1028,7 @@ export function getCopilotChatAnswerFolder(): string {
  * Falls back to `~/.tom/copilot-chat-answers/` when no workspace is open.
  */
 export function getCopilotChatAnswerFolderAbsolute(): string {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (wsRoot) {
         return path.join(wsRoot, getCopilotChatAnswerFolder());
     }

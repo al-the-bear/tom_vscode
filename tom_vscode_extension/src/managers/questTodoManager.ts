@@ -13,7 +13,7 @@
  * and writes YAML that conforms to it.
  */
 
-import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
@@ -214,8 +214,13 @@ export interface QuestTodoFile {
 // Helpers
 // ============================================================================
 
+/**
+ * The workspace folder (the layout's), '' without one. Used for the
+ * workspace-level todo files and walks; the `_ai` sites among its callers
+ * (quests folder fallbacks, the todo schema) move to `aiRoot` with 02_wslayout-3.
+ */
 function getWorkspaceRoot(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return layoutWorkspaceFolder() ?? '';
 }
 
 /** Why `id` is no todo id by the workspace's todo schema (utils/todoIdRule), or undefined. */

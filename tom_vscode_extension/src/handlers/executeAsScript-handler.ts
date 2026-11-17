@@ -5,17 +5,11 @@
  * Supports executing either the full file or just the selected text.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import {
-    handleError,
-    getFilePath,
-    validateDartFile,
-    ensureBridgeRunning,
-    getWorkspaceRoot,
-    getLanguageFromFilename
-} from './handler_shared';
+import { handleError, getFilePath, validateDartFile, ensureBridgeRunning, getLanguageFromFilename } from './handler_shared';
 import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
@@ -88,7 +82,7 @@ export async function executeAsScriptHandler(
                     script: script,
                     basePath: basePath,
                     params: {
-                        workspaceRoot: getWorkspaceRoot() || '',
+                        workspaceRoot: layoutWorkspaceFolder() || '',
                         fileName: fileName,
                         executedBy: 'vscode-context-menu',
                         scriptSource: scriptSource

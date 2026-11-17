@@ -8,10 +8,11 @@
  * Configuration is the quest's Telegram settings, read through telegram-config.ts.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { routeReply } from '../utils/askReplyRouting';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { bridgeLog, getWorkspaceRoot } from './handler_shared';
+import { bridgeLog } from './handler_shared';
 import { TelegramNotifier, TelegramConfig, TelegramCommand, TelegramApiResult, TELEGRAM_DEFAULTS } from './telegram-notifier';
 import {
     loadTelegramConfig,
@@ -330,7 +331,7 @@ export async function telegramToggleHandler(): Promise<void> {
     // Announce on Telegram which workspace/quest this bot is now driving, so a
     // user running a different bot per workspace knows which one replied.
     const wsName = (() => {
-        const root = getWorkspaceRoot();
+        const root = layoutWorkspaceFolder();
         return root ? path.basename(root) : 'workspace';
     })();
     const startupMsg =

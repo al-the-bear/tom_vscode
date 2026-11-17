@@ -10,6 +10,7 @@
  * Command: `tomAi.editor.aiWorkspaceQuests`. Assets: `media/aiWorkspaceQuests/`.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -50,7 +51,7 @@ export const liveAiWorkspaceQuestsDeps: AiWorkspaceQuestsDeps = {
     workspace: () => windowAiWorkspaceName(),
     allQuests: () => listQuestIds(),
     shortDescription: (q) => questShortDescription(q),
-    workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    workspaceRoot: () => layoutWorkspaceFolder(),
 };
 
 /** The page's state; undefined without `_ai` or a workspace folder. */

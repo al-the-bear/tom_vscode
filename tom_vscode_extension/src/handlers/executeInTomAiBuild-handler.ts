@@ -4,16 +4,10 @@
  * Executes a Dart file using the executeFile method (loads file with execute() function).
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import {
-    handleError,
-    getFilePath,
-    validateDartFile,
-    ensureBridgeRunning,
-    getWorkspaceRoot,
-    getLanguageFromFilename
-} from './handler_shared';
+import { handleError, getFilePath, validateDartFile, ensureBridgeRunning, getLanguageFromFilename } from './handler_shared';
 import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
 /**
@@ -64,7 +58,7 @@ export async function executeInTomAiBuildHandler(
                 const result = await bridgeClient.sendRequest('executeFileVcb', {
                     filePath: filePath,
                     params: {
-                        workspaceRoot: getWorkspaceRoot() || '',
+                        workspaceRoot: layoutWorkspaceFolder() || '',
                         executedBy: 'vscode-context-menu'
                     }
                 });

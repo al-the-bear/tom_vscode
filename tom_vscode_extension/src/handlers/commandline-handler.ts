@@ -20,11 +20,12 @@
  *   tomAi.openConfig         — open the config file in the editor
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { getConfigPath, getWorkspaceRoot, resolvePathVariables, getExtensionPath } from './handler_shared';
+import { getConfigPath, resolvePathVariables, getExtensionPath } from './handler_shared';
 import { listedProjects, nearestListedProject } from '../services/workspaceProjects';
 import { resolveNamedExecutable, buildConfigContext, expandConfigPlaceholders, expandExecutablePlaceholders, type ExecutablesConfig } from '../utils/executableResolver';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -146,7 +147,7 @@ function getPostActionDefinitions(): PostActionDefinition[] {
 // Path Helpers
 // ============================================================================
 
-// getWorkspaceRoot() and resolvePathVariables() imported from handler_shared
+// resolvePathVariables() imported from handler_shared; the workspace folder from the layout
 
 function getExtensionRoot(): string | undefined {
     const ext = vscode.extensions.getExtension('tom.tom-ai-extension');
@@ -158,7 +159,7 @@ function getExtensionRoot(): string | undefined {
  */
 function resolveAbsolute(input: string): string {
     if (path.isAbsolute(input)) { return input; }
-    const root = getWorkspaceRoot();
+    const root = layoutWorkspaceFolder();
     if (root) { return path.resolve(root, input); }
     return path.resolve(input);
 }
@@ -202,7 +203,7 @@ function findAncestorWithMarker(startDir: string, markers: string[]): string | u
  */
 async function findProjectRoot(): Promise<string | undefined> {
     const startDir = getActiveFileDir();
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = layoutWorkspaceFolder();
     if (!startDir || !wsRoot) { return undefined; }
     return nearestListedProject(await listedProjects(wsRoot), startDir)?.absolutePath;
 }
@@ -302,7 +303,7 @@ async function defineCommandline(): Promise<void> {
         { label: '$(edit) Type command manually…', _action: 'type' },
     ];
     if (execNames.length > 0) {
-        const ctx = buildConfigContext(config0.bridge?.binaryPath, getWorkspaceRoot(), getExtensionPath());
+        const ctx = buildConfigContext(config0.bridge?.binaryPath, layoutWorkspaceFolder(), getExtensionPath());
         execItems.push({ label: '', kind: vscode.QuickPickItemKind.Separator, _action: 'type' });
         for (const name of execNames) {
             const resolved = resolveNamedExecutable(name, executables, ctx);
@@ -512,7 +513,7 @@ function expandPlaceholders(command: string): string | undefined {
 
     // Build context once for all config-level expansions
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), getExtensionPath());
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), getExtensionPath());
 
     // Expand config-level placeholders (${binaryPath}, ${home}, etc.)
     expanded = expandConfigPlaceholders(expanded, ctx);
@@ -579,7 +580,7 @@ async function resolveExecutionCwd(entry: CommandlineEntry): Promise<string | un
             return '';
         }
         case 'workspace': {
-            const root = getWorkspaceRoot();
+            const root = layoutWorkspaceFolder();
             if (!root) {
                 await showError('No workspace folder open.');
                 return undefined;

@@ -11,6 +11,7 @@
  * - Copilot
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { DuplicateSubmitGuard, type SubmissionFields } from '../utils/duplicateSubmitGuard';
 import { resolveBusySession } from './busySessionChoice';
 import { agentSdkAvailable } from '../services/providerRuntime';
@@ -1234,7 +1235,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendReusablePrompts(): Promise<void> {
-        const wsRoot = getWorkspaceRoot();
+        const wsRoot = layoutWorkspaceFolder();
         const globalDir = this._getGlobalPromptsDir();
         // Both walk the workspace: asynchronously and shared, so asking for
         // the prompts while the window opens does not hold the extension host.
@@ -2034,7 +2035,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private async _openLiveTrailMarkdown(section: string = 'anthropic', session: string = this._panelSession()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         // Resolve the quest folder the same way LiveTrailWriter does.
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
         const transportLabel = section === 'anthropic' ? 'Anthropic/LLM' : section;

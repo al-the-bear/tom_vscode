@@ -5,6 +5,7 @@
  * pre-selecting the quest and file based on the document path.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
@@ -61,7 +62,7 @@ class QuestTodoEditorProvider implements vscode.CustomTextEditorProvider {
         const pending = this.context.workspaceState.get<{ file?: string; todoId?: string }>(QT_PENDING_SELECT_KEY);
         let initialTodoId = '';
         if (pending?.todoId && pending?.file) {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const wsRoot = layoutWorkspaceFolder() ?? '';
             const rel = wsRoot ? path.relative(wsRoot, document.uri.fsPath).replace(/\\/g, '/') : document.uri.fsPath.replace(/\\/g, '/');
             const target = pending.file.replace(/\\/g, '/').replace(/^\.\//, '');
             if (rel === target) {
@@ -105,7 +106,7 @@ class QuestTodoEditorProvider implements vscode.CustomTextEditorProvider {
  * Workspace-level files resolve to `__all_workspace__`.
  */
 function _resolveQuestContext(document: vscode.TextDocument): { questId: string; fileName: string } {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const wsRoot = layoutWorkspaceFolder() ?? '';
     const rel = wsRoot ? path.relative(wsRoot, document.uri.fsPath) : document.uri.fsPath;
 
     // Check if it's inside {aiFolder}/quests/{questId}/

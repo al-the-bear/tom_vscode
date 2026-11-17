@@ -5,8 +5,8 @@
  * quests for a choice.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
 import { listQuestIds } from '../managers/questTodoManager';
 import { aiWorkspaceName, readQuestShortDescription, resolveWorkspaceQuests, type WorkspaceQuests } from '../utils/aiWorkspace';
@@ -14,7 +14,7 @@ import { WsPaths } from '../utils/workspacePaths';
 
 /** The window's workspace name: its root folder's name; undefined without a folder. */
 export function windowAiWorkspaceName(): string | undefined {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const root = layoutWorkspaceFolder();
     return root ? aiWorkspaceName(root) : undefined;
 }
 

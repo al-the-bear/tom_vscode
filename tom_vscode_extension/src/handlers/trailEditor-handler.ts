@@ -9,6 +9,7 @@
  * - Draggable panel separators
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -277,7 +278,7 @@ function firstTrailSetName(sets: Map<string, TrailSet>): string | undefined {
 
 function discoverTrailSetsAcrossWorkspace(openedFolder: string): Map<string, TrailSet> {
     const merged = new Map<string, TrailSet>();
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
 
     const mergeFromFolder = (folderPath: string): void => {
         if (!folderPath || !fs.existsSync(folderPath)) {
@@ -339,7 +340,7 @@ async function gotoWorkspaceTodo(ctx: vscode.ExtensionContext, todoId: string, _
         if (selected) return;
 
         // Fallback: open the YAML file with the Quest TODO custom editor
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         if (!wsRoot) return;
 
         let yamlRelPath = '';

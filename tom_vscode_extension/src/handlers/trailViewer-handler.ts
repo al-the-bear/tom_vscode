@@ -17,6 +17,7 @@
  *     YYYYMMDD_HHMMSS_<session>.answer.md
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -557,7 +558,7 @@ function getTrailRootFolder(): string {
     }
     
     // Default fallback
-    return WsPaths.ai('trail') ?? path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', '_ai', 'trail');
+    return WsPaths.ai('trail') ?? path.join(layoutWorkspaceFolder() ?? '', '_ai', 'trail');
 }
 
 function getConfiguredCopilotRawTrailFolder(): string | undefined {
@@ -930,7 +931,7 @@ export async function gotoWorkspaceTodo(todoRefRaw: string, _context: vscode.Ext
     } catch { /* fall through */ }
 
     // Fallback: find and open in editor
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) {
         vscode.window.showWarningMessage('TODO not found');
         return;

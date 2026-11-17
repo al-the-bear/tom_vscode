@@ -27,6 +27,7 @@
  * Assets: `media/processPanel/`.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { positionProcessLists, NESTED_FOLLOW_UP_LABELS } from '../utils/processStack';
 import { ABORT_NESTED_COMMAND } from '../services/nestedProcessCommands';
 import { openProcessBranchingEditor } from './processBranching-handler';
@@ -192,7 +193,7 @@ class ProcessViewProvider implements vscode.WebviewViewProvider {
     /** The documents of the position this view shows, resolved from its run's chat variables and the level's inputs and outputs. */
     private documents(): DocumentLink[] {
         const store = ProcessStateStore.instance;
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const root = layoutWorkspaceFolder();
         if (!store || !root) { return []; }
         const state = store.state;
         const def = store.entry(state.process)?.definition ?? null;

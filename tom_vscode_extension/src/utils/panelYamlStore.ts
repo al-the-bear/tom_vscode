@@ -15,6 +15,7 @@
  * ({@link schemaRefFrom}).
  */
 
+import { layoutWorkspaceFolder } from './workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -41,7 +42,7 @@ export function getStorageFolder(): string | undefined {
         .getConfiguration('tomAi')
         .get<string>('panelStoragePath');
 
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) {return undefined;}
 
     if (configPath) {
@@ -66,7 +67,7 @@ export function schemaRefFrom(folder: string, wsRoot: string, schemaWsPath: stri
 /** The `$schema` value for a panel file in the storage folder; undefined without a workspace. */
 function schemaRef(schemaWsPath: string | undefined): string | undefined {
     const folder = getStorageFolder();
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     return schemaWsPath && folder && wsRoot ? schemaRefFrom(folder, wsRoot, schemaWsPath) : undefined;
 }
 

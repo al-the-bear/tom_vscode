@@ -27,8 +27,8 @@
  * handler/manager can import it without an import cycle.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
 import { sanitizeQuestSegment } from '../utils/questPaths';
@@ -72,7 +72,7 @@ function resolveQuestId(questId?: string): string {
 
 /** Absolute path of `_ai/quests/{questId}/{fileName}`, with a workspace fallback. */
 function questFilePath(safeQuest: string, fileName: string): string {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const wsRoot = layoutWorkspaceFolder() ?? '';
     return (
         WsPaths.ai('quests', safeQuest, fileName) ||
         path.join(wsRoot, '_ai', 'quests', safeQuest, fileName)

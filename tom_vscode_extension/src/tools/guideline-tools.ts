@@ -22,7 +22,7 @@
  * tool's description so the model sees the inventory without a lookup.
  */
 
-import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
@@ -41,7 +41,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function wsRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return layoutWorkspaceFolder();
 }
 
 function readFileSafe(filePath: string): string | undefined {

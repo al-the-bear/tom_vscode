@@ -7,6 +7,7 @@
  * issuesPanel-handler; the QUEST TODO section embeds from questTodoPanel-handler.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
@@ -227,7 +228,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand('tomAi.workspaceTodos.focus');
                     break;
                 case 'openGuidelinesFolder': {
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const wsRoot = layoutWorkspaceFolder();
                     if (!wsRoot) {
                         break;
                     }
@@ -240,7 +241,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                     break;
                 }
                 case 'openNotesFolder': {
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const wsRoot = layoutWorkspaceFolder();
                     if (!wsRoot) {
                         break;
                     }
@@ -388,11 +389,10 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     }
 
     private _getGuidelinesDir(group?: string): string | null {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const wsRoot = layoutWorkspaceFolder();
+        if (!wsRoot) {
             return null;
         }
-        const wsRoot = workspaceFolder.uri.fsPath;
         if (!group || group === 'global') {
             return WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
         }
@@ -422,7 +422,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     private async _collectGuidelinesProjects(): Promise<{ id: string; label: string }[]> {
         // The extension's one project discovery (buildkit's listing, cached and shared
         // with the other panels; services/workspaceProjects.ts).
-        const wsRootForProjects = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRootForProjects = layoutWorkspaceFolder();
         const projects = (wsRootForProjects ? await listedProjects(wsRootForProjects) : [])
             .map((p) => ({ name: p.name, relativePath: p.path, absolutePath: p.absolutePath }));
         const result: { id: string; label: string }[] = [];
@@ -441,11 +441,10 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     }
 
     private _collectGuidelinesQuests(): { id: string; label: string }[] {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const wsRoot = layoutWorkspaceFolder();
+        if (!wsRoot) {
             return [];
         }
-        const wsRoot = workspaceFolder.uri.fsPath;
         const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
         if (!fs.existsSync(questsDir)) {
             return [];
@@ -645,11 +644,10 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     }
 
     private _getDocsDir(group?: string): string | null {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const wsRoot = layoutWorkspaceFolder();
+        if (!wsRoot) {
             return null;
         }
-        const wsRoot = workspaceFolder.uri.fsPath;
         if (!group || group === 'notes') {
             return WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
         }
@@ -669,7 +667,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
     private async _collectDocsProjects(): Promise<{ id: string; label: string }[]> {
         // The extension's one project discovery (buildkit's listing, cached and shared
         // with the other panels; services/workspaceProjects.ts).
-        const wsRootForProjects = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRootForProjects = layoutWorkspaceFolder();
         const projects = (wsRootForProjects ? await listedProjects(wsRootForProjects) : [])
             .map((p) => ({ name: p.name, relativePath: p.path, absolutePath: p.absolutePath }));
         const result: { id: string; label: string }[] = [];

@@ -31,6 +31,7 @@
  * Spec reference: chat_enhancements.md §2
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -411,7 +412,7 @@ export class ChatVariablesStore {
         if (!stem) {
             return null;
         }
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         if (!wsRoot) {
             return null;
         }
@@ -420,7 +421,7 @@ export class ChatVariablesStore {
     }
 
     private resolveFilePath(): string {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         const fallbackRoot = wsRoot ? path.join(wsRoot, '_ai') : path.join(process.cwd(), '_ai');
         const chatVarsDir = WsPaths.ai('chat_variables') ?? path.join(fallbackRoot, 'chat_variables');
         const wsFile = vscode.workspace.workspaceFile?.fsPath;

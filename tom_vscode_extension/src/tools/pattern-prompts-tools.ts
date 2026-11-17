@@ -35,6 +35,7 @@
  *     + `name.md` all resolve to the same prompt.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 
@@ -257,7 +258,6 @@ export const READ_PATTERN_PROMPT_TOOL: SharedToolDefinition<ReadPatternPromptInp
 // Live vscode bridge
 // ===========================================================================
 
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 
 const PATTERN_SUBDIRS: ReadonlyArray<string> = [
@@ -267,7 +267,7 @@ const PATTERN_SUBDIRS: ReadonlyArray<string> = [
 
 const liveStore: PatternPromptStore = {
     promptDirs() {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const root = layoutWorkspaceFolder();
         if (!root) { return []; }
         return PATTERN_SUBDIRS
             .map((sub) => ({ absolutePath: path.join(root, sub), relativePath: sub }))
@@ -279,7 +279,7 @@ const liveStore: PatternPromptStore = {
     listFiles(absoluteFolder) {
         try {
             const entries = fs.readdirSync(absoluteFolder, { withFileTypes: true });
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const root = layoutWorkspaceFolder() ?? '';
             const out: PatternPromptFile[] = [];
             for (const e of entries) {
                 if (!e.isFile() || !e.name.endsWith('.md')) { continue; }

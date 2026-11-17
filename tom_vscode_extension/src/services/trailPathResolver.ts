@@ -17,8 +17,8 @@
  * workspace-root fallback for relative results) on top.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { resolveVariables } from '../utils/variableResolver';
 
 export interface TrailPathVars {
@@ -55,7 +55,7 @@ export function resolveTrailPath(
     vars: TrailPathVars = {},
     options: TrailPathOptions = {},
 ): string {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const workspaceRoot = layoutWorkspaceFolder() ?? '';
     const mode = options.mode ?? 'fill';
 
     let prepared = input;

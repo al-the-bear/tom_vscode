@@ -17,6 +17,7 @@
  * (Not to be confused with `process-tools.ts`, which spawns OS processes.)
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { SharedToolDefinition } from './shared-tool-registry';
 import type { ProcessStateStore } from '../managers/processStateStore';
 import type { ProcessEntry } from '../utils/processRepository';
@@ -368,10 +369,8 @@ function liveDeps(source: ChangeSource = 'anthropic'): ProcessToolDeps {
         deleteRunSessions: (runs) => store().deleteRunSessions(runs),
         documents: (state) => {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const vscode = require('vscode') as typeof import('vscode');
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const fs = require('fs') as typeof import('fs');
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const root = layoutWorkspaceFolder();
             if (!root) { return []; }
             let values: Record<string, string> = {};
             try {

@@ -12,6 +12,7 @@
  * All YAML operations use the CST-preserving `questTodoManager`.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { runOfStateFile } from '../utils/processRuns';
 import { onDoneShapeError, onDoneTargetRefusal, type TodoOnDone } from '../utils/todoOnDone';
 import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
@@ -757,7 +758,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
 
     const workspaceFilePath = (): string | undefined => {
         if (cfg.fixedFilePath) { return cfg.fixedFilePath; }
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         if (!wsRoot) { return undefined; }
         return path.join(wsRoot, 'workspace.todo.yaml');
     };
@@ -842,7 +843,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 _sendTodoList(cfg.fixedQuestId, cfg.fixedFile || 'all', post);
                 return true;
             }
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             let quests: string[] = [];
             if (wsRoot) {
                 const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
@@ -938,7 +939,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             // is honoured as well as a hard `fixedFile`.
             const ensureFile = cfg.fixedFile || cfg.defaultFile;
             if (cfg.mode === 'fixed-file' && cfg.fixedQuestId && ensureFile) {
-                const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const wsRoot = layoutWorkspaceFolder();
                 if (wsRoot) {
                     const fp = WsPaths.ai('quests', cfg.fixedQuestId, ensureFile) || path.join(wsRoot, '_ai', 'quests', cfg.fixedQuestId, ensureFile);
                     questTodo.ensureTodoFile(fp, { quest: cfg.fixedQuestId });
@@ -1394,7 +1395,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         case 'qtImportFromFile':
         case 'qtImportSessionFile': {
             // Open file picker for *.todo.yaml, import todos into current panel's target
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             if (!wsRoot) return true;
             // Determine default directory for the file picker
             let importDefaultDir = wsRoot;
@@ -1919,7 +1920,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             return true;
         case 'qtOpenExtApp': {
             // Open the current YAML file in an external application
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             if (!wsRoot || !msg.questId) return true;
             const fileName = (!msg.file || msg.file === 'all') ? `todos.${msg.questId}.todo.yaml` : msg.file;
             const fp = WsPaths.ai('quests', msg.questId, fileName) || path.join(wsRoot, '_ai', 'quests', msg.questId, fileName);
@@ -1930,7 +1931,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         }
         case 'qtCheckExtApp': {
             // Check if there's an external app configured for .yaml files
-            const wsRootChk = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRootChk = layoutWorkspaceFolder();
             if (!wsRootChk) {
                 post({ type: 'qtExtAppAvailable', available: false });
                 return true;
@@ -2116,7 +2117,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         case 'qtOpenInEditor': {
             // Open a reference file in the VS Code editor
             if (msg.path) {
-                const wsRootRef = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const wsRootRef = layoutWorkspaceFolder();
                 if (!wsRootRef) return true;
                 const absPath = path.isAbsolute(msg.path) ? msg.path : path.join(wsRootRef, msg.path);
                 if (fs.existsSync(absPath)) {
@@ -2143,7 +2144,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         }
         case 'qtOpenRefExtApp': {
             // Open a reference path in external application
-            const wsRootExt = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRootExt = layoutWorkspaceFolder();
             if (!wsRootExt || !msg.path) return true;
             const absPathExt = path.isAbsolute(msg.path) ? msg.path : path.join(wsRootExt, msg.path);
             if (fs.existsSync(absPathExt)) {
@@ -2213,7 +2214,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             return true;
         }
         case 'qtCheckPathExtApps': {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             const result: Record<string, boolean> = {};
             if (wsRoot && Array.isArray(msg.paths)) {
                 for (const p of msg.paths) {
@@ -2231,7 +2232,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
 
 /** Set up a file watcher that calls refreshFn when quest YAML files change. */
 export function setupQuestTodoWatcher(refreshFn: () => void): vscode.Disposable | undefined {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) { return undefined; }
     const pattern = new vscode.RelativePattern(wsRoot, WsPaths.questTodoGlob);
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
@@ -2306,7 +2307,7 @@ function _sessionSwitchState(): { plan: SessionSwitchPlan; counts: Record<string
 }
 
 function _sessionTodoAbsolutePath(questId: string, sourceFile: string): string | undefined {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot || !questId || !sourceFile) {
         return undefined;
     }
@@ -2373,7 +2374,7 @@ function _resolveArchiveSourcePath(
     workspaceFilePath: () => string | undefined,
 ): string | undefined {
     if (isWorkspaceFileMode) { return workspaceFilePath(); }
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) { return undefined; }
     const sf = (sourceFile ?? '').trim();
     if (sf) {
@@ -2596,11 +2597,11 @@ function _sendTodoList(questId: string, file: string | undefined, post: (m: any)
         } else if (questId === '__all_workspace__') {
             items = readWorkspaceTodos();
         } else if (file && file !== 'all') {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const wsRoot = layoutWorkspaceFolder() ?? '';
             const fp = WsPaths.ai('quests', questId, file) || path.join(wsRoot, '_ai', 'quests', questId, file);
             items = questTodo.readTodoFile(fp);
         } else {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const wsRoot = layoutWorkspaceFolder() ?? '';
             const mainFile = `todos.${questId}.todo.yaml`;
             const fp = WsPaths.ai('quests', questId, mainFile) || path.join(wsRoot, '_ai', 'quests', questId, mainFile);
             items = questTodo.readTodoFile(fp);
@@ -2752,7 +2753,7 @@ function _createTodo(questId: string, todo: any, file: string | undefined, post:
  */
 function _resolveDeleteSourcePath(questId: string, todoId: string, sourceFile?: string): string | undefined {
     try {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         if (!wsRoot) return undefined;
         if (sourceFile) {
             const candidates: string[] = [];
@@ -2911,7 +2912,7 @@ function _resolveMoveSource(
     rawTodoId: string,
     sourceFile: string | undefined,
 ): { todoId: string; path?: string; origin: TodoMoveOrigin; originLabel: string } {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const wsRoot = layoutWorkspaceFolder() ?? '';
     const questOrigin = (questId: string, file: string): { origin: TodoMoveOrigin; originLabel: string } => ({
         origin: { questId, inQuestMainFile: path.basename(file) === `todos.${questId}.todo.yaml`, inWorkspaceFile: false },
         originLabel: `quest: ${questId}`,
@@ -2945,7 +2946,7 @@ function _resolveMoveSource(
 }
 
 function _openYamlFile(questId: string, file: string): void {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot || !questId) return;
     // If 'all' selected, open the main quest todo file
     const fileName = (!file || file === 'all') ? `todos.${questId}.todo.yaml` : file;
@@ -3177,7 +3178,7 @@ function _todoPromptFragment(todo: questTodo.QuestTodoItem, questId?: string, so
 }
 
 function _resolveTodoSourcePath(todo: questTodo.QuestTodoItem, questId?: string, sourceFileHint?: string): string | undefined {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     const normalize = (p: string): string => p.replace(/\\/g, '/');
     const normalizeRel = (p: string): string => normalize(p).replace(/^\.\//, '');
 
@@ -3216,7 +3217,7 @@ function _findTodoForPromptAction(questId: string, todoId: string, sourceFile?: 
             }
         }
         if (sourceFile) {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             if (wsRoot) {
                 const absSource = path.isAbsolute(sourceFile) ? sourceFile : path.join(wsRoot, sourceFile);
                 if (fs.existsSync(absSource)) {
@@ -3233,7 +3234,7 @@ function _findTodoForPromptAction(questId: string, todoId: string, sourceFile?: 
 
     if (questId === '__all_workspace__') {
         if (sourceFile) {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             if (wsRoot) {
                 const absSource = path.isAbsolute(sourceFile) ? sourceFile : path.join(wsRoot, sourceFile);
                 if (fs.existsSync(absSource)) {
@@ -3245,7 +3246,7 @@ function _findTodoForPromptAction(questId: string, todoId: string, sourceFile?: 
     }
 
     if (sourceFile) {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         if (wsRoot) {
             const absSource = path.isAbsolute(sourceFile) ? sourceFile : path.join(wsRoot, sourceFile);
             if (fs.existsSync(absSource)) {

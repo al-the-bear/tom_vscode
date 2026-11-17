@@ -11,6 +11,7 @@
  * left column *.prompt.md file list, right column markdown editor.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -232,12 +233,12 @@ function _listPromptFiles(dir: string): { id: string; label: string }[] {
 
 /** The workspace walks behind the project and scan scopes (shared, asynchronous). */
 async function _getProjectPromptScopes(): Promise<ScopeItem[]> {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = layoutWorkspaceFolder();
     return wsRoot ? projectPromptScopes(wsRoot) : [];
 }
 
 async function _getScanPromptScopes(): Promise<ScopeItem[]> {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = layoutWorkspaceFolder();
     return wsRoot ? scanPromptScopes(wsRoot) : [];
 }
 

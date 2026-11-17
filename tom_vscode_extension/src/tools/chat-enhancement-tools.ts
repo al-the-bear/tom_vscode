@@ -19,6 +19,7 @@
  * Each tool follows the SharedToolDefinition pattern from shared-tool-registry.ts.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -237,7 +238,7 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
     listTodos(questId, file): QuestTodoSummary[] {
         let items: questTodo.QuestTodoItem[];
         if (file) {
-            const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const folder = layoutWorkspaceFolder() ?? '';
             const filePath = path.join(folder, WsPaths.aiFolder, 'quests', questId, file);
             items = questTodo.readTodoFile(filePath);
         } else {
@@ -299,7 +300,7 @@ export const LIST_TODOS_TOOL: SharedToolDefinition<ListQuestTodosInput> = {
 // the bridge only resolves the quest-folder absolute path.
 
 function questTodoAbsolutePath(questId: string, file: string): string {
-    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const folder = layoutWorkspaceFolder() ?? '';
     return path.join(folder, WsPaths.aiFolder, 'quests', questId, file);
 }
 

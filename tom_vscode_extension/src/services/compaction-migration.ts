@@ -29,9 +29,9 @@
  * re-run after a partial first pass.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { sessionRoot, sessionsWithStorage } from './sessionStorage';
 
 import { WsPaths } from '../utils/workspacePaths';
@@ -106,7 +106,7 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
         opts?.onProgress?.(line);
     };
 
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) {
         emit('No workspace open — nothing to migrate.');
         return report;

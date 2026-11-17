@@ -7,7 +7,7 @@
  * a Claude Code built-in.
  */
 
-import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { LOAD_SKILL_TOOL_NAME, loadSkillImpl, type LoadSkillInput } from '../services/skills';
 
@@ -30,7 +30,7 @@ export const LOAD_SKILL_TOOL: SharedToolDefinition<LoadSkillInput> = {
         },
         required: ['name'],
     },
-    execute: (input) => loadSkillImpl(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', input),
+    execute: (input) => loadSkillImpl(layoutWorkspaceFolder() ?? '', input),
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

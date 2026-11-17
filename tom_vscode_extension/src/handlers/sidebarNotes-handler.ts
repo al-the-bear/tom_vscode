@@ -14,6 +14,7 @@
  * `state`), so there is no inline HTML in this file.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
@@ -112,7 +113,7 @@ function getQuestIdFromWorkspaceFile(): string {
 
 function questFolderExists(questId: string): boolean {
     if (!questId) { return false; }
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) { return false; }
     const folder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
     return fs.existsSync(folder) && fs.statSync(folder).isDirectory();
@@ -257,9 +258,9 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
     }
 
     /** Get the first workspace folder root path. */
+    /** The workspace folder (the layout's), where `notes.md` is looked for. */
     private _getWorkspaceRoot(): string | undefined {
-        const folder = vscode.workspace.workspaceFolders?.[0];
-        return folder?.uri.fsPath;
+        return layoutWorkspaceFolder();
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -366,7 +367,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
  * (questNotesPanel-handler.ts) read and write it.
  */
 export function activeQuestNotesFile(): { questId: string; filePath: string } | null {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot || !vscode.workspace.workspaceFile) { return null; }
     const questId = getQuestIdFromWorkspaceFile();
     if (!questId || !questFolderExists(questId)) { return null; }
@@ -483,7 +484,7 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     workspaceNotepadProvider = new WorkspaceNotepadProvider(context);
     questNotesProvider = new QuestNotesProvider(context);
 
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     const hasWorkspaceFile = !!vscode.workspace.workspaceFile;
     vscode.commands.executeCommand('setContext', 'tomAi.hasWorkspaceFile', hasWorkspaceFile);
     vscode.commands.executeCommand('setContext', 'tomAi.hasWorkspaceFile', hasWorkspaceFile);

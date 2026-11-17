@@ -43,6 +43,7 @@
  *     handling" so callers know not to expect filtering.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 
@@ -371,7 +372,6 @@ export const GIT_EXEC_TOOL: SharedToolDefinition<GitWriteInput> = {
 // Live executor + bridge
 // ===========================================================================
 
-import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 
 const liveExecutor: GitExecutor = {
@@ -406,7 +406,7 @@ const liveExecutor: GitExecutor = {
 };
 
 const liveWorkspace: GitWorkspace = {
-    root() { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath; },
+    root() { return layoutWorkspaceFolder(); },
 };
 
 GIT_TOOL.execute      = (input) => gitReadImpl(liveExecutor, liveWorkspace, input);

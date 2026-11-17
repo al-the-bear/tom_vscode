@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from './workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -20,16 +21,9 @@ const originalConsole = {
     debug: (console.debug ? console.debug.bind(console) : console.log.bind(console)),
 };
 
+/** The workspace folder (the layout's): the debug log goes to its `ztmp/`. */
 function getWorkspaceRoot(): string | undefined {
-    const activeUri = vscode.window.activeTextEditor?.document.uri;
-    if (activeUri) {
-        const activeWorkspaceFolder = vscode.workspace.getWorkspaceFolder(activeUri);
-        if (activeWorkspaceFolder) {
-            return activeWorkspaceFolder.uri.fsPath;
-        }
-    }
-    const folders = vscode.workspace.workspaceFolders;
-    return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
+    return layoutWorkspaceFolder();
 }
 
 /**

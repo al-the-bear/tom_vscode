@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TrailService, TrailMetadata, TrailSubsystem } from './trailService';
@@ -52,7 +53,7 @@ function toMetadataObject(systemPrompt?: string, metadata?: TrailMetadata): Trai
 }
 
 function getTrailRootPath(): string {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = layoutWorkspaceFolder();
     if (!workspaceRoot) {
         return path.join(process.env.HOME ?? '', '_ai', 'trail');
     }

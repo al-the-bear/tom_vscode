@@ -15,6 +15,7 @@
  * Design: quest_refresh_implementation_plan.md §4, §6.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { TwoTierMemoryService } from './memory-service';
 import { sessionLiveTrailsSince, sessionsWithStorage } from './sessionStorage';
 import * as path from 'path';
@@ -141,7 +142,7 @@ export class QuestRefreshService {
         }
         try {
             const since = QuestRefreshStore.instance.lastRefreshAt(panel, quest);
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+            const wsRoot = layoutWorkspaceFolder() ?? '';
             const trails = sessionLiveTrailsSince(TwoTierMemoryService.instance.historyFolder(quest), since)
                 .map((t) => ({ ...t, file: (wsRoot ? path.relative(wsRoot, t.file) : t.file).split(path.sep).join('/') }));
             return applyRefreshSessionTrails(prompt, formatRefreshSessionTrails(trails, since));

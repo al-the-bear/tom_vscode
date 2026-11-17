@@ -8,6 +8,7 @@
  * prefix so their DOM element IDs do not collide.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -416,7 +417,7 @@ export async function handleIssuesPanelMessage(msg: any, webview: vscode.Webview
                 const provider = getProvider();
                 if (!provider.supportsAttachments || !provider.uploadAttachment) {
                     // Local fallback: store in quest attachments folder
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const wsRoot = layoutWorkspaceFolder();
                     if (wsRoot && msg.filePath && msg.fileName) {
                         const attachDir = WsPaths.ai('attachments', `issue-${msg.issueNumber}`) || path.join(wsRoot, '_ai', 'attachments', `issue-${msg.issueNumber}`);
                         fs.mkdirSync(attachDir, { recursive: true });
@@ -447,7 +448,7 @@ export async function handleIssuesPanelMessage(msg: any, webview: vscode.Webview
                     attachments = await provider.listAttachments(msg.repoId, msg.issueNumber);
                 } else {
                     // Local fallback: list files from local attachment directory
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const wsRoot = layoutWorkspaceFolder();
                     if (wsRoot) {
                         const attachDir = WsPaths.ai('attachments', `issue-${msg.issueNumber}`) || path.join(wsRoot, '_ai', 'attachments', `issue-${msg.issueNumber}`);
                         if (fs.existsSync(attachDir)) {
@@ -473,7 +474,7 @@ export async function handleIssuesPanelMessage(msg: any, webview: vscode.Webview
                     await provider.deleteAttachment(msg.repoId, msg.issueNumber, msg.attachmentId);
                 } else {
                     // Local fallback: delete from local attachment directory
-                    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const wsRoot = layoutWorkspaceFolder();
                     if (wsRoot) {
                         const filePath = WsPaths.ai('attachments', `issue-${msg.issueNumber}`, msg.attachmentId) || path.join(wsRoot, '_ai', 'attachments', `issue-${msg.issueNumber}`, msg.attachmentId);
                         if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); }

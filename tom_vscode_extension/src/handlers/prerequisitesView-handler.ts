@@ -16,6 +16,7 @@
  *   node (`<file>#<node id>`), never in `_ai`.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -100,7 +101,7 @@ export class PrerequisitesViewProvider implements vscode.WebviewViewProvider {
 
     /** Find the files again (the listing is cached for 30 s; `fresh` asks buildkit again). */
     private async rescan(fresh = false): Promise<void> {
-        const root = WsPaths.wsRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const root = WsPaths.wsRoot ?? layoutWorkspaceFolder();
         if (!root) { this.note = { text: 'No workspace folder is open.', error: true }; this.send(); return; }
         this.root = root;
         const listing = await this.deps.listProjects(root, fresh);

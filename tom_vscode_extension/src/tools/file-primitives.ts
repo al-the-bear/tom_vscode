@@ -85,15 +85,35 @@ export function resolveAgainstWsRoot(filePath: string, wsRoot: string): string {
     return path.isAbsolute(filePath) ? filePath : path.join(wsRoot || process.cwd(), filePath);
 }
 
+/** The window's other root folders (after the first); none unless the host installs a provider. */
+let extraWorkspaceRoots: () => readonly string[] = () => [];
+
 /**
- * Guard against path-traversal outside the workspace. When `wsRoot` is
+ * Let absolute paths in the window's other root folders count as inside the
+ * workspace (DP-part-extension-1). The VS Code host installs the provider;
+ * relative paths still resolve against the workspace folder only.
+ */
+export function setExtraWorkspaceRootsProvider(provider: () => readonly string[]): void {
+    extraWorkspaceRoots = provider;
+}
+
+function isAtOrBelow(resolved: string, root: string): boolean {
+    const rel = path.relative(root, resolved);
+    return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * Guard against path-traversal outside the workspace: inside the workspace
+ * folder, or inside another root folder of the window. When `wsRoot` is
  * empty (no workspace open) we let anything through — there's no
  * workspace to protect.
  */
 export function isInsideWorkspace(resolved: string, wsRoot: string): boolean {
     if (!wsRoot) { return true; }
-    const rel = path.relative(wsRoot, resolved);
-    return !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (isAtOrBelow(resolved, wsRoot)) { return true; }
+    let extra: readonly string[] = [];
+    try { extra = extraWorkspaceRoots(); } catch { extra = []; }
+    return extra.some((root) => root && isAtOrBelow(resolved, root));
 }
 
 // ---------------------------------------------------------------------------

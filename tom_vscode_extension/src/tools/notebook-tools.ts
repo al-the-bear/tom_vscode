@@ -46,6 +46,7 @@
  *     after dispatch; long cells continue running. Documented.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { SharedToolDefinition } from './shared-tool-registry';
 
 // ===========================================================================
@@ -365,7 +366,7 @@ function toCellData(c: NotebookCellInput): vscode.NotebookCellData {
 }
 
 const liveNotebookHost: NotebookHost = {
-    workspaceRoot() { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath; },
+    workspaceRoot() { return layoutWorkspaceFolder(); },
     fileExists(absolutePath) {
         try { return fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile(); }
         catch { return false; }

@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { layoutWorkspaceFolder } from './workspaceLayout';
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
@@ -183,7 +184,7 @@ export class TomAiConfiguration {
             return { path: wsConfigPath, branch: 'workspace .tom (default target)' };
         }
 
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder();
         return wsRoot
             ? { path: path.join(wsRoot, '.tom', WsPaths.configFileName), branch: 'workspace root fallback' }
             : { path: path.join(os.homedir(), '.tom', 'vscode', WsPaths.configFileName), branch: 'home fallback (no workspace)' };
@@ -368,7 +369,7 @@ export class TomAiConfiguration {
     }
 
     private resolveConfiguredPath(configuredPath: string): string {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const workspaceRoot = layoutWorkspaceFolder();
         const expandedHome = configuredPath.replace(/^~(?=$|[\\/])/, os.homedir());
         const withWorkspace = workspaceRoot
             ? expandedHome.replace(/\$\{workspaceFolder\}/g, workspaceRoot)

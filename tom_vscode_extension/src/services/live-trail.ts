@@ -16,9 +16,9 @@
  *     must never affect the turn's actual result.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { WsPaths } from '../utils/workspacePaths';
 import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
 import { sanitizeQuestSegment } from '../utils/questPaths';
@@ -418,7 +418,7 @@ export class LiveTrailWriter {
     constructor(questId: string, fileName: string = 'live-trail.md', session?: string) {
         this.questId = questId || 'default';
         this.session = session || undefined;
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
         const safeQuest = sanitizeQuestSegment(questId);
         // Sanitize the filename the same way the quest segment is sanitized

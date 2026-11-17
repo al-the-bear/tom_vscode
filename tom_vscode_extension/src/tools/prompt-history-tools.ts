@@ -19,7 +19,7 @@
  * without spinning up vscode.
  */
 
-import * as vscode from 'vscode';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { resolveToolSessions, SESSIONS_PARAM_SCHEMA } from './session-param';
@@ -30,7 +30,7 @@ import {
 } from './prompt-history-utils';
 
 function wsRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return layoutWorkspaceFolder();
 }
 
 /** Resolve the per-quest folder. Mirrors TrailService's pattern. */

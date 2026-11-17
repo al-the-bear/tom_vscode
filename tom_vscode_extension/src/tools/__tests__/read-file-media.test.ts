@@ -85,7 +85,7 @@ describe('tomAi_readFile: images and PDFs as content blocks', () => {
 
     test('RM-5: the tool', () => {
         const executors = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'tools', 'tool-executors.ts'), 'utf8');
-        assert.match(executors, /executeRich: \(input\) => readFileMediaImpl\(getWorkspaceRoot\(\), input\),/);
+        assert.match(executors, /executeRich: \(input\) => readFileMediaImpl\(workspaceFolder\(\), input\),/);
         assert.match(READ_FILE_DESCRIPTION, /direct API.*image \(png, jpg, gif, webp\).*PDF/s);
         assert.ok(READ_FILE_DESCRIPTION.length <= 1250, 'the description limit (TD-3)');
     });

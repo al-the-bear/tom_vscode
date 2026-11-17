@@ -29,6 +29,7 @@
  * Path variables automatically get .name and .extension sub-properties.
  */
 
+import { layoutWorkspaceFolder } from './workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -85,7 +86,7 @@ function getGitValues(): Record<string, string> {
         return _gitCache.values;
     }
 
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (!wsRoot) {
         _gitCache = { time: Date.now(), values: {} };
         return {};
@@ -203,7 +204,7 @@ function getConfigFilePath(): string {
     configPath = configPath.replace(/\$\{home\}/g, os.homedir());
 
     // Expand ${workspaceFolder}
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (wsRoot) {
         configPath = configPath.replace(/\$\{workspaceFolder\}/g, wsRoot);
     }
@@ -257,7 +258,7 @@ function _getCopilotChatAnswerFolder(): string {
  * Falls back to ~/.tom/copilot-chat-answers/ when no workspace is open.
  */
 function _getCopilotChatAnswerFolderAbsolute(): string {
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsRoot = layoutWorkspaceFolder();
     if (wsRoot) {
         return path.join(wsRoot, _getCopilotChatAnswerFolder());
     }
@@ -275,7 +276,7 @@ function _getCopilotChatAnswerFolderAbsolute(): string {
 export function buildVariableMap(options?: ResolveOptions): Record<string, string> {
     const now = new Date();
     const wf = vscode.workspace.workspaceFolders?.[0];
-    const wsRoot = wf?.uri.fsPath || '';
+    const wsRoot = layoutWorkspaceFolder() || '';
     const requestId = generateShortUUID();
     const configPath = getConfigFilePath();
 
@@ -370,7 +371,7 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
 
 function addEditorValues(values: Record<string, string>): void {
     const editor = vscode.window.activeTextEditor;
-    const wf = vscode.workspace.workspaceFolders?.[0];
+    const wsFolder = layoutWorkspaceFolder();
 
     if (editor) {
         const doc = editor.document;
@@ -386,7 +387,7 @@ function addEditorValues(values: Record<string, string>): void {
         values['file.extension']  = fileExt;
         values['file.content']    = doc.getText();
         values['file.selection']  = hasSelection ? sel : doc.getText();
-        values['file.relative']   = wf ? path.relative(wf.uri.fsPath, filePath) : filePath;
+        values['file.relative']   = wsFolder ? path.relative(wsFolder, filePath) : filePath;
         values['file.language']   = doc.languageId;
         values['fileFolder']      = fileDir;
         values['selection']       = sel || '';

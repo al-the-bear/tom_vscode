@@ -44,6 +44,8 @@ Each table lists every tool in the family with a per-transport default.
 
 ### 4.1 Files (read / write / search)
 
+Paths: a relative path is resolved against the **workspace folder** (the window's first folder, `utils/workspaceLayout.ts`); an absolute path is accepted inside the workspace folder or any other root folder of the window, and refused outside them (`isInsideWorkspace`, `src/tools/__tests__/multiRootWorkspaceFolder.test.ts`). The file open in the editor does not change it.
+
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_readFile` | Read file (optional line range, line numbers; 2000 lines / 200 000 characters without a range). On the direct API an image (png, jpg, gif, webp) comes back as an image block and a PDF as a document block the model sees (`executeRich`; up to 3.75 MB / 16 MB); other transports get the text. | 🔁 | ✅ | ✅ | ✅ |

@@ -98,7 +98,7 @@ describe('the tom build tools', () => {
         assert.match(tg, /const tool = resolveBuildTool\(name, workspaceRoot, currentDartBinariesConfig\(\), process\.env, getCurrentPlatform\(\), dartBinariesExtensionRoot\(\)\);/);
         assert.match(tg, /tool\.source === 'bundled' && tool\.path\s*\?\s*\{ \.\.\.process\.env, PATH: `\$\{path\.dirname\(tool\.path\)\}\$\{path\.delimiter\}/);
         for (const name of ['buildkit', 'testkit']) {
-            assert.match(tg, new RegExp(`const shell = buildToolShellCommand\\('${name}', args, getWorkspaceRoot\\(\\) \\?\\? cwd\\);[\\s\\S]{0,200}await execShell\\(shell\\.command, cwd, 0, shell\\.env\\);`));
+            assert.match(tg, new RegExp(`const shell = buildToolShellCommand\\('${name}', args, layoutWorkspaceFolder\\(\\) \\?\\? cwd\\);[\\s\\S]{0,200}await execShell\\(shell\\.command, cwd, 0, shell\\.env\\);`));
         }
     });
 });

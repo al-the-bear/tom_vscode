@@ -13,6 +13,7 @@
  * use. Reads return `""` for absent files so callers don't have to check.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { clearSessionId, saveSessionId } from './agentSdkSessionStore';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -189,7 +190,7 @@ export class TwoTierMemoryService {
 
     /** Absolute path to the memory root (`_ai/memory/`). */
     memoryRoot(): string {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         // WsPaths.ai('memory') resolves via the configured AI folder name
         // (WsPaths.aiFolder, e.g. '_ai'). 'memory' is now in AI_SUBPATHS,
         // so WsPaths.ai('memory') should always succeed; the fallback uses
@@ -589,7 +590,7 @@ export class TwoTierMemoryService {
     private historyRootOf(quest: string): string {
         const root = WsPaths.ai('quests')
             ?? path.join(
-                vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+                layoutWorkspaceFolder() ?? '',
                 WsPaths.aiFolder,
                 'quests',
             );

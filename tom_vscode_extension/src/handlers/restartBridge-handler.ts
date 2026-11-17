@@ -5,18 +5,10 @@
  * from tom_vscode_extension.json → bridge section.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import {
-    handleError,
-    getWorkspaceRoot,
-    getConfigPath,
-    getBridgeClient,
-    setBridgeClient,
-    resolvePathVariables,
-    resolveBridgeExecutable,
-    bridgeLog
-} from './handler_shared';
+import { handleError, getConfigPath, getBridgeClient, setBridgeClient, resolvePathVariables, resolveBridgeExecutable, bridgeLog } from './handler_shared';
 import { DartBridgeClient } from '../vscode-bridge';
 import { guardDartScript, type DartScriptUnavailableAnswer } from './dartScriptGuard';
 
@@ -135,7 +127,7 @@ export async function restartBridgeHandler(
     if (blocked) { return blocked; }
     try {
         bridgeLog('[Bridge] restartBridgeHandler called (showMessages=' + showMessages + ')');
-        const workspaceRoot = getWorkspaceRoot();
+        const workspaceRoot = layoutWorkspaceFolder();
         if (!workspaceRoot) {
             bridgeLog('[Bridge] No workspace folder open — aborting', 'ERROR');
             if (showMessages) {

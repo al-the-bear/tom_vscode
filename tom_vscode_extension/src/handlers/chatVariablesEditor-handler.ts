@@ -7,6 +7,7 @@
  * Command: `tomAi.editor.chatVariables`
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -258,8 +259,9 @@ async function _pickProjects(): Promise<void> {
 // Role picker
 // ============================================================================
 
+/** The workspace folder (the layout's); an `_ai` site (the roles), moved to `aiRoot` by 02_wslayout-3. */
 function _getWorkspaceRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return layoutWorkspaceFolder();
 }
 
 function _scanRoles(): string[] {

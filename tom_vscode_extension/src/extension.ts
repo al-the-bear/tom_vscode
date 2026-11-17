@@ -28,57 +28,7 @@ import * as os from 'os';
 import { DartBridgeClient } from './vscode-bridge';
 
 // Command handlers
-import {
-    bridgeLog,
-    getWorkspaceRoot,
-    reportException,
-    getBridgeClient,
-    initializeBridgeClient,
-    sendToChatHandler,
-    SendToChatAdvancedManager,
-    executeInTomAiBuildHandler,
-    executeAsScriptHandler,
-    restartBridgeHandler,
-    switchBridgeProfileHandler,
-    runTestsHandler,
-    reloadWindowHandler,
-    startCliServerHandler,
-    startCliServerCustomPortHandler,
-    stopCliServerHandler,
-    startProcessMonitorHandler,
-    toggleBridgeDebugLoggingHandler,
-    printConfigurationHandler,
-    showHelpHandler,
-    showApiInfoHandler,
-    LocalLlmManager,
-    setLocalLlmManager,
-    registerChordMenuCommands,
-    registerCommandlineCommands,
-    registerCombinedCommands,
-    registerStateMachineCommands,
-    registerDsNotesViews,
-    registerChatPanel,
-    registerWsPanel,
-    registerChatVariablesEditorCommand,
-    registerQueueEditorCommand,
-    registerTimedRequestsEditorCommand,
-    registerGlobalTemplateEditorCommand,
-    registerRolesEditorCommands,
-    registerReusablePromptEditorCommand,
-    registerQueueTemplateEditorCommand,
-    telegramTestHandler,
-    telegramToggleHandler,
-    telegramConfigureHandler,
-    initTelegramCommands,
-    disposeTelegramStandalone,
-    readEffectiveTelegramRaw,
-    showStatusPageHandler,
-    registerStatusPageSerializer,
-    toggleTrailHandler,
-    getConfigPath,
-    registerTrailViewerCommands,
-    setExtensionPath,
-} from './handlers';
+import { bridgeLog, reportException, getBridgeClient, initializeBridgeClient, sendToChatHandler, SendToChatAdvancedManager, executeInTomAiBuildHandler, executeAsScriptHandler, restartBridgeHandler, switchBridgeProfileHandler, runTestsHandler, reloadWindowHandler, startCliServerHandler, startCliServerCustomPortHandler, stopCliServerHandler, startProcessMonitorHandler, toggleBridgeDebugLoggingHandler, printConfigurationHandler, showHelpHandler, showApiInfoHandler, LocalLlmManager, setLocalLlmManager, registerChordMenuCommands, registerCommandlineCommands, registerCombinedCommands, registerStateMachineCommands, registerDsNotesViews, registerChatPanel, registerWsPanel, registerChatVariablesEditorCommand, registerQueueEditorCommand, registerTimedRequestsEditorCommand, registerGlobalTemplateEditorCommand, registerRolesEditorCommands, registerReusablePromptEditorCommand, registerQueueTemplateEditorCommand, telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, initTelegramCommands, disposeTelegramStandalone, readEffectiveTelegramRaw, showStatusPageHandler, registerStatusPageSerializer, toggleTrailHandler, getConfigPath, registerTrailViewerCommands, setExtensionPath } from './handlers';
 
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
 import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
@@ -87,7 +37,7 @@ import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
-import { getLayout, registerLayoutTracking } from './utils/workspaceLayout';
+import { getLayout, registerLayoutTracking, layoutWorkspaceFolder } from './utils/workspaceLayout';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { registerCreateQuestCommand } from './handlers/createQuest-handler';
 import { openQuestOverviewOnce } from './handlers/questOverviewOnOpen-handler';
@@ -460,7 +410,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const current = bridge?.current ? profiles[bridge.current] : undefined;
         // The bridge runs the current profile's executable, else the first profile's that names one.
         const bridgeExecutable = current?.executable ?? Object.values(profiles).find((p) => typeof p?.executable === 'string')?.executable;
-        return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: getWorkspaceRoot(), bridgeExecutable };
+        return { executables: bridge?.executables, binaryPath: bridge?.binaryPath, workspaceRoot: layoutWorkspaceFolder(), bridgeExecutable };
     });
     initDartBinariesHelp(context);
     // The project list without buildkit (qrfix14): once per reason and window, a notification
@@ -468,7 +418,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setProjectListingNotifier((fallback) => {
         void vscode.window.showWarningMessage(projectListingNoticeLine(fallback), 'Show details').then(async (pick) => {
             if (pick !== 'Show details') { return; }
-            const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: projectListingNoticeMarkdown(fallback, getWorkspaceRoot() ?? '') });
+            const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: projectListingNoticeMarkdown(fallback, layoutWorkspaceFolder() ?? '') });
             await vscode.window.showTextDocument(doc, { preview: true });
         });
     });

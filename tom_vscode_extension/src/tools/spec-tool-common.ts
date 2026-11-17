@@ -4,6 +4,7 @@
  * carries, failure answers, and the live dependencies for the extension.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -141,7 +142,7 @@ export const sharedCursors = new SomSearchCursors();
 
 export function liveDeps(): SpecToolDeps {
     return {
-        wsRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+        wsRoot: layoutWorkspaceFolder() ?? '',
         store: somDocumentStore(),
         service: SomModelService.instance,
         cursors: sharedCursors,

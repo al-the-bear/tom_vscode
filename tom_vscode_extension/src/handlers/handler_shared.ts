@@ -5,6 +5,7 @@
  * including logging, error handling, workspace utilities, and bridge management.
  */
 
+import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -149,21 +150,15 @@ export function reportException(context: string, error: unknown, details?: Recor
 // ============================================================================
 
 /**
- * Get the workspace root path
+ * The workspace folder: the window's first folder (`getLayout().workspaceFolder`),
+ * undefined without a folder.
+ *
+ * @deprecated Use `getLayout().workspaceFolder` (`utils/workspaceLayout.ts`) for
+ * the workspace folder, `WsPaths.ai*` / `getLayout().aiRoot` for `_ai`. Kept for
+ * the `_ai` call sites until 02_wslayout-3 moves them and removes this.
  */
 export function getWorkspaceRoot(): string | undefined {
-    const activeUri = vscode.window.activeTextEditor?.document.uri;
-    if (activeUri) {
-        const activeWorkspaceFolder = vscode.workspace.getWorkspaceFolder(activeUri);
-        if (activeWorkspaceFolder) {
-            return activeWorkspaceFolder.uri.fsPath;
-        }
-    }
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-        return undefined;
-    }
-    return workspaceFolders[0].uri.fsPath;
+    return getLayout()?.workspaceFolder;
 }
 
 /**
@@ -483,7 +478,7 @@ export async function showAnalysisResult(analysis: string): Promise<void> {
  */
 export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
     const config = loadSendToChatConfig();
-    return buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    return buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), _extensionPath);
 }
 
 /**
@@ -495,7 +490,7 @@ export function getConfigPlaceholderContext(): ConfigPlaceholderContext {
  */
 export function resolveExecutable(name: string): string | undefined {
     const config = loadSendToChatConfig();
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), _extensionPath);
     return resolveNamedExecutable(name, config?.bridge?.executables, ctx);
 }
 
@@ -515,7 +510,7 @@ export function getExternalApplicationForFile(filePath: string): {
     const mapping = findExternalApplication(filePath, config?.externalApplications);
     if (!mapping) return undefined;
     
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), _extensionPath);
     const executable = resolveApplicationExecutable(mapping, config?.bridge?.executables, ctx);
     return {
         executable,
@@ -574,7 +569,7 @@ export function resolveBridgeExecutable(profileName: string): string | undefined
     const profile = config?.bridge?.profiles?.[profileName];
     if (!profile || !profile.executable) return undefined;
 
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), _extensionPath);
     return resolveNamedExecutable(profile.executable, config?.bridge?.executables, ctx);
 }
 
@@ -592,7 +587,7 @@ export function listConfiguredExecutables(): Array<{
     
     const result: Array<{ name: string; path: string | undefined; exists: boolean }> = [];
     
-    const ctx = buildConfigContext(config?.bridge?.binaryPath, getWorkspaceRoot(), _extensionPath);
+    const ctx = buildConfigContext(config?.bridge?.binaryPath, layoutWorkspaceFolder(), _extensionPath);
     for (const name of Object.keys(executables)) {
         const resolved = resolveNamedExecutable(name, executables, ctx);
         result.push({

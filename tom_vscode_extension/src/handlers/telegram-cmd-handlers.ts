@@ -23,11 +23,12 @@
  *   stop                 — Stop Telegram polling
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
-import { bridgeLog, getWorkspaceRoot, getBridgeClient, getConfigPath } from './handler_shared';
+import { bridgeLog, getBridgeClient, getConfigPath } from './handler_shared';
 import { dartScriptUnavailableText, isDartScriptAvailable } from './dartScriptGuard';
 import {
     TelegramCommandRegistry,
@@ -63,7 +64,7 @@ let telegramCwd: string = '';
 /** Get the current Telegram working directory (initializes to workspace root). */
 function getCwd(): string {
     if (!telegramCwd) {
-        telegramCwd = getWorkspaceRoot() ?? process.cwd();
+        telegramCwd = layoutWorkspaceFolder() ?? process.cwd();
     }
     return telegramCwd;
 }
@@ -76,7 +77,7 @@ function resolvePath(p: string): string {
 
 /** Format a path relative to the workspace root for display. */
 function displayPath(absPath: string): string {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = layoutWorkspaceFolder();
     if (wsRoot && absPath.startsWith(wsRoot)) {
         const rel = path.relative(wsRoot, absPath);
         return rel || path.basename(wsRoot);
@@ -98,7 +99,7 @@ interface ProjectInfo {
 
 /** The workspace's projects (buildkit's listing, the extension's one project discovery). */
 async function discoverProjects(): Promise<ProjectInfo[]> {
-    const root = getWorkspaceRoot();
+    const root = layoutWorkspaceFolder();
     if (!root) { return []; }
     return (await listedProjects(root)).map((project) => ({ name: project.name, absPath: project.absolutePath }));
 }
@@ -118,7 +119,7 @@ async function findProject(name: string): Promise<ProjectInfo | undefined> {
 
 /** The innermost listed project holding a directory. */
 async function detectProject(fromDir: string): Promise<ProjectInfo | undefined> {
-    const root = getWorkspaceRoot();
+    const root = layoutWorkspaceFolder();
     const project = root ? nearestListedProject(await listedProjects(root), fromDir) : undefined;
     if (!project) {
         return undefined;
@@ -195,7 +196,7 @@ async function lsHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandRes
 async function cdHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     if (cmd.args.length === 0) {
         // cd with no args → go to workspace root
-        telegramCwd = getWorkspaceRoot() ?? process.cwd();
+        telegramCwd = layoutWorkspaceFolder() ?? process.cwd();
         return { text: `📂 ${esc(displayPath(telegramCwd))}` };
     }
 
@@ -232,7 +233,7 @@ async function projectHandler(cmd: ParsedTelegramCommand): Promise<TelegramComma
             return { text: '❌ No projects found in workspace.' };
         }
 
-        const wsRoot = getWorkspaceRoot() ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const lines = ['📦 *Projects*\n'];
         for (const p of projects.sort((a, b) => a.name.localeCompare(b.name))) {
             const relPath = wsRoot ? path.relative(wsRoot, p.absPath) : p.absPath;
@@ -303,7 +304,7 @@ async function problemsHandler(_cmd: ParsedTelegramCommand): Promise<TelegramCom
             else if (d.severity === vscode.DiagnosticSeverity.Warning) { w++; warningCount++; }
             else { i++; infoCount++; }
         }
-        const wsRoot = getWorkspaceRoot() ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const relPath = wsRoot ? path.relative(wsRoot, uri.fsPath) : uri.fsPath;
         fileIssues.push({ file: relPath, errors: e, warnings: w, infos: i });
     }
@@ -346,7 +347,7 @@ async function todosHandler(_cmd: ParsedTelegramCommand): Promise<TelegramComman
         for (const d of diags) {
             const msg = d.message.toLowerCase();
             if (msg.includes('todo') || msg.includes('fixme') || msg.includes('hack')) {
-                const wsRoot = getWorkspaceRoot() ?? '';
+                const wsRoot = layoutWorkspaceFolder() ?? '';
                 const relPath = wsRoot ? path.relative(wsRoot, uri.fsPath) : uri.fsPath;
                 todoItems.push({
                     file: relPath,
@@ -405,7 +406,7 @@ export function buildToolShellCommand(name: BuildToolName, args: string, workspa
 async function bkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const cwd = getCwd();
     const args = normalizeArgs(cmd.rawArgs);
-    const shell = buildToolShellCommand('buildkit', args, getWorkspaceRoot() ?? cwd);
+    const shell = buildToolShellCommand('buildkit', args, layoutWorkspaceFolder() ?? cwd);
 
     bridgeLog(`[Telegram] Running: ${shell.command} in ${cwd}`);
     const { stdout, stderr, exitCode } = await execShell(shell.command, cwd, 0, shell.env);
@@ -422,7 +423,7 @@ async function bkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandRes
 async function tkHandler(cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
     const cwd = getCwd();
     const args = normalizeArgs(cmd.rawArgs);
-    const shell = buildToolShellCommand('testkit', args, getWorkspaceRoot() ?? cwd);
+    const shell = buildToolShellCommand('testkit', args, layoutWorkspaceFolder() ?? cwd);
 
     bridgeLog(`[Telegram] Running: ${shell.command} in ${cwd}`);
     const { stdout, stderr, exitCode } = await execShell(shell.command, cwd, 0, shell.env);
@@ -529,7 +530,7 @@ async function cliIntegrationHandler(cmd: ParsedTelegramCommand): Promise<Telegr
 
 // --- /status ---
 async function statusHandler(_cmd: ParsedTelegramCommand): Promise<TelegramCommandResult> {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = layoutWorkspaceFolder();
     const cwd = getCwd();
     const project = await detectProject(cwd);
 

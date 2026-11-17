@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
@@ -9,7 +10,7 @@ import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
 
 /** The quest's `history/` folder, where every session's storage root is. */
 export function questHistoryRoot(quest: string): string {
-    const questsRoot = WsPaths.ai('quests') ?? path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', WsPaths.aiFolder, 'quests');
+    const questsRoot = WsPaths.ai('quests') ?? path.join(layoutWorkspaceFolder() ?? '', WsPaths.aiFolder, 'quests');
     return path.join(questsRoot, quest || 'default', 'history');
 }
 

@@ -452,3 +452,17 @@ export function resetLayoutForTests(): void {
     cachedKey = undefined;
     cachedValid = false;
 }
+
+/** The window's workspace folder (`getLayout().workspaceFolder`), or undefined without a folder. */
+export function layoutWorkspaceFolder(): string | undefined {
+    return getLayout()?.workspaceFolder;
+}
+
+/** The window's other root folders (every folder after the first): extra VS Code root folders only. */
+export function layoutExtraRootFolders(): string[] {
+    const vscode = vscodeApi();
+    return (vscode.workspace.workspaceFolders ?? [])
+        .slice(1)
+        .filter((f) => f.uri.scheme === 'file' || f.uri.scheme === undefined)
+        .map((f) => f.uri.fsPath);
+}

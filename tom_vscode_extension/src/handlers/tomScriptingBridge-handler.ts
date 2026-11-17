@@ -9,6 +9,7 @@
  * - workspace.* - Workspace/project/quest operations
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -571,7 +572,7 @@ export class TomScriptingBridgeHandler {
     // ========================================================================
 
     private async handleDocRequest(method: string, params: any): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
 
         switch (method) {
             case 'doc.listVce': {
@@ -685,7 +686,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private getDocFolderPath(folder: string, subfolder?: string): string {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         let basePath: string;
 
         switch (folder) {
@@ -728,7 +729,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async listDocuments(dirPath: string, pattern?: string, recursive?: boolean): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const documents: any[] = [];
 
         if (!fs.existsSync(dirPath)) {
@@ -802,7 +803,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async listTrailEntries(questId?: string, limit?: number, since?: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const trailDir = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
         const entries: any[] = [];
 
@@ -841,7 +842,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async listGuidelines(category?: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const guidelinesDir = path.join(wsRoot, '_copilot_guidelines');
         const guidelines: any[] = [];
         const categories = new Set<string>();
@@ -880,7 +881,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async readGuideline(name: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const guidelinesDir = path.join(wsRoot, '_copilot_guidelines');
 
         // First try direct match
@@ -910,7 +911,7 @@ export class TomScriptingBridgeHandler {
     // ========================================================================
 
     private async handleWorkspaceRequest(method: string, params: any): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
 
         switch (method) {
             case 'workspace.getInfoVce': {
@@ -998,7 +999,7 @@ export class TomScriptingBridgeHandler {
 
     /** The workspace root the project calls list (the first folder). */
     private projectsRoot(): string {
-        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        return layoutWorkspaceFolder() ?? '';
     }
 
     /** The workspace's projects as the scripting API reads them (buildkit's listing, services/workspaceProjects.ts). */
@@ -1009,7 +1010,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async getWorkspaceInfo(): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const wsFile = vscode.workspace.workspaceFile?.fsPath;
         const questIds = questTodo.listQuestIds();
         const projects = await this.scriptingProjects();
@@ -1061,7 +1062,7 @@ export class TomScriptingBridgeHandler {
 
     private async listQuests(includeTodoCounts?: boolean): Promise<any> {
         const questIds = questTodo.listQuestIds();
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const activeQuest = WsPaths.getWorkspaceQuestId();
         const quests: any[] = [];
 
@@ -1098,7 +1099,7 @@ export class TomScriptingBridgeHandler {
     }
 
     private async getQuest(questId: string): Promise<any> {
-        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const wsRoot = layoutWorkspaceFolder() ?? '';
         const questDir = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
 
         if (!fs.existsSync(questDir)) {

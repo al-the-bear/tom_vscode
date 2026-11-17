@@ -44,7 +44,7 @@ import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
 import { readChatQuestionsConfig, writeChatQuestionsConfig, getChatQuestionsConfigPath } from './chatQuestions-config';
 import { WsPaths } from '../utils/workspacePaths';
-import { getLayout, describeAiMissing } from '../utils/workspaceLayout';
+import { getLayout, describeAiMissing, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
@@ -1248,7 +1248,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         case 'openTrailFile': {
             const questId = WsPaths.getWorkspaceQuestId();
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             const questFolder = WsPaths.ai('quests', questId) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', questId) : '');
             if (questFolder) {
                 const promptsPath = path.join(questTrailFolder(questFolder), `${questId}.copilot.prompts.md`);

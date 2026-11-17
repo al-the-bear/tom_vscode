@@ -20,14 +20,16 @@ import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { getCurrentToolContext } from '../services/tool-execution-context';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { WsPaths } from '../utils/workspacePaths';
+import { layoutExtraRootFolders, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { withAlwaysOnTools } from '../utils/roleTypes';
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-function getWorkspaceRoot(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+/** The workspace folder: the window's first folder (the layout), '' without one. */
+function workspaceFolder(): string {
+    return layoutWorkspaceFolder() ?? '';
 }
 
 // ============================================================================
@@ -38,7 +40,7 @@ function getWorkspaceRoot(): string {
 //
 // Definitions, input shapes, and pure impls live in `file-primitives.ts`.
 // Here we just clone the tool def with a live executor that injects
-// `getWorkspaceRoot()` (and the vscode-backed walker for findFiles, so
+// `workspaceFolder()` (and the vscode-backed walker for findFiles, so
 // production keeps benefiting from VS Code's `search.exclude` integration).
 // `findTextInFiles` uses the file-primitives Node-native scanner — the
 // old `grep` shell-out had an unfixed injection vulnerability
@@ -58,30 +60,35 @@ import {
     listDirectoryImpl,
     findFilesImpl,
     findTextInFilesImpl,
+    setExtraWorkspaceRootsProvider,
 } from './file-primitives';
+
+// The file tools resolve a relative path against the workspace folder and
+// accept an absolute path in any root folder of the window (DP-part-extension-1).
+setExtraWorkspaceRootsProvider(layoutExtraRootFolders);
 
 export type { ReadFileInput, ListDirectoryInput, FindFilesInput, FindTextInFilesInput };
 
 export const READ_FILE_TOOL: SharedToolDefinition<ReadFileInput> = {
     ...READ_FILE_DEF,
-    execute: (input) => readFileImpl(getWorkspaceRoot(), input),
-    executeRich: (input) => readFileMediaImpl(getWorkspaceRoot(), input),
+    execute: (input) => readFileImpl(workspaceFolder(), input),
+    executeRich: (input) => readFileMediaImpl(workspaceFolder(), input),
 };
 
 export const LIST_DIRECTORY_TOOL: SharedToolDefinition<ListDirectoryInput> = {
     ...LIST_DIRECTORY_DEF,
-    execute: (input) => listDirectoryImpl(getWorkspaceRoot(), input),
+    execute: (input) => listDirectoryImpl(workspaceFolder(), input),
 };
 
 export const FIND_FILES_TOOL: SharedToolDefinition<FindFilesInput> = {
     ...FIND_FILES_DEF,
     // The workspace walk with gitignore, the text search's rules (not VS Code's search, which reads no ignore files).
-    execute: (input) => findFilesImpl({ wsRoot: getWorkspaceRoot() }, input),
+    execute: (input) => findFilesImpl({ wsRoot: workspaceFolder() }, input),
 };
 
 export const FIND_TEXT_IN_FILES_TOOL: SharedToolDefinition<FindTextInFilesInput> = {
     ...FIND_TEXT_IN_FILES_DEF,
-    execute: (input) => findTextInFilesImpl({ wsRoot: getWorkspaceRoot() }, input),
+    execute: (input) => findTextInFilesImpl({ wsRoot: workspaceFolder() }, input),
 };
 
 // --- Web tools (fetch + search) ---------------------------------------------
@@ -149,7 +156,7 @@ export const GET_ERRORS_TOOL = GET_ERRORS_DEF;
 //
 // Definitions, input shapes, and pure impls live in `file-mutations.ts`.
 // Here we just clone each tool def with a live executor that injects
-// `getWorkspaceRoot()`. Same pattern as the file primitives above; see
+// `workspaceFolder()`. Same pattern as the file primitives above; see
 // `file-mutations.ts` for the safer-by-default redesign (createFile
 // no longer silently overwrites, editFile requires unique match by
 // default, multiEditFile is atomic by default, moveFile handles EXDEV).
@@ -176,23 +183,23 @@ export type { CreateFileInput, EditFileInput, MultiEditFileInput, DeleteFileInpu
 
 export const CREATE_FILE_TOOL: SharedToolDefinition<CreateFileInput> = {
     ...CREATE_FILE_DEF,
-    execute: (input) => createFileImpl(getWorkspaceRoot(), input),
+    execute: (input) => createFileImpl(workspaceFolder(), input),
 };
 
 export const EDIT_FILE_TOOL: SharedToolDefinition<EditFileInput> = {
     ...EDIT_FILE_DEF,
-    execute: (input) => editFileImpl(getWorkspaceRoot(), input),
+    execute: (input) => editFileImpl(workspaceFolder(), input),
 };
 
 export const MULTI_EDIT_FILE_TOOL: SharedToolDefinition<MultiEditFileInput> = {
     ...MULTI_EDIT_FILE_DEF,
-    execute: (input) => multiEditFileImpl(getWorkspaceRoot(), input),
+    execute: (input) => multiEditFileImpl(workspaceFolder(), input),
 };
 
 // --- run_command --------------------------------------------------------------
 //
 // Definition + impl live in `run-command.ts`. Here we just clone the def
-// with a live executor that injects `getWorkspaceRoot()`. See run-command.ts
+// with a live executor that injects `workspaceFolder()`. See run-command.ts
 // for the rewrite (explicit timeout/exit-code/truncation, SIGTERM→SIGKILL
 // kill escalation, 10 MB buffer cap).
 
@@ -202,7 +209,7 @@ export type { RunCommandInput };
 
 export const RUN_COMMAND_TOOL: SharedToolDefinition<RunCommandInput> = {
     ...RUN_COMMAND_DEF,
-    execute: (input) => runCommandImpl({ wsRoot: getWorkspaceRoot() }, input),
+    execute: (input) => runCommandImpl({ wsRoot: workspaceFolder() }, input),
 };
 
 // --- run_vscode_command ------------------------------------------------------
@@ -231,12 +238,12 @@ export const RUN_VSCODE_COMMAND_TOOL = RUN_VSCODE_COMMAND_DEF;
 
 export const DELETE_FILE_TOOL: SharedToolDefinition<DeleteFileInput> = {
     ...DELETE_FILE_DEF,
-    execute: (input) => deleteFileImpl(getWorkspaceRoot(), input),
+    execute: (input) => deleteFileImpl(workspaceFolder(), input),
 };
 
 export const MOVE_FILE_TOOL: SharedToolDefinition<MoveFileInput> = {
     ...MOVE_FILE_DEF,
-    execute: (input) => moveFileImpl(getWorkspaceRoot(), input),
+    execute: (input) => moveFileImpl(workspaceFolder(), input),
 };
 
 // ============================================================================
@@ -427,7 +434,7 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
     const wsName = vscode.workspace.name ?? '';
     const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
     const questId = EditorWsPaths.getWorkspaceQuestId();
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const root = layoutWorkspaceFolder() ?? '';
 
     let projects: WorkspaceInfoSnapshot['projects'] = null;
     let projectsSource: string | null = null;
@@ -502,7 +509,7 @@ function liveActiveEditorSnapshot(opts: { includeSelectionText: boolean; maxSele
     if (!editor) { return null; }
     const doc = editor.document;
     const sel = editor.selection;
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = workspaceFolder();
     const rel = vscode.workspace.asRelativePath(doc.uri);
     let selectionText: string | undefined;
     if (opts.includeSelectionText) {
@@ -653,9 +660,9 @@ const liveDiagnosticsSource: DiagnosticsSource = {
 };
 
 (GET_ERRORS_DEF_INSTALL as { execute: (input: import('./diagnostics-tools').GetErrorsInput) => Promise<string> }).execute =
-    (input) => getErrorsImpl({ source: liveDiagnosticsSource, wsRoot: getWorkspaceRoot() }, input);
+    (input) => getErrorsImpl({ source: liveDiagnosticsSource, wsRoot: workspaceFolder() }, input);
 (GET_PROBLEMS_DEF as { execute: (input: GetProblemsInput) => Promise<string> }).execute =
-    (input) => getProblemsImpl({ source: liveDiagnosticsSource, wsRoot: getWorkspaceRoot() }, input);
+    (input) => getProblemsImpl({ source: liveDiagnosticsSource, wsRoot: workspaceFolder() }, input);
 import { LANGUAGE_SERVICE_TOOLS } from './language-service-tools';
 import {
     FIND_SYMBOL_TOOL as FIND_SYMBOL_DEF,
@@ -689,7 +696,7 @@ function vscodeLocationsToInfo(uri: vscode.Uri, range: vscode.Range): LocationIn
 
 const liveLanguageNavigator: LanguageNavigator = {
     resolveFile(filePath: string): string | null {
-        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(workspaceFolder() || process.cwd(), filePath);
         return fs.existsSync(abs) ? abs : null;
     },
     async findSymbol(query: string): Promise<SymbolInfo[]> {
@@ -774,7 +781,7 @@ const liveCommandRunner: CommandRunner = {
 };
 
 const liveFileOpener: FileOpener = {
-    get wsRoot() { return getWorkspaceRoot(); },
+    get wsRoot() { return workspaceFolder(); },
     exists(absPath) {
         try { return fs.existsSync(absPath); } catch { return false; }
     },
@@ -826,7 +833,7 @@ function textTabShows(tab: vscode.Tab, absPath: string): boolean {
 }
 
 const liveEditorCloser: EditorCloser = {
-    get wsRoot() { return getWorkspaceRoot(); },
+    get wsRoot() { return workspaceFolder(); },
     tabsOf(absPath, allGroups) {
         const groups = allGroups ? vscode.window.tabGroups.all : [vscode.window.tabGroups.activeTabGroup];
         return groups.flatMap((g) => g.tabs
@@ -883,7 +890,7 @@ import {
 
 const liveCodeActionService: CodeActionService = {
     resolveFile(filePath: string): string | null {
-        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(workspaceFolder() || process.cwd(), filePath);
         return fs.existsSync(abs) ? abs : null;
     },
     async list(absPath: string, range: CodeActionRange0Based, only?: string): Promise<ListedCodeAction[]> {
@@ -929,7 +936,7 @@ const liveCodeActionService: CodeActionService = {
 
 const liveRenameService: RenameService = {
     resolveFile(filePath: string): string | null {
-        const abs = path.isAbsolute(filePath) ? filePath : path.join(getWorkspaceRoot() || process.cwd(), filePath);
+        const abs = path.isAbsolute(filePath) ? filePath : path.join(workspaceFolder() || process.cwd(), filePath);
         return fs.existsSync(abs) ? abs : null;
     },
     async rename(absPath: string, line: number, character: number, newName: string): Promise<RenameProviderResult> {
@@ -956,7 +963,7 @@ const liveRenameService: RenameService = {
         const applied = await vscode.workspace.applyEdit(edit);
         if (!applied) { return { kind: 'no-edits' as const }; }
         const affected: string[] = [];
-        const root = getWorkspaceRoot();
+        const root = workspaceFolder();
         for (const [u] of (edit as unknown as { entries(): Iterable<[vscode.Uri, unknown]> }).entries()) {
             const rel = root ? path.relative(root, u.fsPath) : u.fsPath;
             affected.push(rel.startsWith('..') ? u.fsPath : rel);
@@ -968,11 +975,11 @@ const liveRenameService: RenameService = {
 // --- Live WorkspaceEditService bridging vscode.WorkspaceEdit + applyEdit.
 
 const liveWorkspaceEditService: WorkspaceEditService = {
-    get wsRoot() { return getWorkspaceRoot(); },
+    get wsRoot() { return workspaceFolder(); },
     async applyOps(ops: ResolvedApplyEditOp[]): Promise<{ applied: boolean; affectedFiles: string[] }> {
         const edit = new vscode.WorkspaceEdit();
         const affected = new Set<string>();
-        const rootForRel = getWorkspaceRoot();
+        const rootForRel = workspaceFolder();
         for (const op of ops) {
             switch (op.op) {
                 case 'createFile':
@@ -1153,7 +1160,7 @@ import {
 // process-tools.ts is vscode-free for testability, so the closures
 // that grab `vscode.workspace.workspaceFolders` have to be wired here.
 (RUN_COMMAND_STREAM_DEF as { execute: (input: RunCommandStreamInput) => Promise<string> }).execute =
-    (input) => runCommandStreamImpl({ wsRoot: getWorkspaceRoot() }, input);
+    (input) => runCommandStreamImpl({ wsRoot: workspaceFolder() }, input);
 (READ_COMMAND_OUTPUT_DEF as { execute: (input: ReadCommandOutputInput) => Promise<string> }).execute =
     (input) => readCommandOutputImpl({}, input);
 (KILL_COMMAND_DEF as { execute: (input: KillCommandInput) => Promise<string> }).execute =

@@ -23,6 +23,7 @@
  * our MCP server when the configuration enables them.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { registerLiveQuery } from '../services/agentSdkLiveInputs';
 import type { AgentSdkThinkingOptions } from '../utils/thinkingAndEffort';
 import { shouldForkAttempt } from '../utils/agentSdkSessions';
@@ -1144,7 +1145,7 @@ async function runAgentSdkAttempt(
     //   3. else no-op.
     if (params.autoLoadProjectSettings === true) {
         try {
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const wsRoot = layoutWorkspaceFolder();
             if (wsRoot) {
                 const fsMod = require('fs') as typeof import('fs');
                 const pathMod = require('path') as typeof import('path');
@@ -1220,7 +1221,7 @@ async function runAgentSdkAttempt(
         // the extension host's process.cwd() — usually the user's home
         // or wherever VS Code was launched from — and would silently
         // find no CLAUDE.md even when 'project' is in settingSources.
-        const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const workspaceCwd = layoutWorkspaceFolder();
         // The hooks the SDK will not load itself (their setting source is off).
         const sdkHooks = sdkHookCallbacks(
             (params.claudeHooks ?? []).filter((h) => !settingSources.includes(h.source)),

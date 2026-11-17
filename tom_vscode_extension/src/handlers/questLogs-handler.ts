@@ -31,6 +31,7 @@
  * (the Documentation viewer, inlined); both route every `qlog*` message here.
  */
 
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -207,7 +208,7 @@ function resolveQuestLogPath(
     const questId = activeQuestId();
     const { area, fileName } = questLogLocation(tab, questId, variant, session);
 
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const wsRoot = layoutWorkspaceFolder() ?? '';
     const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
     const questFolder = path.join(questsRoot, sanitizeQuestSegment(questId));
     const dir = area === 'questHistory' ? questTrailFolder(questFolder) : questFolder;
