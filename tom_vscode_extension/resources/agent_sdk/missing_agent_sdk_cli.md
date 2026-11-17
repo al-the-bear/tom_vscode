@@ -29,6 +29,12 @@ Anthropic provider is installed and this message still appears, the SDK ships
 no Claude CLI for this platform: the Agent SDK transport cannot run here, the
 direct API transport can.
 
+On Linux the CLI comes for glibc (`…-linux-<arch>`) and for musl
+(`…-linux-<arch>-musl`, Alpine). A musl CLI cannot start on a glibc machine;
+when the installed provider has only that one, the error says so: **Remove**
+the Anthropic provider on the Provider SDKs page, then **Install** it again,
+and it takes the CLI for this machine's C library.
+
 ## What keeps working
 
 Everything except the Anthropic transports: VS Code LM (Copilot models),

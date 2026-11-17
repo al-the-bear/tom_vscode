@@ -5,10 +5,13 @@
  *
  *   AC-1 the lookup mirrors the SDK's: `<package>/claude[.exe]`, on Linux the glibc then the musl package;
  *        the installed provider's first (source provider), else the development checkout's own package; an
- *        installed provider without this platform's CLI is no CLI; this checkout finds its host's CLI package
+ *        installed provider without this platform's CLI is no CLI; this checkout finds its host's CLI package; on
+ *        Linux a musl CLI is passed over when the host has no musl loader (a glibc host cannot start it), so a
+ *        provider holding only that CLI is no CLI and unusableMuslAgentSdkCli names it
  *   AC-2 the transport without the SDK or the CLI: runAgentSdkQuery fails before any query with what is missing;
  *        the user gets the error with "Install provider SDKs" and "What does this mean?" once per window session —
- *        the first opens the Provider SDKs page, the second the help page; with the provider's CLI its path is
+ *        the first opens the Provider SDKs page, the second the help page; a provider holding only a musl CLI on a
+ *        glibc host: the error says to reinstall the Anthropic provider (Remove, then Install); with the provider's CLI its path is
  *        given to the SDK, the dev checkout's package is found by the SDK itself
  *   AC-3 the Dart-side pass-through: a terminal error chunk with the message, no query; the provider's CLI is
  *        passed as pathToClaudeCodeExecutable; a caller naming its own pathToClaudeCodeExecutable is not checked
@@ -53,7 +56,17 @@ describe('the Agent SDK from the installed provider', () => {
         assert.deepEqual(cli.agentSdkCliCandidates('win32', 'x64'), ['@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe']);
         assert.deepEqual(cli.agentSdkCliCandidates('linux', 'x64'), ['@anthropic-ai/claude-agent-sdk-linux-x64/claude', '@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude']);
         const only = (id: string) => (x: string): string => { if (x !== id) { throw new Error('not installed'); } return `/nm/${x}`; };
-        assert.equal(cli.findAgentSdkCli(only('@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude'), () => true, 'linux', 'x64'), '/nm/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude');
+        const MUSL = '@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude';
+        assert.equal(cli.findAgentSdkCli(only(MUSL), () => true, 'linux', 'x64', () => true), `/nm/${MUSL}`, 'a musl host takes the musl CLI');
+        assert.equal(cli.findAgentSdkCli(only(MUSL), () => true, 'linux', 'x64', () => false), null, 'a glibc host passes the musl CLI over');
+        const both = (x: string): string => `/nm/${x}`;
+        assert.equal(cli.findAgentSdkCli(both, () => true, 'linux', 'x64', () => false), '/nm/@anthropic-ai/claude-agent-sdk-linux-x64/claude', 'the glibc CLI on a glibc host');
+        assert.equal(cli.locateAgentSdkCli(only(MUSL), undefined, () => true, 'linux', 'x64', () => false), null, 'a provider with only the musl CLI on a glibc host: none');
+        assert.equal(cli.unusableMuslAgentSdkCli(only(MUSL), () => true, 'linux', 'x64', () => false), `/nm/${MUSL}`, 'named as the unusable CLI');
+        assert.equal(cli.unusableMuslAgentSdkCli(only(MUSL), () => true, 'linux', 'x64', () => true), null, 'usable on a musl host');
+        assert.equal(cli.unusableMuslAgentSdkCli(only('@anthropic-ai/claude-agent-sdk-linux-x64/claude'), () => true, 'linux', 'x64', () => false), null, 'no musl CLI installed');
+        assert.equal(cli.unusableMuslAgentSdkCli(only(MUSL), () => true, 'darwin', 'arm64', () => false), null, 'only on Linux');
+        assert.equal(cli.unusableMuslAgentSdkCli(undefined, () => true, 'linux', 'x64', () => false), null, 'no provider installed');
         assert.equal(cli.findAgentSdkCli(only('@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'), () => true, 'win32', 'x64'), null, 'another platform\'s CLI does not count');
         assert.equal(cli.findAgentSdkCli(() => '/nm/x', () => false, 'darwin', 'arm64'), null, 'resolved but no file');
         const here = cli.findAgentSdkCli();
@@ -118,6 +131,18 @@ describe('the Agent SDK from the installed provider', () => {
         assert.equal(previews().length, opened + 1, 'the help button opens the page');
         assert.match((previews().at(-1)![1] as { fsPath: string }).fsPath, /missing_agent_sdk_cli\.md$/);
         clicked = undefined;
+        // Only the musl CLI on a glibc host: reinstall the provider.
+        const muslPath = '/gs/providers/anthropic/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude';
+        transport.__setAgentSdkCliFinderForTests(() => null, () => muslPath);
+        help.resetAgentSdkCliNotice();
+        assert.throws(() => transport.requireAgentSdkCli(), (e: unknown) => {
+            assert.ok(e instanceof cli.AgentSdkCliMissing);
+            assert.equal((e as InstanceType<typeof cli.AgentSdkCliMissing>).unusableMusl, muslPath);
+            assert.match((e as Error).message, /has only the musl Claude CLI \(.*-musl\/claude\), which this host cannot start/);
+            assert.match((e as Error).message, /Reinstall the Anthropic provider: Remove, then Install, on the Provider SDKs page/);
+            return true;
+        });
+        await tick(); await tick();
         transport.__setAgentSdkCliFinderForTests(() => ({ path: '/nm/claude', source: 'package' }));
         assert.equal(transport.requireAgentSdkCli(), undefined, 'the checkout\'s package: the SDK finds it itself');
         transport.__setAgentSdkCliFinderForTests(() => ({ path: '/gs/providers/anthropic/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude', source: 'provider' }));

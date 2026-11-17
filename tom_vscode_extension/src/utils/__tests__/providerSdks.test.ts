@@ -8,7 +8,9 @@
  *   PS-1 the committed manifest is what package-lock.json gives (npm run providers:manifest); the Anthropic
  *        provider has both roots, zod beside them, a CLI package per platform (os / cpu, libc on Linux), every
  *        package a registry tarball with a sha512 integrity
- *   PS-2 a host takes the packages without a platform restriction and exactly its own CLI package (glibc or musl)
+ *   PS-2 a host takes the packages without a platform restriction and exactly its own CLI package (glibc or musl);
+ *        detectLinuxLibc: a report naming glibc is glibc; no report (the extension host's Electron utility process),
+ *        or a report that throws, is glibc unless the lib folder holds the musl loader (ld-musl-<arch>.so.1)
  *   PS-3 unpacking a tarball: the package/ prefix dropped, folders, a pax long name, the executable bit, an
  *        entry outside the folder refused; the integrity check (sha512, sha1, a mismatch)
  *   PS-4 semver: comparison, the range forms an update meets (^ ~ >= x || -), maxSatisfying, a new major
@@ -39,7 +41,7 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 
 import {
-    compareSemver, extractTgz, integrityMatches, maxSatisfying, packagesForHost, readProviderManifest, readProviderState, satisfies,
+    compareSemver, detectLinuxLibc, extractTgz, integrityMatches, maxSatisfying, packagesForHost, readProviderManifest, readProviderState, satisfies,
     type ProviderManifest, type ProviderPackage,
 } from '../providerSdks';
 import { isMajorChange, ProviderInstaller } from '../../services/providerInstaller';
@@ -224,6 +226,17 @@ describe('provider SDKs', () => {
         assert.deepEqual(clisFor({ os: 'freebsd', cpu: 'x64' }), [], 'no CLI for an unknown platform');
         const common = packagesForHost(a.packages, { os: 'darwin', cpu: 'arm64' }).filter((p) => !/claude-agent-sdk-/.test(p.name));
         assert.equal(common.length, a.packages.filter((p) => !p.os && !p.cpu).length, 'every unrestricted package');
+
+        // The C library of a Linux host.
+        const libDir = fs.mkdtempSync(path.join(SANDBOX, 'lib-'));
+        assert.equal(detectLinuxLibc(() => ({ header: { glibcVersionRuntime: '2.39' } }), libDir), 'glibc', 'a report naming glibc');
+        assert.equal(detectLinuxLibc(() => undefined, libDir), 'glibc', 'no report and no musl loader: glibc, not musl');
+        assert.equal(detectLinuxLibc(() => ({ header: {} }), libDir), 'glibc', 'a report without glibcVersionRuntime and no musl loader');
+        assert.equal(detectLinuxLibc(() => { throw new Error('no report'); }, libDir), 'glibc', 'a throwing report');
+        assert.equal(detectLinuxLibc(() => undefined, path.join(libDir, 'missing')), 'glibc', 'an unreadable lib folder');
+        fs.writeFileSync(path.join(libDir, 'ld-musl-x86_64.so.1'), '');
+        assert.equal(detectLinuxLibc(() => undefined, libDir), 'musl', 'no report and the musl loader: musl');
+        assert.equal(detectLinuxLibc(() => ({ header: { glibcVersionRuntime: '2.39' } }), libDir), 'glibc', 'the report wins over a stray loader');
     });
 
     test('PS-3: unpacking and integrity', () => {

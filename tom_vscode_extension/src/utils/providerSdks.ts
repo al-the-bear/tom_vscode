@@ -69,13 +69,46 @@ export interface HostPlatform {
     libc?: 'glibc' | 'musl';
 }
 
-/** This process's platform; on Linux, musl when Node reports no glibc. */
+/** Whether `libDir` holds a musl dynamic loader (`ld-musl-<arch>.so.1`); false when it cannot be read. */
+export function hasMuslLoader(libDir: string = '/lib'): boolean {
+    try {
+        return fs.readdirSync(libDir).some((name) => /^ld-musl-.*\.so\.1$/.test(name));
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The C library of this Linux host. Node's diagnostic report names the glibc
+ * version it runs on (`header.glibcVersionRuntime`); the report is read in a
+ * try/catch. Without it — VS Code's extension host is an Electron utility
+ * process, whose report may be missing or lack that field — the host is musl
+ * only when `libDir` holds the musl loader, else glibc (also when the folder
+ * cannot be read): a missing report does not mean musl.
+ */
+export function detectLinuxLibc(
+    report: () => unknown = () => process.report?.getReport(),
+    libDir: string = '/lib',
+): 'glibc' | 'musl' {
+    try {
+        const header = (report() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header;
+        if (header?.glibcVersionRuntime) { return 'glibc'; }
+    } catch {
+        // No report: decide by the loader.
+    }
+    return hasMuslLoader(libDir) ? 'musl' : 'glibc';
+}
+
+/**
+ * This process's platform; on Linux with its C library ({@link detectLinuxLibc}:
+ * glibc unless Node reports none and the musl loader is there — a missing
+ * report alone does not mean musl).
+ */
 export function currentHost(): HostPlatform {
     const os = process.platform;
     const cpu = process.arch;
     if (os !== 'linux') { return { os, cpu }; }
-    const header = (process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined)?.header;
-    return { os, cpu, libc: header?.glibcVersionRuntime ? 'glibc' : 'musl' };
+    return { os, cpu, libc: detectLinuxLibc() };
 }
 
 /** Whether a package belongs on `host`: no os / cpu / libc restriction, or one that names it. */

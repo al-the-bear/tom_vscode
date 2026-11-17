@@ -211,10 +211,14 @@ export function __setAgentSdkForTests(sdk: unknown): void {
     // A fake SDK runs no CLI.
     cliFinder = () => ({ path: 'fake-sdk', source: 'package' });
     sdkFinder = () => undefined;
+    unusableMuslFinder = () => null;
 }
 
 /** Where the native CLI is for this platform (null: none); a test may stand in. */
 let cliFinder: () => AgentSdkCliLocation | null = () => locateAgentSdkCli();
+
+/** The installed provider's musl CLI a glibc host cannot start (null: none); a test may stand in. */
+let unusableMuslFinder: () => string | null = () => unusableMuslAgentSdkCli();
 
 /** Throws ProviderSdkMissing when the Agent SDK is not installed; a test may stand in. */
 let sdkFinder: () => void = () => { agentSdkImportSpecifier(); };
@@ -224,9 +228,10 @@ export function __setAgentSdkFinderForTests(finder: () => void): void { // eslin
     sdkFinder = finder;
 }
 
-/** Test seam: how the CLI is looked up. */
-export function __setAgentSdkCliFinderForTests(finder: () => AgentSdkCliLocation | null): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam, named like __setAgentSdkForTests
+/** Test seam: how the CLI is looked up (`unusableMusl`: the musl CLI a glibc host has, default none). */
+export function __setAgentSdkCliFinderForTests(finder: () => AgentSdkCliLocation | null, unusableMusl: () => string | null = () => null): void { // eslint-disable-line @typescript-eslint/naming-convention -- a test seam, named like __setAgentSdkForTests
     cliFinder = finder;
+    unusableMuslFinder = unusableMusl;
 }
 
 /**
@@ -247,7 +252,7 @@ export function requireAgentSdkCli(): string | undefined {
     }
     const cli = cliFinder();
     if (cli) { return cli.source === 'provider' ? cli.path : undefined; }
-    const err = new AgentSdkCliMissing(undefined, agentSdkCliHelpPage());
+    const err = new AgentSdkCliMissing(undefined, agentSdkCliHelpPage(), cli === null ? unusableMuslFinder() ?? undefined : undefined);
     noteAgentSdkCliMissing(err.message);
     throw err;
 }
@@ -259,7 +264,7 @@ function cliOption(): Record<string, unknown> {
 }
 
 import { SharedToolDefinition, summarizeToolInput } from '../tools/shared-tool-registry';
-import { AgentSdkCliMissing, locateAgentSdkCli, type AgentSdkCliLocation } from '../services/agentSdkCli';
+import { AgentSdkCliMissing, locateAgentSdkCli, unusableMuslAgentSdkCli, type AgentSdkCliLocation } from '../services/agentSdkCli';
 import { agentSdkImportSpecifier, ProviderSdkMissing } from '../services/providerRuntime';
 import { agentSdkCliHelpPage, noteAgentSdkCliMissing } from './agentSdkCliHelp-handler';
 import { TrailService } from '../services/trailService';

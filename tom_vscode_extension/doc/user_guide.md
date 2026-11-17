@@ -1097,7 +1097,7 @@ The extension does not carry the model providers' SDKs; it installs them on requ
 - **Check for updates** asks the npm registry for newer releases; a provider with one shows **update to …** (with *(new major)* when the API may change), which installs it; **Update all** installs every update found; **install this build's versions** goes back. Nothing updates by itself;
 - the log of the last run and its outcome.
 
-When no provider is installed, the page opens when the extension starts. The **Anthropic** provider is the direct API SDK (`@anthropic-ai/sdk`, also used by history compaction and memory extraction) and the Agent SDK with its Claude CLI for this platform. An install downloads the packages from the npm registry (no npm or Node needed), checks each one's integrity, and is used by the next prompt without a reload. The 🤖 dot of the ANTHROPIC/LLM panel shows whether the Agent SDK and its CLI are installed.
+When no provider is installed, the page opens when the extension starts. The **Anthropic** provider is the direct API SDK (`@anthropic-ai/sdk`, also used by history compaction and memory extraction) and the Agent SDK with its Claude CLI for this platform — on Linux the glibc or the musl CLI, whichever C library the machine has (musl only where the musl loader `/lib/ld-musl-*.so.1` is, as on Alpine). An install downloads the packages from the npm registry (no npm or Node needed), checks each one's integrity, and is used by the next prompt without a reload. The 🤖 dot of the ANTHROPIC/LLM panel shows whether the Agent SDK and its CLI are installed.
 
 ### Missing binaries on this platform
 
