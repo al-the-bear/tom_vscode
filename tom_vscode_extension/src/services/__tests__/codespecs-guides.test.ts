@@ -143,7 +143,8 @@ describe('CodeSpecs guides', () => {
         const validate = text('codespecs-validate');
         assert.match(validate, /1\. Map\. tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"` and `out`/);
         assert.match(validate, /`irspecs map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml --unit <id> --out <out>`/);
-        assert.match(validate, /`formatterUnavailable`/);
+        assert.match(validate, /No mapper needs a Dart SDK: dart-tom\s+formats in-process\./);
+        assert.doesNotMatch(validate, /formatterUnavailable|TOM_DART/, 'no Dart SDK prerequisite (vscimpb147)');
         assert.match(authoring, /tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"`, `out: <scratch>`/);
         assert.match(validate, /tomAi_specCodeSpecsValidate with `ir`/);
         assert.match(validate, /`regeneratedIr`/);

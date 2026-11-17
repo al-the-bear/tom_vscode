@@ -188,8 +188,7 @@ describe('Dart-built binaries on this platform', () => {
             binaries: { tom_bs: 'missing', validate_codespecs: 'bundled', spec_checks: 'missing', irspecs: 'missing' }, // eslint-disable-line @typescript-eslint/naming-convention
             missing: ['tom_bs', 'spec_checks', 'irspecs'],
             buildTools: { buildkit: 'bundled', d4rtgen: 'missing', reflectiongenerator: 'missing', testkit: 'missing' },
-            dartSdk: null,
-        }, 'a missing build tool is not in `missing` (it does not open the page); no Dart SDK found (vscimpb114)');
+        }, 'a missing build tool is not in `missing` (it does not open the page); no Dart SDK entry (vscimpb147)');
         assert.equal(dartBinariesHelp(EXT_ROOT).help, HELP_HINT);
         assert.equal(HELP_HINT, 'Run command tomAi.showDartBinariesHelp');
     });

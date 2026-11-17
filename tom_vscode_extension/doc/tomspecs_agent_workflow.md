@@ -289,13 +289,8 @@ it after each step. How to do a stage is in its runbook:
    optionally `unit`, `dryRun`) maps each unit's package from the IR with the
    bundled `irspecs` — per unit and per mapper it names, `irspecs map --mapper
    <m> --ir <spec-root>/irspecs --spec <document> --unit <unit id> --out <out>`
-   (the runbook `codespecs-validate`). The other mappers need no Dart SDK; the
-   Dart + Tom mapper (`dart-tom`) does — it formats with the SDK's `dart
-   format`. The tool hands irspecs the SDK the window knows as `TOM_DART` (the
-   Dart extension's `dart.sdkPath` / `dart.flutterSdkPath`, `$DART_SDK`,
-   `$FLUTTER_ROOT`, PATH, the usual install folders; `dartSdk` in the answer).
-   Without one a dart-tom run answers `formatterUnavailable`: its files are
-   written unformatted and its error names TOM_DART / PATH.
+   (the runbook `codespecs-validate`). No mapper needs a Dart SDK: the Dart +
+   Tom mapper (`dart-tom`) formats in-process, in `dart format`'s layout.
    `tomAi_specCodeSpecsValidate` runs the 47 checks over the IR folder (`ir`)
    — or over generated projects — (clean, violations or a usage error);
    `tomAi_specCodeSpecsStatus` validates the run's own IR folder by default; checks
