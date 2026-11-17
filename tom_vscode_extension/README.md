@@ -477,24 +477,32 @@ Quest`) and **Setup new workspace folder**.
 
 ### After installing: the `_ai` format migration
 
-The `_ai` files carry a format version in `_ai/format-version.yaml`. When a
-window starts, it compares that version with the one its build understands and
-warns:
-- **files older, or unstamped:** run the migration;
+The `_ai` files carry a format version: `_ai/format-version.yaml` (shared,
+versioned) and `_ai/local/format-version.<host>.yaml` for this machine's own
+files (queue, chat variables, sessions; not versioned). When a window starts it
+compares both with the version its build understands:
+- **files older, unstamped, or this machine's own files behind:** the page
+  **Upgrade the workspace** opens by itself (also `@T: Migrate _ai Formats`).
+  It shows a dry run of what changes, warns that it cannot be undone and that
+  everyone sharing the workspace must upgrade Tom AI too, and migrates on
+  **Migrate now** — no checkout and no Node needed;
 - **files newer:** a newer build migrated them on another machine; install
   that build.
 
-To migrate, install the new build, reload every window, then run (in this
-folder, after `npm run compile`):
+One migration runs at a time on a machine; another window says *Migration is
+already running in another window*. Once it is done, the other windows pause
+their runs and ask for a reload. In a checkout the same migration runs from the
+command line (in this folder, after `npm run compile`):
 
 ```bash
 npm run migrate:ai-formats              # dry run: lists every change
 npm run migrate:ai-formats -- --apply   # does it
 ```
 
-It brings every quest to the current formats in one run and writes the stamp
-last, once nothing is left as a problem. Run it on each machine after a
-reconcile brings older files in.
+It brings every quest to the current formats in one run and writes the stamps
+last, once nothing is left as a problem. After a reconcile brings older files
+to another machine, that machine's window opens the page there too (its own
+stamp is behind).
 
 ### Directory Layout
 

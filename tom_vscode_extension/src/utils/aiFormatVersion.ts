@@ -2,8 +2,9 @@
  * The format version of the `_ai` files: which formats the files of this
  * machine's `_ai` clone are in, and whether this build understands them.
  *
- * `npm run migrate:ai-formats -- --apply` (src/utils/aiFormatMigration.ts)
- * writes `_ai/format-version.yaml` — the version it migrated to and the date —
+ * The migration (src/utils/aiFormatMigration.ts; the command @T: Migrate _ai
+ * Formats, or `npm run migrate:ai-formats -- --apply` in a checkout) writes
+ * `_ai/format-version.yaml` — the version it migrated to and the date —
  * once nothing is left to migrate. The file is tracked, so a reconcile carries
  * it to every machine with the files it describes. At start the extension
  * compares it with the version it was built for:
@@ -46,7 +47,11 @@ export const AI_FORMAT_VERSION = 9;
 export const AI_FORMAT_FILE = 'format-version.yaml';
 
 /** What the migration has to be run with, named in the warnings. */
-export const AI_FORMAT_MIGRATE_COMMAND = 'npm run migrate:ai-formats -- --apply (in tom_ai/vscode/tom_vscode_extension, after npm run compile)';
+/**
+ * What the migration has to be run with, named in the warnings: the extension's command (vscimpb142; it needs
+ * no checkout), or in a checkout of tom_vscode the npm script.
+ */
+export const AI_FORMAT_MIGRATE_COMMAND = '@T: Migrate _ai Formats (or, in a checkout of tom_vscode_extension: npm run migrate:ai-formats -- --apply)';
 
 export interface AiFormatStamp {
     version: number;

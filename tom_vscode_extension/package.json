@@ -379,6 +379,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.migrateAiFormats",
+        "title": "@T: Migrate _ai Formats",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.tomTodoSidebar.focus",
         "title": "@T: Focus @TOM TODO",
         "category": "@Tom"

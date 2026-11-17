@@ -11,7 +11,7 @@
  *        writing, and lists nothing once it is current
  *   FV-6 a problem left by another step: no stamp is written, and that is a problem too
  *   FV-7 a stamp newer than the migrating build is left as it is, as a problem
- *   FV-8 the extension checks at start and offers the command
+ *   FV-8 the extension checks at start: the migration page opens (vscimpb142), a newer build is named
  */
 
 import test, { describe } from 'node:test';
@@ -98,9 +98,10 @@ describe('ai format version', () => {
 
     test('FV-8: checked at start', () => {
         const src = (rel: string) => fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', rel), 'utf8');
-        assert.match(src('extension.ts'), /initBuildStatus\(context\);\n[\s\S]{0,200}warnAboutAiFormatVersion\(\);/);
+        assert.match(src('extension.ts'), /initBuildStatus\(context\);\n[\s\S]{0,300}startAiFormatCheck\(context\);/);
         const service = src('services/aiFormatCheckService.ts');
-        assert.match(service, /checkAiFormatVersion\(aiRoot\)/);
-        assert.match(service, /check\.kind === 'newer' \? \[\] : \[COPY\]/);
+        assert.match(service, /const need = migrationNeed\(aiRoot, host\);/);
+        assert.match(service, /showAiFormatMigration\(context\);/, 'the migration page opens by itself');
+        assert.doesNotMatch(service, /clipboard/, 'no npm command to copy');
     });
 });

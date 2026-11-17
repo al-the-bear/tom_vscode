@@ -1,0 +1,14 @@
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 0 16px 24px; }
+.fm-wrap { max-width: 960px; }
+.fm-title { margin-bottom: 4px; }
+.fm-intro { margin-top: 4px; }
+.fm-warning { padding: 8px 12px; margin: 12px 0; border-radius: 4px; border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500); background: var(--vscode-inputValidation-warningBackground, rgba(184, 149, 0, 0.15)); }
+.fm-message { padding: 6px 10px; margin: 8px 0; border-radius: 4px; border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); }
+.fm-windows { margin: 8px 0; }
+.fm-windows ul { margin: 4px 0 0 18px; padding: 0; }
+.fm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.fm-confirm { display: inline-flex; align-items: center; gap: 4px; }
+button { padding: 4px 12px; border: none; border-radius: 2px; cursor: pointer; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.fm-report { border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35)); padding-top: 8px; }

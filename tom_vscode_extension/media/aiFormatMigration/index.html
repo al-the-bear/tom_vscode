@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+  Upgrade the workspace: the _ai format migration (src/handlers/aiFormatMigration-handler.ts, vscimpb142).
+  The dry run's report, the warning that it cannot be undone and that everyone sharing the workspace must
+  upgrade too, the other windows of this machine on the workspace, then Migrate now. First paint from
+  window.__INIT__, then `state` messages. No inline handlers (nonce CSP).
+-->
+<link rel="stylesheet" href="{{baseUri}}/style.css">
+</head>
+<body>
+<div class="fm-wrap">
+    <h2 class="fm-title" id="fmTitle">Upgrade the workspace</h2>
+    <p class="fm-intro" id="fmIntro"></p>
+    <div class="fm-warning" id="fmWarning" hidden>
+        <b>This cannot be undone.</b> The migration rewrites the <code>_ai</code> files of this workspace into the
+        format of this Tom AI build. An older build cannot read them afterwards: <b>everyone who shares this
+        workspace</b> — your other machines, and anyone syncing the same <code>_ai</code> — must upgrade Tom AI to
+        this build too. Other windows of this machine on the workspace pause their runs and ask for a reload.
+    </div>
+    <div class="fm-message" id="fmMessage" hidden></div>
+    <div id="fmWindows" class="fm-windows" hidden></div>
+    <div class="fm-bar" id="fmBar">
+        <label class="fm-confirm" id="fmConfirmLabel"><input type="checkbox" id="fmConfirm"> I understand it cannot be undone</label>
+        <button id="fmApply" class="primary" disabled>Migrate now</button>
+        <button id="fmReport">Open the report in the MD Browser</button>
+        <button id="fmReload" hidden>Reload window</button>
+        <button id="fmClose">Not now</button>
+    </div>
+    <div class="fm-report" id="fmReportBody"></div>
+</div>
+<script src="{{baseUri}}/main.js"></script>
+</body>
+</html>

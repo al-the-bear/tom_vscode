@@ -297,6 +297,20 @@ The bar on top: one toggle per kind; the window button lists the windows the eve
 
 The **@TOM TODO** sidebar (its own Activity Bar icon; `@T: Focus @TOM TODO`) holds one view, **TODO**: the todo panel (see [Quest TODO Panel](#quest-todo-panel)) taking the whole side area. It is a panel of its own — its quest scope, file toggles, order, prefix, sort and filters are kept apart from QUEST TODOS' and the @WS section's — and it starts across quests: on **the open windows' quests**, with the **quest prefix** in front of every id. In a window without an active quest it starts on **all quests**. Change any of it with the panel's own controls; the panel keeps your choices.
 
+### Upgrading the workspace (the `_ai` format migration)
+
+A newer Tom AI build may store some `_ai` files differently. The files carry their format version: `_ai/format-version.yaml` for the shared files and `_ai/local/format-version.<host>.yaml` for this machine's own files (the queue, chat variables, sessions — not versioned). When a window starts and either is older than its build, the page **Upgrade the workspace** opens by itself; **@T: Migrate _ai Formats** opens it any time. This works on any machine with the VSIX installed: no checkout of the extension and no Node are needed.
+
+- **The page** shows the version the files are in and the one the build expects, a dry run of what changes (per quest and step; **Open the report in the MD Browser** shows it in full), and the other windows of this machine. **Migrate now** is enabled once you tick *I understand it cannot be undone*.
+- **It cannot be undone**: an older build cannot read the migrated files. Everyone who shares the workspace — your other machines, and anyone syncing the same `_ai` — must upgrade Tom AI to this build too.
+- **One at a time**: while one window migrates, another says *Migration is already running in another window*; one opened afterwards says the migration has been done already.
+- **The other windows**: once the files are migrated, every other window of the workspace pauses the auto-send of all its runs and asks for a reload. The running prompts finish; nothing new starts. Reload each window when its prompts are done.
+- **Another machine**: after a reconcile brings migrated files to another machine, its window opens the page for that machine's own files (its own stamp is still behind). When those have nothing in an older form, the stamp is written without asking.
+- **Newer files**: when the files are newer than the build, a warning asks to install the newer build. A migration never goes back.
+- **Merges**: files a session already has are merged with the `_ai` merge drivers git has registered (`git config --global merge.<driver>.driver`). Without them those files are reported as problems; the stamp is not written until they are solved.
+
+In a checkout of the extension the same migration runs as `npm run migrate:ai-formats -- --apply`.
+
 ### Issues Panel
 
 The @WS **Issues** section lists the issues of the repositories it finds in the workspace's git remotes, plus the ones the panel configuration adds (`issuePanels`; **Tests** works the same for test reports). The repository dropdown offers one repository, **All Repos**, or **My Repos (`<account>`)**: the repositories of the GitHub account VS Code is signed in with, without forks and without clones of other people's repositories. The choice appears once the account's repositories are known (it asks GitHub whether each is a fork) and only when an account is signed in. New issues need one repository chosen.
