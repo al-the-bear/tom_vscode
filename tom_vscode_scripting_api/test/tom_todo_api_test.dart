@@ -128,6 +128,27 @@ void main() {
       },
     );
 
+    test('TODOAPI-11: a todo group: its status and members', () {
+      final json = _questJson()
+        ..['status'] = 'group'
+        ..['comprised_of'] = ['tdm1_akpu-a', 'd4rt/ghissues64_akpu-b'];
+      final entry = TodoWire.fromBridge(json);
+      final todo = entry.todo;
+      expect(todo.status, TomTodoStatus.group);
+      expect(todo.isGroup, isTrue);
+      expect(todo.comprisedOf, ['tdm1_akpu-a', 'd4rt/ghissues64_akpu-b']);
+      expect(
+        entry.unknownFields,
+        isEmpty,
+        reason: 'the model has a field for each',
+      );
+      final back = TodoWire.toBridge(todo);
+      expect(back['status'], 'group');
+      expect(back['comprised_of'], ['tdm1_akpu-a', 'd4rt/ghissues64_akpu-b']);
+      // A session todo has no groups: a group is written as pending.
+      expect(TodoWire.toSessionBridge(todo)['status'], 'pending');
+    });
+
     test('TODOAPI-2: _extra fields the schema has join the todo', () {
       final json = _questJson()
         ..['_extra'] = {

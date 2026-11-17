@@ -1,3 +1,13 @@
+## 5.0.0
+
+- Requires `tom_todo_model` ^3.0.0: todo groups. A todo with the `group`
+  status and a `comprised_of` member list is read into the model (a 2.x model
+  refused it, with the rest of its file readable); `TomTodo.isGroup` and
+  `TomTodo.comprisedOf` come with it. A session todo has no groups: a group is
+  written as `pending`.
+- **Breaking:** the exported model types are tom_todo_model 3.x's (an
+  exhaustive `switch` over `TomTodoStatus` needs a case for `group`).
+
 ## 4.0.0
 
 - Requires `tom_todo_model` ^2.0.0: repeated todos. A todo with the

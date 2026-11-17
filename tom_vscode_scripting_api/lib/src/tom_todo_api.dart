@@ -172,7 +172,8 @@ abstract final class TodoWire {
 
   /// A session todo as the extension writes it: the description becomes its
   /// details, a completed todo is `done` and any other `pending` (a session
-  /// todo has no repeat: `waiting-for-repeat` is pending too).
+  /// todo has no repeat and no groups: `waiting-for-repeat` and `group` are
+  /// pending too).
   static Map<String, Object?> toSessionBridge(TomTodo todo) => {
     'id': todo.id,
     'title': todo.title,
