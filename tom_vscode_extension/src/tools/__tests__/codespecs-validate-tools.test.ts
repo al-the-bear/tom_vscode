@@ -192,6 +192,9 @@ describe('CodeSpecs validate', () => {
         const fixture = files(path.join(FIXTURE, 'codespec'));
         const dart = (list: string[]): string[] => list.filter((f) => f.endsWith('.dart'));
         assert.deepEqual(dart(fixture), dart(files(SAMPLE_TRIO)), 'the same generated files');
+        // The IR documents under the names ai_build writes them (<CE-CODE>_<canonical id>.ir.yaml, tom_specs irout2).
+        const ir = (list: string[]): string[] => list.filter((f) => f.startsWith(`irspecs${path.sep}`));
+        assert.deepEqual(ir(fixture), ir(files(SAMPLE_TRIO)), 'the same IR documents, by name');
         for (const f of fixture) {
             assert.equal(fs.readFileSync(path.join(FIXTURE, 'codespec', f), 'utf8'), fs.readFileSync(path.join(SAMPLE_TRIO, f), 'utf8'),
                 `fixtures/phase4/codespec/${f} is stale: copy the sample's codespec/ trio and validation_report.json`);
