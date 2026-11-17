@@ -6,9 +6,12 @@
  *   - The **register**: the generation units a document declares
  *     (`GENUN-UNIT-LST`), each with its kind and the mapper of every area it
  *     holds — read through the runtime's `specGenerationUnits`.
- *   - The **IR folder**: `<spec-root>/irspecs/`, one `<CE-CODE>.ir.yaml` per
- *     area, which the authoring steps write and `irspecs map --unit` turns into
- *     each unit's package.
+ *   - The **IR folder**: `<spec-root>/irspecs/`, one
+ *     `<CE-CODE>_<canonical id in snake case>.ir.yaml` per area
+ *     (`CE-DB_data_access.ir.yaml`; tom_specs irout2), which the authoring
+ *     steps write and `irspecs map --unit` turns into each unit's package. The
+ *     readers still take the older `<CE-CODE>.ir.yaml`; a folder holding both
+ *     names for one area is refused by irspecs and reported here.
  *   - A step's **units**: the units its extracts' entries go to, read off the
  *     entries' `units` (the nearest stored `units`, else the register's default).
  */
@@ -24,6 +27,59 @@ import { EXTRACTS_DIR } from './codespecs-tools';
 export const IR_DIR = 'irspecs';
 /** An IR document's file-name suffix. */
 export const IR_SUFFIX = '.ir.yaml';
+
+/** `DataAccess` → `data_access` (irspecs' `snakeCase`: an underscore before a capital that follows a lower-case letter or digit). */
+export function snakeCase(pascal: string): string {
+    return pascal.replace(/(?<=[a-z0-9])([A-Z])/g, '_$1').toLowerCase();
+}
+
+/**
+ * The file name of `area`'s IR document: `<CE-CODE>_<snake(canonicalId)>.ir.yaml` (tom_specs irout2). Without a
+ * canonical id (an area the catalogue does not know) the older `<CE-CODE>.ir.yaml`.
+ */
+export function irDocumentName(area: string, canonicalId: string | undefined): string {
+    return canonicalId ? `${area}_${snakeCase(canonicalId)}${IR_SUFFIX}` : `${area}${IR_SUFFIX}`;
+}
+
+/** The name IR folders used before descriptive names, which the readers still take. */
+export function legacyIrDocumentName(area: string): string {
+    return `${area}${IR_SUFFIX}`;
+}
+
+/** Where an area's IR document is in a folder, under which name. */
+export interface IrDocumentFound {
+    area: string;
+    /** The name it is written to (the new one). */
+    name: string;
+    /** The name found on disk: the new one, else the older one; null when neither exists. */
+    found: string | null;
+    /** Set when the folder holds both names for the area (irspecs refuses that folder). */
+    bothNames?: { names: [string, string]; message: string };
+}
+
+/** The canonical id of an area code, from the catalogue; undefined for an unknown area. */
+export function canonicalIdOf(deps: Pick<SpecToolDeps, 'service'>, area: string): string | undefined {
+    try { return deps.service.codeSpecsCatalog.byCode(area)?.canonicalId; } catch { return undefined; }
+}
+
+/** `area`'s IR document in `irDir`: the new name first, else the older one; both present is reported. */
+export function irDocumentOf(irDir: string, area: string, canonicalId: string | undefined): IrDocumentFound {
+    const name = irDocumentName(area, canonicalId);
+    const legacy = legacyIrDocumentName(area);
+    const isFile = (n: string): boolean => { try { return fs.statSync(path.join(irDir, n)).isFile(); } catch { return false; } };
+    const hasNew = isFile(name);
+    const hasLegacy = name !== legacy && isFile(legacy);
+    return {
+        area, name,
+        found: hasNew ? name : hasLegacy ? legacy : null,
+        ...(hasNew && hasLegacy ? {
+            bothNames: {
+                names: [name, legacy],
+                message: `${area} has two IR documents, ${name} and ${legacy}; irspecs and validate_codespecs refuse the folder: keep ${name} and remove ${legacy}.`,
+            },
+        } : {}),
+    };
+}
 
 export interface UnitView {
     unitId: string;
@@ -52,11 +108,22 @@ export function specRootOfExtracts(extractsDir: string): string | null {
     return normalized.endsWith(path.normalize(EXTRACTS_DIR)) ? path.dirname(path.dirname(normalized)) : null;
 }
 
-/** The IR documents of `areas` under `specRoot`: workspace-relative path and whether it exists yet. */
-export function irDocuments(deps: SpecToolDeps, specRoot: string, areas: string[]): Array<{ area: string; path: string; exists: boolean }> {
+/**
+ * The IR documents of `areas` under `specRoot`: the workspace-relative path (the document found, else the name it
+ * is written to) and whether it exists yet; `legacyName` when it was found under the older `<CE-CODE>.ir.yaml`,
+ * `finding` when the folder holds both names for the area.
+ */
+export function irDocuments(deps: SpecToolDeps, specRoot: string, areas: string[]): Array<{ area: string; path: string; exists: boolean; legacyName?: true; finding?: string }> {
+    const irDir = path.join(specRoot, IR_DIR);
     return areas.map((area) => {
-        const abs = path.join(specRoot, IR_DIR, `${area}${IR_SUFFIX}`);
-        return { area, path: toWorkspacePath(deps, abs), exists: fs.existsSync(abs) };
+        const doc = irDocumentOf(irDir, area, canonicalIdOf(deps, area));
+        return {
+            area,
+            path: toWorkspacePath(deps, path.join(irDir, doc.found ?? doc.name)),
+            exists: doc.found !== null,
+            ...(doc.found && doc.found !== doc.name ? { legacyName: true as const } : {}),
+            ...(doc.bothNames ? { finding: doc.bothNames.message } : {}),
+        };
     });
 }
 

@@ -275,9 +275,9 @@ describe('CodeSpecs plan todos', () => {
         assert.match(server.description, /irspecs map --unit meridian_codespec_server/);
 
         const db = byStem('csgen10');
-        assert.match(db.description, /It writes the IR documents u\/irspecs\/CE-DB\.ir\.yaml \(irspecs_ir\.md\), not Dart/);
+        assert.match(db.description, /It writes the IR documents u\/irspecs\/CE-DB_data_access\.ir\.yaml \(irspecs_ir\.md\), not Dart/);
         assert.match(db.description, /Units its extracts' entries go to: meridian_codespec_server \(server\)\./);
-        assert.ok(db.references.some((r: Json) => r.path === 'u/irspecs/CE-DB.ir.yaml'), 'the IR document among the references');
+        assert.ok(db.references.some((r: Json) => r.path === 'u/irspecs/CE-DB_data_access.ir.yaml'), 'the IR document among the references, by its canonical-id name (tom_specs irout2)');
         for (const n of [1, 2, 3]) {
             assert.ok(db.dependencies.includes(byStem(`csproj${n}`).id), `csgen10 comes after csproj${n}`);
         }

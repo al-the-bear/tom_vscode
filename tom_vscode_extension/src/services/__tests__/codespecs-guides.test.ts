@@ -137,7 +137,8 @@ describe('CodeSpecs guides', () => {
             return r.ok ? r.text.split('\n---\n')[0] : '';
         };
         const authoring = text('codespecs-authoring-step');
-        assert.match(authoring, /Write IR, not code: the step's IR documents <spec-root>\/irspecs\/<CE-CODE>\.ir\.yaml/);
+        assert.match(authoring, /Write IR, not code: the step's IR documents\n<spec-root>\/irspecs\/<CE-CODE>_<canonical id>\.ir\.yaml \(the names its `ir` documents give, e\.g\. CE-DB_data_access\.ir\.yaml\)/);
+        assert.doesNotMatch(text('codespecs-next-step') + authoring, /irspecs\/<CE-CODE>\.ir\.yaml/, 'only the descriptive names (tom_specs irout2)');
         assert.match(authoring, /its `units`/);
         assert.match(authoring, /irspecs_ir\.md §8\.1/);
         const validate = text('codespecs-validate');

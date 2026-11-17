@@ -79,7 +79,7 @@ export async function codeSpecsMapImpl(deps: SpecToolDeps, input: CodeSpecsMapIn
         const outAbs = resolveInput(deps, input.out);
         const rel = (p: string): string => toWorkspacePath(deps, p);
         if (!fs.existsSync(irAbs) || !fs.statSync(irAbs).isDirectory()) {
-            return json({ ok: false, code: 'irMissing', error: `no IR folder at ${rel(irAbs)}: the authoring steps write it (<spec-root>/${IR_DIR}/<CE-CODE>.ir.yaml)` });
+            return json({ ok: false, code: 'irMissing', error: `no IR folder at ${rel(irAbs)}: the authoring steps write it (<spec-root>/${IR_DIR}/<CE-CODE>_<canonical id>.ir.yaml)` });
         }
         const register = registerOf(deps, input.file);
         const wanted = input.unit && input.unit !== 'all' ? input.unit : undefined;

@@ -33,7 +33,8 @@
  *   SC-4  the packaged contract equals its source in ai_build
  *   SC-5  registration
  *   SC-6  units and IR (vscimpb67e, §2.9 <UNITS> / <IR>): with the document, the step's units with kind and the mapper
- *         of each of its areas (from the register) and its IR documents (<spec-root>/irspecs/<CE>.ir.yaml, whether
+ *         of each of its areas (from the register) and its IR documents (<spec-root>/irspecs/<CE>_<canonical id>.ir.yaml; an
+ *         older <CE>.ir.yaml found and marked legacyName, both names reported as a finding; whether
  *         each exists); with only the standard extract folder, the units without kinds and a note; a run without units
  *         and outside the standard location: no units (the trio) and no IR folder
  */
@@ -233,7 +234,7 @@ describe('CodeSpecs validate', () => {
 
     test('CV-10: a violation in the IR carries its check number', async () => {
         copyRun('irbroken');
-        const file = path.join(ws, ir('irbroken'), 'CE-DB.ir.yaml');
+        const file = path.join(ws, ir('irbroken'), 'CE-DB_data_access.ir.yaml');
         const text = fs.readFileSync(file, 'utf8');
         const anchor = '        docSpecLine: 15\n';
         assert.ok(text.includes(anchor), 'the fixture IR still has the shape this test edits');
@@ -451,14 +452,26 @@ describe('CodeSpecs step context', () => {
         // eslint-disable-next-line @typescript-eslint/naming-convention
         assert.deepEqual(r.units, [{ unitId: 'meridian_codespec_server', kind: 'server', mappers: { 'CE-DB': 'dart-tom' } }]);
         assert.equal(r.unitsNote, undefined);
-        assert.deepEqual(r.ir, { dir: 'unitrun/irspecs', documents: [{ area: 'CE-DB', path: 'unitrun/irspecs/CE-DB.ir.yaml', exists: false }] });
+        assert.deepEqual(r.ir, { dir: 'unitrun/irspecs', documents: [{ area: 'CE-DB', path: 'unitrun/irspecs/CE-DB_data_access.ir.yaml', exists: false }] },
+            'the name it is written to: <CE-CODE>_<canonical id>.ir.yaml (tom_specs irout2)');
         assert.ok(r.extracts[0].entries.every((e: Json) => JSON.stringify(e.units) === '["meridian_codespec_server"]'), 'each entry\'s units');
 
         fs.mkdirSync(path.join(ws, 'unitrun', 'irspecs'), { recursive: true });
+        // The older name is still found, marked as such.
         fs.writeFileSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB.ir.yaml'), 'format: "irspecs-ir"\n');
         const scc = await call(codeSpecsStepContextImpl, { file, step: 23 });
         assert.deepEqual(scc.ir.documents.map((d: Json) => d.area), ['CE-EL', 'CE-FM', 'CE-AC', 'CE-SC', 'CE-ST', 'CE-NV'], 'one per area of the step');
-        assert.equal((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0].exists, true);
+        assert.deepEqual((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0],
+            { area: 'CE-DB', path: 'unitrun/irspecs/CE-DB.ir.yaml', exists: true, legacyName: true });
+        // Both names for one area: the new one is named, the folder reported (irspecs refuses it).
+        fs.writeFileSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB_data_access.ir.yaml'), 'format: "irspecs-ir"\n');
+        const both = (await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0];
+        assert.deepEqual([both.path, both.exists, both.legacyName], ['unitrun/irspecs/CE-DB_data_access.ir.yaml', true, undefined]);
+        assert.match(both.finding, /^CE-DB has two IR documents, CE-DB_data_access\.ir\.yaml and CE-DB\.ir\.yaml; irspecs and validate_codespecs refuse the folder/);
+        // The new name alone.
+        fs.rmSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB.ir.yaml'));
+        assert.deepEqual((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0],
+            { area: 'CE-DB', path: 'unitrun/irspecs/CE-DB_data_access.ir.yaml', exists: true });
 
         const dirOnly = await call(codeSpecsStepContextImpl, { extractsDir: 'unitrun/generated-doc/codespecs_extracts', step: 10 });
         assert.deepEqual(dirOnly.units, [{ unitId: 'meridian_codespec_server' }]);

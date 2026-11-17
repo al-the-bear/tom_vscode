@@ -294,8 +294,9 @@ export const CODESPECS_STEP_CONTEXT_TOOL: SharedToolDefinition<CodeSpecsStepCont
         + 'how each area was matched); §2\'s section list (or its full text with includeUniversalRules); the output '
         + 'project; the generation `units` its entries go to (§2.9 <UNITS>: read off the entries, with each unit\'s kind '
         + 'and the mapper of each of the step\'s areas from the document\'s register when `file` is given; none: the trio); '
-        + 'and the IR documents it writes (§2.9 <IR>: `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area, with whether '
-        + 'each exists). Nothing else is for the step to read — not the Phase-3 specification documents.',
+        + 'and the IR documents it writes (§2.9 <IR>: `<spec-root>/irspecs/<CE-CODE>_<canonical id>.ir.yaml` per area, e.g. '
+        + '`CE-DB_data_access.ir.yaml`, with whether each exists; one still under the older `<CE-CODE>.ir.yaml` is found and '
+        + 'marked `legacyName`, a folder holding both names for an area carries a `finding`). Nothing else is for the step to read — not the Phase-3 specification documents.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

@@ -282,7 +282,9 @@ it after each step. How to do a stage is in its runbook:
    `tomAi_specCodeSpecsStepContext` returns for its step: its areas' extracts,
    the contract entries for their markers, its generation units (with kinds and
    mappers when given `file`) and its IR documents. It writes IR, not code: one
-   `<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area (irspecs_ir.md). A fact
+   `<spec-root>/irspecs/<CE-CODE>_<canonical id>.ir.yaml` per area, e.g.
+   `CE-DB_data_access.ir.yaml` (irspecs_ir.md; the tools still find an older
+   `<CE-CODE>.ir.yaml`, and report a folder holding both names). A fact
    among its entries with no place in the vocabulary goes nowhere in the IR: the
    step records it as a coverage gap and holds the walk at the gap review.
 6. **Map, validate and trace.** `tomAi_specCodeSpecsMap` (`file`, `out`,

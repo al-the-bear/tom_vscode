@@ -14,7 +14,7 @@
  *     package; without units `csproj1`, the trio scaffolding, one todo because
  *     the three projects are not separable (§4.2);
  *   - L2 `csgen<n>`: all thirty-one authoring steps, `<n>` the step ordinal,
- *     each naming the IR documents it writes (`<spec-root>/irspecs/<CE>.ir.yaml`
+ *     each naming the IR documents it writes (`<spec-root>/irspecs/<CE>_<canonical id>.ir.yaml`
  *     per area) and the units its extracts' entries go to.
  *     A step whose areas are all out of scope is still created: completing it
  *     with an empty L3 rung is the recorded outcome §1.1.3 asks for.
@@ -42,7 +42,7 @@ import { missingAreas, readRecord, recordPath, stageA } from './codespecs-gate-t
 import { createQuestTodoImpl, type QuestTodoToolsDeps, type TodoDecision } from './quest-todo-tools';
 import { buildIdPrefix } from './id-prefix-tools';
 import { readExtractDirectory } from '../services/codespecs-trace';
-import { IR_DIR, IR_SUFFIX, registerOf, specRootOfExtracts, unitsOfEntries, type UnitView } from './codespecs-units';
+import { IR_DIR, irDocumentName, registerOf, specRootOfExtracts, unitsOfEntries, type UnitView } from './codespecs-units';
 
 export interface CodeSpecsPlanTodosInput {
     /** The specification document; its record and extracts sit beside it. Also runs Stage A. */
@@ -292,7 +292,7 @@ function planItems(
         const areas = step.areaCodes.map((c) => catalog.byCode(c)).filter((a): a is CodeSpecsArea => a !== null);
         const inScope = areas.filter((a) => !isOutOfScope(verdictFor(a.code)));
         const isLast = step.number === steps[steps.length - 1].number;
-        const irDocs = step.areaCodes.map((c) => path.posix.join(units.irRel, `${c}${IR_SUFFIX}`));
+        const irDocs = step.areaCodes.map((c) => path.posix.join(units.irRel, irDocumentName(c, catalog.byCode(c)?.canonicalId)));
         const stepUnitIds = unitsOfEntriesOf(step.areaCodes, units);
         const unitText = stepUnitIds.length > 0
             ? stepUnitIds.map((id) => {
@@ -506,7 +506,7 @@ export const CODESPECS_PLAN_TODOS_TOOL: SharedToolDefinition<CodeSpecsPlanTodosI
         + '(its title the line verbatim), or one per such area carrying the gate note when its entry records no gap lines. L1 `csproj<n>`: one per generation unit of the document\'s register (with `file`; its kind and the mapper of each area it holds), '
         + 'else `csproj1`, the trio scaffolding (decision-needed when `appName` is not given). L2 `csgen<n>`: all 31 '
         + 'authoring steps, `<n>` the step number, each naming its areas and verdicts, its extracts, the IR documents it '
-        + 'writes (`<spec-root>/irspecs/<CE-CODE>.ir.yaml` per area), the units its entries go to and '
+        + 'writes (`<spec-root>/irspecs/<CE-CODE>_<canonical id>.ir.yaml` per area, e.g. `CE-DB_data_access.ir.yaml`), the units its entries go to and '
         + 'tomAi_specCodeSpecsStepContext as what it reads; the last names the map-and-validate stage. Ids come from tomAi_generateIdPrefix; the queue walks csopen*, '
         + 'csproj*, csgen* lowest first and pauses on decision-needed. Refused when the record lacks a verdict for an active '
         + 'area, or (with `file`) when Stage A does not pass. Idempotent: an item already in the quest (live or archived) is '
