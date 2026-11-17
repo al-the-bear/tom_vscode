@@ -14,7 +14,8 @@ import { registerAskCancel, runAsAskOwner } from '../services/askOwners';
 import { PROMPT_ENDED_TOOL_RESULT, raceCancellation } from '../utils/cancelRace';
 import { randomUUID } from 'crypto';
 import { currentCommandOwner, runAsCommandOwner } from '../services/commandOwners';
-import { commandsFinishedMessage, waitForOwnedCommands } from '../services/backgroundCommandWait';
+import { commandsFinishedMessage, reminderForRunningCommands, waitForOwnedCommands } from '../services/backgroundCommandWait';
+import { backgroundWorkReminder } from '../utils/backgroundWorkReminder';
 import { commandsOfOwner } from '../tools/process-tools';
 import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
@@ -1895,12 +1896,18 @@ export class AnthropicHandler {
      * their own listener on `onApprovalNeeded` (or only invoke tools with
      * `requiresApproval: false`) to avoid hanging.
      */
+    /** The background work each send was reminded about (vscimpb143), by the send's options. */
+    private readonly remindedBackgroundWork = new WeakMap<AnthropicSendOptions, Set<string>>();
+
     /**
      * The direct API's and Local LLM's background wait (utils/backgroundWait.ts):
      * a queue turn that ends while command streams it started still run waits
      * for them — alive while their process group exists, at most the limit.
      * Answers the message to go on with once they ended (only when a round is
      * left), or the hint the answer ends with when the limit was reached.
+     * Before the first wait for a piece of work, the turn goes on with the
+     * background-work reminder instead (utils/backgroundWorkReminder.ts), so the
+     * agent waits for it itself.
      */
     private async awaitBackgroundCommands(
         options: AnthropicSendOptions,
@@ -1910,6 +1917,16 @@ export class AnthropicHandler {
         const owner = currentCommandOwner();
         if (options.source !== 'queue' || !owner || !roundLeft) { return {}; }
         const limit = resolveBackgroundWaitLimitMinutes(options.backgroundWaitLimitMinutes, options.profile.backgroundWaitLimitMinutes);
+        // The background-work reminder (vscimpb143): once per wait, the turn goes on with it — the agent waits for
+        // its work actively in this turn — instead of the queue waiting silently.
+        let reminded = this.remindedBackgroundWork.get(options);
+        if (!reminded) { reminded = new Set(); this.remindedBackgroundWork.set(options, reminded); }
+        const reminder = reminderForRunningCommands(commandsOfOwner(owner), limit, Date.now(), reminded,
+            (state) => backgroundWorkReminder(loadSendToChatConfig()?.assistPrompts, state));
+        if (reminder !== undefined) {
+            liveTrail?.appendNotice('The turn ended while background work it started still runs: the queue sent the background-work reminder, so the turn goes on and waits for it.');
+            return { continueWith: reminder };
+        }
         let announced = false;
         const outcome = await waitForOwnedCommands(limit, {
             list: () => commandsOfOwner(owner),
@@ -2634,6 +2651,7 @@ export class AnthropicHandler {
                     queueRun: options.source === 'queue',
                     backgroundLimitMs: resolveBackgroundWaitLimitMinutes(options.backgroundWaitLimitMinutes, profile.backgroundWaitLimitMinutes) * 60_000,
                     ...(options.onBackgroundWait ? { onBackgroundWait: options.onBackgroundWait } : {}),
+                    ...(options.source === 'queue' ? { backgroundReminder: (state: BackgroundWaitState) => backgroundWorkReminder(loadSendToChatConfig()?.assistPrompts, state) } : {}),
                     ...(options.onBackgroundWaitControl ? { onBackgroundWaitControl: options.onBackgroundWaitControl } : {}),
                     context: {
                         requestApproval: (req) => this.awaitApproval(req),

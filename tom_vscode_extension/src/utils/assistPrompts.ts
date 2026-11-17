@@ -3,7 +3,9 @@
  * Grill me, Explain in detail, Explain a decision, Finish review round, Gate
  * decision, and
  * the prompt a queue item continues with on another profile when its profile
- * ran out of credit (Out of budget).
+ * ran out of credit (Out of budget), and the reminder a queue turn gets when
+ * it ends its answer while its own background work still runs (Background
+ * work reminder; a template whose text is empty sends none).
  *
  * They are templates of one category (`assistPrompts.templates`, edited in the
  * Global Template Editor); for each use the Status Page chooses which template
@@ -15,7 +17,7 @@
  * vscode-free.
  */
 
-export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget'] as const;
+export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget', 'backgroundWork'] as const;
 export type AssistPromptUse = typeof ASSIST_PROMPT_USES[number];
 
 export interface AssistPromptTemplate {
@@ -277,6 +279,21 @@ const OUT_OF_BUDGET_BODY = [
     '${originalPrompt}',
 ].join('\n');
 
+/** The background-work reminder (vscimpb143): a turn ended its answer while its own background work runs. */
+const BACKGROUND_WORK_BODY = [
+    '**Your turn is not finished: work you started in the background is still running.**',
+    '',
+    'Still running (waited for since ${waitingSince}; the queue waits at most ${limitMinutes} minutes):',
+    '',
+    '${backgroundWork}',
+    '',
+    'Wait for it actively, in this turn:',
+    '',
+    '1. Check its progress periodically: read its output (the output file, or the command\'s output) and poll until it has ended.',
+    '2. When it has ended, check the result.',
+    '3. Then answer again, with the result. Do not start new work while it runs.',
+].join('\n');
+
 const QUESTION_PLACEHOLDERS = {
     documentKind: '`plain Markdown` or `a TomSpecs specification` — which tools read and propose',
     file: 'the document holding the question (workspace-relative)',
@@ -356,6 +373,16 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
             runsInSession: 'the session it continues in',
             sessionNote: 'a sentence saying why it runs in another session, empty when it runs in the same one',
             originalPrompt: 'the prompt that stopped, as it was sent',
+        },
+    },
+    backgroundWork: {
+        label: 'Background work reminder',
+        purpose: 'A queue turn ended its answer while background work it started still runs: sent once into the same session, so the agent waits for it actively. An empty template sends no reminder.',
+        defaultId: 'background-work-reminder', defaultName: 'Background work reminder', defaultBody: BACKGROUND_WORK_BODY,
+        placeholders: {
+            backgroundWork: 'the work still running, one line each: what it is, its id, the command, the output file',
+            waitingSince: 'when the wait began (local time)',
+            limitMinutes: 'the longest the queue waits for it, in minutes',
         },
     },
 };

@@ -12,6 +12,7 @@
 
 import type { OwnedCommand } from '../tools/process-tools';
 import type { BackgroundWaitControl, BackgroundWaitState, BackgroundWorkItem } from '../utils/backgroundWait';
+import { takeReminderFor } from '../utils/backgroundWorkReminder';
 
 export type CommandWaitOutcome =
     /** Nothing of the send's was running. */
@@ -39,6 +40,26 @@ export interface CommandWaitDeps {
 
 function workItem(c: OwnedCommand): BackgroundWorkItem {
     return { id: c.handle, kind: 'command', description: c.command, command: c.command };
+}
+
+/**
+ * The background-work reminder for a turn that ended while its command streams still run (vscimpb143): the
+ * text `build` makes for the wait that would start now, once per wait — undefined when nothing runs, waiting is
+ * off (limit 0), the template is empty, or this work was reminded about already (`reminded`, per send).
+ */
+export function reminderForRunningCommands(
+    commands: readonly OwnedCommand[],
+    limitMinutes: number,
+    now: number,
+    reminded: Set<string>,
+    build: (state: BackgroundWaitState) => string | undefined,
+): string | undefined {
+    const running = commands.filter((c) => c.running);
+    if (!running.length || limitMinutes <= 0) { return undefined; }
+    const items = running.map(workItem);
+    const text = build({ since: new Date(now).toISOString(), limitMinutes, items });
+    if (!text || !takeReminderFor(items, reminded)) { return undefined; }
+    return text;
 }
 
 /** Wait for the send's running command streams; see {@link CommandWaitOutcome}. */

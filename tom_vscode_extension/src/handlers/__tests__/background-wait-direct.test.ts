@@ -2,11 +2,12 @@
  * A direct-API queue turn waits for the command streams it started (vscimpb56), through the real handler and its
  * direct loop; only the Anthropic client is a stub that scripts the model's replies.
  *
- *   BD-1 the model starts `tomAi_runCommandStream` and ends its turn ("waiting to get notified"): the turn holds
- *        while the command runs, then goes on with a message naming the command and its exit code; the model's
- *        answer to it is the turn's answer; the waiting state was reported, then cleared
- *   BD-2 the limit (the queue item's, here a few hundred ms) ends the wait: the answer ends with the hint naming
- *        the command still running, and no extra round is sent
+ *   BD-1 the model starts `tomAi_runCommandStream` and ends its turn ("waiting to get notified"): the turn first
+ *        goes on with the background-work reminder (vscimpb143) naming the command; the model ends again, and now
+ *        the turn holds while the command runs, then goes on with a message naming the command and its exit code;
+ *        the model's answer to it is the turn's answer; the waiting state was reported, then cleared
+ *   BD-2 the limit (the queue item's, here a few hundred ms) ends the wait: after the reminder round, the answer
+ *        ends with the hint naming the command still running, and no extra round is sent
  *   BD-3 a chat send (not the queue) does not wait
  *   BD-4 the Local LLM loop waits the same way (wired through the same helper)
  */
@@ -91,14 +92,16 @@ describe('a direct-API queue turn waits for its command streams', () => {
         replies = [
             { kind: 'tool', command: 'sleep 1; echo built; exit 0' },
             { kind: 'text', text: 'Started the build; I am waiting to get notified.' },
+            { kind: 'text', text: 'Understood, waiting.' },
             { kind: 'text', text: 'The build finished with exit code 0. Done.' },
         ];
         const states: Array<BackgroundWaitState | undefined> = [];
         const started = Date.now();
         const result = await send({ states });
         assert.ok(Date.now() - started >= 900, 'the turn waited for the command');
-        assert.equal(requests.length, 3, 'one more round after the command ended');
-        assert.match(lastUserText(requests[2]), /The background command you started has finished:.*`sleep 1; echo built; exit 0` \[proc_\d+_\w+\]: exit code 0/s);
+        assert.equal(requests.length, 4, 'the reminder round, then one more round after the command ended');
+        assert.match(lastUserText(requests[2]), /^\*\*Your turn is not finished: work you started in the background is still running\.\*\*[\s\S]*- sleep 1; echo built; exit 0 \[proc_\d+_\w+\]/, 'the reminder, once');
+        assert.match(lastUserText(requests[3]), /The background command you started has finished:.*`sleep 1; echo built; exit 0` \[proc_\d+_\w+\]: exit code 0/s);
         assert.equal(result.text, 'The build finished with exit code 0. Done.');
         assert.equal(states[0]?.items[0]?.command, 'sleep 1; echo built; exit 0');
         assert.equal(states[0]?.limitMinutes, 360, 'the default limit');
@@ -112,7 +115,8 @@ describe('a direct-API queue turn waits for its command streams', () => {
             { kind: 'text', text: 'Waiting for the long run.' },
         ];
         const result = await send({ limit: 0.01 });
-        assert.equal(requests.length, 2, 'no round after the limit');
+        assert.equal(requests.length, 3, 'the reminder round, then no round after the limit');
+        assert.match(lastUserText(requests[2]), /Your turn is not finished/);
         assert.match(result.text, /^Waiting for the long run\.\n\n_\(1 background task was still running when this turn ended — the queue stopped waiting after 1 s \(the background-wait limit\)/);
         assert.match(result.text, /sleep 30 \[proc_/);
         _resetRegistryForTesting();

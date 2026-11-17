@@ -78,7 +78,7 @@
         },
         "assistPrompts": {
             "type": "object",
-            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Gate decision, Out of budget. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, gate-decision, out-of-budget, seeded at activation), else the built-in text.",
+            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Gate decision, Out of budget, Background work reminder. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, gate-decision, out-of-budget, background-work-reminder, seeded at activation), else the built-in text.",
             "properties": {
                 "selected": {
                     "type": "object",
@@ -90,7 +90,8 @@
                         "grillMeDecision": { "type": "string" },
                         "finishReviewRound": { "type": "string" },
                         "gateDecision": { "type": "string" },
-                        "outOfBudget": { "type": "string" }
+                        "outOfBudget": { "type": "string" },
+                        "backgroundWork": { "type": "string", "description": "The background-work reminder (a queue turn ended while its own background work runs). A template whose text is empty sends no reminder." }
                     },
                     "additionalProperties": false
                 },

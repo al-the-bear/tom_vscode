@@ -437,6 +437,12 @@ export interface AgentSdkSendParams {
     backgroundLimitMs?: number;
     /** The background wait's state while the turn waits, `undefined` when it ends. */
     onBackgroundWait?: (state: BackgroundWaitState | undefined) => void;
+    /**
+     * The background-work reminder (vscimpb143): when the turn ends its answer while its background tasks run and
+     * the wait begins, the text this answers (undefined: none) goes into the same turn as a user message, so the
+     * agent waits for the work actively. Once per wait; the wait itself goes on as before.
+     */
+    backgroundReminder?: (state: BackgroundWaitState) => string | undefined;
     /** The controls of the background wait (Wait without limit, Keep waiting, Stop waiting) while the send runs; `undefined` when it ends. */
     onBackgroundWaitControl?: (control: BackgroundWaitControl | undefined) => void;
     /** The profile's thinking and effort as the SDK takes them (src/utils/thinkingAndEffort.ts). */
@@ -1076,6 +1082,16 @@ async function runAgentSdkAttempt(
             params.liveTrail?.appendNotice(message);
             // The waiting state for the queue item (shown, and kept over a reload).
             try { params.onBackgroundWait?.(backgroundWaitStateOf(input.backgroundWait())); } catch { /* display only */ }
+            // The wait begins: the background-work reminder goes into the same turn, once per wait (vscimpb143).
+            if (event.kind === 'waiting' && params.backgroundReminder) {
+                const state = backgroundWaitStateOf(input.backgroundWait());
+                let text: string | undefined;
+                try { text = state ? params.backgroundReminder(state) : undefined; } catch { text = undefined; }
+                if (text && input.push(text)) {
+                    toolLog(`[agent-sdk] sent the background-work reminder into the turn (request ${context.requestId})`);
+                    params.liveTrail?.appendNotice('The turn ended while background work it started still runs: the queue sent the background-work reminder into the turn, so the agent waits for it actively.');
+                }
+            }
         },
         onClose: (reason) => toolLog(`[agent-sdk] input closed (${reason}) for request ${context.requestId}`),
     });
