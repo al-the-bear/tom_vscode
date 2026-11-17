@@ -9,9 +9,13 @@
  * - `unblock`: each target's `blocked_by` entry naming this todo is met and
  *   removed; a `blocked` target with nothing else blocking it becomes
  *   `not-started` (`decision-needed` when it has an open decision);
- * - `notify`: a prompt — `notify_prompt`, else {@link TODO_NOTIFY_DEFAULT} —
- *   queued at `on_done.quest` / `run` (another quest: through its inbox). The
- *   receiver records the result at `report_to`;
+ * - `notify`: the todo's done notification (vscimpb146) — `notify_prompt`,
+ *   else the configured template (`todoPanel.doneNotificationTemplate`); with
+ *   neither, none (there is no built-in text). It goes into the run AND
+ *   session that queued the todo (`ctx.queuedBy`, utils/queuedBy.ts; another
+ *   quest: through its inbox with the session named); without a queuing
+ *   session it is not sent — the item's own queue and run are never the
+ *   fallback. The receiver records the result at `report_to`;
  * - `queue`: each target todo queued by the extension itself at that quest
  *   and run, with the quest's group prompt and the todo's record; a
  *   notification only reports.
@@ -32,6 +36,7 @@
 import { escapePlaceholders, fillPlaceholder } from './placeholderEscape';
 import { withTodoYaml, todoYamlBlock } from './todoIterationRecord';
 import { onDoneQuest, unblockEntry, type TodoFiledBy, type TodoOnDone } from './todoOnDone';
+import type { QueuedBy } from './queuedBy';
 
 /** A target todo as the planner sees it. */
 export interface OnDoneTarget {
@@ -68,8 +73,10 @@ export interface OnDoneContext {
     groupPrompt(quest: string): string;
     /** For the notes line. */
     today: string;
-    /** The configured todo done-notification template: replaces {@link TODO_NOTIFY_DEFAULT} when set. */
+    /** The configured todo done-notification template, used when the block has no `notify_prompt`. */
     notifyTemplate?: string;
+    /** Who queued the todo (the queue item or chat send that ran it): where `notify` goes. */
+    queuedBy?: QueuedBy;
 }
 
 /** A target's `blocked_by` rewritten, and its status when it changes. */
@@ -87,6 +94,8 @@ export interface OnDoneSend {
     text: string;
     /** For a queued todo: its id (the queue item's todoIdPattern). */
     todoId?: string;
+    /** The session it runs in (a notification: the queuing session); unset: the run's queue default. */
+    session?: string;
 }
 
 export interface OnDonePlan {
@@ -97,17 +106,9 @@ export interface OnDonePlan {
     notes: string[];
     /** Targets passed over because they are done (for the log). */
     skipped: string[];
+    /** Why a `notify` the block asks for was not sent (no text, no queuing session), for the log. */
+    notifyNotSent?: string;
 }
-
-/**
- * The prompt a `notify` queues when the block has no `notify_prompt`. The
- * todo done-notification template (ww_a_collab-6) will make it editable; its
- * placeholders are the ones {@link fillTodoPlaceholders} fills.
- */
-export const TODO_NOTIFY_DEFAULT =
-    'Todo ${todoId} (${todoTitle}) of quest ${senderQuest} is ${itemOutcome}. '
-    + 'Record the result where its follow-up says (`report_to`: ${reportTo}); if it names no place, there is nothing to record.\n\n'
-    + 'Its answer:\n\n${todoLastAnswer}';
 
 const DONE = new Set(['completed', 'cancelled']);
 
@@ -196,8 +197,20 @@ export function planOnDoneRun(todo: CompletedTodo, ctx: OnDoneContext): OnDonePl
         }
     }
     if (actions.includes('notify')) {
-        const text = onDone.notify_prompt?.trim() ? onDone.notify_prompt : (ctx.notifyTemplate?.trim() ? ctx.notifyTemplate : TODO_NOTIFY_DEFAULT);
-        plan.notify = { quest: targetQuest, run: targetRun, text: fillTodoPlaceholders(text, todo, { quest: ctx.quest, run: ctx.run }) };
+        // The done notification: its own text, else the configured template; into the queuing run and session.
+        const text = onDone.notify_prompt?.trim() ? onDone.notify_prompt : (ctx.notifyTemplate?.trim() ? ctx.notifyTemplate : undefined);
+        if (!text) {
+            plan.notifyNotSent = 'no notify_prompt and no done-notification template configured';
+        } else if (!ctx.queuedBy) {
+            plan.notifyNotSent = 'no queuing session is known (the todo was not completed in a queue item or chat send that recorded who queued it)';
+        } else {
+            plan.notify = {
+                quest: ctx.queuedBy.quest,
+                run: ctx.queuedBy.run,
+                ...(ctx.queuedBy.session ? { session: ctx.queuedBy.session } : {}),
+                text: fillTodoPlaceholders(text, todo, { quest: ctx.quest, run: ctx.run }),
+            };
+        }
     }
     return plan;
 }

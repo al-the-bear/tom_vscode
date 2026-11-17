@@ -53,6 +53,7 @@
  */
 
 import { deriveQueueItemKind } from '../utils/queueItemKind';
+import type { QueuedBy } from '../utils/queuedBy';
 import { memberMarkerText, type GroupMemberView } from '../utils/groupItemSelection';
 import type { TodoQueueItemSpec } from '../utils/todoQueueItems';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
@@ -108,6 +109,8 @@ export interface QueueItemSnapshot {
     groupSelection?: { checked: string[]; unchecked: string[] };
     /** The todos it runs: a todo id, `<prefix>*`, or several separated by commas. */
     todoIdPattern?: string;
+    /** Who queued it (utils/queuedBy.ts): where a todo it completes sends its done notification. */
+    queuedBy?: QueuedBy;
     /** "Let the next item go first" armed: yields after its running iteration (vscimpb60e). */
     yieldAfterIteration?: boolean;
     type?: string;
@@ -181,7 +184,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
-    'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
+    'queuedBy', 'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
 
 type UnprojectedSnapshotField = Exclude<keyof QueueItemSnapshot, (typeof QUEUE_ITEM_SNAPSHOT_FIELDS)[number]>;
@@ -242,6 +245,8 @@ export interface EnqueueInput {
     doneNotificationRun?: string;
     /** A process item: a process step's own work; does not count towards the quest refresh (vscimpb97). */
     processItem?: boolean;
+    /** Who queued it: the calling agent's quest, run and session (utils/queuedBy.ts). */
+    queuedBy?: QueuedBy;
 }
 
 /** A queue item's session as a tool takes it: a name, or how to create it when missing. */
@@ -269,6 +274,8 @@ export interface PromptQueueAccess {
     getByRequestId(requestId: string): QueueItemSnapshot | undefined;
 
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
+    /** The calling agent's quest, run and session (recorded as the item's `queuedBy`); unset: not recorded. */
+    callerQueuedBy?(): QueuedBy | undefined;
     /** The quest's process runs (`tomAi_addQueueItem {run}` must name one); unset: not checked. */
     runs?(): string[];
     /** Whether `quest` exists (`_ai/quests/<quest>/`); for a done notification posted to another quest. */
@@ -453,6 +460,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         followUpCount: i.followUps?.length ?? 0,
         textPreview: String(i.originalText || '').slice(0, 160),
         ...(todoIdPatternOf(i) ? { todoIdPattern: todoIdPatternOf(i) } : {}),
+        ...(i.queuedBy ? { queuedBy: i.queuedBy } : {}),
         transport: i.transport || 'copilot',
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
@@ -592,7 +600,9 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         }
         const badTarget = doneNotificationTargetRefusal(access, input.doneNotificationQuest, input.doneNotificationRun);
         if (badTarget) { return err(badTarget); }
+        const queuedBy = access.callerQueuedBy?.();
         const item = await access.enqueue({
+            ...(queuedBy ? { queuedBy } : {}),
             ...(run ? { run } : {}),
             ...(input.doneNotificationQuest?.trim() ? { doneNotificationQuest: input.doneNotificationQuest.trim() } : {}),
             ...(input.doneNotificationRun?.trim() ? { doneNotificationRun: input.doneNotificationRun.trim() } : {}),

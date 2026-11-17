@@ -19,7 +19,9 @@
  *        own quest only; the todo's own quest is the default when it has a window
  *   QF-6 direct sends (Send, Guide me's send, the bar's Send) ask for a free session of this window's runs, with
  *        "Last: …" first; they send there, as that run
- *   QF-7 no run and no session in the panel: the views get only the Done notification toggle's state (qtDoneNotification)
+ *   QF-7 no run and no session in the panel: the views get only the Done notification toggle's state (qtDoneNotification);
+ *        the toggle is off by default and cannot be turned on without a template (vscimpb146); on, the items queued
+ *        here and through another quest's inbox record who queued them (the run and session chosen); off, none
  *   QF-8 a Send as another run runs with that run's process position (processRunFor)
  */
 
@@ -347,11 +349,34 @@ describe('the todo panel\'s queue-target flow', () => {
     test('QF-7: no run and no session in the panel', async () => {
         const { webview, posted } = view();
         await send(webview, { type: 'qtGetDoneNotification' });
-        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification'), [{ type: 'qtDoneNotification', on: true }]);
-        await send(webview, { type: 'qtSetDoneNotification', on: false });
-        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification').at(-1), { type: 'qtDoneNotification', on: false });
+        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification'), [{ type: 'qtDoneNotification', on: false, available: false }],
+            'off by default; disabled without a template (vscimpb146)');
         await send(webview, { type: 'qtSetDoneNotification', on: true });
+        assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification').at(-1), { type: 'qtDoneNotification', on: false, available: false },
+            'it cannot be turned on without a template');
         assert.equal(posted.some((m) => m.type === 'qtRunSession'), false);
+        // With a template: on, and the panel's items record who queued them — the run and session queued into.
+        const cfgFile = path.join(WS, '.tom', 'tom_vscode_extension.json');
+        const cfg = fs.readFileSync(cfgFile, 'utf8');
+        fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(cfg), todoPanel: { doneNotificationTemplate: 'Done: ${todoId}' } }));
+        try {
+            await send(webview, { type: 'qtSetDoneNotification', on: true });
+            assert.deepEqual(posted.filter((m) => m.type === 'qtDoneNotification').at(-1), { type: 'qtDoneNotification', on: true, available: true });
+            enqueued.length = 0;
+            answers = ['q1', 'r2', 'work@r2', '$(arrow-down) End'];
+            await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
+            assert.deepEqual(enqueued.at(-1).queuedBy, { quest: 'q1', run: 'r2', session: 'work@r2' });
+            assert.equal(enqueued.at(-1).doneNotificationPrompt, undefined, 'no done notification rides on the item');
+            answers = ['q2', 'default', 'other', '$(arrow-down) End'];
+            await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
+            assert.deepEqual(inbox().find((i) => i['queued-by'])?.['queued-by'], { quest: 'q2', run: 'default', session: 'other' }, 'through the inbox too');
+            await send(webview, { type: 'qtSetDoneNotification', on: false });
+            answers = ['q1', 'r2', 'work@r2', '$(arrow-down) End'];
+            await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
+            assert.equal(enqueued.at(-1).queuedBy, undefined, 'box off: nobody recorded');
+        } finally {
+            fs.writeFileSync(cfgFile, cfg);
+        }
         const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         assert.doesNotMatch(host, /case 'qtPickSession'|case 'qtSetRun'|case 'qtGetRunSession'|todoPanelSelectionNow|todoPanelQueueTarget/);
     });

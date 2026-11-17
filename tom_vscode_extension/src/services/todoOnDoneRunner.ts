@@ -4,9 +4,9 @@
  * this window's queue for its own quest, through the quest inbox for another —
  * and notes skipped targets on the todo.
  *
- * The extension's `notify` is left out (`skipNotify`) when the queue item or
- * chat send that ran the todo carries the todo done notification
- * (utils/todoDoneNotification.ts): one notification per todo.
+ * The `notify` is the todo's done notification (vscimpb146): it goes into the
+ * run and session that queued the todo (`queuedBy`, the queue item or chat
+ * send that ran it), else nowhere.
  *
  * Two places call it, once per completion:
  * - the todo writer (questTodoManager.updateTodo) when an update completes a
@@ -20,6 +20,7 @@
  */
 
 import { planOnDoneRun, type CompletedTodo, type OnDoneContext, type OnDonePlan, type OnDoneSend, type OnDoneTarget } from '../utils/todoOnDoneRun';
+import type { QueuedBy } from '../utils/queuedBy';
 
 export interface TodoOnDonePorts {
     /** The quest of this window. */
@@ -32,7 +33,7 @@ export interface TodoOnDonePorts {
     writeTarget(quest: string, id: string, blockedBy: string[], status?: string): void;
     /** Append lines to a todo's notes. */
     appendNotes(quest: string, id: string, lines: string[]): void;
-    /** Queue a prompt in this window's queue, in `run`; `todoId` marks the todo it runs. */
+    /** Queue a prompt in this window's queue, in `run` (and `session`, when set); `todoId` marks the todo it runs. */
     enqueueLocal(send: OnDoneSend): Promise<void>;
     /** Post a prompt into another quest's inbox, queued there in `run`. */
     postToQuest(send: OnDoneSend, from: { quest: string; run: string }): void;
@@ -64,7 +65,7 @@ export function takeDeferredTodoOnDone(quest: string, id: string): boolean {
  * plan it carried out (undefined without a runner or a block). Each step is
  * tried on its own: a failing send is logged and the others still run.
  */
-export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: string, opts: { skipNotify?: boolean } = {}): Promise<OnDonePlan | undefined> {
+export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: string, opts: { queuedBy?: QueuedBy } = {}): Promise<OnDonePlan | undefined> {
     const p = ports;
     if (!p || !todo.on_done) { return undefined; }
     const ctx: OnDoneContext = {
@@ -73,13 +74,9 @@ export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: str
         groupPrompt: (q) => p.groupPrompt(q),
         today: p.today(),
         ...(p.notifyTemplate?.() ? { notifyTemplate: p.notifyTemplate() } : {}),
+        ...(opts.queuedBy ? { queuedBy: opts.queuedBy } : {}),
     };
     const plan = planOnDoneRun(todo, ctx);
-    // The todo done notification of the item that ran it covers this completion: one notification per todo.
-    if (opts.skipNotify && plan.notify) {
-        p.log(`on_done of ${quest}/${todo.id}: notify left to the item's todo done notification`);
-        plan.notify = undefined;
-    }
     const step = async (what: string, fn: () => unknown): Promise<void> => {
         try { await fn(); } catch (e) { p.log(`on_done of ${quest}/${todo.id}: ${what} failed: ${(e as Error).message}`); }
     };
@@ -94,7 +91,7 @@ export async function runTodoOnDone(quest: string, todo: CompletedTodo, run: str
     if (plan.notify) { await send(plan.notify, `notify ${plan.notify.quest}`); }
     if (plan.notes.length) { await step('notes', () => p.appendNotes(quest, todo.id, plan.notes)); }
     p.log(`on_done of ${quest}/${todo.id}: ${plan.unblock.length} unblocked, ${plan.queue.length} queued, `
-        + `${plan.notify ? `notified ${plan.notify.quest}/${plan.notify.run}` : 'no notification'}`
+        + `${plan.notify ? `notified ${plan.notify.quest}/${plan.notify.run}/${plan.notify.session ?? 'queue default'}` : plan.notifyNotSent ? `no notification (${plan.notifyNotSent})` : 'no notification'}`
         + `${plan.skipped.length ? `; done targets skipped: ${plan.skipped.join(', ')}` : ''}`
         + `${plan.notes.length ? `; ${plan.notes.length} noted` : ''}`);
     return plan;

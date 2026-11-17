@@ -126,8 +126,6 @@ export interface DoneNotificationItem {
     doneNotificationPrompt?: string;
     /** The prompt is kept but not queued. */
     doneNotificationDisabled?: boolean;
-    /** A todo done notification (utils/todoDoneNotification.ts): the prompt is filled from the item's todo when it finishes. */
-    doneNotificationTodo?: boolean;
     /** The send-run the notification was queued for (no second one for the same send-run). */
     doneNotificationQueuedFor?: string;
     /** The quest the notification is posted to; unset: the item's own. */
@@ -270,15 +268,27 @@ export function deletesTemporarySession(item: DoneNotificationItem, plan: DoneNo
 // Entry file (meta)
 // ---------------------------------------------------------------------------
 
+/**
+ * The text an older build attached to every item the todo panel made (removed in vscimpb146); kept only to
+ * recognise and drop it in stored entries.
+ */
+const LEGACY_TODO_DONE_NOTIFICATION_TEXT =
+    'Todo ${todoId} (${todoTitle}) is ${itemOutcome}. Its follow-up: ${todoOnDone}. Do what it says; if it says nothing, '
+    + 'there is nothing to do. If it is not done, report that and do not carry out the follow-up.';
+
+/** A stored done notification an older build added for the item's todo (`todo: true`, or its old default text). */
+export function isLegacyTodoDoneNotification(d: Record<string, unknown>): boolean {
+    return d.todo === true || d.prompt === LEGACY_TODO_DONE_NOTIFICATION_TEXT;
+}
+
 /** The meta keys of these fields; unset ones left out, so an untouched entry round-trips unchanged. */
 export function doneNotificationMetaToYaml(item: DoneNotificationMetaFields): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    if (item.doneNotificationPrompt !== undefined || item.doneNotificationDisabled || item.doneNotificationTodo || item.doneNotificationQuest
+    if (item.doneNotificationPrompt !== undefined || item.doneNotificationDisabled || item.doneNotificationQuest
         || item.doneNotificationRun || item.doneNotificationPosted) {
         out['done-notification'] = {
             prompt: item.doneNotificationPrompt ?? '',
             ...(item.doneNotificationDisabled ? { disabled: true } : {}),
-            ...(item.doneNotificationTodo ? { todo: true } : {}),
             ...(item.doneNotificationQueuedFor ? { 'queued-for-run': item.doneNotificationQueuedFor } : {}),
             ...(item.doneNotificationQuest ? { quest: item.doneNotificationQuest } : {}),
             ...(item.doneNotificationRun ? { run: item.doneNotificationRun } : {}),
@@ -306,18 +316,20 @@ export function doneNotificationMetaToYaml(item: DoneNotificationMetaFields): Re
 
 /** The fields an entry's meta stores for this module. */
 export type DoneNotificationMetaFields = Pick<DoneNotificationItem,
-    'doneNotificationPrompt' | 'doneNotificationDisabled' | 'doneNotificationTodo' | 'doneNotificationQueuedFor' | 'doneNotificationQuest'
+    'doneNotificationPrompt' | 'doneNotificationDisabled' | 'doneNotificationQueuedFor' | 'doneNotificationQuest'
     | 'doneNotificationRun' | 'doneNotificationPosted' | 'notificationOf' | 'from' | 'temporarySession'>;
 
 /** The fields read back from an entry's meta. */
 export function doneNotificationMetaFromYaml(meta: Record<string, unknown>): DoneNotificationMetaFields {
     const out: DoneNotificationMetaFields = {};
     const dn = meta['done-notification'];
-    if (dn && typeof dn === 'object') {
+    // An older build's todo done notification (vscimpb146) — marked `todo: true`, or carrying exactly its old
+    // default text — is migrated by dropping the whole block: the todo's on_done `notify` is the todo done
+    // notification now.
+    if (dn && typeof dn === 'object' && !isLegacyTodoDoneNotification(dn as Record<string, unknown>)) {
         const d = dn as Record<string, unknown>;
         if (typeof d.prompt === 'string') { out.doneNotificationPrompt = d.prompt; }
         if (d.disabled === true) { out.doneNotificationDisabled = true; }
-        if (d.todo === true) { out.doneNotificationTodo = true; }
         if (typeof d['queued-for-run'] === 'string') { out.doneNotificationQueuedFor = d['queued-for-run']; }
         if (typeof d.quest === 'string' && d.quest) { out.doneNotificationQuest = d.quest; }
         if (typeof d.run === 'string' && d.run) { out.doneNotificationRun = d.run; }

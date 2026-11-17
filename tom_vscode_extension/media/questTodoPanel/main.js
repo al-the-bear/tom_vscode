@@ -458,11 +458,13 @@ function qtNavPush(todoId) {
     vscode.postMessage({ type: 'qtGetDoneNotification' });
     var qtDoneNotificationBtn = document.getElementById('qt-done-notification');
     if (qtDoneNotificationBtn) {
-        qtSetDoneNotificationLook(qtDoneNotificationBtn.getAttribute('aria-pressed') !== 'false');
+        // Off and disabled until the host says a template is set (vscimpb146).
+        qtSetDoneNotificationLook(false, false);
         qtDoneNotificationBtn.addEventListener('click', function(e) {
             e.preventDefault();
+            if (qtDoneNotificationBtn.disabled) { return; }
             var on = qtDoneNotificationBtn.getAttribute('aria-pressed') !== 'true';
-            qtSetDoneNotificationLook(on);
+            qtSetDoneNotificationLook(on, true);
             vscode.postMessage({ type: 'qtSetDoneNotification', on: on });
         });
     }
@@ -691,15 +693,23 @@ function qtPickTemplate() {
     vscode.postMessage({ type: 'qtPickTemplate', templates: templates, selected: sel.value });
 }
 
-/** The Done notification toggle: pressed (on) or not, with a tooltip naming what it does and its state. */
-function qtSetDoneNotificationLook(on) {
+/**
+ * The Done notification toggle: pressed (on) or not, disabled while no template is set (`available` false), with a
+ * tooltip naming what it does and its state.
+ */
+function qtSetDoneNotificationLook(on, available) {
     var btn = document.getElementById('qt-done-notification');
     if (!btn) { return; }
+    on = !!on && available !== false;
+    btn.disabled = available === false;
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btn.classList.toggle('pressed', !!on);
+    btn.classList.toggle('pressed', on);
     var icon = btn.querySelector('.codicon');
     if (icon) { icon.className = 'codicon ' + (on ? 'codicon-bell' : 'codicon-bell-slash'); }
-    btn.title = 'Done notification: ' + (on ? 'ON' : 'OFF') + '. When on, the queue items and chat sends this panel makes for todos report back when they finish, at the todo\'s After done quest and run (a todo without After done gets none). The template is Todo \u2014 Done Notification in the Prompt Template Editor. Kept per quest. Click to turn it ' + (on ? 'off' : 'on') + '.';
+    var what = 'When on, a todo this panel queues or sends reports back when it is completed and its After done asks for notify: into the run and session it was queued into (a todo without After done notify gets none). The text is its notify prompt, else Todo \u2014 Done Notification in the Prompt Template Editor. Kept per quest.';
+    btn.title = available === false
+        ? 'Done notification: unavailable — no Todo \u2014 Done Notification template is set (Prompt Template Editor). ' + what
+        : 'Done notification: ' + (on ? 'ON' : 'OFF') + '. ' + what + ' Click to turn it ' + (on ? 'off' : 'on') + '.';
 }
 
 /** Is the group with this prefix currently expanded? Unknown ⇒ collapsed. */
@@ -2983,7 +2993,7 @@ function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + l
 // ── After done: the todo's on_done, and filed_by read-only ──
 var QT_OD_ACTIONS = [
     ['unblock', 'unblock', 'Remove this todo from the targets\' Blocked By (written there now, while this todo is open)'],
-    ['notify', 'notify', 'Queue the notify prompt (or a default report) in the target quest and run'],
+    ['notify', 'notify', 'The todo done notification: the notify prompt, else the configured template (none without either), into the run and session that queued the todo'],
     ['queue', 'queue', 'Queue the targets in the target quest and run'],
     ['none', 'none', 'Nothing but the instructions'],
 ];
@@ -3020,7 +3030,7 @@ function qtOnDoneSection(todo) {
             return '<label title="' + qtEsc(a[2]) + '"><input type="checkbox" data-od-action="' + a[0] + '"' + (acts.indexOf(a[0]) >= 0 ? ' checked' : '') + '>' + a[1] + '</label>';
         }).join('') + '</span>') +
         qtFormRow('Instructions', '<textarea id="qt-od-instructions" placeholder="What the agent does when the todo is completed">' + qtEsc(od.instructions || '') + '</textarea>') +
-        qtFormRow('Notify prompt', '<textarea id="qt-od-notify" placeholder="The prompt notify queues (empty: the default report)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
+        qtFormRow('Notify prompt', '<textarea id="qt-od-notify" placeholder="The done notification notify queues (empty: the Todo — Done Notification template, else none)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
         qtFormRow('Report to', '<input id="qt-od-report" placeholder="path#section" value="' + qtEsc(od.report_to || '') + '">') +
         qtFormRow('Filed by', '<input id="qt-od-filed-by" readonly class="qt-readonly" value="' + qtEsc(filedBy || '(not recorded)') + '" title="Written when the todo was filed; not editable">') +
         '</div>';
@@ -3594,8 +3604,8 @@ function qtHandleMessage(msg) {
             }
             break;
         case 'qtDoneNotification':
-            // The Done notification toggle, kept per quest by the host (unset: on).
-            qtSetDoneNotificationLook(msg.on !== false);
+            // The Done notification toggle, kept per quest by the host (unset: off; disabled without a template).
+            qtSetDoneNotificationLook(msg.on === true, msg.available !== false);
             break;
         case 'qtScope':
             qtApplyScope(msg);

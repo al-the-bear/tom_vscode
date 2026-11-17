@@ -47,22 +47,27 @@ const TEMPLATES = {
 };
 
 describe('todo panel top bar', () => {
-    test('TB-1: the Done notification toggle', (t) => {
+    test('TB-1: the Done notification toggle (vscimpb146: off by default, disabled without a template)', (t) => {
         const { w, posted } = setup(t);
         const btn = w.document.getElementById('qt-done-notification');
         assert.equal(btn.tagName, 'BUTTON', 'a button, not a checkbox');
-        assert.equal(btn.getAttribute('aria-pressed'), 'true', 'on by default');
+        assert.equal(btn.getAttribute('aria-pressed'), 'false', 'off by default');
+        assert.equal(btn.disabled, true, 'disabled until the host says a template is set');
+        assert.match(btn.title, /^Done notification: unavailable — no Todo — Done Notification template is set/);
+        btn.click();
+        assert.equal(posted.some((m) => m.type === 'qtSetDoneNotification'), false, 'a disabled box sends nothing');
+        w.qtHandleMessage({ type: 'qtDoneNotification', on: false, available: true });
+        assert.equal(btn.disabled, false);
+        assert.match(btn.title, /^Done notification: OFF\. .*into the run and session it was queued into.*Click to turn it on\./);
+        btn.click();
+        assert.equal(btn.getAttribute('aria-pressed'), 'true');
         assert.ok(btn.classList.contains('pressed'));
-        assert.match(btn.title, /^Done notification: ON\. .*report back when they finish.*Click to turn it off\./);
-        btn.click();
-        assert.equal(btn.getAttribute('aria-pressed'), 'false');
-        assert.ok(!btn.classList.contains('pressed'));
-        assert.match(btn.title, /^Done notification: OFF\..*Click to turn it on\./);
-        assert.deepEqual(posted.filter((m) => m.type === 'qtSetDoneNotification').pop(), { type: 'qtSetDoneNotification', on: false });
-        btn.click();
         assert.deepEqual(posted.filter((m) => m.type === 'qtSetDoneNotification').pop(), { type: 'qtSetDoneNotification', on: true });
-        w.qtHandleMessage({ type: 'qtDoneNotification', on: false });
-        assert.equal(btn.getAttribute('aria-pressed'), 'false', 'the host\'s stored setting');
+        btn.click();
+        assert.deepEqual(posted.filter((m) => m.type === 'qtSetDoneNotification').pop(), { type: 'qtSetDoneNotification', on: false });
+        w.qtHandleMessage({ type: 'qtDoneNotification', on: true, available: false });
+        assert.equal(btn.getAttribute('aria-pressed'), 'false', 'no template: off whatever is stored');
+        assert.equal(btn.disabled, true);
         assert.ok(btn.querySelector('.codicon-bell-slash'));
         assert.equal(w.document.querySelector('#qt-done-notification + label, label.qt-done-notification'), null, 'no checkbox label');
     });

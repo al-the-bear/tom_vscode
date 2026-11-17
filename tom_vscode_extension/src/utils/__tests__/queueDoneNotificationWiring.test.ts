@@ -43,7 +43,7 @@ describe('queue done-notification wiring', () => {
         assert.match(finished, /applyPlanToItem\(/);
         assert.match(finished, /this\._deliverDoneNotification\(item, plan, outcome\)/);
         assert.match(finished, /_deleteTemporarySession\(item\.session\)/);
-        assert.match(finished, /if \(item\.doneNotificationTodo && !item\.doneNotificationDisabled\) \{\s*await this\._finishTodoNotification\(item, outcome\);/, 'a todo done notification (ww_a_collab-6)');
+        assert.doesNotMatch(queue, /_finishTodoNotification|doneNotificationTodo/, 'no item-level todo done notification: it is the todo\'s on_done notify (vscimpb146)');
         const deliver = body(queue, 'private async _deliverDoneNotification(');
         assert.match(deliver, /position: plan\.position/);
         assert.match(deliver, /notificationOf: plan\.notificationOf/);

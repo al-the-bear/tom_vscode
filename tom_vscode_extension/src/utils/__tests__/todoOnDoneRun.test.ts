@@ -4,8 +4,8 @@
  *   OR-1 unblock: the entry naming the todo leaves each target's blocked_by (bare id in the same quest,
  *        `<quest>/<id>` across quests); a blocked target with nothing else blocking becomes not-started,
  *        decision-needed with an open decision, stays blocked with another blocker or a blocked_until
- *   OR-2 notify: notify_prompt, else the default, its placeholders filled (escaped); at on_done's quest and run,
- *        default run: the completing run in the own quest, `default` in another
+ *   OR-2 notify: notify_prompt, else the configured template, else none (no built-in text); its placeholders
+ *        filled (escaped); into the queuing run and session (queuedBy), not sent without one
  *   OR-3 queue: each target with the group prompt, its walk placeholders filled and its record appended
  *   OR-4 skips: done targets (completed, cancelled, archived) skipped silently; a missing or deleted target
  *        skipped with a notes line; no on_done → nothing; none → nothing
@@ -18,7 +18,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    fillTodoPlaceholders, isCompletion, onDoneDueAtSettle, planOnDoneRun, TODO_NOTIFY_DEFAULT,
+    fillTodoPlaceholders, isCompletion, onDoneDueAtSettle, planOnDoneRun,
     type OnDoneContext, type OnDoneTarget,
 } from '../todoOnDoneRun';
 
@@ -59,20 +59,23 @@ describe('planOnDoneRun', () => {
     });
 
     test('OR-2: notify', () => {
-        const done = { id: 'n1', title: 'Wire ${x}', last_answer: 'All ${green}.', on_done: { action: ['notify' as const], report_to: 'ideas/a.md#todos' } };
-        const plan = planOnDoneRun(done, ctx({}));
-        assert.equal(plan.notify?.quest, 'q');
-        assert.equal(plan.notify?.run, 'r1', 'own quest: the completing run');
-        assert.match(plan.notify!.text, /^Todo n1 \(Wire \$\$\{x\}\) of quest q is completed\./);
-        assert.match(plan.notify!.text, /ideas\/a\.md#todos/);
-        assert.match(plan.notify!.text, /All \$\$\{green\}\./, 'values escaped');
-        const other = planOnDoneRun({ ...done, on_done: { quest: 'r', action: ['notify' as const], notify_prompt: 'Report ${todoId} for ${senderRun}' } }, ctx({}));
-        assert.deepEqual(other.notify, { quest: 'r', run: 'default', text: 'Report n1 for r1' });
-        const named = planOnDoneRun({ ...done, on_done: { quest: 'r', run: 'chg7', action: ['notify' as const] } }, ctx({}));
-        assert.equal(named.notify?.run, 'chg7');
-        assert.match(fillTodoPlaceholders(TODO_NOTIFY_DEFAULT, { id: 'n2' }, { quest: 'q', run: 'r' }), /\(no answer recorded\)/);
-        const templated = planOnDoneRun({ ...done, on_done: { action: ['notify' as const] } }, ctx({}, { notifyTemplate: 'T ${todoId} ${todoStatus}: ${itemAnswer}' }));
-        assert.equal(templated.notify?.text, 'T n1 completed: All $${green}.', 'the configured todo done-notification template (ww_a_collab-6)');
+        const by = { quest: 'p', run: 'chg3', session: 'work' };
+        const done = { id: 'n1', title: 'Wire ${x}', last_answer: 'All ${green}.', on_done: { quest: 'r', run: 'other', action: ['notify' as const], notify_prompt: 'Report ${todoId} (${todoTitle}) for ${senderRun}: ${itemAnswer}, to ${reportTo}', report_to: 'ideas/a.md#todos' } };
+        const plan = planOnDoneRun(done, ctx({}, { queuedBy: by }));
+        assert.deepEqual(plan.notify, { quest: 'p', run: 'chg3', session: 'work', text: 'Report n1 (Wire $${x}) for r1: All $${green}., to ideas/a.md#todos' },
+            'into the queuing run and session, not on_done\'s quest and run; values escaped');
+        const noSession = planOnDoneRun(done, ctx({}, { queuedBy: { quest: 'q', run: 'default' } }));
+        assert.deepEqual([noSession.notify?.quest, noSession.notify?.run, noSession.notify?.session], ['q', 'default', undefined], 'no session: the run\'s queue default');
+        const unknown = planOnDoneRun(done, ctx({}));
+        assert.equal(unknown.notify, undefined, 'no queuing session: not sent (the own queue and run are no fallback)');
+        assert.match(unknown.notifyNotSent ?? '', /no queuing session/);
+        const bare = { ...done, on_done: { action: ['notify' as const] } };
+        const none = planOnDoneRun(bare, ctx({}, { queuedBy: by }));
+        assert.equal(none.notify, undefined, 'no notify_prompt and no template: no notification (no built-in text)');
+        assert.match(none.notifyNotSent ?? '', /no done-notification template/);
+        const templated = planOnDoneRun(bare, ctx({}, { queuedBy: by, notifyTemplate: 'T ${todoId} ${todoStatus}: ${itemAnswer}' }));
+        assert.equal(templated.notify?.text, 'T n1 completed: All $${green}.', 'the configured template');
+        assert.match(fillTodoPlaceholders('${itemAnswer}', { id: 'n2' }, { quest: 'q', run: 'r' }), /\(no answer recorded\)/);
     });
 
     test('OR-3: queue', () => {

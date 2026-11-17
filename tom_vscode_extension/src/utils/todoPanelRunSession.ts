@@ -2,7 +2,7 @@
  * What the todo panel keeps between its sends and queue adds (vscimpb139): the
  * last queue target and the last direct-send target of each panel instance —
  * the "Last: …" entry of the queue-target flow (utils/todoQueueTarget.ts) — and
- * the Done notification toggle of each quest. The panel no longer picks a run
+ * the Done notification toggle of each quest (off unless turned on). The panel no longer picks a run
  * and a session of its own: every queue button asks quest → run → free session
  * → next / end, a direct send a free session.
  *
@@ -11,14 +11,17 @@
 
 import type { TodoQueuePosition, TodoQueueTarget, TodoSendTarget } from './todoQueueTarget';
 
-/** The workspaceState key of the panel's Done notification toggle in a quest (unset: on). */
+/** The workspaceState key of the panel's Done notification toggle in a quest (unset: off). */
 export function todoPanelDoneNotificationKey(quest: string): string {
     return `tomAi.todoPanel.doneNotification.${quest || '(none)'}`;
 }
 
-/** The toggle as stored: unset reads as on (BP-3). */
-export function todoPanelDoneNotificationOn(stored: unknown): boolean {
-    return stored !== false;
+/**
+ * The toggle as it acts (vscimpb146): on only when turned on and a done-notification template is set — without
+ * a template the box is disabled, and an older build's stored `false` and unset both read as off.
+ */
+export function todoPanelDoneNotificationOn(stored: unknown, templateSet = true): boolean {
+    return stored === true && templateSet;
 }
 
 /** The workspaceState key of a panel instance's last queue target. */

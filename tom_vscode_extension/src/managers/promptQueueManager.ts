@@ -57,7 +57,7 @@ import { parseResetClause } from '../utils/queueResetClause';
 import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
-import { isWalkItem, singleTodoOf, todoNotificationItem, type TodoForNotification } from '../utils/todoDoneNotification';
+import { queuedByFrom, queuedByToYaml, type QueuedBy } from '../utils/queuedBy';
 import { onDoneDueAtSettle } from '../utils/todoOnDoneRun';
 import { runTodoOnDone, takeDeferredTodoOnDone } from '../services/todoOnDoneRunner';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
@@ -113,7 +113,6 @@ import {
     deletesTemporarySession,
     doneNotificationMetaFromYaml,
     doneNotificationMetaToYaml,
-    itemTodoIds,
     planDoneNotification,
     type DoneNotificationItem,
     type DoneNotificationPosted,
@@ -628,11 +627,10 @@ export interface QueuedPrompt {
     /** The done-notification prompt is kept but not queued. */
     doneNotificationDisabled?: boolean;
     /**
-     * A todo done notification (the todo panel's Done notification box, utils/todoDoneNotification.ts): the prompt
-     * is filled from the item's todo when it finishes — a walk per todo as each repetition settles — and queued at
-     * the todo's on_done quest and run.
+     * Who queued the item (utils/queuedBy.ts): the calling agent's quest, run and session, or the run and session
+     * the user chose in the todo panel. A todo it completes sends its done notification (on_done `notify`) there.
      */
-    doneNotificationTodo?: boolean;
+    queuedBy?: QueuedBy;
     /** The send-run the done-notification was queued for (not again for the same send-run). */
     doneNotificationQueuedFor?: string;
     /** The quest the done-notification is posted to (through its inbox); unset: this item's own. */
@@ -983,28 +981,23 @@ export class PromptQueueManager {
     }
 
     /**
-     * At a claim's settle: a walk with the todo done notification notifies this todo (DP-part-done-notification-2),
-     * and the todo's `on_done` is carried out when its completion was left here or it is completed now — without its
-     * own `notify` when the todo done notification covers it (one notification per todo, -4).
+     * At a claim's settle: the todo's `on_done` is carried out when its completion was left here or it is
+     * completed now; its `notify` goes to whoever queued the item (`queuedBy`).
      */
     private async _settleTodoOnDone(claim: TodoClaim, item: QueuedPrompt): Promise<void> {
-        const notifies = !!item.doneNotificationTodo && !item.doneNotificationDisabled && isWalkItem(item);
-        if (notifies) {
-            try { await this._queueTodoNotification(item, claim.todoId, { kind: 'done' }, true); } catch (err) { logQueueError(`todo done-notification of ${claim.todoId}`, err); }
-        }
         const wasDeferred = takeDeferredTodoOnDone(claim.questId, claim.todoId);
         if (onDoneDueAtSettle(wasDeferred, readQuestTodoStatus(claim.questId, claim.todoId))) {
-            this._runTodoOnDone(claim.questId, claim.todoId, item.run, notifies);
+            this._runTodoOnDone(claim.questId, claim.todoId, item.run, item.queuedBy);
         }
     }
 
-    private _runTodoOnDone(questId: string, todoId: string, run: string | undefined, skipNotify = false): void {
+    private _runTodoOnDone(questId: string, todoId: string, run: string | undefined, queuedBy: QueuedBy | undefined): void {
         try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { findTodoById } = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
             const todo = findTodoById(questId, todoId);
             if (!todo?.on_done) { return; }
-            void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run || DEFAULT_RUN, { skipNotify })
+            void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run || DEFAULT_RUN, queuedBy ? { queuedBy } : {})
                 .catch((err) => logQueueError(`on_done of ${questId}/${todoId} failed`, err));
         } catch (err) {
             logQueueError(`on_done of ${questId}/${todoId} failed`, err);
@@ -1020,8 +1013,7 @@ export class PromptQueueManager {
     private releaseQuestTodoClaim(item: QueuedPrompt, reason: string): void {
         // A completion the todo writer left to this claim is still carried out: the agent completed it before the stop.
         if (item.todoClaim && !item.todoClaim.released && takeDeferredTodoOnDone(item.todoClaim.questId, item.todoClaim.todoId)) {
-            this._runTodoOnDone(item.todoClaim.questId, item.todoClaim.todoId, item.run,
-                !!item.doneNotificationTodo && !item.doneNotificationDisabled);
+            this._runTodoOnDone(item.todoClaim.questId, item.todoClaim.todoId, item.run, item.queuedBy);
         }
         const result = releaseTodoClaim(QUEST_TODO_STATUS_PORT, item.todoClaim);
         if (result.outcome === 'none') { return; }
@@ -2255,8 +2247,8 @@ export class PromptQueueManager {
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
         doneNotificationDisabled?: boolean;
-        /** A todo done notification (QueuedPrompt.doneNotificationTodo). */
-        doneNotificationTodo?: boolean;
+        /** Who queued it (QueuedPrompt.queuedBy). */
+        queuedBy?: QueuedBy;
         /** The quest the done-notification is posted to; unset: this quest. */
         doneNotificationQuest?: string;
         /** The process run the done-notification is queued in. */
@@ -2392,7 +2384,7 @@ export class PromptQueueManager {
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
             ...(opts.doneNotificationDisabled ? { doneNotificationDisabled: true } : {}),
-            ...(opts.doneNotificationTodo ? { doneNotificationTodo: true } : {}),
+            ...(opts.queuedBy ? { queuedBy: { ...opts.queuedBy } } : {}),
             // This quest is the default: stored as unset.
             ...(opts.doneNotificationQuest && opts.doneNotificationQuest !== (WsPaths.getWorkspaceQuestId() || 'default') ? { doneNotificationQuest: opts.doneNotificationQuest } : {}),
             ...(opts.doneNotificationRun ? { doneNotificationRun: normalizeRun(opts.doneNotificationRun) } : {}),
@@ -3933,10 +3925,6 @@ export class PromptQueueManager {
         const item = this._items.find(i => i.id === id);
         if (item) {
             finishChatItem(item as unknown as ChatQueueItem, result);
-            // A chat send the todo panel made for todos: each todo's todo done notification (DP-part-done-notification-1).
-            if (item.doneNotificationTodo && !item.doneNotificationDisabled) {
-                void this._finishTodoNotification(item, result.error ? { kind: 'error', message: result.error } : { kind: 'done' });
-            }
             if (result.usage) { this._addItemSendUsage(item, result.usage); }
             this.persist();
             this._onDidChange.fire();
@@ -5788,10 +5776,6 @@ export class PromptQueueManager {
      * and delete its temporary session unless the notification runs in it.
      */
     private async _itemFinished(item: QueuedPrompt, outcome: ItemOutcome): Promise<void> {
-        if (item.doneNotificationTodo && !item.doneNotificationDisabled) {
-            await this._finishTodoNotification(item, outcome);
-            return;
-        }
         try {
             const ownQuest = WsPaths.getWorkspaceQuestId() || 'default';
             const plan = planDoneNotification(item as DoneNotificationItem, outcome, this._items, ownQuest, this._todoStatusLookup(ownQuest));
@@ -5823,97 +5807,17 @@ export class PromptQueueManager {
         };
     }
 
-    /** A todo of this quest as the todo done notification reads it (a live one before a sibling's stub). */
-    private _todoForNotification(quest: string, id: string): TodoForNotification | undefined {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const qt = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
-            const all = qt.readAllTodos(quest, qt.ALL_TODO_FILES).filter((t) => t.id === id);
-            const live = (f?: string): boolean => !/-(archived|deleted)$/.test((f ?? '').split('.')[0]);
-            const t = all.find((x) => live(x._sourceFile)) ?? all[0];
-            if (!t) { return undefined; }
-            return {
-                // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
-                id: t.id, title: t.title, status: t.status, on_done: t.on_done, filed_by: t.filed_by, last_answer: t.last_answer,
-                ...(t._sourceFile ? { file: `${WsPaths.aiFolder}/quests/${quest}/${t._sourceFile}` } : {}),
-            };
-        } catch { return undefined; }
+    /** Who queued item `id` (QueuedPrompt.queuedBy), for the todo completion hook. */
+    queuedByOf(id: string): QueuedBy | undefined {
+        const q = this._items.find((i) => i.id === id)?.queuedBy;
+        return q ? { ...q } : undefined;
     }
 
-    /**
-     * The todo done notification of `item` (utils/todoDoneNotification.ts): a single todo's at the item's end, a
-     * walk's per todo as each repetition settles (here only the todo the walk was on when it ended in an error),
-     * a chat send's for each todo it sent. A todo without on_done gets none.
-     */
-    private async _finishTodoNotification(item: QueuedPrompt, outcome: ItemOutcome): Promise<void> {
-        let singlePlan: ReturnType<typeof planDoneNotification> = null;
-        try {
-            if (isWalkItem(item)) {
-                const last = item.repeatTodoId;
-                const settled = (item.repetitionAnswers ?? []).some((a) => a.key === last);
-                if (outcome.kind === 'error' && last && !settled) { await this._queueTodoNotification(item, last, outcome, true); }
-            } else {
-                const single = singleTodoOf(item);
-                const ids = single ? [single] : itemTodoIds(item as DoneNotificationItem);
-                for (const id of ids) {
-                    const plan = await this._queueTodoNotification(item, id, outcome, !single);
-                    if (single) { singlePlan = plan; }
-                }
-            }
-        } catch (err) {
-            logQueueError(`todo done-notification of ${item.id}`, err);
-        }
-        if (deletesTemporarySession(item as DoneNotificationItem, singlePlan) && item.session) {
-            item.temporarySession = false;
-            this.persist();
-            this._deleteTemporarySession(item.session);
-        }
-    }
-
-    /** Plan and deliver the todo done notification of todo `todoId` of `item`; the plan, null when there is none. */
-    private async _queueTodoNotification(item: QueuedPrompt, todoId: string, outcome: ItemOutcome, perTodo: boolean): Promise<ReturnType<typeof planDoneNotification>> {
-        const ownQuest = WsPaths.getWorkspaceQuestId() || 'default';
-        const todo = this._todoForNotification(ownQuest, todoId);
-        const synth = todoNotificationItem(item as DoneNotificationItem, todoId, todo, { perTodo });
-        if (!synth) {
-            logQueue(`Item ${item.id}: todo ${todoId} has no on_done — no todo done-notification`);
-            return null;
-        }
-        // A target run the target quest does not have: its `default` run (the notification says where it came from).
-        const targetQuest = synth.doneNotificationQuest || ownQuest;
-        if (synth.doneNotificationRun && !questRunExists(targetQuest, synth.doneNotificationRun)) {
-            logQueue(`Item ${item.id}: ${targetQuest} has no run ${synth.doneNotificationRun} — the todo done-notification goes to its default run`);
-            synth.doneNotificationRun = DEFAULT_RUN;
-        }
-        const plan = planDoneNotification(synth, outcome, this._items, ownQuest, this._todoStatusLookup(ownQuest));
-        if (!plan) { return null; }
-        if (!perTodo) { applyPlanToItem(item as DoneNotificationItem, plan); }
-        // Per todo: after the item's earlier notifications still waiting, so they keep the todos' order.
-        if (perTodo && !plan.targetQuest) {
-            const last = this._items.map((i) => i.notificationOf === item.id && i.status === 'pending').lastIndexOf(true);
-            if (last >= 0) { plan.position = last + 1; }
-        }
-        await this._deliverDoneNotification(item, plan, outcome);
-        return plan;
-    }
-
-    /** Whether a running item (queue or chat send) carries the todo done notification of the todo: its own `notify` is then left out. */
-    todoNotificationCovers(questId: string, todoId: string): boolean {
-        if ((WsPaths.getWorkspaceQuestId() || 'default') !== questId) { return false; }
-        return this._items.some((i) => (i.status === 'sending' || i.status === CHAT_STATUS) && !!i.doneNotificationTodo && !i.doneNotificationDisabled
-            && (singleTodoOf(i) === todoId || (!isWalkItem(i) && itemTodoIds(i as DoneNotificationItem).includes(todoId)) || i.todoClaim?.todoId === todoId));
-    }
-
-    /**
-     * Mark a chat send the todo panel made for todos (DP-part-done-notification-1): when it ends, each todo gets
-     * its todo done notification.
-     */
-    markChatTodoNotification(chatItemId: string, todoIds: string[], prompt: string): void {
-        const item = this._items.find((i) => i.id === chatItemId);
-        if (!item || !todoIds.length || !prompt.trim()) { return; }
-        item.todoIdPattern = todoIds.join(',');
-        item.doneNotificationPrompt = prompt;
-        item.doneNotificationTodo = true;
+    /** Record who queued item `id` (a chat send the todo panel made with its Done notification box on). */
+    setItemQueuedBy(id: string, queuedBy: QueuedBy | undefined): void {
+        const item = this._items.find((i) => i.id === id);
+        if (!item) { return; }
+        if (queuedBy) { item.queuedBy = { ...queuedBy }; } else { delete item.queuedBy; }
         this.persist();
     }
 
@@ -7304,6 +7208,7 @@ export class PromptQueueManager {
                 chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
+                ...(queuedByFrom(main['queued-by']) ? { queuedBy: queuedByFrom(main['queued-by']) } : {}),
                 ...(parseGroupSelection(main['group-selection']) ? { groupSelection: parseGroupSelection(main['group-selection']) } : {}),
                 ...(Array.isArray(main['walked-todos']) ? { walkedTodos: main['walked-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
@@ -7464,6 +7369,7 @@ export class PromptQueueManager {
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),
+            ...(item.queuedBy ? { 'queued-by': queuedByToYaml(item.queuedBy) } : {}),
             'item-kind': (item.itemKind = deriveQueueItemKind(item)),
             ...(item.walkedTodos?.length ? { 'walked-todos': [...item.walkedTodos] } : {}),
             ...(item.groupSelection ? { 'group-selection': { checked: [...item.groupSelection.checked], unchecked: [...item.groupSelection.unchecked] } } : {}),

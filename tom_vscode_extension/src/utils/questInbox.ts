@@ -24,6 +24,7 @@
  */
 
 import * as fs from 'fs';
+import { queuedByFrom, queuedByToYaml, type QueuedBy } from './queuedBy';
 import * as path from 'path';
 
 import { isValidSessionName, normalizeSessionMode, type SessionMode, type SessionRecord } from './agentSdkSessions';
@@ -87,6 +88,8 @@ export interface InboxItem {
     position?: 'next';
     /** The transport the item runs on; unset: the target queue's default. */
     transport?: 'anthropic';
+    /** Who queued it (utils/queuedBy.ts): where a todo it completes sends its done notification. */
+    queuedBy?: QueuedBy;
     from: InboxSender;
 }
 
@@ -150,6 +153,7 @@ export function serializeInboxItem(item: InboxItem): string {
     if (item.pauseAfter) { doc['pause-after'] = true; }
     if (item.position === 'next') { doc.position = 'next'; }
     if (item.transport) { doc.transport = item.transport; }
+    if (item.queuedBy) { doc['queued-by'] = queuedByToYaml(item.queuedBy); }
     if (item.session) { doc.session = item.session; }
     if (item.newSession) {
         const n = item.newSession;
@@ -195,6 +199,8 @@ export function parseInboxItem(content: string): ParsedInboxItem {
     if (r['pause-after'] === true) { item.pauseAfter = true; }
     if (r.position === 'next') { item.position = 'next'; }
     if (r.transport === 'anthropic') { item.transport = 'anthropic'; }
+    const queuedBy = queuedByFrom(r['queued-by']);
+    if (queuedBy) { item.queuedBy = queuedBy; }
     if (r.session !== undefined) {
         const session = str(r.session);
         if (!session || !isValidSessionName(session)) { return { ok: false, error: `"${String(r.session)}" is not a session name` }; }
@@ -325,6 +331,7 @@ export interface InboxConversion {
         repeatCount?: number | string;
         todoIdPattern?: string;
         notificationOf?: string;
+        queuedBy?: QueuedBy;
         from: InboxSender;
         temporarySession?: boolean;
         /** Queued at the front of its run's queue (the item's `position: next`). */
@@ -365,6 +372,7 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
         ...(item.notificationOf ? { notificationOf: item.notificationOf } : {}),
         ...(item.position === 'next' ? { queueNext: true as const } : {}),
         ...(item.transport ? { transport: item.transport } : {}),
+        ...(item.queuedBy ? { queuedBy: item.queuedBy } : {}),
         from: item.from,
     };
     if (item.run && ctx.runExists && !ctx.runExists(item.run)) {

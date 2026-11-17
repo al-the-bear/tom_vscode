@@ -196,6 +196,8 @@ export interface QueuePromptYaml {
     'chat-window-id'?: string;
     /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
     'todo-id-pattern'?: string;
+    /** Who queued the item (utils/queuedBy.ts): `{quest, run, session?}`. */
+    'queued-by'?: { quest: string; run: string; session?: string };
     /** What the item holds (utils/queueItemKind.ts). */
     'item-kind'?: string;
     /** A GROUP item's members checked and unchecked by hand (utils/groupItemSelection.ts). */

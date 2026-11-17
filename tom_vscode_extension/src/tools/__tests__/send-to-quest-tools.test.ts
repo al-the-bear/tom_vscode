@@ -187,3 +187,15 @@ describe('TODO and GROUP items to another quest (vscimpb127)', () => {
         assert.equal((await call(f.access, { quest: 'tom_uam', text: 'x', todo: 't1', repeatCount: 2 })).code, 'invalidTodoItem');
     });
 });
+
+describe('who queued it (vscimpb146)', () => {
+    test('SQ-7: the calling agent\'s quest, run and session go with the item; none when unknown', async () => {
+        const f = fakeAccess();
+        f.access.callerQueuedBy = () => ({ quest: 'vscode_extension', run: 'collab', session: 'lead' });
+        assert.equal((await call(f.access, { quest: 'tom_uam', text: 'Do X' })).ok, true);
+        assert.deepEqual(f.delivered[0].item.queuedBy, { quest: 'vscode_extension', run: 'collab', session: 'lead' });
+        const g = fakeAccess();
+        await call(g.access, { quest: 'tom_uam', text: 'Do Y' });
+        assert.equal(g.delivered[0].item.queuedBy, undefined);
+    });
+});

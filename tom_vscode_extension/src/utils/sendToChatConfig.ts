@@ -81,9 +81,9 @@ export interface SendToChatConfig {
     };
     todoPanel?: {
         /**
-         * The todo done notification (src/utils/todoDoneNotification.ts):
-         * queued when an item or chat send the todo panel made for a todo
-         * finishes. Unset: the built-in default.
+         * The text of a todo's done notification (its on_done `notify`) when
+         * it has no `notify_prompt` (src/utils/todoDoneNotification.ts),
+         * queued into the run and session that queued the todo. Unset: none.
          */
         doneNotificationTemplate?: string;
     };

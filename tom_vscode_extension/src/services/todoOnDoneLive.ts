@@ -21,6 +21,7 @@ import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { WsPaths } from '../utils/workspacePaths';
 import { currentProcessRun } from './processRunContext';
+import { currentQueueItemId } from './userWaits';
 import { groupPromptDirs } from './groupPromptDirs';
 import { readGroupPrompts } from './groupPromptStore';
 import { deferTodoOnDone, runTodoOnDone, setTodoOnDonePorts } from './todoOnDoneRunner';
@@ -70,6 +71,7 @@ export function installTodoOnDone(): void {
                     runIsExplicit: true,
                     initialStatus: 'pending',
                     ...(send.todoId ? { todoIdPattern: send.todoId } : {}),
+                    ...(send.session ? { session: send.session } : {}),
                 });
             } catch (e) {
                 // A todo queued already is not queued again.
@@ -83,6 +85,7 @@ export function installTodoOnDone(): void {
                 text: send.text,
                 ...(send.run && send.run !== 'default' ? { run: send.run } : {}),
                 ...(send.todoId ? { todoIdPattern: send.todoId } : {}),
+                ...(send.session ? { session: send.session } : {}),
                 from: { quest: from.quest, run: from.run, windowId: me.windowId, host: me.host || os.hostname(), sentAt: new Date().toISOString() },
             });
         },
@@ -98,8 +101,9 @@ export function installTodoOnDone(): void {
             return;
         }
         const run = currentProcessRun()?.run ?? ProcessStateStore.instance?.currentRun ?? 'default';
-        // The item or chat send running the todo notifies it itself (its todo done notification): no second one.
-        const skipNotify = !!queue?.todoNotificationCovers(questId, todo.id);
-        void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run, { skipNotify });
+        // The queue item or chat send whose turn completed it: who queued it gets the done notification (vscimpb146).
+        const itemId = currentQueueItemId();
+        const queuedBy = itemId ? queue?.queuedByOf(itemId) : undefined;
+        void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run, queuedBy ? { queuedBy } : {});
     });
 }

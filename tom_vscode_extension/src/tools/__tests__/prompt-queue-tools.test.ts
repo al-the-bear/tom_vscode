@@ -127,6 +127,7 @@ function makeAccess(): FakeAccess {
                 ...(typeof input.session === 'string' || input.session === undefined
                     ? { session: input.session || undefined }
                     : (({ name, ...rest }) => ({ session: name, sessionCreate: rest }))(input.session)),
+                ...(input.queuedBy ? { queuedBy: { ...input.queuedBy } } : {}),
                 prePrompts: (input.prePrompts ?? []).map((p) => ({ ...p })),
                 followUps: (input.followUps ?? []).map((f) => ({
                     ...f,
@@ -380,6 +381,15 @@ describe('addQueueItemImpl + listQueueImpl', () => {
         assert.deepEqual([badUpdate.ok, badUpdate.code], [false, 'invalidSession']);
         const okUpdate = JSON.parse(await updateQueueItemImpl(access, { queueItemId: spec.id, session: { name: 'y', mode: 'per-prompt' } }));
         assert.equal(okUpdate.ok, true);
+    });
+
+    test('the calling agent is recorded as who queued the item (vscimpb146)', async () => {
+        access.callerQueuedBy = () => ({ quest: 'q1', run: 'chg2', session: 'lead' });
+        const added = JSON.parse(await addQueueItemImpl(access, { text: 'by an agent' }));
+        assert.deepEqual((access.getById(added.id) as { queuedBy?: unknown }).queuedBy, { quest: 'q1', run: 'chg2', session: 'lead' });
+        access.callerQueuedBy = () => undefined;
+        const plain = JSON.parse(await addQueueItemImpl(access, { text: 'nobody known' }));
+        assert.equal((access.getById(plain.id) as { queuedBy?: unknown }).queuedBy, undefined);
     });
 
     test('add with deferSend: false → pending; pendingCount reflects it', async () => {

@@ -39,6 +39,7 @@ import { isAnthropicSendInFlight } from './sendToChatState.js';
 import type { RunActivityEntry } from '../utils/runActivity';
 import type { InboxItem } from '../utils/questInbox';
 import { todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
+import { queuedByOfItem, type QueuedBy } from '../utils/queuedBy';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { busySessionWarning } from './sendToChatState.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
@@ -448,6 +449,7 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
                     ...(target.session && !target.newSession ? { session: target.session } : {}),
                     ...(target.session && target.newSession ? { newSession: { name: target.session } } : {}),
                     ...(target.position === 'next' ? { position: 'next' as const } : {}),
+                    ..._queuedByFields(target),
                     from: { quest: _windowQuest() || 'default', run: _windowRuns().windowRun, windowId: me.windowId, host: me.host, sentAt: new Date().toISOString() },
                 };
                 postInboxItem(liveQuestSendAccess, target.quest, item);
@@ -477,7 +479,7 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
             run: target.run,
             ...(target.session ? { session: target.session } : {}),
             ...(again ? { allowDuplicateTodo: true } : {}),
-            ..._todoDoneNotificationFields(),
+            ..._queuedByFields(target),
         };
         try {
             const item = target.position === 'next' ? await queue.enqueueNext(opts) : await queue.enqueue({ ...opts, deferSend: true });
@@ -556,31 +558,37 @@ function _todoQuestOf(questId: string, sourceFile?: string, todoId?: string): st
     return _windowQuest();
 }
 
-/** The Done notification box of the active quest (unset: on). */
+/** Whether a todo done-notification template is set: without one the Done notification box is disabled. */
+function _todoDoneNotificationTemplateSet(): boolean {
+    return todoDoneNotificationTemplate(loadSendToChatConfig()) !== undefined;
+}
+
+/** The Done notification box of the active quest: on only when turned on and a template is set (vscimpb146). */
 function _todoDoneNotificationOn(): boolean {
-    return todoPanelDoneNotificationOn(_extensionContext?.workspaceState.get(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId())));
+    return todoPanelDoneNotificationOn(_extensionContext?.workspaceState.get(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId())),
+        _todoDoneNotificationTemplateSet());
 }
 
 /**
- * The todo done notification the panel's items carry while its box is on (DP-part-done-notification-1): the
- * template, filled from the todo when the item finishes; empty when the box is off (the items as before).
+ * Who queued the panel's items while its box is on (vscimpb146): the run and session they are queued into, so a
+ * todo they complete sends its done notification (on_done `notify`) there. Box off: nothing recorded, no notification.
  */
-function _todoDoneNotificationFields(): { doneNotificationPrompt?: string; doneNotificationTodo?: true } {
-    if (!_todoDoneNotificationOn()) { return {}; }
-    return { doneNotificationPrompt: todoDoneNotificationTemplate(loadSendToChatConfig()), doneNotificationTodo: true };
+function _queuedByFields(target: { quest: string; run: string; session?: string }): { queuedBy?: QueuedBy } {
+    if (!_todoDoneNotificationOn() || !target.quest || target.quest === 'default') { return {}; }
+    return { queuedBy: { quest: target.quest, run: target.run || 'default', ...(target.session ? { session: target.session } : {}) } };
 }
 
-/** A chat send the panel made for `todoIds` (DP-part-done-notification-1): marked for their todo done notifications. */
-async function _markChatTodoNotification(chatItemId: string | undefined, todoIds: string[]): Promise<void> {
-    const fields = _todoDoneNotificationFields();
-    if (!chatItemId || !fields.doneNotificationTodo || !todoIds.length) { return; }
-    const queueModule = await import('../managers/promptQueueManager.js');
-    queueModule.PromptQueueManager.instance.markChatTodoNotification(chatItemId, todoIds, fields.doneNotificationPrompt ?? '');
+/** A chat send the panel made (Send, Guide me): with the box on, its own run and session are who queued its todos. */
+async function _recordChatQueuedBy(chatItemId: string | undefined): Promise<void> {
+    if (!chatItemId || !_todoDoneNotificationOn()) { return; }
+    const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
+    const queuedBy = queuedByOfItem(queue.getById(chatItemId), _windowQuest());
+    if (queuedBy) { queue.setItemQueuedBy(chatItemId, queuedBy); }
 }
 
-/** Tell every view showing the Done notification toggle its state (kept per quest). */
+/** Tell every view showing the Done notification toggle its state (kept per quest) and whether it is available. */
 function _postDoneNotification(): void {
-    const message = { type: 'qtDoneNotification', on: _todoDoneNotificationOn() };
+    const message = { type: 'qtDoneNotification', on: _todoDoneNotificationOn(), available: _todoDoneNotificationTemplateSet() };
     for (const view of [..._doneNotificationViews]) {
         try { void view.postMessage(message); } catch { _doneNotificationViews.delete(view); }
     }
@@ -737,8 +745,9 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
             _watchDoneNotification(webview);
             return true;
         case 'qtSetDoneNotification': {
-            // The Done notification toggle, kept per quest (unset: on).
-            await _extensionContext?.workspaceState.update(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId()), msg.on === false ? false : undefined);
+            // The Done notification toggle, kept per quest (unset: off); it cannot be turned on without a template.
+            await _extensionContext?.workspaceState.update(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId()),
+                msg.on === true && _todoDoneNotificationTemplateSet() ? true : undefined);
             _postDoneNotification();
             return true;
         }
@@ -2966,7 +2975,7 @@ async function _runTodoButton(
     const outcome = await runAnthropicSend(ctx, todoPrompt, {
         userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session: sendTarget.session, run: sendTarget.run,
         // Sent by the panel's buttons: its todo done notification (DP-part-done-notification-1).
-        onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, [todo.id]); },
+        onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
     });
     if (outcome.rejected) {
         vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
@@ -3108,7 +3117,7 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
         const outcome = await runAnthropicSend(ctx, todoPrompt, {
             source: 'todo panel', session: sendTarget.session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
             // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
-            onChatItem: (chatItemId) => { void _markChatTodoNotification(chatItemId, todoIds); },
+            onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
         });
         if (outcome.rejected) {
             vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));

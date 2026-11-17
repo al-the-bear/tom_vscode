@@ -649,6 +649,7 @@ const livePromptQueueAccess: PromptQueueAccess = {
         const item = await m.enqueue(input);
         return projectItem(item);
     },
+    callerQueuedBy: liveCallerQueuedBy,
     runs() {
         // The quest's process runs: a named run must be one of them.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -825,9 +826,16 @@ export const QUEUE_REMOVE_FOLLOW_UP_TOOL: SharedToolDefinition<RemoveQueueFollow
 // tomAi_sendItemToQuest — the queue of another quest's window (send-to-quest-tools.ts)
 // ============================================================================
 
+import { queuedByFromFiledBy, type QueuedBy } from '../utils/queuedBy';
 import { SEND_ITEM_TO_QUEST_TOOL as SEND_ITEM_TO_QUEST_DEF, sendItemToQuestImpl, type QuestSendAccess, type SendItemToQuestInput } from './send-to-quest-tools';
 
+/** The calling agent's quest, run and session, as `filed_by` records them: the `queuedBy` of what it queues. */
+function liveCallerQueuedBy(): QueuedBy | undefined {
+    return queuedByFromFiledBy(questTodo.currentTodoFiledBy());
+}
+
 export const liveQuestSendAccess: QuestSendAccess = {
+    callerQueuedBy: liveCallerQueuedBy,
     currentQuest: () => WsPaths.getWorkspaceQuestId() || undefined,
     findTodo: (quest, id) => questTodo.findTodoById(quest, id),
     currentRun: () => {

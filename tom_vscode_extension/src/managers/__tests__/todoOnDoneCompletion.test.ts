@@ -10,8 +10,8 @@
  *        the other actions
  *   OC-5 cancelling runs nothing of on_done
  *   OC-6 the built-in group prompt tells the agent to carry out only the instructions
- *   OC-7 with skipNotify (the item's todo done notification covers the completion) no notify is sent, the other
- *        actions run; without a configured template the built-in report
+ *   OC-7 the notify goes into the run and session that queued the todo (another quest: its inbox, the session
+ *        named); none without a queuing session, none without a notify_prompt or a template
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -32,6 +32,7 @@ import {
 } from '../questTodoManager.js';
 import { deferTodoOnDone, runTodoOnDone, setTodoOnDonePorts, takeDeferredTodoOnDone } from '../../services/todoOnDoneRunner.js';
 import type { OnDoneSend, OnDoneTarget } from '../../utils/todoOnDoneRun.js';
+import type { QueuedBy } from '../../utils/queuedBy.js';
 import { BUILTIN_GROUP_PROMPT } from '../../utils/groupPrompts.js';
 
 const Q = 'cq';
@@ -47,6 +48,7 @@ const add = (file: string, id: string, extra: Record<string, unknown> = {}): voi
 const todo = (id: string): QuestTodoItem | undefined => readTodoFile(main).find((t) => t.id === id);
 
 let local: OnDoneSend[] = [];
+let hookQueuedBy: QueuedBy | undefined;
 let posted: Array<OnDoneSend & { from: { quest: string; run: string } }> = [];
 let claimed = new Set<string>();
 let failLocal = false;
@@ -62,6 +64,7 @@ beforeEach(() => {
     fs.mkdirSync(qDir, { recursive: true });
     fs.mkdirSync(oDir, { recursive: true });
     local = []; posted = []; claimed = new Set(); failLocal = false;
+    hookQueuedBy = { quest: Q, run: 'r1', session: 'work' };
     setTodoOnDonePorts({
         windowQuest: () => Q,
         findTodo: (quest, id) => {
@@ -82,7 +85,8 @@ beforeEach(() => {
     });
     setTodoCompletionHook((quest, t) => {
         if (claimed.has(`${quest}/${t.id}`)) { deferTodoOnDone(quest, t.id); return; }
-        pending.push(runTodoOnDone(quest, { ...t, sourceFile: t._sourceFile }, 'r1'));
+        // As the live hook: who queued the turn that completed it (here the queue item of run r1, session work).
+        pending.push(runTodoOnDone(quest, { ...t, sourceFile: t._sourceFile }, 'r1', hookQueuedBy ? { queuedBy: hookQueuedBy } : {}));
     });
 });
 after(() => {
@@ -108,10 +112,11 @@ describe('on_done at completion', () => {
         await settle();
         assert.deepEqual(todo('t1')!.blocked_by ?? [], [], 'the entry is met');
         assert.equal(todo('t1')!.status, 'not-started');
-        assert.deepEqual(local.map((s) => [s.todoId ?? 'notify', s.run]), [['t2', 'r1'], ['notify', 'r1']]);
+        // n2's notify has no notify_prompt and no template is set: no notification. n3's goes to who queued it.
+        assert.deepEqual(local.map((s) => [s.todoId ?? 'notify', s.run, s.session ?? '']), [['t2', 'r1', ''], ['notify', 'r1', 'work']]);
         assert.match(local[0].text, /^Do t2\./);
-        assert.match(local[1].text, /^Todo n2 \(T n2\) of quest cq is completed\./);
-        assert.deepEqual(posted.map((s) => [s.quest, s.run, s.todoId ?? s.text]), [[OTHER, 'chg7', 'o1'], [OTHER, 'chg7', 'n3 done']]);
+        assert.equal(local[1].text, 'n3 done');
+        assert.deepEqual(posted.map((s) => [s.quest, s.run, s.todoId ?? s.text]), [[OTHER, 'chg7', 'o1']]);
         assert.deepEqual(posted[0].from, { quest: Q, run: 'r1' });
         updateTodo(Q, 'n2', { status: 'completed', notes: 'again' });
         await settle();
@@ -163,16 +168,21 @@ describe('on_done at completion', () => {
         assert.equal(local.length + posted.length, 0);
     });
 
-    test('OC-7: one notification per todo; the configured template (ww_a_collab-6)', async () => {
+    test('OC-7: the done notification goes to who queued the todo; no default text (vscimpb146)', async () => {
         add(main, 't1');
-        add(main, 'n1', { status: 'completed', on_done: { todos: ['t1'], action: ['queue', 'notify'] } });
+        add(main, 'n1', { status: 'completed', on_done: { quest: OTHER, run: 'chg7', todos: ['t1'], action: ['notify'], notify_prompt: 'n1 for ${senderRun}' } });
         const t = findTodoById(Q, 'n1')!;
-        const plan = await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile }, 'r1', { skipNotify: true });
-        assert.equal(plan?.notify, undefined, 'the item\'s todo done notification covers it');
-        assert.deepEqual(local.map((x) => x.todoId), ['t1'], 'the queue action still runs');
+        await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile }, 'r1', { queuedBy: { quest: Q, run: 'chg3', session: 'work' } });
+        assert.deepEqual(local.map((x) => [x.run, x.session, x.text]), [['chg3', 'work', 'n1 for r1']], 'into the queuing run and session, not on_done\'s quest');
+        assert.equal(posted.length, 0);
         local = [];
-        await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile, on_done: { action: ['notify'] } }, 'r1');
-        assert.match(local[0].text, /^Todo n1 \(T n1\) of quest cq is completed\./, 'without a template: the built-in report');
+        await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile }, 'r1', { queuedBy: { quest: OTHER, run: 'r5', session: 's5' } });
+        assert.deepEqual(posted.map((x) => [x.quest, x.run, x.session, x.text]), [[OTHER, 'r5', 's5', 'n1 for r1']], 'another quest: its inbox, the session named');
+        posted = [];
+        const plan = await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile }, 'r1');
+        assert.equal(plan?.notify, undefined, 'no queuing session: none — the own queue and run are no fallback');
+        await runTodoOnDone(Q, { ...t, sourceFile: t._sourceFile, on_done: { action: ['notify'] } }, 'r1', { queuedBy: { quest: Q, run: 'r1' } });
+        assert.equal(local.length + posted.length, 0, 'no notify_prompt and no template: no built-in report');
     });
 
     test('OC-6: the walk line', () => {

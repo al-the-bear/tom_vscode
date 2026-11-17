@@ -42,7 +42,7 @@ import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copi
 import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, assistPromptsHelp } from '../utils/assistPrompts';
 import { ALWAYS_ON_TOOLS } from '../utils/roleTypes';
-import { TODO_DONE_NOTIFICATION_DEFAULT, TODO_DONE_NOTIFICATION_PLACEHOLDERS, todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
+import { TODO_DONE_NOTIFICATION_PLACEHOLDERS, todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 
 /** The one item of the Copilot — Queue Wrapper category. */
 const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
@@ -293,7 +293,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             if (itemId !== TODO_DONE_NOTIFICATION_ITEM_ID) { break; }
             const placeholders = TODO_DONE_NOTIFICATION_PLACEHOLDERS.map(([p, what]) => `<code>${p}</code> ${what}`).join('<br>');
             fields.push(
-                { name: 'template', label: 'Notification', type: 'textarea', value: todoDoneNotificationTemplate(config), help: 'Queued when a queue item or chat send the todo panel made for a todo finishes (its <strong>Done notification</strong> box on): a single todo when the item ends, a group walk for each todo as its turn ends. It goes to the todo\'s After done quest and run (on_done), else the item\'s own. A todo without After done gets none; its After done notify prompt replaces this text. When it is set, the extension\'s own After done notify (a todo completed outside such an item) uses it too instead of its built-in report.<br><br>' + placeholders + '<br><br>Saving it empty, or Delete, returns it to the default.' },
+                { name: 'template', label: 'Notification', type: 'textarea', value: todoDoneNotificationTemplate(config) ?? '', help: 'The text of a todo\'s done notification: queued when a todo whose After done (on_done) asks for <strong>notify</strong> is completed and has no notify prompt of its own. It goes into the run and session that queued the todo — the agent session that queued it with a tool, or the run and session chosen in the todo panel while its <strong>Done notification</strong> box is on. A todo without After done notify gets none. While this is empty there is no notification text: a todo with notify but no notify prompt gets none, and the todo panel\'s Done notification box is disabled.<br><br>' + placeholders + '<br><br>Saving it empty, or Delete, removes it.' },
             );
             break;
         }
@@ -633,7 +633,7 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
         }
         case 'todoDoneNotification': {
             const body = values.template ?? '';
-            if (!body.trim() || body === TODO_DONE_NOTIFICATION_DEFAULT) {
+            if (!body.trim()) {
                 if (config.todoPanel) { delete config.todoPanel.doneNotificationTemplate; }
             } else {
                 config.todoPanel = { ...(config.todoPanel ?? {}), doneNotificationTemplate: body };

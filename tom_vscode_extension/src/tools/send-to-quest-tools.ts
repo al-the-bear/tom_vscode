@@ -18,6 +18,7 @@ import { todoQueueItemSpec, type TodoForQueueItem } from '../utils/todoQueueItem
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isValidSessionName, normalizeSessionMode, type SessionRecord } from '../utils/agentSdkSessions';
 import type { InboxItem, InboxNewSession } from '../utils/questInbox';
+import type { QueuedBy } from '../utils/queuedBy';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 
 export interface SendItemToQuestInput {
@@ -70,6 +71,8 @@ export interface QuestSendAccess {
     sender(): { windowId: string; host: string };
     /** Write the inbox file for the workspace; its path. */
     deliver(workspace: string, item: InboxItem): string;
+    /** The calling agent's quest, run and session (the item's `queuedBy`); unset: not recorded. */
+    callerQueuedBy?(): QueuedBy | undefined;
     now(): Date;
     /** A todo of `quest` for a TODO / GROUP item; undefined when there is none. Unset: `todo` / `group` are refused. */
     findTodo?(quest: string, id: string): TodoForQueueItem | undefined;
@@ -155,6 +158,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             return err(`The quest "${dnQuest ?? quest}" has no process run "${dnRun}" for the done notification.`, { code: 'unknownRun' });
         }
         const me = access.sender();
+        const queuedBy = access.callerQueuedBy?.();
         const item: InboxItem = {
             text: input.text,
             ...(input.template ? { template: input.template } : {}),
@@ -168,6 +172,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             ...(walk.todoIdPattern ? { todoIdPattern: walk.todoIdPattern } : {}),
             ...(dnQuest ? { doneNotificationQuest: dnQuest } : {}),
             ...(dnRun ? { doneNotificationRun: dnRun } : {}),
+            ...(queuedBy ? { queuedBy } : {}),
             from: {
                 quest: access.currentQuest() || 'default', run: access.currentRun(),
                 windowId: me.windowId, host: me.host, sentAt: access.now().toISOString(),
