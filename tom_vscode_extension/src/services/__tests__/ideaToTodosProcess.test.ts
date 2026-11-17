@@ -122,7 +122,8 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         const file = prompt(at('todos', 'file'));
         assert.match(file, /Every affected quest, this one \(\S*\) and every other alike: create each todo \*\*directly in that quest\*\* with tomAi_createQuestTodo/, 'every quest: the window\'s (empty in this bare workspace) and the others');
         assert.match(file, /Check each quest's todo file before creating \(an id or a todo of the idea already there is not created twice\) and after \(every todo is there\)/);
-        assert.match(file, /Dependencies inside the quest go in `dependencies` \(by id\); dependencies on another quest in `notes` \(`<quest>\/<id>`\)/);
+        assert.match(file, /Dependencies inside the quest go in `dependencies` \(by id\); a dependency on another quest's todo goes in `blocked_by` as `<quest>\/<id>`, with status `blocked` while that todo is open/);
+        assert.match(file, /Never put a dependency in `notes`/, 'a cross-quest dependency is released by itself, not kept as text (ideatests2)');
         assert.ok(!/tomAi_sendItemToQuest|\$\{itemOutcome\}|\$\{senderQuest\}/.test(file), 'nothing goes through another quest\'s queue');
         const gate = prompt(at('idea', 'g1'));
         assert.match(gate, /Gate G1 of the idea[\s\S]*`gates\/G1\.md`[\s\S]*approval and the move \(Gate passed \/ failed\) are the user's/);
@@ -169,6 +170,8 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(md, /The document opens with the ids explained and an overview table, then one\s+`## Phase <NN>` section per phase with a table per group/, 'the document layout');
         assert.match(md, /`## Details` follows/);
         assert.match(md, /\*\*directly in every affected quest\*\* — this one and every other\s+alike — with `tomAi_createQuestTodo` \(`questId` the quest\)/, 'direct filing with the todo tool');
+        assert.match(md, /a dependency on another\s+quest's todo in `blocked_by` as `<quest>\/<id>`/, 'a cross-quest dependency as a blocker (ideatests2)');
+        assert.ok(!/dependencies on another quest\s+in `notes`/.test(md), 'no dependency kept in notes');
         assert.match(md, /No queue item asks another quest's window to file them/);
         assert.ok(!/tomAi_sendItemToQuest/.test(md), 'no filing through another quest\'s queue');
     });
