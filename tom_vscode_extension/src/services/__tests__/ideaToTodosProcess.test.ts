@@ -6,13 +6,18 @@
  *
  *   IT-1 the definition passes tomAi_validateProcess (YAML, schema, editor rules, roles): four phases Idea,
  *        Blueprint, Deepening, Todos, each with a light gate (a checklist in its description, onFail inside its
- *        phase); the repeatable steps; the reviews are user actions; the roles are the shared three
+ *        phase); the repeatable steps; the reviews are user actions; the roles are the shared three; the filing
+ *        creates every todo directly in its quest with tomAi_createQuestTodo, never through another quest's queue
  *   IT-2 the Proceed prompts: a step before a review ends with the Finish review round prompt, filled in; the
- *        placeholders meant for later stay for later (`${repeatTodoId}`, `${senderQuest}`, `${itemOutcome}`);
- *        the deepening files `ideadeep<phase iteration>x<step iteration>-*` todos and queues their walk
+ *        placeholders meant for later stay for later (`${repeatTodoId}`, `${repeatTodoTitle}`); the deepening
+ *        files `ideadeep<phase iteration>x<step iteration>-*` todos and queues their walk; the proposal groups the
+ *        todos in phases (`<NN><g>_<stem><n>`) in a todos document with an overview, phase tables and Details; the
+ *        filing creates them directly (tomAi_createQuestTodo, tomAi_generateIdPrefix), checks each quest's file
+ *        before and after, and asks no other window to file them
  *   IT-3 the schema idea-blueprint/1.0: a phase-1 document (Intent, Quests) and a full one with parts validate,
  *        one without its quests does not
- *   IT-4 the description: the round folders (iterations in phases 3 and 4 too), filing per quest, the escaped placeholder
+ *   IT-4 the description: the round folders (iterations in phases 3 and 4 too), the todos document (phases, groups,
+ *        the id form, overview, Details), the direct filing in every affected quest, the escaped placeholder
  */
 
 import * as fs from 'fs';
@@ -74,7 +79,12 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
             assert.equal(step(p, 'iteration').substeps![1].userAction, true, `${p}: its review is yours`);
         }
         assert.match(step('blueprint', 'iteration').substeps![0].prompt!, /\$\{file-_ai\/processes\/_prompts\/review_round\.md\}/, 'the shared review round');
-        assert.match(step('todos', 'file').prompt!, /tomAi_createQuestTodo[\s\S]*tomAi_sendItemToQuest[\s\S]*doneNotificationPrompt/);
+        const filing = step('todos', 'file').prompt!;
+        assert.match(filing, /create each todo \*\*directly in that quest\*\* with tomAi_createQuestTodo \(`questId` the quest\)/, 'the todo tool, in every quest');
+        assert.match(filing, /`<NN><g>_<stem><n>_<date code>-<description>` \(the date code from tomAi_generateIdPrefix\)/);
+        assert.match(filing, /Never queue an item asking another quest's window to file them\./);
+        assert.ok(!/tomAi_sendItemToQuest|doneNotificationPrompt/.test(filing), 'no filing through another quest\'s queue');
+        assert.match(step('todos', 'propose').prompt!, /`<NN><g>_<stem><n>`[\s\S]*`01a_rdv\*`/, 'phase groups, walked by prefix');
     });
 
     test('IT-2: the Proceed prompts', async () => {
@@ -101,9 +111,19 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(deepen, /`repeatCount: "ideadeep1x2-\*"`/);
         assert.match(deepen, /Please do the quest todo \$\{repeatTodoId\} — \$\{repeatTodoTitle\}\./, 'left for the queue');
         assert.match(deepen, /The Finish review round instructions for the closing item:\n\n\*\*Finish review round\*\*/);
+        const propose = prompt(at('todos', 'propose'));
+        assert.match(propose, /group the todos in \*\*phases\*\* by their dependencies/);
+        assert.match(propose, /Each todo's id is `<NN><g>_<stem><n>`/);
+        assert.match(propose, /an overview table \(phase, its groups with their quests, number of todos\)/);
+        assert.match(propose, /one `## Phase <NN> — <title>` section per phase, and in it one `### <NN><g> — <quest>` subsection per group/);
+        assert.match(propose, /`## Details`: one `### <id> — <title>` per todo/);
+        assert.match(propose, /nothing is created yet/);
+        assert.match(propose, /`finishReviewRound: true`/, 'the proposal ends with the review');
         const file = prompt(at('todos', 'file'));
-        assert.match(file, /sent to <quest>: \$\{itemOutcome\}\. What <quest> answered: \$\{itemAnswer\}/, 'left for the done notification, with the answer (vscimpb72)');
-        assert.match(file, /`doneNotificationQuest` this quest and `doneNotificationRun` this run/, 'it comes back here (vscimpb71)');
+        assert.match(file, /Every affected quest, this one \(\S*\) and every other alike: create each todo \*\*directly in that quest\*\* with tomAi_createQuestTodo/, 'every quest: the window\'s (empty in this bare workspace) and the others');
+        assert.match(file, /Check each quest's todo file before creating \(an id or a todo of the idea already there is not created twice\) and after \(every todo is there\)/);
+        assert.match(file, /Dependencies inside the quest go in `dependencies` \(by id\); dependencies on another quest in `notes` \(`<quest>\/<id>`\)/);
+        assert.ok(!/tomAi_sendItemToQuest|\$\{itemOutcome\}|\$\{senderQuest\}/.test(file), 'nothing goes through another quest\'s queue');
         const gate = prompt(at('idea', 'g1'));
         assert.match(gate, /Gate G1 of the idea[\s\S]*`gates\/G1\.md`[\s\S]*approval and the move \(Gate passed \/ failed\) are the user's/);
         // Every gate ends with its result and the decision's buttons (vscimpb85).
@@ -145,6 +165,11 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(md, /`_ai\/quests\/<quest>\/ideas\/<idea>\/<idea>\.md`/);
         assert.match(md, /`\$\$\{finish-review-round\}`/, 'escaped, so it survives the description\'s resolution');
         assert.ok(!/(?<!\$)\$\{finish-review-round\}/.test(md));
-        assert.match(md, /tomAi_sendItemToQuest/);
+        assert.match(md, /`<NN><g>_<stem><n>` — the phase `<NN>`, the group letter `<g>`/, 'the id form');
+        assert.match(md, /The document opens with the ids explained and an overview table, then one\s+`## Phase <NN>` section per phase with a table per group/, 'the document layout');
+        assert.match(md, /`## Details` follows/);
+        assert.match(md, /\*\*directly in every affected quest\*\* — this one and every other\s+alike — with `tomAi_createQuestTodo` \(`questId` the quest\)/, 'direct filing with the todo tool');
+        assert.match(md, /No queue item asks another quest's window to file them/);
+        assert.ok(!/tomAi_sendItemToQuest/.test(md), 'no filing through another quest\'s queue');
     });
 });
