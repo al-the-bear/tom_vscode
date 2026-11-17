@@ -44,6 +44,7 @@ import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
 import { readChatQuestionsConfig, writeChatQuestionsConfig, getChatQuestionsConfigPath } from './chatQuestions-config';
 import { WsPaths } from '../utils/workspacePaths';
+import { getLayout, describeAiMissing } from '../utils/workspaceLayout';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
@@ -2136,7 +2137,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
         })),
-        configErrors: strictErrors,
+        configErrors: [...layoutConfigErrors(), ...strictErrors],
         build: checkBuildStatus(),
         dartBinaries: currentDartBinariesStatus(),
         usage: usageSummary(),
@@ -3389,4 +3390,11 @@ export async function refreshStatusPage(): Promise<void> {
  */
 export async function toggleTrailHandler(): Promise<void> {
     await toggleTrail();
+}
+
+/** The workspace layout's errors for Configuration Errors (an `_ai` folder that is missing or a broken link). */
+function layoutConfigErrors(): string[] {
+    const layout = getLayout();
+    const aiMissing = layout ? describeAiMissing(layout) : undefined;
+    return aiMissing ? [aiMissing] : [];
 }

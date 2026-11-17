@@ -9,14 +9,17 @@
  *   import { WsPaths } from '../utils/workspacePaths';
  *   const questsDir = WsPaths.resolve('quests');
  *
- * All workspace-relative paths are resolved lazily against the first
- * workspace folder. Home-relative paths expand `~` / `$HOME`.
+ * Every place comes from the window's layout (`workspaceLayout.ts`): the
+ * workspace folder is the window's first folder, `_ai` the layout's `aiRoot`,
+ * the configuration folder its root layer. Home-relative paths expand `~` /
+ * `$HOME`.
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { hostSlugOf } from './hostSlug';
+import { getLayout, questIdOf } from './workspaceLayout';
 
 // ============================================================================
 // Configurable folder names (the ONLY place these strings appear)
@@ -28,14 +31,14 @@ import { hostSlugOf } from './hostSlug';
  */
 const DEFAULT_AI_FOLDER = '_ai';
 
+/**
+ * The name `_ai` is looked up by (the layout's `aiName`: `tomAi.layout.aiFolder`,
+ * the deprecated `tomAi.aiFolder`, or the `defaults: ai` of the marker files).
+ * For glob patterns and display; the folder itself is `WsPaths.aiRoot`.
+ */
 function getAiFolderName(): string {
-    const configured = vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder')
-        || vscode.workspace.getConfiguration('tomAi').get<string>('aiFolder');
-    if (!configured) {
-        return DEFAULT_AI_FOLDER;
-    }
-    const trimmed = configured.trim();
-    return trimmed.length > 0 ? trimmed : DEFAULT_AI_FOLDER;
+    const name = getLayout()?.aiName?.trim();
+    return name ? name : DEFAULT_AI_FOLDER;
 }
 
 /**
@@ -140,16 +143,17 @@ export class WsPaths {
 
     // ── Workspace root helper ───────────────────────────────────────
 
-    /** First workspace folder path, or undefined. */
+    /**
+     * The workspace folder: the window's first folder (`TomLayout.workspaceFolder`).
+     * Further folders of a multi-root window and the active editor change nothing.
+     */
     static get wsRoot(): string | undefined {
-        const activeUri = vscode.window.activeTextEditor?.document.uri;
-        if (activeUri) {
-            const activeWorkspaceFolder = vscode.workspace.getWorkspaceFolder(activeUri);
-            if (activeWorkspaceFolder) {
-                return activeWorkspaceFolder.uri.fsPath;
-            }
-        }
-        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        return getLayout()?.workspaceFolder;
+    }
+
+    /** The root of the Tom workspace (`TomLayout.root`; the workspace folder when standalone). */
+    static get tomRoot(): string | undefined {
+        return getLayout()?.root;
     }
 
     // ── Workspace-relative path builders ────────────────────────────
@@ -167,13 +171,12 @@ export class WsPaths {
      *   WsPaths.ai('attachments', 'issue-42') → /ws/_ai/attachments/issue-42
      */
     static ai(key: string, ...extra: string[]): string | undefined {
-        const ws = this.wsRoot;
-        if (!ws) return undefined;
+        const ai = this.aiRoot;
+        if (!ai) return undefined;
         const sub = AI_SUBPATHS[key];
-        const aiFolder = this.aiFolder;
-        if (sub) return path.join(ws, aiFolder, sub, ...extra);
+        if (sub) return path.join(ai, sub, ...extra);
         // Fallback: treat key itself as a sub-path
-        return path.join(ws, aiFolder, key, ...extra);
+        return path.join(ai, key, ...extra);
     }
 
     /**
@@ -190,11 +193,12 @@ export class WsPaths {
     }
 
     /**
-     * The AI folder as an absolute path inside the workspace.
+     * The AI folder as an absolute path (`TomLayout.aiRoot`): the workspace
+     * folder's `_ai` when it exists, else the root's. It may not exist
+     * (`getLayout().aiMissing`).
      */
     static get aiRoot(): string | undefined {
-        const ws = this.wsRoot;
-        return ws ? path.join(ws, this.aiFolder) : undefined;
+        return getLayout()?.aiRoot;
     }
 
     /**
@@ -216,10 +220,15 @@ export class WsPaths {
         return ws ? path.join(ws, GITHUB_FOLDER, ...extra) : undefined;
     }
 
-    /** Resolve the workspace-level `.tom` configuration directory. */
+    /**
+     * Resolve the `.tom` configuration directory the extension reads and
+     * writes: the root layer (`TomLayout.configLayers[0]`), the only writable
+     * layer for now (BP-18). In a standalone workspace it is the workspace
+     * folder's `.tom`.
+     */
     static wsConfig(...extra: string[]): string | undefined {
-        const ws = this.wsRoot;
-        return ws ? path.join(ws, WORKSPACE_CONFIG_FOLDER, ...extra) : undefined;
+        const layer = getLayout()?.configLayers[0];
+        return layer ? path.join(layer, ...extra) : undefined;
     }
 
     // ── Home-directory path builders ────────────────────────────────
@@ -262,22 +271,26 @@ export class WsPaths {
     static getResolverVariables(): Record<string, string> {
         const ws = this.wsRoot || '';
         const aiFolder = this.aiFolder;
+        const ai = this.aiRoot || '';
+        const config = this.wsConfig() || '';
         return {
+            // The root of the Tom workspace (the workspace folder when standalone).
+            tomRoot:             this.tomRoot || '',
             aiFolder:            aiFolder,
             guidelinesFolder:    GUIDELINES_FOLDER,
             githubFolder:        GITHUB_FOLDER,
             homeTomFolder:       HOME_TOM_FOLDER,
             // Absolute paths
-            aiPath:              ws ? path.join(ws, aiFolder) : '',
+            aiPath:              ai,
             // Alias for ${aiPath} — `${ai}` was the token used by the
             // legacy trail-path resolvers (pre-unification); keeping it
             // as an alias means existing trail patterns in user config
             // files keep resolving without a migration step.
-            ai:                  ws ? path.join(ws, aiFolder) : '',
+            ai:                  ai,
             guidelinesPath:      ws ? path.join(ws, GUIDELINES_FOLDER) : '',
-            questsPath:          ws ? path.join(ws, aiFolder, 'quests') : '',
-            rolesPath:           ws ? path.join(ws, aiFolder, 'roles') : '',
-            wsConfigPath:        ws ? path.join(ws, WORKSPACE_CONFIG_FOLDER) : '',
+            questsPath:          ai ? path.join(ai, 'quests') : '',
+            rolesPath:           ai ? path.join(ai, 'roles') : '',
+            wsConfigPath:        config,
             wsConfigFolder:      WORKSPACE_CONFIG_FOLDER,
             // Copilot answer file folder (workspace-relative)
             copilotAnswerFolder: `${aiFolder}/${AI_SUBPATHS['answersCopilot']}`,
@@ -290,11 +303,6 @@ export class WsPaths {
      * Returns 'default' if no workspace file is open or the name is empty.
      */
     static getWorkspaceQuestId(): string {
-        const wsFile = vscode.workspace.workspaceFile?.fsPath;
-        if (wsFile) {
-            const base = path.basename(wsFile).replace(/\.code-workspace$/, '').trim();
-            if (base) { return base; }
-        }
-        return 'default';
+        return questIdOf(vscode.workspace.workspaceFile?.fsPath);
     }
 }

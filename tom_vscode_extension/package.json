@@ -2919,12 +2919,33 @@
         "tomAi.configPath": {
           "type": "string",
           "default": "~/.tom/vscode/tom_vscode_extension.json",
-          "description": "Path to the extension configuration file (supports ~ for home directory and ${workspaceFolder})"
+          "description": "Path to the extension configuration file, for a layout without a root .tom (supports ~ for home directory, ${workspaceFolder} and ${tomRoot})"
         },
         "tomAi.aiFolder": {
           "type": "string",
           "default": "_ai",
-          "description": "Root AI folder name"
+          "deprecationMessage": "Deprecated: use tomAi.layout.aiFolder. Still read as a folder name under the workspace folder; tomAi.layout.aiFolder wins when both are set.",
+          "description": "Deprecated alias of tomAi.layout.aiFolder: the AI folder name under the workspace folder (the window's first folder). tomAi.layout.aiFolder wins when both are set."
+        },
+        "tomAi.layout.root": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace layout override: the root of the Tom workspace, absolute or relative to the workspace folder (the window's first folder). Replaces the walk up to the nearest .tom/tom_root.yaml. Empty: found by the walk up."
+        },
+        "tomAi.layout.aiFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace layout override: the _ai folder, absolute or relative to the workspace folder. Empty: the workspace folder's _ai when it exists, else the root's (names from .tom/tom_workspace.yaml / .tom/tom_root.yaml defaults)."
+        },
+        "tomAi.layout.configFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace layout override: the workspace folder's configuration folder, absolute or relative to the workspace folder. Empty: .tom (or the defaults: config of the marker files)."
+        },
+        "tomAi.layout.guidelinesFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace layout override: the workspace folder's guidelines folder, absolute or relative to the workspace folder. Empty: _agent_guidelines (or the defaults: guidelines of the marker files)."
         },
         "tomAi.queueFolder": {
           "type": "string",

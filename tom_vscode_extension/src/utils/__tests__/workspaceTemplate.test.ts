@@ -298,8 +298,10 @@ describe('the workspace template', () => {
         const text = '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| mine | Mine | x | `_ai/quests/mine/` |\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n| other | Other | z | `_ai/quests/other/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n';
         assert.equal(tpl.activeQuestsFor(text, ['tomai_introduction']), '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n');
         assert.equal(tpl.activeQuestsFor('# No table\n', ['x']), '# No table\n');
-        if (present) {
-            const live = tpl.templateFileData('_copilot_guidelines/quests_and_processes.md', fs.readFileSync(path.join(WS, '_copilot_guidelines/quests_and_processes.md'))).toString('utf8');
+        const liveSource = present ? fs.readFileSync(path.join(WS, '_copilot_guidelines/quests_and_processes.md'), 'utf8') : '';
+        // The live guideline may hold no Active Quests table (the workspace layout removed it); then there is nothing to keep.
+        if (present && liveSource.includes('## Active Quests')) {
+            const live = tpl.templateFileData('_copilot_guidelines/quests_and_processes.md', Buffer.from(liveSource)).toString('utf8');
             const after = live.slice(live.indexOf('## Active Quests')).split('\n').slice(1);
             const start = after.findIndex((l) => l.startsWith('|'));
             const end = after.findIndex((l, k) => k > start && !l.startsWith('|'));

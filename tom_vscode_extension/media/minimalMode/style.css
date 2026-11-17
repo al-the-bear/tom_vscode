@@ -91,3 +91,8 @@ button.secondary:hover {
 [hidden] {
     display: none !important;
 }
+
+.hint {
+    opacity: 0.8;
+    font-size: 0.95em;
+}

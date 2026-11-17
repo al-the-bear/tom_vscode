@@ -160,7 +160,7 @@ export function formatDateTime(date: Date = new Date()): string {
 
 /** The set of variable keys treated as path values (get .name / .extension). */
 const PATH_VARIABLE_KEYS = new Set([
-    'workspaceFolder', 'home', 'file', 'fileFolder', 'configfile',
+    'workspaceFolder', 'tomRoot', 'home', 'file', 'fileFolder', 'configfile',
     'configfile-workspace', 'configfile-user', 'configfile-vscode',
     'workspace-file', 'copilotAnswerFile', 'copilotAnswerFolder', 'tmpdir', 'shell',
 ]);
@@ -206,6 +206,10 @@ function getConfigFilePath(): string {
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (wsRoot) {
         configPath = configPath.replace(/\$\{workspaceFolder\}/g, wsRoot);
+    }
+    const tomRoot = WsPaths.tomRoot;
+    if (tomRoot) {
+        configPath = configPath.replace(/\$\{tomRoot\}/g, tomRoot);
     }
 
     logConfigAccess('variableResolver.getConfigFilePath', configPath, {
@@ -548,7 +552,7 @@ function buildChatVariablesBlock(values: Record<string, string>): string {
 function buildContextInfoBlock(values: Record<string, string>): string {
     const contextKeys = [
         'quest', 'role', 'activeProjects', 'todo', 'todoFile',
-        'workspaceFolder', 'workspace', 'requestId', 'datetime',
+        'workspaceFolder', 'tomRoot', 'workspace', 'requestId', 'datetime',
         'windowId', 'machineId', 'os', 'arch', 'locale',
         'copilotAnswerFile', 'copilotAnswerFolder',
         'configfile', 'chatAnswerFolder',
@@ -1204,16 +1208,18 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${config.KEY}</code> – Any VS Code setting value<br>
 <br>
 <em>Workspace Folders:</em><br>
+<code>\${workspaceFolder}</code> – The workspace folder (the window's first folder)<br>
+<code>\${tomRoot}</code> – The root of the Tom workspace (the folder with .tom/tom_root.yaml; the workspace folder when standalone)<br>
 <code>\${aiFolder}</code> – AI folder name (_ai)<br>
 <code>\${guidelinesFolder}</code> – Guidelines folder name (_copilot_guidelines)<br>
 <code>\${githubFolder}</code> – GitHub folder name (.github)<br>
 <code>\${homeTomFolder}</code> – Home Tom folder name (.tom)<br>
 <code>\${wsConfigFolder}</code> – Workspace config folder name (.tom)<br>
-<code>\${aiPath}</code> – AI folder absolute path<br>
+<code>\${aiPath}</code> – AI folder absolute path (the workspace folder's _ai, else the root's)<br>
 <code>\${guidelinesPath}</code> – Guidelines folder absolute path<br>
 <code>\${questsPath}</code> – Quests folder absolute path<br>
 <code>\${rolesPath}</code> – Roles folder absolute path<br>
-<code>\${wsConfigPath}</code> – Workspace config folder absolute path<br>
+<code>\${wsConfigPath}</code> – Config folder absolute path (the root's .tom)<br>
 <br>
 <em>Git:</em><br>
 <code>\${git.branch}</code> – Current branch name<br>

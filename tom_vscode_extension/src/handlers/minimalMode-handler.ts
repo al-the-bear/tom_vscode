@@ -3,7 +3,8 @@
  *
  * Two modes, every webview view of package.json gets the placeholder:
  *
- *   - **setup** (no `.tom/` configuration folder): a "not a TOM AI workspace"
+ *   - **setup** (no configuration layer: no `.tom/` at the root or in the
+ *     workspace folder, `workspaceLayout.ts`): a "not a TOM AI workspace"
  *     message with setup instructions;
  *   - **format** (the `_ai` files are not in this build's format,
  *     vscimpb142a): the hint of {@link formatEmergencyHint} with
@@ -109,7 +110,7 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
             await vscode.window.showTextDocument(doc, { preview: true });
         } else {
             vscode.window.showInformationMessage(
-                'Setup instructions: create a .tom/ folder in your workspace root, then reload the window.',
+                'Setup instructions: create a .tom/ folder in the workspace folder (the first folder of the .code-workspace file) or at the root of the Tom workspace, then reload the window.',
             );
         }
     }

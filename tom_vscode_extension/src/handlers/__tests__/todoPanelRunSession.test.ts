@@ -45,6 +45,8 @@ function put(rel: string, text: string): void {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text);
 }
+// The sandbox is its own root: it lies under the real workspace's ztmp/, whose root marker the layout would find.
+put('.tom/tom_root.yaml', 'version: 1\n');
 put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n');
 put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
     'todos:',

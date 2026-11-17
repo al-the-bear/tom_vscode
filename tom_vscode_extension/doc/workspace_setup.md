@@ -52,7 +52,7 @@ the MD Browser; later it is in **@WS › Documentation › Quest Overview**.
 
 ### 1. Create the `.tom/` Configuration Folder
 
-Create a `.tom/` folder in your workspace root:
+Create a `.tom/` folder in your workspace folder (the first folder of the window; see [the workspace layout](#where-the-extension-looks-the-workspace-layout)):
 
 ```bash
 mkdir -p .tom
@@ -97,6 +97,51 @@ After creating the configuration, reload VS Code:
 | `_ai/quests/` | Quest folders (structured project work) |
 | `_ai/prompt/` | Reusable prompt templates |
 | `_ai/roles/` | AI role definitions |
+
+## Where the Extension Looks: the Workspace Layout
+
+A window works in its **workspace folder**: the first folder of the
+`.code-workspace` file (a folder window: that folder). The extension works in
+the first folder of the `.code-workspace` file; other folders are only extra
+root folders, and the file open in the editor changes nothing.
+
+Above it, the extension looks for the **root** of the Tom workspace: the
+nearest folder (the workspace folder included) holding `.tom/tom_root.yaml`.
+Without one, the workspace folder is its own root (a standalone workspace).
+
+| Place | Where it is |
+| --- | --- |
+| `_ai/` | the workspace folder's `_ai` when it exists (a symlink counts), else the root's; neither: the status page reports it under Configuration Errors |
+| `.tom/` | read at the root and in the workspace folder; changes are written to the root's `tom_vscode_extension.json` |
+| guidelines | `_agent_guidelines/` at the root and in the workspace folder |
+
+`.tom/tom_root.yaml` may rename the default folders for its root, and
+`<workspace folder>/.tom/tom_workspace.yaml` for one workspace folder:
+
+```yaml
+version: 1
+defaults:
+  ai: _ai
+  guidelines: _agent_guidelines
+  config: .tom
+```
+
+The extension is in minimal mode (the setup screen) only when neither the root
+nor the workspace folder has a `.tom/` and `tomAi.configPath` points nowhere.
+
+**Overrides** — settings in a quest's `.code-workspace` file, for special
+cases; paths are absolute or relative to the workspace folder:
+
+| Setting | Changes |
+| --- | --- |
+| `tomAi.layout.root` | the root (replaces the walk up) |
+| `tomAi.layout.aiFolder` | the `_ai` folder (`tomAi.aiFolder`, a folder name under the workspace folder, is its deprecated alias; `tomAi.layout.aiFolder` wins) |
+| `tomAi.layout.configFolder` | the workspace folder's configuration folder |
+| `tomAi.layout.guidelinesFolder` | the workspace folder's guidelines folder |
+| `tomAi.configPath` | the one configuration file, for a layout without a root `.tom` |
+
+In configuration values, `${workspaceFolder}` is the workspace folder and
+`${tomRoot}` the root.
 
 ---
 

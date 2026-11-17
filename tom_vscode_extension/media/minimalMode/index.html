@@ -20,8 +20,9 @@
     <p>This workspace is not configured for TOM AI.<br>The extension is running in minimal mode.</p>
     <ol class="steps">
         <li><b>Setup new workspace folder</b> unpacks the workspace template (configuration, guidelines, <code>_ai/</code> roles and processes) into a folder and opens it, or</li>
-        <li>by hand: create a <code>.tom/</code> folder in the workspace root with a <code>.tom/tom_vscode_extension.json</code> config file, then reload the window</li>
+        <li>by hand: create a <code>.tom/</code> folder with a <code>.tom/tom_vscode_extension.json</code> config file in the workspace folder, or at the root of the Tom workspace (the folder above it with <code>.tom/tom_root.yaml</code>), then reload the window</li>
     </ol>
+    <p class="hint" id="firstFolderHint">The extension works in the first folder of the <code>.code-workspace</code> file; other folders are only extra root folders.</p>
     <div class="buttons">
         <button id="setupWorkspaceBtn">Setup new workspace folder</button>
         <button id="setupBtn" class="secondary">Open Setup Guide</button>

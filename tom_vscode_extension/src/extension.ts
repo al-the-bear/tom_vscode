@@ -87,6 +87,7 @@ import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
+import { getLayout, registerLayoutTracking } from './utils/workspaceLayout';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { registerCreateQuestCommand } from './handlers/createQuest-handler';
 import { openQuestOverviewOnce } from './handlers/questOverviewOnOpen-handler';
@@ -322,6 +323,8 @@ function expandConfiguredConfigPath(raw: string, wsRoot: string): string {
     }
     result = result.replace(/\$\{home\}/g, os.homedir());
     result = result.replace(/\$\{workspaceFolder\}/g, wsRoot);
+    const tomRoot = getLayout()?.root;
+    if (tomRoot) { result = result.replace(/\$\{tomRoot\}/g, tomRoot); }
     return result;
 }
 
@@ -336,13 +339,16 @@ function expandConfiguredConfigPath(raw: string, wsRoot: string): string {
  * case the user points `tomAi.configPath` at the real config file, but the
  * root has no `.tom/`, so the extension wrongly dropped to minimal mode.
  *
- * We now treat the workspace as a Tom workspace when **either** the root has
- * a `.tom/` folder **or** the configured `tomAi.configPath` resolves to an
+ * We now treat the workspace as a Tom workspace when **either** a configuration
+ * layer of the window's layout exists (the root's `.tom/` or the workspace
+ * folder's, `workspaceLayout.ts`) **or** the configured `tomAi.configPath` resolves to an
  * existing file (or an existing parent directory, so a not-yet-created config
  * at a valid location still activates fully).
  */
 function hasTomWorkspaceConfig(wsRoot: string): boolean {
-    if (fs.existsSync(path.join(wsRoot, '.tom'))) {
+    // Under the workspace layout: a Tom workspace when a configuration layer
+    // exists (the root's `.tom` or the workspace folder's).
+    if ((getLayout()?.existingConfigLayers.length ?? 0) > 0) {
         return true;
     }
 
@@ -401,13 +407,16 @@ export async function activate(context: vscode.ExtensionContext) {
     timeStep('globalInstrumentation', stepStart);
 
     // ── Check for Tom AI workspace ──────────────────────────────────
-    // If there is no .tom/ config folder in the workspace root, skip full
-    // initialization and show an informational message instead.
-    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The window's layout (root, workspace folder, _ai, config layers) is
+    // computed once and kept current. Without a config layer (no .tom/ at the
+    // root or in the workspace folder), skip full initialization and show an
+    // informational message instead.
+    registerLayoutTracking(context);
+    const wsRoot = getLayout()?.workspaceFolder;
     const hasTomConfig = wsRoot ? hasTomWorkspaceConfig(wsRoot) : false;
     if (!hasTomConfig) {
         const totalMs = Math.round((performance.now() - activateStart) * 100) / 100;
-        const msg = 'TOM AI: no TOM AI config found (.tom/ folder missing and tomAi.configPath unset/invalid). Extension running in minimal mode.';
+        const msg = 'TOM AI: no TOM AI config found (no .tom/ folder at the root or in the workspace folder, and tomAi.configPath unset/invalid). Extension running in minimal mode.';
         debugLog(msg, 'INFO', 'extension.activate');
         vscode.window.showInformationMessage(msg);
 
@@ -1131,6 +1140,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         if (
             e.affectsConfiguration('tomAi.configPath') ||
             e.affectsConfiguration('tomAi.aiFolder') ||
+            e.affectsConfiguration('tomAi.layout') ||
             e.affectsConfiguration('tomAi.queueFolder')
         ) {
             void reloadAllConfig(false);
