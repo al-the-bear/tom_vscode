@@ -6,7 +6,7 @@
 // before main.js; the declarations below are globals main.js calls. The question
 // and answer parser is media/shared/mdQuestions.js, loaded before this file and
 // shared with the extension host (src/utils/mdQuestions.ts).
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -311,6 +311,29 @@ function mdbResolveSectionRef(ids, fullIds) {
         if (found === ids.length - 1) { return i; }
     }
     return fallback;
+}
+
+/**
+ * The heading an anchor names as a section id (vscimpb150): `#TOKEN` is the
+ * last id of a heading's dotted full id (`<!--[TOKEN]-->`), case-sensitive;
+ * a dotted anchor (`#SBP.STKG.TOENV`) is a full id, matched as a whole.
+ * Several headings with that last id (the same id under different parents):
+ * the first in document order, as a section reference without context. The
+ * index into `fullIds` (document order), or -1.
+ */
+function mdbSectionAnchorIndex(anchor, fullIds) {
+    if (!anchor) { return -1; }
+    var dotted = anchor.indexOf('.') >= 0;
+    for (var i = 0; i < fullIds.length; i++) {
+        var full = fullIds[i] || '';
+        if (!full) { continue; }
+        if (dotted) {
+            if (full === anchor) { return i; }
+        } else if (full.slice(full.lastIndexOf('.') + 1) === anchor) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 /**
