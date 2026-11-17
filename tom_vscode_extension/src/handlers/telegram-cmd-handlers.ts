@@ -682,6 +682,9 @@ async function sendPromptHandler(
 
     const outcome = await deps.runAnthropicSend(deps.context, parsed.prompt, { source: 'telegram' });
 
+    if (outcome.refused) {
+        return { text: `⛔ Not sent: ${outcome.error ?? 'this window waits for its reload.'}`, rawText: true };
+    }
     if (outcome.rejected) {
         const status = deps.liveConversation.getStatus();
         // The rejection comes from the direct-send guard, so report the chat

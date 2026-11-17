@@ -6,7 +6,9 @@
 <!--
   Placeholder panel while Tom AI does not start (src/handlers/minimalMode-handler.ts).
   window.__INIT__ = { mode: 'setup' } (no .tom/ configuration) or { mode: 'format', hint } (the _ai files not in
-  this build's format: the hint, Upgrade the workspace…, Reload window); later `content` messages replace it.
+  this build's format: the hint, Upgrade the workspace…, Reload window; or another window migrated the workspace
+  under this one: Reload window, Show running prompts); later `content` messages replace it. The format buttons
+  post tomGate.* messages, so a view's own provider (handlers/webviewViewGate.ts) never takes them for its own.
 -->
 <link rel="stylesheet" href="{{baseUri}}/style.css">
 <title>TOM AI</title>
@@ -32,6 +34,7 @@
     <div class="buttons">
         <button id="upgradeBtn">Upgrade the workspace…</button>
         <button id="reloadBtn">Reload window</button>
+        <button id="overlayBtn" class="secondary">Show running prompts</button>
     </div>
 </div>
 <script src="{{baseUri}}/main.js"></script>

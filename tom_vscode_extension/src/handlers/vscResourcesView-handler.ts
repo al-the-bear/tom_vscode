@@ -19,6 +19,7 @@
  */
 
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { ExtensionProcessService, liveProcessSystem, type ProcessAction, type ProcessSnapshot } from '../services/extensionProcessService';
 import { formatMemory, totalsText } from '../utils/extensionProcesses';
@@ -194,7 +195,7 @@ export function registerVscResourcesView(context: vscode.ExtensionContext, servi
         status.show();
     };
     const provider = new VscResourcesViewProvider(context, service, show);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(VSC_RESOURCES_VIEW_ID, provider));
+    context.subscriptions.push(registerGatedWebviewViewProvider(VSC_RESOURCES_VIEW_ID, provider));
     const tick = (): void => { void service.snapshot().then(show, () => status.hide()); };
     tick();
     const timer = setInterval(tick, STATUS_REFRESH_MS);

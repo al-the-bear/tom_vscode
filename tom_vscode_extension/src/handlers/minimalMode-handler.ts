@@ -10,6 +10,9 @@
  *     **Upgrade the workspace…** (the migration page) or, for files newer than
  *     the build, the build to install; once migrated, **Reload window**.
  *
+ * The same placeholder replaces every view of a running window whose
+ * workspace another window migrated (handlers/webviewViewGate.ts, vscimpb142d).
+ *
  * Extends {@link BaseWebviewProvider} for the common webview boilerplate.
  */
 
@@ -69,10 +72,10 @@ class MinimalModeViewProvider extends BaseWebviewProvider {
         this.registerMessageHandler('setupWorkspaceFolder', async () => {
             await vscode.commands.executeCommand(SETUP_WORKSPACE_COMMAND);
         });
-        this.registerMessageHandler('upgradeWorkspace', async () => {
+        this.registerMessageHandler('tomGate.upgradeWorkspace', async () => {
             await vscode.commands.executeCommand(MIGRATE_AI_FORMATS_COMMAND);
         });
-        this.registerMessageHandler('reload', async () => {
+        this.registerMessageHandler('tomGate.reload', async () => {
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
         });
     }

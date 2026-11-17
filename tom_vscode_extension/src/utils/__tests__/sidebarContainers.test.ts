@@ -50,7 +50,7 @@ describe('activity-bar containers', () => {
         const sidebar = readFileSync(join(ROOT, 'src', 'handlers', 'sidebarNotes-handler.ts'), 'utf-8');
         assert.match(sidebar, /tomTodo: 'tomAi\.tomTodo'/);
         assert.match(sidebar, /new QuestTodoEmbeddedViewProvider\(context\.extensionUri, context, \{\s*scopeInstance: 'tom-todo',\s*defaultScopeKind: 'open',\s*questPrefixByDefault: true,/);
-        assert.match(sidebar, /registerWebviewViewProvider\(VIEW_IDS\.tomTodo, tomTodoProvider/);
+        assert.match(sidebar, /registerGatedWebviewViewProvider\(VIEW_IDS\.tomTodo, tomTodoProvider/);
     });
 
     test('SB-2: the moved views are reached by their own ids', () => {

@@ -21,6 +21,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { handleNotesFileMessage } from './notepad/notesFileActions';
 import { activeQuestNotesFile, questNotesHeader } from './sidebarNotes-handler';
@@ -214,7 +215,7 @@ let provider: QuestNotesPanelProvider | undefined;
 export function registerQuestNotesPanel(context: vscode.ExtensionContext): void {
     provider = new QuestNotesPanelProvider(context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(QUEST_NOTES_PANEL_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }),
+        registerGatedWebviewViewProvider(QUEST_NOTES_PANEL_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }),
         { dispose: () => provider?.dispose() },
     );
 }

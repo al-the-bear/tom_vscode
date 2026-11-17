@@ -18,6 +18,7 @@
 import * as os from 'os';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { reportException } from './handler_shared.js';
 import { getLocalFolder, loadAllWindowStates } from './windowStatusPanel-handler';
@@ -135,5 +136,5 @@ class RunsOverviewViewProvider implements vscode.WebviewViewProvider {
 /** Register the RUNS view of @TOM INFO. */
 export function registerRunsOverviewView(context: vscode.ExtensionContext): void {
     const provider = new RunsOverviewViewProvider(context.extensionUri);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(RUNS_OVERVIEW_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }));
+    context.subscriptions.push(registerGatedWebviewViewProvider(RUNS_OVERVIEW_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }));
 }

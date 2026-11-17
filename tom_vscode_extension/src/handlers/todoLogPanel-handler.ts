@@ -11,6 +11,7 @@
  */
 
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -327,10 +328,10 @@ export function registerTodoLogView(context: vscode.ExtensionContext): vscode.Di
     const explorerProvider = new TodoLogViewProvider(context.extensionUri, context);
     const tomProvider = new TodoLogViewProvider(context.extensionUri, context);
     setTodoLogProvider(explorerProvider);
-    const explorerRegistration = vscode.window.registerWebviewViewProvider(TODO_LOG_VIEW_ID, explorerProvider, {
+    const explorerRegistration = registerGatedWebviewViewProvider(TODO_LOG_VIEW_ID, explorerProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
-    const tomRegistration = vscode.window.registerWebviewViewProvider(TODO_LOG_TOM_VIEW_ID, tomProvider, {
+    const tomRegistration = registerGatedWebviewViewProvider(TODO_LOG_TOM_VIEW_ID, tomProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
     return vscode.Disposable.from(explorerRegistration, tomRegistration);

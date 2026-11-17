@@ -14,8 +14,9 @@
     }
     wire('setupWorkspaceBtn', 'setupWorkspaceFolder');
     wire('setupBtn', 'openSetupDoc');
-    wire('upgradeBtn', 'upgradeWorkspace');
-    wire('reloadBtn', 'reload');
+    wire('upgradeBtn', 'tomGate.upgradeWorkspace');
+    wire('reloadBtn', 'tomGate.reload');
+    wire('overlayBtn', 'tomGate.showOverlay');
 
     /** @param {any} content */
     function render(content) {
@@ -28,6 +29,7 @@
         $('formatText').textContent = hint.text || '';
         $('upgradeBtn').hidden = !hint.upgradeButton;
         $('reloadBtn').hidden = !hint.reloadButton;
+        $('overlayBtn').hidden = !hint.overlayButton;
     }
 
     render(/** @type {any} */ (window).__INIT__ || { mode: 'setup' });

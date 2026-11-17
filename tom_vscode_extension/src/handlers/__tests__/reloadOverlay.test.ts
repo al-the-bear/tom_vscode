@@ -152,7 +152,7 @@ describe('the reload overlay', () => {
         await new Promise((r) => setTimeout(r, 10));
         // The service shows it after another window's migration.
         const service = fs.readFileSync(path.join(EXT, 'src', 'services', 'aiFormatCheckService.ts'), 'utf8');
-        assert.match(service, /pauseAllRuns\(\);[\s\S]{0,200}showReloadOverlay\(context, reloadOverlayDeps\(\), now\);/);
+        assert.match(service, /pauseAllRuns\(\);[\s\S]{0,200}const overlayDeps = reloadOverlayDeps\(\);\s*showReloadOverlay\(context, overlayDeps, now\);/);
         assert.doesNotMatch(service, /reloadRequiredText/, 'the warning is gone');
     });
 });

@@ -103,7 +103,7 @@ describe('emergency mode: the _ai files not in this build\'s format', () => {
         assert.match(warnings[0].message, /^Tom AI does not start: This workspace is in _ai format version/);
         assert.deepEqual(warnings[0].buttons, ['Upgrade the workspace…']);
         const before = stubbed.spies.byMethod('commands.executeCommand').length;
-        await view.send({ type: 'upgradeWorkspace' });
+        await view.send({ type: 'tomGate.upgradeWorkspace' });
         const runs = stubbed.spies.byMethod('commands.executeCommand').slice(before).map((c) => c.args[0]);
         assert.deepEqual(runs, ['tomAi.migrateAiFormats'], 'the button opens the page');
     });
@@ -123,7 +123,7 @@ describe('emergency mode: the _ai files not in this build\'s format', () => {
         assert.equal(content?.content.hint.kind, 'migrated');
         assert.equal(content?.content.hint.text, `The workspace has been migrated to _ai format version ${AI_FORMAT_VERSION}. Reload the window to start Tom AI.`);
         assert.deepEqual([content?.content.hint.upgradeButton, content?.content.hint.reloadButton], [false, true]);
-        await view.send({ type: 'reload' });
+        await view.send({ type: 'tomGate.reload' });
         assert.equal(stubbed.spies.byMethod('commands.executeCommand').at(-1)?.args[0], 'workbench.action.reloadWindow');
         reset();
         assert.equal(aiFormatStartGate(context()), false, 'after the reload: a normal start');
@@ -171,11 +171,11 @@ describe('emergency mode: the _ai files not in this build\'s format', () => {
         assert.deepEqual([$('upgradeBtn').hidden, $('reloadBtn').hidden], [false, true]);
         assert.equal($('upgradeBtn').textContent, 'Upgrade the workspace…');
         $('upgradeBtn').click();
-        assert.equal(JSON.stringify(posted), '[{"type":"upgradeWorkspace"}]');
+        assert.equal(JSON.stringify(posted), '[{"type":"tomGate.upgradeWorkspace"}]');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'content', content: { mode: 'format', hint: { kind: 'migrated', title: 'The workspace is upgraded', text: 'Reload the window to start Tom AI.', upgradeButton: false, reloadButton: true } } } }));
         assert.deepEqual([$('upgradeBtn').hidden, $('reloadBtn').hidden], [true, false]);
         $('reloadBtn').click();
-        assert.equal(posted.at(-1).type, 'reload');
+        assert.equal(posted.at(-1).type, 'tomGate.reload');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'content', content: { mode: 'setup' } } }));
         assert.deepEqual([$('setupMode').hidden, $('formatMode').hidden], [false, true]);
         w.close();

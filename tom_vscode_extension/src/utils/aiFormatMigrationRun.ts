@@ -196,14 +196,19 @@ export function runAiFormatMigration(opts: import('./aiFormatMigration').FormatM
 
 /** The hint every panel shows while Tom AI does not start (vscimpb142a). */
 export interface FormatEmergencyHint {
-    /** `migrate`: the workspace needs the migration; `newer`: a newer build is needed; `migrated`: done, reload. */
-    kind: 'migrate' | 'newer' | 'migrated';
+    /**
+     * `migrate`: the workspace needs the migration; `newer`: a newer build is needed; `migrated`: done, reload;
+     * `reload`: another window migrated the workspace under this running one (vscimpb142d).
+     */
+    kind: 'migrate' | 'newer' | 'migrated' | 'reload';
     title: string;
     text: string;
     /** Show **Upgrade the workspace…** (opens the migration page). */
     upgradeButton: boolean;
     /** Show **Reload window**. */
     reloadButton: boolean;
+    /** Show **Show running prompts** (the reload overlay). */
+    overlayButton?: boolean;
 }
 
 /**
@@ -240,4 +245,21 @@ export function formatMigratedHint(version = AI_FORMAT_VERSION): FormatEmergency
         upgradeButton: false,
         reloadButton: true,
     };
+}
+
+/** The hint of a window whose workspace another window migrated while it ran (vscimpb142d). */
+export function formatReloadHint(version: number): FormatEmergencyHint {
+    return {
+        kind: 'reload',
+        title: 'Reload this window',
+        text: reloadRequiredSentence(version),
+        upgradeButton: false,
+        reloadButton: true,
+        overlayButton: true,
+    };
+}
+
+/** The sentence a migrated-under window shows in its panels and answers a refused chat send with. */
+export function reloadRequiredSentence(version: number): string {
+    return `The workspace has been migrated to version ${version}; reload this window.`;
 }

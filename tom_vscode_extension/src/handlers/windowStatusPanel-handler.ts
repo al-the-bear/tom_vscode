@@ -15,6 +15,7 @@
  */
 
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getWorkspaceRoot, reportException } from './handler_shared.js';
@@ -651,10 +652,10 @@ export function registerWindowStatusView(context: vscode.ExtensionContext): vsco
     const explorerProvider = new WindowStatusViewProvider(context.extensionUri, context);
     const tomProvider = new WindowStatusViewProvider(context.extensionUri, context);
     setWindowStatusProvider(explorerProvider);
-    const explorerRegistration = vscode.window.registerWebviewViewProvider(WINDOW_STATUS_VIEW_ID, explorerProvider, {
+    const explorerRegistration = registerGatedWebviewViewProvider(WINDOW_STATUS_VIEW_ID, explorerProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
-    const tomRegistration = vscode.window.registerWebviewViewProvider(WINDOW_STATUS_TOM_VIEW_ID, tomProvider, {
+    const tomRegistration = registerGatedWebviewViewProvider(WINDOW_STATUS_TOM_VIEW_ID, tomProvider, {
         webviewOptions: { retainContextWhenHidden: true },
     });
     return vscode.Disposable.from(explorerRegistration, tomRegistration);

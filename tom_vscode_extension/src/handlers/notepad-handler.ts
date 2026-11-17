@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -145,8 +146,8 @@ export function registerNotepadView(context: vscode.ExtensionContext): void {
     );
     
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(WS_NOTEPAD_VIEW_ID, workspaceNotepadProvider),
-        vscode.window.registerWebviewViewProvider(TOM_NOTEPAD_VIEW_ID, tomNotepadProvider)
+        registerGatedWebviewViewProvider(WS_NOTEPAD_VIEW_ID, workspaceNotepadProvider),
+        registerGatedWebviewViewProvider(TOM_NOTEPAD_VIEW_ID, tomNotepadProvider)
     );
 }
 

@@ -32,6 +32,7 @@ import { ABORT_NESTED_COMMAND } from '../services/nestedProcessCommands';
 import { openProcessBranchingEditor } from './processBranching-handler';
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { ProcessStateStore } from '../managers/processStateStore';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
@@ -430,7 +431,7 @@ function leftOutWhere(def: ProcessDefinition, phaseId: string, stepId?: string):
 /** Register the PROCESS view. The process editor is registered by processEditor-handler. */
 export function registerProcessView(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(PROCESS_VIEW_ID, new ProcessViewProvider(context), {
+        registerGatedWebviewViewProvider(PROCESS_VIEW_ID, new ProcessViewProvider(context), {
             webviewOptions: { retainContextWhenHidden: true },
         }),
     );

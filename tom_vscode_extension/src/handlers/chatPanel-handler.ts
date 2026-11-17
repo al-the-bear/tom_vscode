@@ -21,6 +21,7 @@ import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, user
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
@@ -52,7 +53,7 @@ import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
 import type { SessionRecord } from '../utils/agentSdkSessions';
 import { sessionLabel } from '../utils/sessionPickerPlan';
 import { ACTIVE_ANTHROPIC_PROFILE_KEY } from '../tools/scripting-tools-bridge';
-import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel, setAnthropicSendChatItem, isAnthropicSendInFlight } from './sendToChatState';
+import { tryBeginAnthropicSend, endAnthropicSend, setAnthropicSendCancel, setAnthropicSendChatItem, isAnthropicSendInFlight, chatSendRefusal } from './sendToChatState';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
 import { chatProviders, ChatDraftState } from './chat/chatProviderRegistry';
 import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
@@ -1624,6 +1625,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // One chat send per session (sendToChatState): a send in another session runs on beside it.
         // A Fresh send runs in a session of its own, so it holds a slot of its own.
         const slotKey = fresh ? `${targetSession}~fresh-${Date.now()}` : targetSession;
+        // Another window migrated the workspace (vscimpb142d): the panel shows the reload banner; refused anyway.
+        const refusal = chatSendRefusal();
+        if (refusal) {
+            this._view?.webview.postMessage({ type: 'anthropicNotSent', message: `Not sent: ${refusal}`, panelBusy: false });
+            return;
+        }
         if (this._panelSendSlot !== undefined || !tryBeginAnthropicSend(slotKey)) {
             this._view?.webview.postMessage({
                 type: 'anthropicNotSent',
@@ -2456,7 +2463,7 @@ export function registerChatPanel(context: vscode.ExtensionContext): void {
     _provider = new ChatPanelViewProvider(context);
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {
+        registerGatedWebviewViewProvider(VIEW_ID, _provider, {
             webviewOptions: { retainContextWhenHidden: true }
         }),
         // Closes the answer-folder watcher and the answer poll timer on deactivate.

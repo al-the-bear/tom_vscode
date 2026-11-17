@@ -15,6 +15,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { reportException } from './handler_shared.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -166,5 +167,5 @@ class NotificationsViewProvider implements vscode.WebviewViewProvider {
 /** Register the NOTIFICATIONS view of @TOM INFO. */
 export function registerNotificationsView(context: vscode.ExtensionContext): void {
     const provider = new NotificationsViewProvider(context);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(NOTIFICATIONS_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }));
+    context.subscriptions.push(registerGatedWebviewViewProvider(NOTIFICATIONS_VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: true } }));
 }

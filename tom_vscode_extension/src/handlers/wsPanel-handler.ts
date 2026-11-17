@@ -9,6 +9,7 @@
 
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AccordionSection, getAccordionHtml } from './accordionPanel.js';
@@ -839,7 +840,7 @@ export function registerWsPanel(context: vscode.ExtensionContext): void {
     _provider = new WsPanelHandler(context.extensionUri, context);
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(VIEW_ID, _provider, {
+        registerGatedWebviewViewProvider(VIEW_ID, _provider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
     );

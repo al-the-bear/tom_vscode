@@ -36,6 +36,7 @@ import {
     setAnthropicSendChatItem,
     endAnthropicSend,
     busySessionWarning,
+    chatSendRefusal,
 } from './sendToChatState';
 import { trackChatSend, isRunningChatItem } from './chatQueueTracking';
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -50,6 +51,8 @@ export interface SendToChatOutcome {
     ok: boolean;
     /** Rejected because a chat send already runs in its session (`busySession`). */
     rejected?: boolean;
+    /** Refused because the window waits for its reload (another window migrated the workspace; `error` says so). */
+    refused?: boolean;
     /** With `rejected`: the session a chat send already runs in. */
     busySession?: string;
     /** The transport's answer (Anthropic transport text, or Copilot answer-file). */
@@ -69,6 +72,8 @@ export function scriptSendTarget(target: unknown): SendToChatTarget {
 
 /** Open Copilot Chat with `prompt` (the Send to Copilot commands). */
 export async function openCopilotChat(prompt: string): Promise<void> {
+    const refusal = chatSendRefusal();
+    if (refusal) { void vscode.window.showWarningMessage(`Not sent: ${refusal}`); return; }
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
 }
 
@@ -138,6 +143,9 @@ export async function runAnthropicSend(
     if (!prompt || !prompt.trim()) {
         return { target: 'anthropic', ok: false, error: 'Empty prompt.' };
     }
+    // Another window migrated the workspace: no new chat send until this window reloads (vscimpb142d).
+    const refusal = chatSendRefusal();
+    if (refusal) { return { target: 'anthropic', ok: false, refused: true, error: refusal }; }
     // When the caller didn't supply a cancellation token (the command / file
     // menus and the Telegram `send_prompt` path), own a CTS here so the send is
     // interruptible — otherwise `/cancel_chat` would have nothing to cancel. A
@@ -259,7 +267,9 @@ export async function dispatchToLlm(
     userMessageTemplate?: string,
 ): Promise<void> {
     const outcome = await runAnthropicSend(context, prompt, { source: 'editor', ...(userMessageTemplate ? { userMessageTemplate } : {}) });
-    if (outcome.rejected) {
+    if (outcome.refused) {
+        vscode.window.showWarningMessage(`Not sent: ${outcome.error}`);
+    } else if (outcome.rejected) {
         vscode.window.showWarningMessage(busySessionWarning(outcome.busySession));
     } else if (!outcome.ok && outcome.error) {
         vscode.window.showErrorMessage(`Send to Anthropic/LLM failed: ${outcome.error}`);
@@ -278,6 +288,8 @@ export async function sendToChatForScript(
     prompt: string,
     target: SendToChatTarget = 'anthropic',
 ): Promise<SendToChatOutcome> {
+    const refusal = chatSendRefusal();
+    if (refusal) { return { target, ok: false, refused: true, error: refusal }; }
     if (target === 'copilot') {
         // The Copilot answer-file round trip (services/copilotRoundTrip.ts):
         // the prompt in the Copilot Queue Wrapper, then its answer file.

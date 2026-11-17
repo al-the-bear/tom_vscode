@@ -33,6 +33,7 @@
 import { wireQuestHintMessages } from './questHint-handler';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { clearSessionId, deleteSession, listSessions, onSessionsChanged } from '../services/agentSdkSessionStore';
 import { TwoTierMemoryService } from '../services/memory-service';
@@ -178,7 +179,7 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
 export function registerSessionsView(context: vscode.ExtensionContext): void {
     const provider = new SessionsViewProvider(context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(SESSIONS_VIEW_ID, provider, {
+        registerGatedWebviewViewProvider(SESSIONS_VIEW_ID, provider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
         vscode.commands.registerCommand(ADD_SESSION_COMMAND, async () => {

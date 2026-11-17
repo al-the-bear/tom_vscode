@@ -113,6 +113,21 @@ export function busySessionWarning(session: string | undefined): string {
     return `Session ${session || 'chat'} is busy — a chat send runs in it. Try again once it has finished, or pick another session.`;
 }
 
+let chatSendRefusalText: string | undefined;
+
+/**
+ * Refuse every new chat send with `text` (vscimpb142d: another window migrated the workspace, this one waits for
+ * its reload); undefined lets them run again. A send already running finishes.
+ */
+export function refuseChatSends(text: string | undefined): void {
+    chatSendRefusalText = text;
+}
+
+/** Why a new chat send is refused now, or undefined when it may run. */
+export function chatSendRefusal(): string | undefined {
+    return chatSendRefusalText;
+}
+
 /** Release the slot of `session`. Safe to call when not held. */
 export function endAnthropicSend(session: string): void {
     _slots.delete(session);

@@ -14,7 +14,9 @@
  *     window migrates under it (the shared stamp changes): this window pauses
  *     the auto-send of every run and shows the reload overlay
  *     (handlers/reloadOverlay-handler.ts) — the prompts still running, each
- *     with Interrupt, and Reload window; nothing new starts.
+ *     with Interrupt, and Reload window; every other panel shows only that
+ *     the window needs a reload (handlers/webviewViewGate.ts) and new chat
+ *     sends are refused; nothing new starts.
  */
 
 import * as path from 'path';
@@ -24,6 +26,8 @@ import { AI_FORMAT_FILE, AI_FORMAT_VERSION, readAiFormatStamp, localDate } from 
 import {
     formatEmergencyHint,
     formatMigratedHint,
+    formatReloadHint,
+    reloadRequiredSentence,
     lockHolds,
     migrationLockFile,
     migrationNeed,
@@ -33,6 +37,8 @@ import {
 } from '../utils/aiFormatMigrationRun';
 import { registerMinimalModePanels, type MinimalModePanels } from '../handlers/minimalMode-handler';
 import { showReloadOverlay, type ReloadOverlayDeps } from '../handlers/reloadOverlay-handler';
+import { closeWebviewViews } from '../handlers/webviewViewGate';
+import { refuseChatSends } from '../handlers/sendToChatState';
 import { checkAiMergeDrivers, installAiMergeDrivers, outdatedDriverUpdate, setUpAiMergeDrivers } from '../utils/aiMergeDriverSetup';
 import { WsPaths } from '../utils/workspacePaths';
 import {
@@ -77,6 +83,20 @@ function pauseAllRuns(): void {
         const runs = store ? store.runs().map((r) => r.run) : ['default'];
         for (const run of new Set(['default', ...runs])) { qm.setRunAutoSend(run, false); }
     } catch { /* no queue */ }
+}
+
+/**
+ * A window whose workspace another window migrated (vscimpb142d): every webview view shows the reload
+ * placeholder ("The workspace has been migrated to version X; reload this window." with Show running prompts
+ * and Reload window), and every new chat send is refused with the same sentence; a send already running
+ * finishes and is listed in the overlay.
+ */
+export function enterReloadRequiredMode(context: vscode.ExtensionContext, version: number, showOverlay: () => void): void {
+    refuseChatSends(reloadRequiredSentence(version));
+    closeWebviewViews(context.extensionUri, { mode: 'format', hint: formatReloadHint(version) }, {
+        reload: () => reloadWindow(),
+        showOverlay,
+    });
 }
 
 /** The overlay's dependencies: this window's queue, its chat sends, the Prompt Queue editor's column. */
@@ -236,7 +256,10 @@ export function startAiFormatCheck(context: vscode.ExtensionContext): void {
         warned = true;
         pauseAllRuns();
         // The reload overlay (vscimpb142b): the prompts still running, each with Interrupt, and Reload window.
-        showReloadOverlay(context, reloadOverlayDeps(), now);
+        const overlayDeps = reloadOverlayDeps();
+        showReloadOverlay(context, overlayDeps, now);
+        // Every other panel shows only that the window needs a reload, and no new chat send starts (vscimpb142d).
+        enterReloadRequiredMode(context, now, () => showReloadOverlay(context, overlayDeps, now));
     });
 }
 

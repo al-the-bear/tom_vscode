@@ -16,6 +16,7 @@
 
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
+import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -537,25 +538,25 @@ export function registerDsNotesViews(context: vscode.ExtensionContext): void {
     });
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.tomNotepad, tomNotepadProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.tomNotepad, tomNotepadProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.workspaceNotepad, workspaceNotepadProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.workspaceNotepad, workspaceNotepadProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.workspaceTodos, workspaceTodosProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.workspaceTodos, workspaceTodosProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.questNotes, questNotesProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.questNotes, questNotesProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.questTodos, questTodosProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.questTodos, questTodosProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.sessionTodos, sessionTodosProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.sessionTodos, sessionTodosProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
-        vscode.window.registerWebviewViewProvider(VIEW_IDS.tomTodo, tomTodoProvider, {
+        registerGatedWebviewViewProvider(VIEW_IDS.tomTodo, tomTodoProvider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
         vscode.commands.registerCommand('tomAi.focusChatPanel', async () => {

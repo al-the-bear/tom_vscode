@@ -494,7 +494,8 @@ compares both with the version its build understands:
 One migration runs at a time on a machine; another window says *Migration is
 already running in another window*. Once it is done, the other windows pause
 their runs and show **Reload required**: the prompts still running, each with
-Interrupt, and Reload window.
+Interrupt, and Reload window. Their panels show only that the window needs a
+reload, and new chat sends are refused until it is reloaded.
 
 The migration merges with the extension's own `_ai` merge drivers, so it needs
 neither git nor registered drivers. The same five drivers serve git: the page
