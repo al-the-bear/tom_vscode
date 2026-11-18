@@ -790,7 +790,10 @@ function qtPartOfChips(t) {
     }).join('');
 }
 
-/** The header of a todo group: its title, member count, progress and (with GROUP items) its queue button. */
+/**
+ * The header of a todo group, two lines like a todo's row: the arrow, the folder icon, its title, member count,
+ * progress and (with GROUP items) its queue button; below, its priority dot and its id.
+ */
 function qtRenderTodoGroupHeader(g, expanded) {
     var t = g.todo;
     var name = t.title || String(t.id);
@@ -798,12 +801,18 @@ function qtRenderTodoGroupHeader(g, expanded) {
     return '<div class="qt-todogroup-header' + (expanded ? '' : ' collapsed') + (String(t.id) === qtSelectedTodoId ? ' selected' : '') + '"' +
         ' data-qt-todogroup="' + qtEsc(t.id) + '"' +
         ' title="' + qtEsc('Group ' + name + ' (' + t.id + '): click to open it; the arrow expands or collapses its members') + '">' +
+        '<div class="qt-todogroup-row1">' +
         '<span class="codicon codicon-chevron-down qt-todogroup-toggle" title="' + (expanded ? 'Collapse' : 'Expand') + '"></span>' +
         '<span class="qt-todogroup-icon">' + (done ? '\u2705' : '\ud83d\uddc2\ufe0f') + '</span>' +
         '<span class="qt-group-label">' + qtEsc(name) + '</span>' +
         '<span class="qt-group-count">(' + g.total + ')</span>' +
         '<span class="qt-todogroup-progress" title="' + g.done + ' of ' + g.total + ' members done">' + g.done + '/' + g.total + '</span>' +
         qtTodoGroupQueueButton(t, 'qt-todogroup-queue-btn') +
+        '</div>' +
+        '<div class="qt-todogroup-row2">' +
+        (t.priority ? '<span class="qt-priority-dot ' + qtEsc(t.priority) + '" title="Priority: ' + qtEsc(t.priority) + '">\u25cf</span>' : '') +
+        '<span class="tid">' + qtEsc(qtShowQuestPrefix && qtQuestKey(t) ? qtQuestKey(t) + '/' + t.id : t.id) + '</span>' +
+        '</div>' +
         '</div>';
 }
 
@@ -1324,7 +1333,9 @@ function qtRenderList() {
                 var group = groups.find(function(g) { return (g.key || g.prefix) === prefix; });
                 if (!group) { return; }
                 var todos = qtGroupOpenTodos(group).map(function(t) { return { todoId: t.id, sourceFile: t.sourceFile || undefined }; });
-                vscode.postMessage({ type: 'qtMoveTodosToDestination', questId: qtCurrentQuestId, file: qtCurrentFile, todos: todos });
+                // `groupTodoIds`: every todo of the group, for "Move to a group todo…" (membership takes them all).
+                vscode.postMessage({ type: 'qtMoveTodosToDestination', questId: qtCurrentQuestId, file: qtCurrentFile, todos: todos,
+                    groupTodoIds: group.todos.filter(function(t) { return t && t.id; }).map(function(t) { return t.id; }) });
                 return;
             }
             qtToggleGroup(hdr.getAttribute('data-qt-group') || '');

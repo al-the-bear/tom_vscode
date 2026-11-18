@@ -119,6 +119,13 @@ describe('todo panel: another group, and the id edit', () => {
         assert.deepEqual(questTodo.findTodoByIdInFile(main, 'grpb1_bc-beta')!.comprised_of, ['gt1_bc-a', 'gt2_bc-b'], 'members of the picked group');
         assert.deepEqual(questTodo.findTodoByIdInFile(main, 'grpa1_bc-alpha')!.comprised_of ?? [], [], 'out of the group they were in');
         assert.ok(questTodo.findTodoByIdInFile(main, 'gt1_bc-a'), 'the todo itself stays where it is');
+        // A prefix group's move button: every todo of the group becomes a member, the completed ones too.
+        seed(['pg1_bd-open', 'pg2_bd-done']);
+        questTodo.updateTodoInFile(main, 'pg2_bd-done', { status: 'completed' } as never);
+        pickers.length = 0;
+        await handleQuestTodoMessage({ type: 'qtMoveTodosToDestination', questId: QUEST, file: 'all',
+            todos: [{ todoId: 'pg1_bd-open', sourceFile: `todos.${QUEST}.todo.yaml` }], groupTodoIds: ['pg1_bd-open', 'pg2_bd-done'] }, webview);
+        assert.deepEqual(questTodo.findTodoByIdInFile(main, 'grpb1_bc-beta')!.comprised_of, ['gt1_bc-a', 'gt2_bc-b', 'pg1_bd-open', 'pg2_bd-done']);
         // A group todo's own move button does not offer it.
         pickers.length = 0;
         stubWindow.showQuickPick = async (items: Json[]) => { pickers.push({ items }); return undefined; };

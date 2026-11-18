@@ -31,8 +31,17 @@
 .qt-group-header .qt-group-move-btn:hover, .qt-group-header .qt-group-walk-btn:hover, .qt-group-header .qt-group-rename-btn:hover { opacity: 1; }
 .qt-group-header::after { order: 1; }
 /* Todo groups (vscimpb126): a group todo heads its members like a prefix group; the header opens the group, the arrow collapses it. */
-.qt-todogroup-header { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; color: var(--vscode-foreground); }
-.qt-todogroup-header::after { content: ''; flex: 1; height: 1px; background: var(--vscode-panel-border); order: 1; }
+/* Two lines, like a todo's row: the title line, then priority dot and id under the title. */
+.qt-todogroup-header { padding: 4px 8px; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; color: var(--vscode-foreground); }
+.qt-todogroup-row1 { display: flex; align-items: center; gap: 6px; }
+.qt-todogroup-row1::after { content: ''; flex: 1; height: 1px; background: var(--vscode-panel-border); order: 1; }
+.qt-todogroup-row2 { display: flex; align-items: center; gap: 6px; padding-left: 36px; font-weight: 400; color: var(--vscode-descriptionForeground); }
+.qt-todogroup-row2 .tid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-todogroup-row2 .qt-priority-dot { font-size: 10px; line-height: 1; }
+.qt-todogroup-row2 .qt-priority-dot.critical { color: var(--vscode-errorForeground); }
+.qt-todogroup-row2 .qt-priority-dot.high { color: var(--vscode-editorWarning-foreground); }
+.qt-todogroup-row2 .qt-priority-dot.medium { color: var(--vscode-testing-iconPassed); }
+.qt-todogroup-row2 .qt-priority-dot.low { color: var(--vscode-descriptionForeground); }
 .qt-todogroup-header:hover { background: var(--vscode-list-hoverBackground); }
 .qt-todogroup-header.selected { background: var(--vscode-list-inactiveSelectionBackground); }
 .qt-todogroup-header .codicon { font-size: 12px; flex-shrink: 0; transition: transform 0.15s; }

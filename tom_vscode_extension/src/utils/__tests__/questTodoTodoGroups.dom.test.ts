@@ -53,7 +53,7 @@ const MEMBERS = [
     { ref: 'rel9-old', quest: 'qa', id: 'rel9-old', title: 'Old step', status: 'completed', found: true },
 ];
 const TODOS = [
-    { id: 'rel1-release', title: 'Release 2.0', status: 'group', comprised_of: MEMBERS.map((m) => m.ref), group_members: MEMBERS, sourceFile: 'todos.qa.todo.yaml' },
+    { id: 'rel1-release', title: 'Release 2.0', status: 'group', priority: 'high', comprised_of: MEMBERS.map((m) => m.ref), group_members: MEMBERS, sourceFile: 'todos.qa.todo.yaml' },
     { id: 'rel2-changelog', title: 'Changelog', status: 'completed', part_of: ['rel1-release'], sourceFile: 'todos.qa.todo.yaml' },
     { id: 'rel3-tag', title: 'Tag', status: 'in-progress', part_of: ['rel1-release', 'qb/bg1-big'], sourceFile: 'todos.qa.todo.yaml' },
     { id: 'misc1-other', title: 'Other', status: 'not-started', sourceFile: 'todos.qa.todo.yaml' },
@@ -70,6 +70,10 @@ describe('todo groups in the todo panel', () => {
         assert.ok(h, 'a todo-group header');
         assert.equal(h.querySelector('.qt-group-label').textContent, 'Release 2.0');
         assert.equal(h.querySelector('.qt-group-count').textContent, '(4)');
+        // Two lines, like a todo's row: the title line, then the priority dot and the id.
+        assert.ok(h.querySelector('.qt-todogroup-row1 .qt-todogroup-toggle') && h.querySelector('.qt-todogroup-row1 .qt-todogroup-icon'), 'arrow and folder in front');
+        assert.equal(h.querySelector('.qt-todogroup-row2 .tid').textContent, 'rel1-release', 'its id on the second line');
+        assert.ok(h.querySelector('.qt-todogroup-row2 .qt-priority-dot.high'), 'its priority dot');
         assert.equal(h.querySelector('.qt-todogroup-progress').textContent, '2/4', 'Changelog and the archived Old step are done');
         assert.ok(h.classList.contains('collapsed'));
         assert.deepEqual(memberIds(window), []);

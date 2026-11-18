@@ -1629,7 +1629,10 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             const moveQuests = new Set(found.map(s => s.origin.questId));
             const moveQuest = moveQuests.size === 1 ? [...moveQuests][0] : undefined;
             const questTodosNow = moveQuest ? questTodo.readAllTodos(moveQuest) : [];
-            const movingSet = new Set(found.map(s => s.todoId));
+            // A prefix group's move button names every todo of the group: a group todo takes them all as members.
+            const membershipIds: string[] = Array.isArray(msg.groupTodoIds) && msg.groupTodoIds.length
+                ? msg.groupTodoIds.map(String) : found.map(s => s.todoId);
+            const movingSet = new Set(membershipIds);
             const groupTodos = questTodosNow.some(t => t.status === GROUP_STATUS && !movingSet.has(t.id))
                 && !questTodosNow.some(t => movingSet.has(t.id) && t.status === GROUP_STATUS);
             const options = todoMoveOptions(found.map(s => s.origin), { groupTodos });
@@ -1644,7 +1647,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 return true;
             }
             if (picked.choice.kind === 'pickGroupTodo') {
-                await _moveTodosToGroupTodo(picked.choice.questId, found.map(s => s.todoId));
+                await _moveTodosToGroupTodo(picked.choice.questId, membershipIds);
                 post({ type: 'qtArchiveResult', success: true, moved: [] });
                 return true;
             }
