@@ -22,6 +22,40 @@ export interface UnpackResult {
     cancelled: boolean;
 }
 
+/** The token the template's workspace part names its root by (scripts/build-workspace-template.cjs). */
+export const TEMPLATE_ROOT_TOKEN = '{{root}}';
+
+/** Whether the template is the two-part one (`root/`, `workspace/`, template version 2). */
+export function isTwoPartTemplate(entries: readonly ZipEntry[]): boolean {
+    return entries.some((e) => e.path.startsWith('root/')) && entries.some((e) => e.path.startsWith('workspace/'));
+}
+
+/**
+ * The entries of a two-part template as one standalone folder gets them: the
+ * root part and the workspace part together (a file both carry — CLAUDE.md,
+ * AGENTS.md — taken from the workspace part), without `tom_root.yaml` (a
+ * standalone folder is no root), the root token written as `.`, folder entries
+ * dropped. A template of one part is answered as it is.
+ */
+export function standaloneEntries(entries: readonly ZipEntry[]): ZipEntry[] {
+    if (!isTwoPartTemplate(entries)) { return [...entries]; }
+    const byPath = new Map<string, ZipEntry>();
+    const take = (prefix: string, rewrite: boolean): void => {
+        for (const e of entries) {
+            if (!e.path.startsWith(prefix) || e.path.endsWith('/')) { continue; }
+            const rel = e.path.slice(prefix.length);
+            if (rel === '.tom/tom_root.yaml') { continue; }
+            const data = rewrite && rel.endsWith('.md') && e.data.includes(TEMPLATE_ROOT_TOKEN)
+                ? Buffer.from(e.data.toString('utf8').split(TEMPLATE_ROOT_TOKEN).join('.'), 'utf8')
+                : e.data;
+            byPath.set(rel, { ...e, path: rel, data });
+        }
+    };
+    take('root/', false);
+    take('workspace/', true);
+    return [...byPath.values()];
+}
+
 /** What a folder holds at its top level (sorted by code unit, the same on every machine), `[]` for a missing folder. */
 export function folderEntries(dir: string): string[] {
     if (!fs.existsSync(dir)) { return []; }

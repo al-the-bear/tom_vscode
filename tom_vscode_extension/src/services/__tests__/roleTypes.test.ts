@@ -173,7 +173,9 @@ describe('roles and role types', () => {
         assert.match(read('src', 'utils', 'extensionToolsCatalog.ts'), /id: 'roles', label: 'Role Editor', group: 'quest'[\s\S]*id: 'roleTypes', label: 'Role Type Editor', group: 'quest'/);
         const template = read('scripts', 'build-workspace-template.cjs');
         assert.match(template, /\{ path: '_ai\/role-types', kind: 'dir', optional: true \}/);
-        assert.match(template, /\{ path: '\.tom\/json-schema\/roles', kind: 'dir' \}/);
+        // The role schemas are generated into the top .tom at start (utils/generatedSchemas.ts), not packed.
+        assert.doesNotMatch(template, /json-schema\/roles/);
+        assert.match(read('src', 'utils', 'generatedSchemas.ts'), /folder: 'json-schema\/roles'/);
         fs.rmSync(ws, { recursive: true, force: true });
     });
 

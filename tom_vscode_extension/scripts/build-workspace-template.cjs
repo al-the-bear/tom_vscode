@@ -1,43 +1,52 @@
 #!/usr/bin/env node
 /**
- * Build the workspace template: the files a new workspace folder is set up
- * from (@T: Setup New Workspace Folder), packed into one zip.
+ * Build the workspace template: the files a new root and its workspace folders
+ * are set up from (@T: Setup New Workspace Folder), packed into one zip in two
+ * parts (workspace layout BP-22 (a)).
  *
- *   node scripts/build-workspace-template.cjs [--workspace <dir>] [--out <zip>] [--copy-to <dir>]
+ *   node scripts/build-workspace-template.cjs [--root <dir>] [--workspace <dir>] [--out <zip>] [--copy-to <dir>]
  *   (npm run template:build)
  *
- * Taken from the workspace (default: three levels above this extension, as the
- * install scripts take it), at build time, and nothing else:
- *   - .tom/tom_vscode_extension.json      the workspace's config, its repositories
- *                                          and command lines emptied (genericConfig)
- *   - _copilot_guidelines/                 all but EXCLUDED_PATHS
- *   - CLAUDE.md, AGENTS.md
- *   - _ai/roles/, _ai/processes/, _ai/schemas/, _ai/prompt/,
- *     _ai/format-version.yaml              all but EXCLUDED_PATHS and Python byte code
- * Markdown is packed without its `<!-- workspace-specific -->` blocks (the
- * workspace's own part of CLAUDE.md and AGENTS.md, guideline passages about
- * this workspace) and without list items / table rows linking to a left-out
- * file (templateFileData).
- *   - _ai/quests/tomai_introduction/      the starting quest, without the files its
- *                                          use on this machine writes
- * plus `.tom/workspace_template.json`, which names the template's type (a
- * "dart" workspace; other types come later).
+ * **`root/`**, read from the root (`--root`; default the nearest folder above
+ * this extension with `.tom/tom_root.yaml`, as the layout resolver finds it):
+ *   - .tom/tom_root.yaml, .tom/tom_vscode_extension.json (its repositories and
+ *     command lines emptied: genericConfig), .tom/json-schema/workspaces/ (the
+ *     schemas the extension does not write itself; its own are generated at
+ *     start, utils/generatedSchemas.ts)
+ *   - the root guidelines folder (`_agent_guidelines/`, else `_copilot_guidelines/`)
+ *     with the shared `workspace_agents.md`
+ *   - CLAUDE.md, and AGENTS.md as a generic stub the build writes (ROOT_AGENTS_STUB)
+ *   - _ai/roles/, role-types/, processes/, schemas/, prompt/, format-version.yaml,
+ *     quests/tomai_introduction/ (without the files its use on this machine writes)
+ * **`workspace/`**, read from a workspace folder (`--workspace`; default three
+ * levels above this extension, the container):
+ *   - an empty .tom/
+ *   - AGENTS.md (the folder's own rules, packed as its generic part) and
+ *     CLAUDE.md, whose import of the shared file is written with the token
+ *     `{{root}}` (WORKSPACE_ROOT_TOKEN): `@{{root}}/_agent_guidelines/workspace_agents.md`;
+ *     Setup replaces it with the path from the new workspace folder to its root
+ *   - the workspace guidelines folder, without the transition copies of root
+ *     guidelines (a file the root's guidelines folder has at the same path,
+ *     except index.md): the root part carries those, and links to them point
+ *     to the root's copy through the token
+ * plus `root/.tom/workspace_template.json` (TEMPLATE_INFO_PATH): the template's
+ * type, version, the parts with their files, and the token.
  *
- * Before writing, every file is checked: nothing personal or machine-bound
- * (`extension_config.<host>.<quest>.yaml`, `session-todo.*`, a `history/`
- * folder; in the introduction quest these are left out instead) and no
- * literal secret in any text file (an Anthropic key
- * `sk-ant-…`, a GitHub token `ghp_…` / `github_pat_…`, a Telegram bot token
- * `<digits>:<35 chars>`). Secrets belong in environment variables, named in
- * the config. A finding stops the build and writes nothing.
+ * Markdown is packed without its `<!-- workspace-specific -->` blocks and without
+ * list items / table rows linking to a left-out file (templateFileData).
+ * `.github/copilot-instructions.md` is not packed.
  *
- * The zip goes to resources/workspace_template.zip (packed into the VSIX, so
- * the setup works from any installed extension); `--copy-to` also writes it
- * there (the install scripts put a copy beside the VSIX). It is deterministic:
- * entries sorted, fixed times, so an unchanged workspace gives the same bytes.
+ * Before writing, every file is checked: inside its part's list, nothing personal
+ * or machine-bound (`extension_config.<host>.<quest>.yaml`, `session-todo.*`, a
+ * `history/` folder; in the introduction quest these are left out instead) and
+ * no literal secret in any text file (an Anthropic key `sk-ant-…`, a GitHub
+ * token `ghp_…` / `github_pat_…`, a Telegram bot token `<digits>:<35 chars>`).
+ * A finding stops the build and writes nothing.
  *
- * Node only (zlib for deflate, an own CRC-32): the same on every platform. The
- * extension reads the zip with src/utils/zipArchive.ts.
+ * The zip goes to resources/workspace_template.zip (packed into the VSIX);
+ * `--copy-to` also writes it there. It is deterministic: entries sorted, fixed
+ * times, so unchanged sources give the same bytes. Node only (zlib, an own
+ * CRC-32). The extension reads it with src/utils/zipArchive.ts.
  *
  * Exit codes: 0 written, 1 a check refused the content or a source is missing.
  */
@@ -51,28 +60,71 @@ const EXT_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_WORKSPACE = path.resolve(EXT_ROOT, '..', '..', '..');
 const DEFAULT_OUT = path.join(EXT_ROOT, 'resources', 'workspace_template.zip');
 
-/** What the template carries. `optional`: packed when present, named when not. */
-const SOURCES = [
-    { path: '.tom/tom_vscode_extension.json', kind: 'file' },
-    { path: '_copilot_guidelines', kind: 'dir' },
-    { path: 'CLAUDE.md', kind: 'file' },
-    // The workspace folder's own rules, read by Copilot and imported by CLAUDE.md (al_the_bear 01b_wslayout-6, DP-part-claude-4).
-    { path: 'AGENTS.md', kind: 'file' },
-    { path: '_ai/roles', kind: 'dir' },
-    // Role types (vscimpb87): optional, so a workspace without any still builds.
-    { path: '_ai/role-types', kind: 'dir', optional: true },
-    // The schemas of role-type.yaml and role-config.yaml their `$schema` lines point at.
-    { path: '.tom/json-schema/roles', kind: 'dir' },
-    // The schema of _ai/workspaces/<workspace>.yaml (the workspace's quests, vscimpb144).
-    { path: '.tom/json-schema/workspaces', kind: 'dir', optional: true },
-    { path: '_ai/processes', kind: 'dir' },
-    { path: '_ai/schemas', kind: 'dir' },
-    { path: '_ai/prompt', kind: 'dir' },
-    { path: '_ai/format-version.yaml', kind: 'file' },
-    // A quest that is used on this machine collects files of its use (history,
-    // session todos, the host's config, its process position): left out, not refused.
-    { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true, leaveOutUse: true },
-];
+/** The nearest folder at or above `from` with `.tom/tom_root.yaml`; `from`'s workspace default when there is none. */
+function findRoot(from) {
+    for (let dir = path.resolve(from); ; dir = path.dirname(dir)) {
+        if (fs.existsSync(path.join(dir, '.tom', 'tom_root.yaml'))) { return dir; }
+        if (path.dirname(dir) === dir) { return undefined; }
+    }
+}
+
+/** The template's format version: 2 = the two parts. */
+const TEMPLATE_VERSION = 2;
+const TEMPLATE_TYPE = 'dart';
+/** Where the template describes itself (inside the root part). */
+const TEMPLATE_INFO_PATH = 'root/.tom/workspace_template.json';
+/** The token the workspace part's CLAUDE.md names the root by. */
+const WORKSPACE_ROOT_TOKEN = '{{root}}';
+
+/** The root's AGENTS.md as the template carries it: the root's own rules are the new root's to write. */
+const ROOT_AGENTS_STUB = [
+    '# AGENTS.md — this root',
+    '',
+    'The rules for every session under this root. What every Tom workspace has in common is in',
+    '`_agent_guidelines/workspace_agents.md`, which CLAUDE.md imports together with this file.',
+    '',
+    'Write the rules of this root below: what holds for every workspace folder under it.',
+    '',
+].join('\n');
+
+/** The guidelines folder of `dir`: `_agent_guidelines` before `_copilot_guidelines`; undefined without one. */
+function guidelinesFolderOf(dir) {
+    return ['_agent_guidelines', '_copilot_guidelines'].find((n) => fs.existsSync(path.join(dir, n)));
+}
+
+/**
+ * What each part carries, relative to its source folder. `optional`: packed
+ * when present, named when not; `generated`: the build writes it (`data`).
+ */
+function partSources(rootDir) {
+    const rootGuidelines = guidelinesFolderOf(rootDir) ?? '_agent_guidelines';
+    return {
+        root: [
+            { path: '.tom/tom_root.yaml', kind: 'file' },
+            { path: '.tom/tom_vscode_extension.json', kind: 'file' },
+            // The schema of _ai/workspaces/<workspace>.yaml (vscimpb144); the extension's own schemas are generated at start.
+            { path: '.tom/json-schema/workspaces', kind: 'dir', optional: true },
+            { path: rootGuidelines, kind: 'dir' },
+            { path: `${rootGuidelines}/workspace_agents.md`, kind: 'file' },
+            { path: 'CLAUDE.md', kind: 'file' },
+            { path: 'AGENTS.md', kind: 'file', generated: ROOT_AGENTS_STUB },
+            { path: '_ai/roles', kind: 'dir' },
+            { path: '_ai/role-types', kind: 'dir', optional: true },
+            { path: '_ai/processes', kind: 'dir' },
+            { path: '_ai/schemas', kind: 'dir' },
+            { path: '_ai/prompt', kind: 'dir' },
+            { path: '_ai/format-version.yaml', kind: 'file' },
+            // A quest that is used on this machine collects files of its use: left out, not refused.
+            { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true, leaveOutUse: true },
+        ],
+        workspace: [
+            { path: '.tom', kind: 'emptyDir' },
+            { path: 'AGENTS.md', kind: 'file' },
+            { path: 'CLAUDE.md', kind: 'file' },
+            { path: '_copilot_guidelines', kind: 'dir', alt: '_agent_guidelines' },
+        ],
+    };
+}
 
 /** The files a quest's use writes into its folder, relative to the quest folder. */
 const QUEST_USE_RULES = [
@@ -82,7 +134,7 @@ const QUEST_USE_RULES = [
     /^process-state\.[^/]+\.yaml$/,
 ];
 
-/** The workspace config inside the template. */
+/** The config inside the template (root part). */
 const CONFIG_PATH = '.tom/tom_vscode_extension.json';
 
 /**
@@ -137,25 +189,6 @@ function dropLinksTo(text, file, excluded) {
         .filter((line) => !(/^\s*(?:[-*+] |\d+\. |\|)/.test(line) && targets(line).some((t) => excluded.has(t))))
         .join('\n');
 }
-
-/**
- * A source file as the template packs it: the config through genericConfig;
- * Markdown without its workspace-specific blocks and its links to left-out
- * files; everything else as it is.
- * @param {string} file workspace-relative posix path
- * @param {Buffer} data
- */
-function templateFileData(file, data) {
-    if (file === CONFIG_PATH) { return genericConfig(data); }
-    if (!file.endsWith('.md')) { return data; }
-    let text = stripWorkspaceSpecific(data.toString('utf8'), file);
-    text = dropLinksTo(text, file, EXCLUDED_PATHS);
-    return Buffer.from(text, 'utf8');
-}
-
-/** The template's own description, written into the zip. */
-const TEMPLATE_INFO_PATH = '.tom/workspace_template.json';
-const TEMPLATE_TYPE = 'dart';
 
 /** Files never worth carrying (OS litter, VCS folders, Python byte code). */
 const IGNORED_NAMES = new Set(['.DS_Store', 'Thumbs.db', '.git', 'node_modules', '__pycache__']);
@@ -221,58 +254,6 @@ function walk(root, rel) {
     };
     visit(rel);
     return out;
-}
-
-/**
- * The files the template takes from `workspace`.
- * @returns {{ files: string[], missing: string[], skipped: string[], leftOut: string[] }}
- *   `missing`: required sources not there; `skipped`: optional ones not there;
- *   `leftOut`: files of a quest's use (QUEST_USE_RULES) in a `leaveOutUse` source.
- */
-function collectTemplateFiles(workspace) {
-    const files = [];
-    const missing = [];
-    const skipped = [];
-    const leftOut = [];
-    for (const src of SOURCES) {
-        const abs = path.join(workspace, src.path);
-        if (!fs.existsSync(abs)) { (src.optional ? skipped : missing).push(src.path); continue; }
-        if (src.kind !== 'dir') { files.push(src.path); continue; }
-        for (const f of walk(workspace, src.path)) {
-            if (EXCLUDED_PATHS.has(f)) { continue; }
-            const inQuest = f.slice(src.path.length + 1);
-            if (src.leaveOutUse && QUEST_USE_RULES.some((re) => re.test(inQuest))) { leftOut.push(f); } else { files.push(f); }
-        }
-    }
-    return { files: [...new Set(files)].sort(), missing, skipped, leftOut };
-}
-
-/** Whether `rel` is inside what SOURCES allows. */
-function isAllowed(rel) {
-    if (rel === TEMPLATE_INFO_PATH) { return true; }
-    return SOURCES.some((s) => (s.kind === 'dir' ? rel.startsWith(`${s.path}/`) : rel === s.path));
-}
-
-/**
- * The findings over the files to pack: outside the list, personal paths,
- * literal secrets in text files. Empty when the template may be written.
- * @param {Array<{ path: string, data: Buffer }>} entries
- */
-function checkTemplate(entries) {
-    const findings = [];
-    for (const e of entries) {
-        if (!isAllowed(e.path)) { findings.push(`${e.path}: outside the template's list`); continue; }
-        for (const rule of PERSONAL_PATH_RULES) {
-            if (rule.re.test(e.path)) { findings.push(`${e.path}: ${rule.what}`); }
-        }
-        if (TEXT_EXTENSIONS.has(path.extname(e.path))) {
-            const text = e.data.toString('utf8');
-            for (const rule of SECRET_RULES) {
-                if (rule.re.test(text)) { findings.push(`${e.path}: contains ${rule.what}`); }
-            }
-        }
-    }
-    return findings;
 }
 
 // ── Zip writing ───────────────────────────────────────────────────────────────
@@ -351,48 +332,198 @@ function writeZip(entries) {
     return Buffer.concat([...locals, cd, eocd]);
 }
 
+
 // ── The build ─────────────────────────────────────────────────────────────────
 
 /**
- * Collect, check and zip the template of `workspace`.
- * @returns {{ ok: true, zip: Buffer, files: string[], skipped: string[], leftOut: string[] } | { ok: false, errors: string[] }}
+ * The workspace part's CLAUDE.md: its import of the root's shared rules
+ * (`@<path>/<guidelines>/workspace_agents.md`, any path) written with the
+ * root token, so Setup can point it at the new folder's root.
  */
-function buildTemplate(workspace) {
-    const { files, missing, skipped, leftOut } = collectTemplateFiles(workspace);
-    if (missing.length > 0) {
-        return { ok: false, errors: missing.map((m) => `${m}: missing in ${workspace}`) };
+function tokenizeRootImport(text) {
+    return text.replace(/^@(?:[^\s]*\/)?(_agent_guidelines|_copilot_guidelines)\/workspace_agents\.md\s*$/gm,
+        (_m, folder) => `@${WORKSPACE_ROOT_TOKEN}/${folder}/workspace_agents.md`);
+}
+
+/**
+ * Links to the files of `rewrites` (paths in the part) pointed at their new
+ * target (`{{root}}/<root guidelines>/<file>`, relative to the linking file).
+ */
+function rewriteLinks(text, file, rewrites) {
+    const dir = path.posix.dirname(file);
+    return text.replace(/\]\(([^)#\s]+)((?:#[^)]*)?)\)/g, (m, target, anchor) => {
+        if (/^[a-z]+:/i.test(target)) { return m; }
+        const resolved = path.posix.normalize(path.posix.join(dir, decodeURI(target)));
+        const to = rewrites.get(resolved);
+        return to ? `](${path.posix.relative(dir, to)}${anchor})` : m;
+    });
+}
+
+/**
+ * The workspace guidelines index with a link to the root's index (through the
+ * root token), under its "Root guidelines" heading, else at its end; kept as
+ * it is when it links one already.
+ */
+function withRootIndexLink(text) {
+    if (/\]\([^)]*_agent_guidelines\/index\.md\)/.test(text)) { return text; }
+    const line = `The guidelines every workspace folder shares are indexed in the root's [_agent_guidelines/index.md](../${WORKSPACE_ROOT_TOKEN}/_agent_guidelines/index.md).`;
+    const heading = /^## Root guidelines[ \t]*$/m;
+    if (heading.test(text)) { return text.replace(heading, (h) => `${h}\n\n${line}`); }
+    return `${text.replace(/\n*$/, '')}\n\n${line}\n`;
+}
+
+/**
+ * A source file as the template packs it: the config through genericConfig;
+ * Markdown without its workspace-specific blocks and its links to `excluded`
+ * files; the workspace CLAUDE.md with the root token; everything else as it is.
+ * @param {string} file path relative to the part's source folder (posix)
+ * @param {Buffer} data
+ * @param {Set<string>} [excluded] files left out of the part (default EXCLUDED_PATHS)
+ * @param {'root' | 'workspace'} [part]
+ * @param {Map<string, string>} [rewrites] link targets (paths in the part) to point elsewhere: the transition copies, onto the root's
+ */
+function templateFileData(file, data, excluded = EXCLUDED_PATHS, part, rewrites) {
+    if (file === CONFIG_PATH) { return genericConfig(data); }
+    if (!file.endsWith('.md')) { return data; }
+    let text = stripWorkspaceSpecific(data.toString('utf8'), file);
+    text = dropLinksTo(text, file, excluded);
+    if (rewrites && rewrites.size > 0) { text = rewriteLinks(text, file, rewrites); }
+    if (part === 'workspace' && file === 'CLAUDE.md') { text = tokenizeRootImport(text); }
+    if (part === 'workspace' && /^_(agent|copilot)_guidelines\/index\.md$/.test(file)) { text = withRootIndexLink(text); }
+    return Buffer.from(text, 'utf8');
+}
+
+/**
+ * The files of one part.
+ * @returns {{ files: Array<{ path: string, generated?: string }>, dirs: string[], missing: string[], skipped: string[], leftOut: string[], excluded: Set<string>, rewrites: Map<string, string> }}
+ */
+function collectPart(part, dir, sources, rootDir) {
+    const files = [];
+    const dirs = [];
+    const missing = [];
+    const skipped = [];
+    const leftOut = [];
+    const excluded = new Set(EXCLUDED_PATHS);
+    const rewrites = new Map();
+    // Transition copies: a workspace guideline the root's guidelines folder has at the same path (its index aside).
+    const rootGuidelines = guidelinesFolderOf(rootDir);
+    for (const src of sources) {
+        if (src.generated !== undefined) { files.push({ path: src.path, generated: src.generated }); continue; }
+        if (src.kind === 'emptyDir') { dirs.push(src.path); continue; }
+        let rel = src.path;
+        if (!fs.existsSync(path.join(dir, rel)) && src.alt && fs.existsSync(path.join(dir, src.alt))) { rel = src.alt; }
+        if (!fs.existsSync(path.join(dir, rel))) { (src.optional ? skipped : missing).push(`${part}/${src.path}`); continue; }
+        if (src.kind !== 'dir') { files.push({ path: rel }); continue; }
+        for (const f of walk(dir, rel)) {
+            if (EXCLUDED_PATHS.has(f)) { continue; }
+            const inSource = f.slice(rel.length + 1);
+            if (part === 'workspace' && rootGuidelines && inSource !== 'index.md'
+                && /^_(agent|copilot)_guidelines$/.test(rel) && fs.existsSync(path.join(rootDir, rootGuidelines, inSource))) {
+                // Not packed; links to it point to the root's copy.
+                rewrites.set(f, `${WORKSPACE_ROOT_TOKEN}/${rootGuidelines}/${inSource}`);
+                continue;
+            }
+            if (src.leaveOutUse && QUEST_USE_RULES.some((re) => re.test(inSource))) { leftOut.push(f); } else { files.push({ path: f }); }
+        }
     }
-    const info = { type: TEMPLATE_TYPE, sources: SOURCES.map((s) => s.path) };
-    const packed = [];
+    const seen = new Set();
+    const unique = files.filter((f) => (seen.has(f.path) ? false : (seen.add(f.path), true))).sort((a, b) => (a.path < b.path ? -1 : 1));
+    return { files: unique, dirs, missing, skipped, leftOut, excluded, rewrites };
+}
+
+/** Whether `rel` (a zip path, with its part) is inside what the parts allow. */
+function isAllowed(rel, sources) {
+    if (rel === TEMPLATE_INFO_PATH) { return true; }
+    const m = /^(root|workspace)\/(.*)$/.exec(rel);
+    if (!m) { return false; }
+    const inPart = m[2].replace(/\/$/, '');
+    return sources[m[1]].some((s) => {
+        const names = [s.path, ...(s.alt ? [s.alt] : [])];
+        return names.some((n) => (s.kind === 'dir' ? inPart.startsWith(`${n}/`) : inPart === n));
+    });
+}
+
+/**
+ * The findings over the entries to pack: outside the parts' lists, personal
+ * paths, literal secrets in text files. Empty when the template may be written.
+ * @param {Array<{ path: string, data: Buffer }>} entries zip paths with their part
+ */
+function checkTemplate(entries, sources = partSources(findRoot(EXT_ROOT) ?? DEFAULT_WORKSPACE)) {
+    const findings = [];
+    for (const e of entries) {
+        if (!isAllowed(e.path, sources)) { findings.push(`${e.path}: outside the template's list`); continue; }
+        for (const rule of PERSONAL_PATH_RULES) {
+            if (rule.re.test(e.path)) { findings.push(`${e.path}: ${rule.what}`); }
+        }
+        if (TEXT_EXTENSIONS.has(path.extname(e.path))) {
+            const text = e.data.toString('utf8');
+            for (const rule of SECRET_RULES) {
+                if (rule.re.test(text)) { findings.push(`${e.path}: contains ${rule.what}`); }
+            }
+        }
+    }
+    return findings;
+}
+
+/**
+ * Collect, check and zip the template from the root `rootDir` and the
+ * workspace folder `workspaceDir`.
+ * @returns {{ ok: true, zip: Buffer, files: string[], skipped: string[], leftOut: string[], info: object } | { ok: false, errors: string[] }}
+ */
+function buildTemplate(rootDir, workspaceDir) {
+    if (!rootDir) { return { ok: false, errors: ['no root: no folder with .tom/tom_root.yaml above the extension (pass --root)'] }; }
+    const sources = partSources(rootDir);
+    const parts = { root: collectPart('root', rootDir, sources.root, rootDir), workspace: collectPart('workspace', workspaceDir, sources.workspace, rootDir) };
+    const missing = [...parts.root.missing.map((m) => `${m}: missing in ${rootDir}`), ...parts.workspace.missing.map((m) => `${m}: missing in ${workspaceDir}`)];
+    if (missing.length > 0) { return { ok: false, errors: missing }; }
+    const entries = [];
     const markerErrors = [];
-    for (const f of files) {
-        try { packed.push({ path: f, data: templateFileData(f, fs.readFileSync(path.join(workspace, f))) }); } catch (e) { markerErrors.push(e.message); }
+    for (const [part, dir] of [['root', rootDir], ['workspace', workspaceDir]]) {
+        const p = parts[part];
+        for (const d of p.dirs) { entries.push({ path: `${part}/${d}/`, data: Buffer.alloc(0) }); }
+        for (const f of p.files) {
+            try {
+                const data = f.generated !== undefined ? Buffer.from(f.generated, 'utf8') : templateFileData(f.path, fs.readFileSync(path.join(dir, f.path)), p.excluded, part, p.rewrites);
+                entries.push({ path: `${part}/${f.path}`, data });
+            } catch (e) { markerErrors.push(`${part}/${e.message}`); }
+        }
     }
     if (markerErrors.length > 0) { return { ok: false, errors: markerErrors }; }
-    const entries = [
-        ...packed,
-        { path: TEMPLATE_INFO_PATH, data: Buffer.from(`${JSON.stringify(info, null, 2)}\n`, 'utf8') },
-    ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const findings = checkTemplate(entries);
+    const info = {
+        type: TEMPLATE_TYPE,
+        version: TEMPLATE_VERSION,
+        parts: {
+            root: parts.root.files.map((f) => f.path),
+            workspace: [...parts.workspace.dirs.map((d) => `${d}/`), ...parts.workspace.files.map((f) => f.path)],
+        },
+        tokens: { [WORKSPACE_ROOT_TOKEN]: 'the path from the workspace folder to its root (`.` standalone): the workspace part\'s CLAUDE.md import and its guidelines index link' },
+    };
+    entries.push({ path: TEMPLATE_INFO_PATH, data: Buffer.from(`${JSON.stringify(info, null, 2)}\n`, 'utf8') });
+    entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const findings = checkTemplate(entries, sources);
     if (findings.length > 0) { return { ok: false, errors: findings }; }
-    return { ok: true, zip: writeZip(entries), files: entries.map((e) => e.path), skipped, leftOut };
+    return {
+        ok: true, zip: writeZip(entries), files: entries.map((e) => e.path), info,
+        skipped: [...parts.root.skipped, ...parts.workspace.skipped], leftOut: [...parts.root.leftOut, ...parts.workspace.leftOut],
+    };
 }
 
 function parseArgs(argv) {
-    const args = { workspace: DEFAULT_WORKSPACE, out: DEFAULT_OUT, copyTo: undefined };
+    const args = { root: undefined, workspace: DEFAULT_WORKSPACE, out: DEFAULT_OUT, copyTo: undefined };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
-        if (a === '--workspace') { args.workspace = path.resolve(argv[++i]); } else if (a === '--out') { args.out = path.resolve(argv[++i]); } else if (a === '--copy-to') {
+        if (a === '--root') { args.root = path.resolve(argv[++i]); } else if (a === '--workspace') { args.workspace = path.resolve(argv[++i]); } else if (a === '--out') { args.out = path.resolve(argv[++i]); } else if (a === '--copy-to') {
             args.copyTo = path.resolve(argv[++i]);
-        } else { throw new Error(`unknown argument ${a} (usage: build-workspace-template.cjs [--workspace <dir>] [--out <zip>] [--copy-to <dir>])`); }
+        } else { throw new Error(`unknown argument ${a} (usage: build-workspace-template.cjs [--root <dir>] [--workspace <dir>] [--out <zip>] [--copy-to <dir>])`); }
     }
+    if (!args.root) { args.root = findRoot(EXT_ROOT); }
     return args;
 }
 
 function main() {
     let args;
     try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`❌ ${e.message}`); return 1; }
-    const result = buildTemplate(args.workspace);
+    const result = buildTemplate(args.root, args.workspace);
     if (!result.ok) {
         console.error('❌ The workspace template was not written:');
         for (const e of result.errors) { console.error(`   ${e}`); }
@@ -400,8 +531,8 @@ function main() {
     }
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     fs.writeFileSync(args.out, result.zip);
-    console.log(`✅ Workspace template (${TEMPLATE_TYPE}): ${result.files.length} files, ${(result.zip.length / 1024).toFixed(0)} KB → ${args.out}`);
-    for (const s of result.skipped) { console.log(`   ℹ not in the workspace yet, left out: ${s}`); }
+    console.log(`✅ Workspace template (${TEMPLATE_TYPE}, v${TEMPLATE_VERSION}): root/ ${result.info.parts.root.length} files, workspace/ ${result.info.parts.workspace.length} entries, ${(result.zip.length / 1024).toFixed(0)} KB → ${args.out}`);
+    for (const s of result.skipped) { console.log(`   ℹ not there yet, left out: ${s}`); }
     if (result.leftOut.length > 0) { console.log(`   ℹ left out ${result.leftOut.length} file(s) of the introduction quest's use on this machine (history, session todos, host config, process state)`); }
     if (args.copyTo) {
         const copy = path.join(args.copyTo, path.basename(args.out));
@@ -411,7 +542,11 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, genericConfig, stripWorkspaceSpecific, dropLinksTo, templateFileData, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
+module.exports = {
+    partSources, findRoot, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, ROOT_AGENTS_STUB, WORKSPACE_ROOT_TOKEN, TEMPLATE_VERSION,
+    genericConfig, stripWorkspaceSpecific, dropLinksTo, rewriteLinks, templateFileData, tokenizeRootImport, withRootIndexLink, TEMPLATE_INFO_PATH, TEMPLATE_TYPE,
+    collectPart, checkTemplate, isAllowed, writeZip, buildTemplate, crc32,
+};
 
 if (require.main === module) {
     process.exitCode = main();

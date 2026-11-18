@@ -148,9 +148,11 @@ It runs end to end:
    places, the workspace's layer, `$TOM_BINARY_PATH` and PATH first, and uses
    its bundled copy only when none has it, so a tom repository works with the
    extension alone.
-7. Builds the workspace template (`npm run template:build`): the workspace's
-   config, guidelines, CLAUDE.md and the generic `_ai` folders, checked for
-   personal files and literal secrets, as `resources/workspace_template.zip`
+7. Builds the workspace template (`npm run template:build`) in two parts: `root/`
+   (the root's `.tom`, guidelines with the shared `workspace_agents.md`,
+   CLAUDE.md, an AGENTS.md stub and the generic `_ai` folders) and `workspace/`
+   (a workspace folder's `.tom`, AGENTS.md, CLAUDE.md and guidelines), checked
+   for personal files and literal secrets, as `resources/workspace_template.zip`
    (in the VSIX) and a copy beside it.
 8. Packages the VSIX (bundling only the host `tom_bs`, `tomspecs` and the build tools),
    checks that it is self-contained (`scripts/check-vsix-contents.cjs`: the SOM

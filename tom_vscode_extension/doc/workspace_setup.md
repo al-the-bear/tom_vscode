@@ -11,12 +11,34 @@ hand.
 
 ## Setup New Workspace Folder
 
-The extension carries a workspace template: the configuration, the guidelines
-(`_copilot_guidelines/`, `CLAUDE.md`, `.github/copilot-instructions.md`) and
-the generally useful `_ai/` folders (roles, processes, schemas, prompts).
+The extension carries a workspace template in two parts:
+
+- **`root/`** — what a root holds: `.tom/` (`tom_root.yaml`, the configuration,
+  the schema of the workspace lists), the root guidelines
+  (`_agent_guidelines/`, with the shared `workspace_agents.md` every
+  workspace folder's `CLAUDE.md` imports), `CLAUDE.md` (`@AGENTS.md` and the
+  shared file), an `AGENTS.md` for the root's own rules, and the generally
+  useful `_ai/` folders (roles, role types, processes, schemas, prompts, the
+  format version) with the starting quest `tomai_introduction`.
+- **`workspace/`** — what a workspace folder holds: an empty `.tom/`, an
+  `AGENTS.md` for its own rules, a `CLAUDE.md` importing the root's shared
+  `workspace_agents.md` and its `AGENTS.md`, and its guidelines
+  (`_copilot_guidelines/`: Dart, cloud and D4rt guidelines and the others of
+  a Dart workspace, its index linking the root's).
+
+The workspace part's `CLAUDE.md` names the root by the token `{{root}}`
+(`@{{root}}/_agent_guidelines/workspace_agents.md`), as does its guidelines
+index's link to the root's index: setup writes the path from the new
+workspace folder to its root there. The schemas of the files the extension
+writes are not in the template; the extension writes them into the root's
+`.tom` when it starts.
+
 **@T: Setup New Workspace Folder** unpacks it into a folder. It is in the
 command palette, on the TOM AI panels of a folder without `.tom/` (**Setup new
-workspace folder**) and at the top of the Status Page.
+workspace folder**) and at the top of the Status Page. It unpacks both parts
+into the one folder you pick, a standalone workspace folder: the workspace
+part's `CLAUDE.md` and `AGENTS.md`, no `tom_root.yaml`, and the root token
+written as `.`, so `CLAUDE.md` imports `./_agent_guidelines/workspace_agents.md`.
 
 1. **Pick the folder.** The dialog can also create a new one.
 2. **A folder that is not empty** shows what is in it; **Set up anyway** goes

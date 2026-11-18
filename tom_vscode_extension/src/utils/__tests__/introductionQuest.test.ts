@@ -89,10 +89,16 @@ describe('the quest tomai_introduction', () => {
         const readme = fs.readFileSync(path.join(EXT, 'README.md'), 'utf8');
         assert.match(readme, /the quest \*\*tomai_introduction\*\*, the workspace's\nstarting quest/);
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const tpl = require(path.join(EXT, 'scripts', 'build-workspace-template.cjs')) as { collectTemplateFiles(ws: string): { files: string[]; skipped: string[] } };
-        const collected = tpl.collectTemplateFiles(WS);
-        assert.deepEqual(collected.skipped, []);
-        assert.ok(collected.files.includes('_ai/quests/tomai_introduction/overview.tomai_introduction.md'));
-        for (const p of PAGES) { assert.ok(collected.files.includes(`_ai/quests/tomai_introduction/${p}`), p); }
+        const tpl = require(path.join(EXT, 'scripts', 'build-workspace-template.cjs')) as {
+            findRoot(from: string): string | undefined;
+            partSources(root: string): { root: unknown[] };
+            collectPart(part: string, dir: string, sources: unknown[], root: string): { files: Array<{ path: string }>; skipped: string[] };
+        };
+        const root = tpl.findRoot(EXT)!;
+        const collected = tpl.collectPart('root', root, tpl.partSources(root).root, root);
+        const files = collected.files.map((f) => f.path);
+        assert.ok(!collected.skipped.includes('root/_ai/quests/tomai_introduction'));
+        assert.ok(files.includes('_ai/quests/tomai_introduction/overview.tomai_introduction.md'));
+        for (const p of PAGES) { assert.ok(files.includes(`_ai/quests/tomai_introduction/${p}`), p); }
     });
 });

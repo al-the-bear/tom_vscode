@@ -16,7 +16,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { readZip, type ZipEntry } from '../utils/zipArchive';
-import { folderEntries, unpackReport, unpackSummary, unpackTemplate, type ExistingFileChoice, type UnpackResult } from '../utils/workspaceSetup';
+import { folderEntries, standaloneEntries, unpackReport, unpackSummary, unpackTemplate, type ExistingFileChoice, type UnpackResult } from '../utils/workspaceSetup';
 import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 import { aiMergeDriverSummary, checkAiMergeDrivers, setUpAiMergeDrivers, type AiMergeDriverReport } from '../utils/aiMergeDriverSetup';
 
@@ -73,7 +73,8 @@ export async function runSetupWorkspaceFolder(extensionPath: string, ui: SetupUi
     }
     let entries: ZipEntry[];
     try {
-        entries = readZip(fs.readFileSync(zipFile));
+        // The two-part template (root/, workspace/) is unpacked as one standalone folder until Setup offers the three setups (02_wslayout-10).
+        entries = standaloneEntries(readZip(fs.readFileSync(zipFile)));
     } catch (e) {
         const error = `The workspace template ${zipFile} cannot be read: ${e instanceof Error ? e.message : String(e)}`;
         await ui.showError(error);

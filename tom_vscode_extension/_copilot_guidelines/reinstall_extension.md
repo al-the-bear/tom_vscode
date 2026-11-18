@@ -149,14 +149,22 @@ runs). Tests: `providerSdks.test.ts` (PS-1 – PS-6, a local registry),
 `providerSdksPage.test.ts` (PP-1 – PP-4), `agentSdkCli.test.ts` (AC-1 – AC-5).
 
 Before packaging, both installers build the workspace template
-(`scripts/build-workspace-template.cjs`, `npm run template:build`): from the
-workspace, the config (its issue / test panel repositories and command lines
-emptied: `genericConfig`), `_copilot_guidelines/` without this workspace's
-projects and checks guidelines and the ones that only point into its packages,
-CLAUDE.md,
-`.github/copilot-instructions.md` and `_ai` roles / processes / schemas /
-prompt / format-version.yaml and the starting quest `tomai_introduction`,
-plus `.tom/workspace_template.json` (its type, `dart`). From the quest it
+(`scripts/build-workspace-template.cjs`, `npm run template:build`) in two
+parts. `root/`, from the root (`--root`, default the nearest folder above the
+extension with `.tom/tom_root.yaml`): `.tom/tom_root.yaml`, the config (its
+issue / test panel repositories and command lines emptied: `genericConfig`),
+`.tom/json-schema/workspaces/`, the root guidelines with `workspace_agents.md`,
+CLAUDE.md, an AGENTS.md stub the build writes (`ROOT_AGENTS_STUB`), `_ai`
+roles / role types / processes / schemas / prompt / format-version.yaml and
+the starting quest `tomai_introduction`, plus `.tom/workspace_template.json`
+(type `dart`, version 2, both parts' files, the `{{root}}` token).
+`workspace/`, from the workspace folder (`--workspace`, default the
+container): an empty `.tom/`, AGENTS.md, CLAUDE.md (its import of the shared
+file written as `@{{root}}/…`) and `_copilot_guidelines/` without this
+workspace's projects and checks guidelines, the ones that only point into its
+packages, and the transition copies of root guidelines (links to them point to
+the root's copy through the token). `.github/copilot-instructions.md` is not
+packed. From the quest it
 leaves out what its use on this machine writes (`history/`, `session-todo.*`,
 the host's `extension_config`, `process-state`); anywhere else such host-bound
 files, and literal secrets, make it refuse and write nothing. The result is
