@@ -187,4 +187,23 @@ describe('qtTodoGroupsOf', () => {
         assert.deepEqual(plain(z.members.map((m: any) => [m.ref, !!m.row, m.foreign])), [['a1', true, false], ['qa/a2', false, false], ['qb/x', false, true]]);
         assert.equal(z.members[2].title, 'X');
     });
+
+    test('TGP-R: the list and the detail follow a membership change at once', () => {
+        const { window, sent } = setupPanel(TODOS);
+        // The group's detail is open; a member is removed there and saved: the list is loaded again from the host.
+        window.eval("qtSelectedTodoId = 'rel1-release'; qtDetailTodo = { id: 'rel1-release', status: 'group', comprised_of: ['rel3-tag'] };");
+        sent.length = 0;
+        window.qtHandleMessage({ type: 'qtSaved', success: true, todoId: 'rel1-release' });
+        assert.ok(sent.some((m: any) => m.type === 'qtGetTodos'), 'a saved group todo reloads the list');
+        // Another todo saved: no reload.
+        window.eval("qtDetailTodo = { id: 'misc1-other', status: 'not-started' };");
+        sent.length = 0;
+        window.qtHandleMessage({ type: 'qtSaved', success: true, todoId: 'misc1-other' });
+        assert.ok(!sent.some((m: any) => m.type === 'qtGetTodos'));
+        // Todos moved into a group todo from the list: the open detail is asked for again.
+        sent.length = 0;
+        window.qtHandleMessage({ type: 'qtArchiveResult', success: true, moved: [], refreshDetail: true });
+        assert.ok(sent.some((m: any) => m.type === 'qtGetTodos'), 'the list');
+        assert.ok(sent.some((m: any) => m.type === 'qtGetTodo' && m.todoId === 'rel1-release'), 'and the open detail: ' + JSON.stringify(sent.map((m: any) => m.type)));
+    });
 });

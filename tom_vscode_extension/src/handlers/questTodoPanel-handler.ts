@@ -1648,7 +1648,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             }
             if (picked.choice.kind === 'pickGroupTodo') {
                 await _moveTodosToGroupTodo(picked.choice.questId, membershipIds);
-                post({ type: 'qtArchiveResult', success: true, moved: [] });
+                post({ type: 'qtArchiveResult', success: true, moved: [], refreshDetail: true });
                 return true;
             }
             let dest: questTodo.TodoMoveDestination;

@@ -3477,7 +3477,15 @@ function qtHandleMessage(msg) {
             if (msg.todo) qtRenderDetail(msg.todo);
             break;
         case 'qtSaved':
-            if (msg.success) qtRenderList();
+            if (msg.success) {
+                qtRenderList();
+                // A group todo saved (members added, removed, reordered): its section in the list and the
+                // members' Part of chips come from the host, so the list is loaded again.
+                if (qtDetailTodo && String(qtDetailTodo.id) === String(msg.todoId)
+                    && (qtDetailTodo.status === 'group' || Array.isArray(qtDetailTodo.comprised_of))) {
+                    vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
+                }
+            }
             break;
         case 'qtRuns':
             qtFillOnDoneRuns(msg.questId, msg.runs || []);
@@ -3519,6 +3527,8 @@ function qtHandleMessage(msg) {
                     // The -archived/-deleted sibling may have just been created.
                     vscode.postMessage({ type: 'qtGetFiles', questId: qtCurrentQuestId });
                 }
+                // Members moved into (or out of) a group todo: the open detail shows them at once.
+                if (msg.refreshDetail && qtSelectedTodoId) { qtRequestTodoDetail(qtSelectedTodoId); }
             }
             break;
         case 'qtStatusResult':
