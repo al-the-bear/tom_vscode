@@ -53,7 +53,7 @@ import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { isArchivedOrDeletedTodoFile } from '../utils/todoArchiveNames';
 import { restoreTodos } from '../utils/todoArchive';
 import { defaultTodoPanelScope, isPlainScope, normalizeTodoPanelScope, questPrefixShown, resolveScopeQuests, retiredKindOf, scopeButtonText, scopeFileScope, todoPanelScopeKey, type TodoPanelScope, type TodoPanelScopeKind } from '../utils/todoPanelScope';
-import { FINALIZER_INDEX, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
+import { FINALIZER_INDEX, newGroupTodoId, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
@@ -1714,7 +1714,10 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             const movingSet = new Set(membershipIds);
             const groupTodos = questTodosNow.some(t => t.status === GROUP_STATUS && !movingSet.has(t.id))
                 && !questTodosNow.some(t => movingSet.has(t.id) && t.status === GROUP_STATUS);
-            const options = todoMoveOptions(found.map(s => s.origin), { groupTodos });
+            // "Move to a new group todo…": a prefix group's move button only (it names the group's todos).
+            const newGroupTodo = Array.isArray(msg.groupTodoIds) && msg.groupTodoIds.length > 0
+                && !questTodosNow.some(t => movingSet.has(t.id) && t.status === GROUP_STATUS);
+            const options = todoMoveOptions(found.map(s => s.origin), { groupTodos, newGroupTodo });
             const picked = await vscode.window.showQuickPick(
                 options.map(o => ({ label: o.label, description: o.description, choice: o.choice })),
                 { title, placeHolder: 'Where should the todos go?' },
@@ -1723,6 +1726,15 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             if (picked.choice.kind === 'pickGroup') {
                 await _moveTodosToGroup(picked.choice.questId, found, lost);
                 post({ type: 'qtArchiveResult', success: true, moved: [] });
+                return true;
+            }
+            if (picked.choice.kind === 'newGroupTodo') {
+                const createdId = await _moveTodosToNewGroupTodo(picked.choice.questId, membershipIds);
+                if (createdId) {
+                    // The list reloads with the new group todo selected: its detail opens, the members set.
+                    post({ type: 'qtPendingSelect', state: { todoId: createdId } });
+                    post({ type: 'qtArchiveResult', success: true, moved: [] });
+                }
                 return true;
             }
             if (picked.choice.kind === 'pickGroupTodo') {
@@ -2930,6 +2942,42 @@ function renamePreview(renames: ReadonlyArray<{ from: string; to: string }>): st
  * members (at the end) and leave the other group todos of the quest they were in. The todos themselves stay
  * where they are (file, id, prefix group).
  */
+/**
+ * A prefix group's move button, "Move to a new group todo…": asks the new todo's id, appends the date code
+ * (`<typed>_<code>`, as tomAi_generateIdPrefix gives it), refuses an id the quest has (archived and deleted
+ * included) or the todo schema refuses, and creates a group todo in the quest's own file with the group's todos
+ * as its members — as adding a todo and then the members by hand. Answers the new id; none when cancelled.
+ */
+async function _moveTodosToNewGroupTodo(questId: string, ids: readonly string[]): Promise<string | undefined> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { buildIdPrefix } = require('../tools/id-prefix-tools.js') as typeof import('../tools/id-prefix-tools');
+    const code = buildIdPrefix(new Date());
+    const taken = new Set(questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES).map((t) => t.id));
+    const typed = await vscode.window.showInputBox({
+        title: `New group todo of ${questId} with ${ids.length === 1 ? `todo ${ids[0]}` : `the ${ids.length} todos`} as its members`,
+        prompt: `Its id; the date code is appended: <id>_${code}`,
+        placeHolder: 'e.g. grp1',
+        validateInput: (value) => {
+            if (!value.trim()) { return 'Enter the id of the new group todo.'; }
+            const id = newGroupTodoId(value, code);
+            return todoIdInputError(id, '', taken) ?? questTodo.todoIdRefusal(id);
+        },
+    });
+    if (!typed || !typed.trim()) { return undefined; }
+    const id = newGroupTodoId(typed, code);
+    const refused = todoIdInputError(id, '', taken) ?? questTodo.todoIdRefusal(id);
+    if (refused) { vscode.window.showWarningMessage(refused); return undefined; }
+    try {
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+        questTodo.createTodo(questId, { id, title: typed.trim(), description: '', status: GROUP_STATUS, priority: 'medium', comprised_of: [...ids] } as never);
+    } catch (e) {
+        vscode.window.showWarningMessage(`Could not create the group todo ${id}: ${(e as Error).message}`);
+        return undefined;
+    }
+    vscode.window.showInformationMessage(`Created the group todo ${id} with ${ids.length} member${ids.length === 1 ? '' : 's'}.`);
+    return id;
+}
+
 async function _moveTodosToGroupTodo(questId: string, ids: readonly string[]): Promise<void> {
     const groups = questTodo.readAllTodos(questId).filter((t) => t.status === GROUP_STATUS && !ids.includes(t.id));
     const count = ids.length === 1 ? `todo ${ids[0]}` : `the ${ids.length} todos`;

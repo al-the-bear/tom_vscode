@@ -21,7 +21,9 @@ export type TodoMoveChoice =
     /** Another id group of the todos' own quest (a second picker names it). */
     | { kind: 'pickGroup'; questId: string }
     /** A group todo of the todos' own quest (status `group`; a second picker names it): they become its members. */
-    | { kind: 'pickGroupTodo'; questId: string };
+    | { kind: 'pickGroupTodo'; questId: string }
+    /** A new group todo of the todos' own quest (an id is asked for): a prefix group's todos become its members. */
+    | { kind: 'newGroupTodo'; questId: string };
 
 export interface TodoMoveOption {
     label: string;
@@ -40,10 +42,12 @@ export function todoMovePickerTitle(count: number): string {
  *   - another id group of their quest, when they all belong to one quest (a second picker names it);
  *   - a group todo of their quest (`groupTodos`: the quest has some and none of the todos is one itself; a second
  *     picker names it);
+ *   - a new group todo of their quest (`newGroupTodo`: a prefix group's move button; none of the todos is a
+ *     group todo itself);
  *   - the workspace todos, unless all are there already;
  *   - another quest, always (a second picker names it).
  */
-export function todoMoveOptions(origins: readonly TodoMoveOrigin[], opts: { groupTodos?: boolean } = {}): TodoMoveOption[] {
+export function todoMoveOptions(origins: readonly TodoMoveOrigin[], opts: { groupTodos?: boolean; newGroupTodo?: boolean } = {}): TodoMoveOption[] {
     const options: TodoMoveOption[] = [];
     const quests = new Set(origins.map((o) => o.questId));
     const [onlyQuest] = [...quests];
@@ -66,6 +70,13 @@ export function todoMoveOptions(origins: readonly TodoMoveOrigin[], opts: { grou
             label: '$(folder-library) Move to a group todo…',
             description: `becomes a member of a group todo of ${onlyQuest} (and leaves the group todos it is in)`,
             choice: { kind: 'pickGroupTodo', questId: onlyQuest },
+        });
+    }
+    if (quests.size === 1 && onlyQuest && opts.newGroupTodo) {
+        options.push({
+            label: '$(new-folder) Move to a new group todo…',
+            description: `a new group todo of ${onlyQuest} with the group's todos as its members (asks its id)`,
+            choice: { kind: 'newGroupTodo', questId: onlyQuest },
         });
     }
     if (!origins.every((o) => o.inWorkspaceFile)) {
@@ -254,6 +265,11 @@ export function groupInsertIndex(ids: readonly string[], prefix: string): number
     if (last >= 0) { return last + 1; }
     const finalizer = ids.findIndex((id) => (numberIn(id, prefix) ?? -1) >= FINALIZER_INDEX);
     return finalizer >= 0 ? finalizer : ids.length;
+}
+
+/** The id of a new group todo: what was typed, with the date code appended (`<typed>_<code>`). */
+export function newGroupTodoId(typed: string, dateCode: string): string {
+    return `${typed.trim()}_${dateCode}`;
 }
 
 /**

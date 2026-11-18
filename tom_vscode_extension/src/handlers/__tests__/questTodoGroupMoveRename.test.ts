@@ -133,6 +133,46 @@ describe('todo panel: another group, and the id edit', () => {
         assert.ok(!pickers[0].items.some((i: Json) => i.choice?.kind === 'pickGroupTodo'), 'not for a group todo');
     });
 
+    test('GM-2c: Move to a new group todo', async () => {
+        seed(['ng1_be-a', 'ng2_be-b']);
+        const pickers: Json[] = [];
+        stubWindow.showQuickPick = async (items: Json[]) => { pickers.push({ items }); return items.find((i) => i.choice?.kind === 'newGroupTodo'); };
+        const inputs: Json[] = [];
+        const originalInput = stubWindow.showInputBox;
+        let typed: string | undefined = 'ngrp1';
+        stubWindow.showInputBox = async (opts: Json) => { inputs.push(opts); return typed; };
+        const { webview, posted } = fakeWebview();
+        const groupMove = () => handleQuestTodoMessage({ type: 'qtMoveTodosToDestination', questId: QUEST, file: 'all',
+            todos: [{ todoId: 'ng1_be-a', sourceFile: `todos.${QUEST}.todo.yaml` }], groupTodoIds: ['ng1_be-a', 'ng2_be-b'] }, webview);
+        try {
+            await groupMove();
+            const code = /<id>_(\S+)$/.exec(inputs[0].prompt)![1];
+            assert.match(code, /^\p{L}{4}$/u, 'the date code, four letters');
+            const id = `ngrp1_${code}`;
+            const made = questTodo.findTodoByIdInFile(main, id)!;
+            assert.deepEqual([made.status, made.comprised_of], ['group', ['ng1_be-a', 'ng2_be-b']], 'a group todo with the group\'s todos as members');
+            const types = posted.map((m: Json) => m.type);
+            assert.ok(types.indexOf('qtPendingSelect') >= 0 && types.indexOf('qtPendingSelect') < types.indexOf('qtArchiveResult'), 'its detail opens once the list reloaded');
+            assert.equal(posted.find((m: Json) => m.type === 'qtPendingSelect').state.todoId, id);
+            // The same id again is refused: by the input's validation, and nothing is made when it is typed anyway.
+            const count = questTodo.readTodoFile(main).length;
+            await groupMove();
+            assert.equal(questTodo.readTodoFile(main).length, count, 'a duplicate creates nothing');
+            assert.match(inputs[1].validateInput('ngrp1'), /already has a todo/);
+            assert.equal(inputs[1].validateInput('ngrp2'), undefined);
+            assert.match(inputs[1].validateInput(' '), /Enter the id/);
+            // Cancelled: nothing.
+            typed = undefined;
+            await groupMove();
+            assert.equal(questTodo.readTodoFile(main).length, count);
+            // A single todo's move button does not offer it.
+            pickers.length = 0;
+            stubWindow.showQuickPick = async (items: Json[]) => { pickers.push({ items }); return undefined; };
+            await handleQuestTodoMessage({ type: 'qtMoveTodosToDestination', questId: QUEST, file: 'all', todos: [{ todoId: 'ng1_be-a', sourceFile: `todos.${QUEST}.todo.yaml` }] }, webview);
+            assert.ok(!pickers[0].items.some((i: Json) => i.choice?.kind === 'newGroupTodo'), 'a prefix group\'s button only');
+        } finally { stubWindow.showInputBox = originalInput; }
+    });
+
     test('GM-3: the webview', () => {
         const setup = (mode: string): { w: Json; posted: Json[] } => {
             const w = new JSDOM(`<body>${media('questTodoPanel', 'fragment.html')}</body>`, { runScripts: 'outside-only' }).window as Json;

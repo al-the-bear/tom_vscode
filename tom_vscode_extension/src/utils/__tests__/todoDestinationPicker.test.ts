@@ -31,7 +31,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { moveIntoGroupTodo } from '../todoGroups.js';
-import { groupInsertIndex, renamesReachFinalizer, todoIdInputError, todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
+import { groupInsertIndex, newGroupTodoId, renamesReachFinalizer, todoIdInputError, todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
 
 const kinds = (origins: Parameters<typeof todoMoveOptions>[0]): string[] =>
     todoMoveOptions(origins).map((o) => (o.choice.kind === 'quest' ? `quest:${o.choice.questId}` : o.choice.kind));
@@ -183,6 +183,14 @@ describe('move to a group todo', () => {
         const with_ = todoMoveOptions(o, { groupTodos: true }).map((x) => x.choice.kind);
         assert.deepEqual(with_, ['pickGroup', 'pickGroupTodo', 'workspace', 'pickQuest']);
         assert.ok(!todoMoveOptions([...o, { questId: 'r', inQuestMainFile: true, inWorkspaceFile: false }], { groupTodos: true }).some((x) => x.choice.kind === 'pickGroupTodo'), 'one quest only');
+    });
+
+    test('DP-G3: a new group todo, for a prefix group', () => {
+        const o = [{ questId: 'q', inQuestMainFile: true, inWorkspaceFile: false }];
+        assert.ok(!todoMoveOptions(o, { groupTodos: true }).some((x) => x.choice.kind === 'newGroupTodo'), 'not without the flag');
+        assert.deepEqual(todoMoveOptions(o, { groupTodos: true, newGroupTodo: true }).map((x) => x.choice.kind), ['pickGroup', 'pickGroupTodo', 'newGroupTodo', 'workspace', 'pickQuest']);
+        assert.deepEqual(todoMoveOptions(o, { newGroupTodo: true }).map((x) => x.choice.kind), ['pickGroup', 'newGroupTodo', 'workspace', 'pickQuest'], 'also in a quest without group todos');
+        assert.equal(newGroupTodoId(' grp1 ', 'akrs'), 'grp1_akrs');
     });
 
     test('DP-G2: the membership change', () => {
