@@ -44,7 +44,7 @@ function sandbox(): { ws: string; ai: string; store: RoleStore } {
     const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'role-types-')));
     const ai = path.join(ws, '_ai');
     fs.mkdirSync(path.join(ai, 'roles'), { recursive: true });
-    return { ws, ai, store: new RoleStore(ws, ai) };
+    return { ws, ai, store: new RoleStore(path.join(ws, '.tom'), ai) };
 }
 
 describe('roles and role types', () => {

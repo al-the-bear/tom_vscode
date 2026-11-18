@@ -35,6 +35,13 @@ import { aiMergeDriverSummary, type AiMergeDriverReport } from '../utils/aiMerge
 import { hostSlugOf } from '../utils/hostSlug';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+
+/** The user-global overlay's file: the configuration's (`userConfigPath`), else its default place. */
+function userConfigFile(): string {
+    try { return TomAiConfiguration.instance.userGlobalConfigPath; } catch { /* not started (format emergency mode) */ }
+    return path.join(require('os').homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml');
+}
 import { WsPaths } from '../utils/workspacePaths';
 
 export const MIGRATE_AI_FORMATS_COMMAND = 'tomAi.migrateAiFormats';
@@ -126,7 +133,7 @@ function configPaths(d: MigrationPageDeps): { workspaceConfigPath?: string; user
     const ws = d.workspaceRoot();
     return {
         ...(ws ? { workspaceConfigPath: path.join(ws, '.tom', 'tom_vscode_extension.json') } : {}),
-        userConfigPath: path.join(require('os').homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml'),
+        userConfigPath: userConfigFile(),
     };
 }
 

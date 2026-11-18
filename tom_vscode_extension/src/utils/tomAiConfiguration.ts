@@ -34,6 +34,8 @@ export interface TomAiConfigDefaults {
     todo: TodoConfig;
     reminders: RemindersConfig;
     favorites: FavoriteEntry[];
+    /** Where the user-global overlay is: placeholders `${home}`, `~`, `${tomRoot}`, `${workspaceFolder}`. */
+    userConfigPath: string;
 }
 
 /**
@@ -42,10 +44,13 @@ export interface TomAiConfigDefaults {
  * machine (user identity, preferred model/profile defaults, bridge
  * binary paths, reusable personal templates).
  *
- * Resolution: `<homedir>/.tom/vscode/tom_vscode_extension.user.yaml`.
- * Path built via `path.join(os.homedir(), ...)` so it resolves to
- * `~/.tom/vscode/...` on Linux/macOS and `%USERPROFILE%\.tom\vscode\...`
- * on Windows without any extra handling.
+ * Resolution: the key `userConfigPath` of the root or workspace layer, else
+ * its default {@link DEFAULT_USER_CONFIG_PATH}
+ * (`~/.tom/vscode/tom_vscode_extension.user.yaml`; `%USERPROFILE%\.tom\vscode\...`
+ * on Windows), with the placeholders of `tomAi.configPath` resolved
+ * (`${home}`, `~`, `${tomRoot}`, `${workspaceFolder}`). It is read from those
+ * layers before the user-global file is loaded; setting it in the user-global
+ * file itself has no effect.
  *
  * **The layers** (workspace layout convention § 5): compiled defaults <
  * this user-global file < the root's `.tom/tom_vscode_extension.json` < the
@@ -58,10 +63,16 @@ export interface TomAiConfigDefaults {
  * the extension examples — users rename it to `.yaml` to activate the
  * overlay. See `doc/example_user_config.yaml` for the reference copy.
  */
-const USER_GLOBAL_CONFIG_REL = path.join('.tom', 'vscode', 'tom_vscode_extension.user.yaml');
+export const DEFAULT_USER_CONFIG_PATH = '${home}/.tom/vscode/tom_vscode_extension.user.yaml';
 
-function userGlobalConfigPath(): string {
-    return path.join(os.homedir(), USER_GLOBAL_CONFIG_REL);
+/** One file's part of a stamp: path, mtime, ctime and size, or `-` when it is not there. */
+function statEntry(filePath: string): string {
+    try {
+        const st = fs.statSync(filePath);
+        return `${filePath}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`;
+    } catch {
+        return `${filePath}:-`;
+    }
 }
 
 export class TomAiConfiguration {
@@ -96,6 +107,8 @@ export class TomAiConfiguration {
      * Unchanged files cost one stat each and are not parsed again.
      */
     private stamp: string | undefined;
+    /** The user-global overlay's file, resolved at the last reload (from `userConfigPath`). */
+    private userConfigFile: string | undefined;
 
     static init(context: vscode.ExtensionContext): void {
         if (!TomAiConfiguration._instance) {
@@ -149,6 +162,7 @@ export class TomAiConfiguration {
                 },
             },
             favorites: [],
+            userConfigPath: DEFAULT_USER_CONFIG_PATH,
         };
     }
 
@@ -213,14 +227,7 @@ export class TomAiConfiguration {
 
     /** The state of the layer files and the user-global overlay, as one comparable string. */
     private filesStamp(): string {
-        return [...this.layerPaths(), userGlobalConfigPath()].map((filePath) => {
-            try {
-                const st = fs.statSync(filePath);
-                return `${filePath}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`;
-            } catch {
-                return `${filePath}:-`;
-            }
-        }).join('|');
+        return [...this.layerPaths(), this.userGlobalConfigPath].map(statEntry).join('|');
     }
 
     /** Rebuild `config` when a file changed since it was built. */
@@ -300,7 +307,6 @@ export class TomAiConfiguration {
     reload(): void {
         // Taken before the reads: a change while they run makes the next read reload again.
         this.stamp = this.filesStamp();
-        this.userGlobal = this.loadUserGlobal();
         this.target = {};
         this.targetUnreadable = false;
         this.upperLayers = [];
@@ -314,6 +320,17 @@ export class TomAiConfiguration {
             layers = readLayers();
         }
         const [targetLayer, ...upper] = layers;
+        // The user-global file's place comes from the shared layers (workspace over root), before it is read.
+        const named = [...upper].reverse().map((l) => l.content?.userConfigPath).find((v) => typeof v === 'string' && v.trim())
+            ?? (typeof targetLayer?.content?.userConfigPath === 'string' && targetLayer.content.userConfigPath.trim() ? targetLayer.content.userConfigPath : undefined);
+        const userFile = path.normalize(this.resolveConfiguredPath(String(named ?? DEFAULT_USER_CONFIG_PATH).trim()));
+        if (userFile !== this.userConfigFile) {
+            this.userConfigFile = userFile;
+            const parts = (this.stamp ?? '').split('|');
+            parts[parts.length - 1] = statEntry(userFile);
+            this.stamp = parts.join('|');
+        }
+        this.userGlobal = this.loadUserGlobal();
         for (const layer of upper) {
             if (layer.unreadable) {
                 logConfigAccess('TomAiConfiguration.reload', layer.path, {
@@ -368,7 +385,7 @@ export class TomAiConfiguration {
 
     /** Read the user-global overlay file. Returns `{}` when absent. */
     private loadUserGlobal(): Record<string, unknown> {
-        const filePath = userGlobalConfigPath();
+        const filePath = this.userGlobalConfigPath;
         if (!FsUtils.fileExists(filePath)) { return {}; }
         const raw = FsUtils.safeReadFile(filePath);
         if (!raw) { return {}; }
@@ -377,12 +394,12 @@ export class TomAiConfiguration {
 
     /** Absolute path to the user-global overlay file (whether it exists or not). */
     get userGlobalConfigPath(): string {
-        return userGlobalConfigPath();
+        return this.userConfigFile ?? path.normalize(this.resolveConfiguredPath(DEFAULT_USER_CONFIG_PATH));
     }
 
     /** `true` iff the user-global overlay file is present on disk. */
     hasUserGlobalConfig(): boolean {
-        return FsUtils.fileExists(userGlobalConfigPath());
+        return FsUtils.fileExists(this.userGlobalConfigPath);
     }
 
     async createDefaultConfig(): Promise<void> {

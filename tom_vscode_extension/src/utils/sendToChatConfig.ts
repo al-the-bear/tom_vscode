@@ -487,6 +487,14 @@ export interface SendToChatConfig {
     userName?: string;
 
     /**
+     * Where the user-global overlay is (`TomAiConfiguration.userGlobalConfigPath`).
+     * Placeholders `${home}`, `~`, `${tomRoot}`, `${workspaceFolder}`.
+     * Default: `${home}/.tom/vscode/tom_vscode_extension.user.yaml`.
+     * Read from the root and workspace layers only.
+     */
+    userConfigPath?: string;
+
+    /**
      * Quest Refresh — an automatic "refresh prompt" that fires every *N* prompts
      * to run maintenance work off the recent trail (update the overview, prune
      * todos, refresh quest-notes). Global (shared across quests); the per-quest

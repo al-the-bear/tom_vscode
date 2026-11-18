@@ -5,6 +5,11 @@
     "description": "User configuration for the Tom VS Code extension. Covers anthropic, compaction, memory, and trail subsystems (anthropic_sdk_integration.md §14).",
     "type": "object",
     "properties": {
+        "userConfigPath": {
+            "type": "string",
+            "description": "Where the user-global overlay is (a YAML file layered between the defaults and the shared files). Placeholders: ${home}, ~, ${tomRoot}, ${workspaceFolder}. Read from the root and workspace layers before the overlay is loaded; in the overlay itself it has no effect.",
+            "default": "${home}/.tom/vscode/tom_vscode_extension.user.yaml"
+        },
         "bridge": {
             "type": "object",
             "description": "The Dart bridge (tom_bs) and the executables the extension runs. Only the keys below are described here; the bridge profiles and other keys are read as they are.",

@@ -39,6 +39,7 @@ import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { getLayout, registerLayoutTracking, layoutWorkspaceFolder, onDidChangeLayout } from './utils/workspaceLayout';
 import { recordWindowQuestWorkspaceFolder } from './services/aiWorkspaceLive';
+import { initGeneratedSchemas } from './services/generatedSchemasService';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { registerCreateQuestCommand } from './handlers/createQuest-handler';
 import { openQuestOverviewOnce } from './handlers/questOverviewOnOpen-handler';
@@ -707,6 +708,8 @@ export async function activate(context: vscode.ExtensionContext) {
         // workspace quests and tomAi_getWorkspaceInfo read it. Again when the layout changes.
         recordWindowQuestWorkspaceFolder();
         context.subscriptions.push(onDidChangeLayout(() => recordWindowQuestWorkspaceFolder()));
+        // The schemas of the files the extension writes, as stamped generated copies in the top .tom (02_wslayout-8).
+        initGeneratedSchemas(context);
         if (getCliServerAutostart() && !isDartScriptAvailable()) {
             // No tom_bs on this platform: nothing to start, and no error at start
             // (the Dart binaries page and its status-bar hint are the notice).

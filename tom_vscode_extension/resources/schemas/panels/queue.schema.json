@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "queue.schema.json",
+  "title": "Prompt Queue",
+  "description": "Persistent storage for the prompt queue panel state.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp"
+    },
+    "autoSend": {
+      "type": "boolean",
+      "description": "Whether auto-send is enabled",
+      "default": true
+    },
+    "items": {
+      "type": "array",
+      "description": "Ordered list of queued prompts",
+      "items": {
+        "type": "object",
+        "required": ["id", "originalText", "status"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique prompt ID" },
+          "template": { "type": "string", "description": "Template name used" },
+          "originalText": { "type": "string", "description": "Original prompt text" },
+          "expandedText": { "type": "string", "description": "Text after variable expansion" },
+          "status": {
+            "type": "string",
+            "enum": ["staged", "pending", "sending", "sent", "error"],
+            "description": "Current prompt status"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["normal", "timed", "reminder"],
+            "description": "Origin type of the prompt"
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "sentAt": { "type": "string", "format": "date-time" },
+          "error": { "type": "string", "description": "Error message if status is 'error'" },
+          "reminderTemplateId": { "type": "string" },
+          "reminderEnabled": { "type": "boolean" },
+          "reminderRepeat": { "type": "boolean" },
+          "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
+          "requestId": { "type": "string", "description": "Request ID extracted from initial wrapped prompt" },
+          "expectedRequestId": { "type": "string", "description": "Request ID expected in next answer file" },
+          "followUpIndex": { "type": "number", "minimum": 0, "description": "Count of follow-up prompts already sent" },
+          "followUps": {
+            "type": "array",
+            "description": "Ordered follow-up prompts sent after initial answer arrives",
+            "items": {
+              "type": "object",
+              "required": ["id", "originalText", "createdAt"],
+              "properties": {
+                "id": { "type": "string" },
+                "originalText": { "type": "string" },
+                "template": { "type": "string" },
+                "reminderTemplateId": { "type": "string" },
+                "reminderEnabled": { "type": "boolean" },
+                "reminderRepeat": { "type": "boolean" },
+                "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
+                "createdAt": { "type": "string", "format": "date-time" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["items"],
+  "additionalProperties": true
+}

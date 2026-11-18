@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Ajv2020 from 'ajv/dist/2020';
 import { parse, stringify } from 'yaml';
+import { schemaRefFromFile } from './generatedSchemas';
 
 /** The file of a role type in its folder. */
 export const ROLE_TYPE_FILE = 'role-type.yaml';
@@ -106,10 +107,14 @@ export function parseRoleConfig(text: string): { ok: true; value: RoleConfig } |
     return errors.length ? { ok: false, errors } : { ok: true, value: data as RoleConfig };
 }
 
-/** The `# yaml-language-server: $schema=` line of a file at `file`, pointing at the workspace's copy of the schema. */
-export function schemaLine(file: string, workspaceRoot: string, kind: 'roleType' | 'roleConfig'): string {
-    const schema = path.join(workspaceRoot, '.tom', 'json-schema', 'roles', kind === 'roleType' ? 'role-type.schema.json' : 'role-config.schema.json');
-    return `# yaml-language-server: $schema=${path.relative(path.dirname(file), schema).split(path.sep).join('/')}`;
+/**
+ * The `# yaml-language-server: $schema=` line of a file at `file`, pointing at
+ * the generated copy of the schema in the top `.tom` `topTom` (computed from
+ * the file's real folder: generatedSchemas.schemaRefFromFile).
+ */
+export function schemaLine(file: string, topTom: string, kind: 'roleType' | 'roleConfig'): string {
+    const rel = `json-schema/roles/${kind === 'roleType' ? 'role-type.schema.json' : 'role-config.schema.json'}`;
+    return `# yaml-language-server: $schema=${schemaRefFromFile(file, topTom, rel)}`;
 }
 
 /** A role type as its file's text (refused when it does not match the schema). */

@@ -11,8 +11,8 @@
  * Configurable via the `tomAi.panelStoragePath` setting (package.json; absolute
  * or workspace-relative; empty: the default). Every reader and writer of these
  * files goes through this module, so a configured folder holds all of them.
- * Each file's `$schema` names its schema relative to the folder it is in
- * ({@link schemaRefFrom}).
+ * Each file's `$schema` names its schema in the top `.tom`, relative to the
+ * file's real folder (generatedSchemas.schemaRefFromFile).
  */
 
 import { layoutWorkspaceFolder } from './workspaceLayout';
@@ -22,6 +22,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { WsPaths } from './workspacePaths';
 import { buildHostPrefixedPanelFileName } from './queueStep5Utils';
+import { schemaRefFromFile } from './generatedSchemas';
 
 // ============================================================================
 // Workspace helpers
@@ -60,15 +61,10 @@ export function getStorageFolder(): string | undefined {
  * default `_ai/local/`), so it resolves wherever `tomAi.panelStoragePath` puts
  * the files.
  */
-export function schemaRefFrom(folder: string, wsRoot: string, schemaWsPath: string): string {
-    return path.relative(folder, path.join(wsRoot, schemaWsPath)).split(path.sep).join('/');
-}
-
-/** The `$schema` value for a panel file in the storage folder; undefined without a workspace. */
-function schemaRef(schemaWsPath: string | undefined): string | undefined {
-    const folder = getStorageFolder();
-    const wsRoot = layoutWorkspaceFolder();
-    return schemaWsPath && folder && wsRoot ? schemaRefFrom(folder, wsRoot, schemaWsPath) : undefined;
+/** The `$schema` value for the panel file `filePath`: `schemaRel` in the top `.tom`; undefined without a layout. */
+function schemaRef(filePath: string, schemaRel: string | undefined): string | undefined {
+    const topTom = WsPaths.topTom;
+    return schemaRel && topTom ? schemaRefFromFile(filePath, topTom, schemaRel) : undefined;
 }
 
 /**
@@ -140,8 +136,8 @@ export function readPanelYamlSync<T = any>(type: string): T | undefined {
 export async function writePanelYaml(
     type: string,
     data: Record<string, unknown>,
-    /** The schema, workspace-relative (e.g. `.tom/json-schema/panels/chatvars.schema.json`). */
-    schemaWsPath?: string,
+    /** The schema below the top `.tom` (e.g. `json-schema/panels/chatvars.schema.json`). */
+    schemaRel?: string,
 ): Promise<string | undefined> {
     const filePath = getPanelFilePath(type);
     if (!filePath) {return undefined;}
@@ -156,7 +152,7 @@ export async function writePanelYaml(
 
         // Build the document with schema reference
         const doc: Record<string, unknown> = {};
-        const schema = schemaRef(schemaWsPath);
+        const schema = schemaRef(filePath, schemaRel);
         if (schema) {
             doc['$schema'] = schema;
         }
@@ -188,8 +184,8 @@ export async function readPromptPanelYaml<T = any>(section: string): Promise<T |
 export async function writePromptPanelYaml(
     section: string,
     data: Record<string, unknown>,
-    /** The schema, workspace-relative. */
-    schemaWsPath: string = '.tom/json-schema/panels/prompt.schema.json',
+    /** The schema below the top `.tom`. */
+    schemaRel: string = 'json-schema/panels/prompt.schema.json',
 ): Promise<string | undefined> {
     const filePath = getPromptPanelFilePath(section);
     if (!filePath) {return undefined;}
@@ -201,7 +197,7 @@ export async function writePromptPanelYaml(
         }
 
         const yaml = await import('yaml');
-        const schema = schemaRef(schemaWsPath);
+        const schema = schemaRef(filePath, schemaRel);
         const doc: Record<string, unknown> = {
             ...(schema ? { $schema: schema } : {}),
             updated: new Date().toISOString(),

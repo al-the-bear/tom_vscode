@@ -986,6 +986,10 @@ async function runTestAnthropicApiKey(): Promise<void> {
 export async function handleStatusAction(action: string, message: any): Promise<void> {
     switch (action) {
         // A newer extension build is installed: run it (only on the user's click).
+        // Generated schema copies below the root (02_wslayout-8): removed after a modal with the list.
+        case 'removeStaleSchemaCopies':
+            await removeStaleSchemaCopiesConfirmed();
+            break;
         case 'reloadWindow':
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
             break;
@@ -1817,6 +1821,8 @@ export interface StatusData {
     configurations: LlmConfiguration[];
     /** Strict configuration validation errors shown in UI/output */
     configErrors: string[];
+    /** Stale generated schema copies below the root: Configuration Errors offers removing them. */
+    staleSchemaCopies?: boolean;
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
     /** Which Dart-built binaries (tom_bs, tomspecs) this platform has. */
@@ -2137,7 +2143,8 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
         })),
-        configErrors: [...layoutConfigErrors(), ...strictErrors],
+        configErrors: [...layoutConfigErrors(), ...generatedSchemaErrors(), ...strictErrors],
+        staleSchemaCopies: hasStaleSchemaCopies(),
         build: checkBuildStatus(),
         dartBinaries: currentDartBinariesStatus(),
         usage: usageSummary(),
@@ -2507,6 +2514,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         ? `<div class="sp-section" style="border-color: var(--vscode-inputValidation-errorBorder); background: var(--vscode-inputValidation-errorBackground);">
             <div class="sp-section-header"><span class="sp-section-title">⚠️ Configuration Errors</span></div>
             <div style="font-size:12px;line-height:1.4;white-space:pre-wrap;">${status.configErrors.map(e => `• ${escapeHtmlContent(e)}`).join('<br>')}</div>
+            ${status.staleSchemaCopies ? '<div class="sp-controls"><button class="sp-btn" data-status-action="removeStaleSchemaCopies" title="Asks first, with the list of folders">Remove stale schema copies…</button></div>' : ''}
         </div>`
         : '';
 
@@ -3242,6 +3250,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
 import { getEmbeddedStatusStyles } from './statusPage/statusPageStyles';
 import { configuredToolResultRetention } from '../services/tool-result-store';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
+import { generatedSchemaErrors, hasStaleSchemaCopies, removeStaleSchemaCopiesConfirmed } from '../services/generatedSchemasService';
 export { getEmbeddedStatusStyles };
 
 

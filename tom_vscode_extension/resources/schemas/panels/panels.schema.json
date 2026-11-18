@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "panels.schema.json",
+  "title": "Panel State",
+  "description": "Persistent storage for T2 unified panel draft state (Copilot, Tom AI Chat, AI Conversation, Local LLM).",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp"
+    },
+    "sections": {
+      "type": "object",
+      "description": "Draft state per section",
+      "properties": {
+        "localLlm": { "$ref": "#/$defs/sectionState" },
+        "conversation": { "$ref": "#/$defs/sectionState" },
+        "copilot": { "$ref": "#/$defs/sectionState" },
+        "tomAiChat": { "$ref": "#/$defs/sectionState" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/sectionState" }
+    }
+  },
+  "required": ["sections"],
+  "additionalProperties": true,
+  "$defs": {
+    "sectionState": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "Draft textarea content" },
+        "profile": { "type": "string", "description": "Selected profile or template name" },
+        "activeSlot": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "description": "Currently selected slot number"
+        },
+        "slots": {
+          "type": "object",
+          "description": "Textarea draft content per slot (1-9)",
+          "patternProperties": {
+            "^[1-9]$": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

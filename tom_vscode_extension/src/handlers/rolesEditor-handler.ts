@@ -29,9 +29,9 @@ const TITLES: Record<RolesEditorKind, string> = { roles: 'Role Editor', roleType
 const panels = new Map<RolesEditorKind, vscode.WebviewPanel>();
 
 function store(): RoleStore | undefined {
-    const ws = WsPaths.wsRoot;
+    const topTom = WsPaths.topTom;
     const roles = WsPaths.ai('roles');
-    return ws && roles ? new RoleStore(ws, path.dirname(roles)) : undefined;
+    return topTom && roles ? new RoleStore(topTom, path.dirname(roles)) : undefined;
 }
 
 /** What the webview shows: the items of its kind, the role types to pick, the tools to select. */

@@ -23,7 +23,7 @@ const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'panel-store-'));
 const stub = installVscodeStub({ workspaceFolders: [ws], configuration: { tomAi: { panelStoragePath: '' } } });
 
 import {
-    getPanelFilePath, getPromptPanelFilePath, getStorageFolder, readPanelYamlSync, schemaRefFrom, writePanelYaml, writePromptPanelYaml,
+    getPanelFilePath, getPromptPanelFilePath, getStorageFolder, readPanelYamlSync, writePanelYaml, writePromptPanelYaml,
 } from '../panelYamlStore.js';
 
 const setFolder = (value: string): void => { installVscodeStub({ configuration: { tomAi: { panelStoragePath: value } } }); };
@@ -49,15 +49,14 @@ describe('the panels\' state files', () => {
     });
 
     test('PS-2: $schema relative to the folder the file is in', async () => {
-        assert.equal(schemaRefFrom(path.join(ws, '_ai', 'local'), ws, '.tom/json-schema/panels/chatvars.schema.json'), '../../.tom/json-schema/panels/chatvars.schema.json', 'from the default folder');
         for (const folder of ['', 'state/deep/panels']) {
             setFolder(folder);
-            const chatvars = await writePanelYaml('chatvars', { quest: 'q1' }, '.tom/json-schema/panels/chatvars.schema.json');
+            const chatvars = await writePanelYaml('chatvars', { quest: 'q1' }, 'json-schema/panels/chatvars.schema.json');
             const draft = await writePromptPanelYaml('anthropic', { text: 'draft' });
             for (const [file, schema] of [[chatvars!, 'chatvars'], [draft!, 'prompt']] as const) {
                 assert.equal(path.dirname(file), getStorageFolder());
                 const ref = /^\$schema: (.+)$/m.exec(fs.readFileSync(file, 'utf8'))![1];
-                assert.equal(path.resolve(path.dirname(file), ref), path.join(ws, '.tom', 'json-schema', 'panels', `${schema}.schema.json`), `${schema} from "${folder || 'the default'}"`);
+                assert.equal(path.resolve(fs.realpathSync(path.dirname(file)), ref), path.join(fs.realpathSync(ws), '.tom', 'json-schema', 'panels', `${schema}.schema.json`), `${schema} from "${folder || 'the default'}"`);
             }
             assert.equal(readPanelYamlSync<{ quest: string }>('chatvars')?.quest, 'q1', 'read back from the same folder');
         }
@@ -73,8 +72,8 @@ describe('the panels\' state files', () => {
         assert.match(setting.description, /Empty defaults to \$\{aiFolder\}\/local/);
         assert.match(setting.description, /timed\.yaml[\s\S]*chatvars\.yaml[\s\S]*prompt-panel\.yaml/);
         const src = (rel: string): string => fs.readFileSync(path.join(EXT, 'src', rel), 'utf8');
-        assert.match(src('managers/timerEngine.ts'), /\}, '\.tom\/json-schema\/panels\/timed\.schema\.json'\);/);
-        assert.match(src('handlers/chatVariablesEditor-handler.ts'), /writePanelYaml\('chatvars', data, '\.tom\/json-schema\/panels\/chatvars\.schema\.json'\)/);
+        assert.match(src('managers/timerEngine.ts'), /\}, 'json-schema\/panels\/timed\.schema\.json'\);/);
+        assert.match(src('handlers/chatVariablesEditor-handler.ts'), /writePanelYaml\('chatvars', data, 'json-schema\/panels\/chatvars\.schema\.json'\)/);
         assert.doesNotMatch(src('utils/panelYamlStore.ts') + src('managers/timerEngine.ts') + src('handlers/chatVariablesEditor-handler.ts'), /'\.\.\/\.\.\//, 'no fixed ../../ schema path left');
     });
 });

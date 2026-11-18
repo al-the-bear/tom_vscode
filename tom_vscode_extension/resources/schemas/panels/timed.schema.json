@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "timed.schema.json",
+  "title": "Timed Requests",
+  "description": "Persistent storage for timed/scheduled request entries.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp"
+    },
+    "schedule": {
+      "type": "array",
+      "description": "Global timer schedule — allowed time slots when timed requests may fire",
+      "items": {
+        "type": "object",
+        "required": ["id", "dayType"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique slot ID" },
+          "dayType": {
+            "type": "string",
+            "enum": ["weekday", "first-weekday", "last-weekday", "day-of-month"],
+            "description": "How the day selection works"
+          },
+          "weekdays": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0, "maximum": 6 },
+            "description": "Weekday indexes 0=Sun..6=Sat (for dayType weekday)"
+          },
+          "monthWeekday": {
+            "type": "number", "minimum": 0, "maximum": 6,
+            "description": "Single weekday for first/last-weekday-of-month"
+          },
+          "months": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 1, "maximum": 12 },
+            "description": "Months 1-12 (for first/last-weekday or day-of-month)"
+          },
+          "dayOfMonth": {
+            "type": "number", "minimum": 1, "maximum": 31,
+            "description": "Day number for day-of-month"
+          },
+          "timeFrom": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "description": "Start time HH:MM" },
+          "timeTo": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "description": "End time HH:MM" }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "description": "Timed request entries",
+      "items": {
+        "type": "object",
+        "required": ["id", "originalText", "scheduleMode", "status"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique entry ID" },
+          "enabled": { "type": "boolean", "default": true },
+          "template": { "type": "string", "description": "Prompt template name" },
+          "originalText": { "type": "string", "description": "Original prompt text" },
+          "scheduleMode": {
+            "type": "string",
+            "enum": ["interval", "scheduled"],
+            "description": "How this entry is triggered"
+          },
+          "intervalMinutes": {
+            "type": "number",
+            "minimum": 1,
+            "description": "Interval in minutes (when scheduleMode is 'interval')"
+          },
+          "scheduledTimes": {
+            "type": "array",
+            "description": "Specific times to trigger (when scheduleMode is 'scheduled')",
+            "items": {
+              "type": "object",
+              "required": ["time"],
+              "properties": {
+                "time": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "description": "HH:MM format" },
+                "date": { "type": "string", "format": "date", "description": "Specific date (empty for recurring)" }
+              }
+            }
+          },
+          "reminderEnabled": { "type": "boolean" },
+          "reminderTemplateId": { "type": "string" },
+          "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
+          "reminderRepeat": { "type": "boolean" },
+          "repeatCount": { "type": "number", "minimum": 0 },
+          "repeatPrefix": { "type": "string" },
+          "repeatSuffix": { "type": "string" },
+          "lastSentAt": { "type": "string", "format": "date-time" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "completed"],
+            "description": "Current entry status"
+          }
+        }
+      }
+    }
+  },
+  "required": ["entries"],
+  "additionalProperties": true
+}

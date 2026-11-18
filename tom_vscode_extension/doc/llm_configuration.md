@@ -15,8 +15,8 @@ paths**, including:
 
 All file references below point under [tom_vscode_extension/src/](../src/).
 
-Edits to `tom_vscode_extension.json` (and to the user-global overlay
-`~/.tom/vscode/tom_vscode_extension.user.yaml`) take effect at the next read,
+Edits to `tom_vscode_extension.json` (and to the user-global overlay, by
+default `~/.tom/vscode/tom_vscode_extension.user.yaml`) take effect at the next read,
 whether they are made on the Status Page, by hand or by an agent: the
 configuration compares the files' stat on every read and parses them again only
 when they changed. No *Reload Chat Config* or window reload is needed.
@@ -33,8 +33,35 @@ patch applied to the file as it is on disk: nothing of the defaults, the
 user-global file or the workspace layer is copied into it, and a key another
 layer defines cannot be removed from there. While the root's file does not
 parse, saves are refused with a message, so a half-finished hand edit is not
-overwritten. `tomAi.configPath` names the one file for a layout without a root
+overwritten. Every window saves the one root file safely: through its real
+path (a workspace folder's link onto it stays a link), under the lock
+`tom_vscode_extension.json.lock`, re-read there so another window's save is
+kept, and written atomically; a failed save is shown with the file and the
+reason. `tomAi.configPath` names the one file for a layout without a root
 `.tom`.
+
+**Where the user-global overlay is:** the key `userConfigPath` of the root's
+or the workspace folder's file (the workspace folder's wins), default
+`${home}/.tom/vscode/tom_vscode_extension.user.yaml`. The placeholders are
+those of `tomAi.configPath`: `${home}`, `~`, `${tomRoot}`, `${workspaceFolder}`.
+It is read from those two files before the overlay is loaded, so setting it in
+the overlay itself has no effect.
+
+**The schemas in the top `.tom`:** the extension ships the schemas of the
+files it writes and writes them, at start and when the layout changes, into
+the top `.tom` (the root's, or a standalone workspace folder's own):
+`json-schema/panels/`, `json-schema/roles/`, `json-schema/processes/process.schema.json`
+and `json-schema/extension/tom_vscode_extension.schema.json`. Each folder
+carries a `.generated-by` file (extension id, version, build): a stamped folder
+is kept current, never by an older build than the one that stamped it; an
+unstamped folder whose files are the shipped ones is adopted; one that differs
+is left alone and reported under the Status Page's Configuration Errors. A
+stamped copy in a workspace folder's `.tom` below a root (a standalone folder
+moved into one) is reported there too, with **Remove stale schema copies…**,
+which asks before it deletes. The `# yaml-language-server: $schema=` lines and
+`$schema` keys the extension writes point at the top `.tom`, computed from the
+file's real folder, so a file reached through the workspace folder's `_ai` link
+points the same way.
 
 ---
 

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "chatvars.schema.json",
+  "title": "Chat Variables Panel State",
+  "description": "Persisted state for the Chat Variables editor panel.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp of last update"
+    },
+    "quest": {
+      "type": "string",
+      "description": "Active quest identifier"
+    },
+    "role": {
+      "type": "string",
+      "description": "Active role"
+    },
+    "activeProjects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of active project names"
+    },
+    "todo": {
+      "type": "string",
+      "description": "Current todo text"
+    },
+    "todoFile": {
+      "type": "string",
+      "description": "Path to the active todo file"
+    },
+    "custom": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Custom key-value variables"
+    }
+  },
+  "additionalProperties": false
+}

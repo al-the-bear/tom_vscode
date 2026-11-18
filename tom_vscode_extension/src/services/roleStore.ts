@@ -36,7 +36,8 @@ export interface RoleTypeRecord {
 }
 
 export class RoleStore {
-    constructor(private readonly workspaceRoot: string, private readonly aiRoot: string) {}
+    /** `topTom`: the top `.tom` the files' `$schema` lines point to; `aiRoot`: the `_ai` the roles live in. */
+    constructor(private readonly topTom: string, private readonly aiRoot: string) {}
 
     private rolesDir(): string { return path.join(this.aiRoot, 'roles'); }
     private typesDir(): string { return path.join(this.aiRoot, ROLE_TYPES_FOLDER); }
@@ -97,7 +98,7 @@ export class RoleStore {
         fs.mkdirSync(dir, { recursive: true });
         const configFile = path.join(dir, ROLE_CONFIG_FILE);
         if (type || fs.existsSync(configFile)) {
-            const text = serializeRoleConfig(type ? { roleType: type } : {}, schemaLine(configFile, this.workspaceRoot, 'roleConfig'));
+            const text = serializeRoleConfig(type ? { roleType: type } : {}, schemaLine(configFile, this.topTom, 'roleConfig'));
             fs.writeFileSync(configFile, text);
         }
         fs.writeFileSync(path.join(dir, 'role.md'), roleMd.endsWith('\n') ? roleMd : `${roleMd}\n`);
@@ -115,7 +116,7 @@ export class RoleStore {
     saveRoleType(id: string, value: RoleType): void {
         if (!ROLE_ID_PATTERN.test(id)) { throw new Error(`"${id}" is not a role type name (letters, digits, _ and -)`); }
         const file = path.join(this.typesDir(), id, ROLE_TYPE_FILE);
-        const text = serializeRoleType(value, schemaLine(file, this.workspaceRoot, 'roleType'));
+        const text = serializeRoleType(value, schemaLine(file, this.topTom, 'roleType'));
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, text);
     }

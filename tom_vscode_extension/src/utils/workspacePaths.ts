@@ -156,6 +156,16 @@ export class WsPaths {
         return getLayout()?.workspaceFolder;
     }
 
+    /**
+     * The top `.tom`: the root's configuration folder (`TomLayout.configLayers[0]`),
+     * a standalone workspace folder's own. The generated schemas live here
+     * (utils/generatedSchemas.ts), and the `$schema` references the extension
+     * writes point here.
+     */
+    static get topTom(): string | undefined {
+        return getLayout()?.configLayers[0];
+    }
+
     /** The root of the Tom workspace (`TomLayout.root`; the workspace folder when standalone). */
     static get tomRoot(): string | undefined {
         return getLayout()?.root;

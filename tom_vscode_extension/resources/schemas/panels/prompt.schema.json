@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "prompt.schema.json",
+  "title": "Prompt Panel State",
+  "description": "Persistent state for one prompt panel section (Local LLM, AI Conversation, Copilot, Tom AI Chat, Anthropic).",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "section": {
+      "type": "string",
+      "enum": ["localLlm", "conversation", "copilot", "tomAiChat", "anthropic"]
+    },
+    "text": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "activeSlot": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9
+    },
+    "slots": {
+      "type": "object",
+      "patternProperties": {
+        "^[1-9]$": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "string",
+      "description": "Saved Anthropic model id (anthropic section only)"
+    },
+    "config": {
+      "type": "string",
+      "description": "Saved Anthropic configuration id (anthropic section only)"
+    },
+    "userMessageTemplate": {
+      "type": "string",
+      "description": "Saved user-message template id (anthropic section only)"
+    }
+  },
+  "required": ["section"],
+  "additionalProperties": true
+}
