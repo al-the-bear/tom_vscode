@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtTodoGroupsOf, qtTodoPrefix, qtCompareTodoIds, tomMdOverlayShow */
+/* global vscode, qtViewConfig, qtGroupTodosByPrefix, qtGroupTodosByQuestPrefix, qtTodoGroupsByQuest, qtTodoGroupsOf, qtTodoPrefix, qtCompareTodoIds, tomMdOverlayShow */
 // Quest TODO panel client script — static body extracted from
 // getQuestTodoScript() in src/handlers/questTodoPanel-handler.ts (Phase B.5
 // webview restructuring). The single config-dependent line
@@ -751,7 +751,7 @@ function qtExpandAllGroupsState() {
             qtExpandedGroups['#' + q + '::' + qtTodoPrefix(t.id)] = true;
         });
     }
-    qtTodoGroupsOf(qtTodos, qtCurrentQuestId).forEach(function(g) { qtExpandedGroups['#' + qtTodoGroupKey(g.todo.id)] = true; });
+    (qtScopeMulti ? qtTodoGroupsByQuest(qtTodos, qtQuestKey) : qtTodoGroupsOf(qtTodos, qtCurrentQuestId)).forEach(function(g) { qtExpandedGroups['#' + qtTodoGroupKey(g.todo.id)] = true; });
 }
 
 /** The expand-state key of a todo group (vscimpb126); `:` never occurs in a prefix. */
@@ -777,7 +777,7 @@ function qtGoToTodoRef(ref) {
     qtSelectedTodoId = ref;
     qtNavPush(ref);
     qtRenderList();
-    vscode.postMessage({ type: 'qtGetTodo', questId: targetQuestId, todoId: targetTodoId });
+    vscode.postMessage({ type: 'qtGetTodo', questId: targetQuestId, todoId: targetTodoId, sourceFile: ref === targetTodoId ? qtSourceFileForId(targetTodoId) : undefined });
 }
 
 /** The chips of the groups a todo belongs to (`part_of`); a click goes to the group. */
@@ -831,7 +831,7 @@ function qtQueueItemButton(t) {
 
 /** Queue todo `id` as a TODO item (a GROUP item for a group todo). */
 function qtQueueAsTodoItem(id) {
-    vscode.postMessage({ type: 'qtQueueAsTodoItem', questId: qtCurrentQuestId, todoId: id });
+    vscode.postMessage({ type: 'qtQueueAsTodoItem', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
 }
 
 /** The queue button of a todo group (header or detail view); hidden until GROUP items exist (vscimpb127). */
@@ -842,7 +842,7 @@ function qtTodoGroupQueueButton(t, cls) {
 
 /** Queue todo group `id` (a GROUP item) to the panel's queue target. */
 function qtQueueTodoGroup(id) {
-    vscode.postMessage({ type: 'qtQueueTodoGroup', questId: qtCurrentQuestId, todoId: id });
+    vscode.postMessage({ type: 'qtQueueTodoGroup', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
 }
 
 /** A member line for a member this list has no row of: another quest's, archived, or missing. */
@@ -1097,22 +1097,24 @@ function qtGroupDecisionMark(group) {
 /** The thin separator line that heads one prefix group. */
 function qtRenderGroupHeader(group, expanded) {
     var count = group.todos.length;
-    // A walk runs in one quest: the group's (several quests by quest), else the panel's own; a group
-    // combining several quests has none.
+    // A walk and a rename run in one quest: the group's (a list of several quests), else the panel's own.
     var showWalk = !!group.prefix && !(qtScopeMulti && !group.quest);
+    var groupQuest = group.quest || (qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0 ? qtCurrentQuestId : '');
+    // The quest in front of the prefix, as on the todo ids, while that toggle is on.
+    var label = qtShowQuestPrefix && group.quest ? group.quest + '/' + group.label : group.label;
     return '<div class="qt-group-header' + (expanded ? '' : ' collapsed') + '"' +
         ' data-qt-group="' + qtEsc(group.key || group.prefix) + '"' +
         (group.quest ? ' data-qt-group-quest="' + qtEsc(group.quest) + '"' : '') +
-        ' title="' + (expanded ? 'Collapse' : 'Expand') + ' ' + qtEsc(group.label) + ' (' + count + ')">' +
+        ' title="' + (expanded ? 'Collapse' : 'Expand') + ' ' + qtEsc(group.label) + (group.quest ? ' of quest ' + qtEsc(group.quest) : '') + ' (' + count + ')">' +
         '<span class="codicon codicon-chevron-down"></span>' +
-        '<span class="qt-group-label">' + qtEsc(group.label) + '</span>' +
+        '<span class="qt-group-label">' + qtEsc(label) + '</span>' +
         '<span class="qt-group-count">(' + count + ')</span>' +
         qtGroupQueuedMark(group) +
         qtGroupDecisionMark(group) +
         (showWalk
             ? '<button class="qt-group-walk-btn" data-qt-group-walk="' + qtEsc(group.prefix) + '" title="Queue Group Prompt: a walk over the todos of ' + qtEsc(group.prefix) + '* with a group prompt you pick…">🔁</button>'
             : '') +
-        (group.prefix && qtCurrentQuestId && qtCurrentQuestId.indexOf('__') !== 0
+        (group.prefix && groupQuest
             ? '<button class="qt-group-rename-btn" data-qt-group-rename="' + qtEsc(group.prefix) + '" title="Rename group ' + qtEsc(group.prefix) + '…: a new prefix for its live todos, references following, a stub per old id">✏️</button>'
             : '') +
         (qtGroupOpenTodos(group).length
@@ -1141,7 +1143,10 @@ function qtUpdateStackButtons() {
  */
 function qtListHtml(filtered, renderOrder, groups, quest, grouped) {
     var html = '';
-    var prefixGroups = grouped ? qtGroupTodosByPrefix(filtered) : [];
+    // Several quests in one set (not arranged by quest): the groups are still one quest's each, so a prefix two
+    // quests use gives two groups, and a group todo's members are its own quest's.
+    var perQuest = !quest && qtScopeMulti;
+    var prefixGroups = !grouped ? [] : perQuest ? qtGroupTodosByQuestPrefix(filtered, qtQuestKey) : qtGroupTodosByPrefix(filtered);
     prefixGroups.forEach(function(g) {
         if (quest) { g.key = quest + '::' + g.prefix; g.quest = quest; }
         groups.push(g);
@@ -1149,7 +1154,7 @@ function qtListHtml(filtered, renderOrder, groups, quest, grouped) {
     // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
     // order; a member also stays in its prefix group (shown twice). Members are
     // not in renderOrder, so a shift-click range never counts a row twice.
-    var todoGroups = grouped ? qtTodoGroupsOf(filtered, quest || qtCurrentQuestId) : [];
+    var todoGroups = !grouped ? [] : perQuest ? qtTodoGroupsByQuest(filtered, qtQuestKey) : qtTodoGroupsOf(filtered, quest || qtCurrentQuestId);
     for (var tgi = 0; tgi < todoGroups.length; tgi++) {
         var tg = todoGroups[tgi];
         var tgExpanded = qtIsGroupExpanded(qtTodoGroupKey(tg.todo.id));
@@ -1323,7 +1328,7 @@ function qtRenderList() {
             if (renameBtn) {
                 // The host asks for the new prefix and renames the group.
                 e.stopPropagation();
-                vscode.postMessage({ type: 'qtRenameGroup', questId: qtCurrentQuestId, prefix: renameBtn.getAttribute('data-qt-group-rename') || '' });
+                vscode.postMessage({ type: 'qtRenameGroup', questId: hdr.getAttribute('data-qt-group-quest') || qtCurrentQuestId, prefix: renameBtn.getAttribute('data-qt-group-rename') || '' });
                 return;
             }
             var moveBtn = e.target.closest ? e.target.closest('.qt-group-move-btn') : null;

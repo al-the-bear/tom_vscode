@@ -116,7 +116,7 @@ describe('todo groups in the todo panel', () => {
         window.eval('qtCollapseAllGroups()');
         window.eval('qtExpandedGroups["#misc"] = true; qtExpandedGroups["#rel"] = true; qtRenderList();');
         window.document.querySelector('#qt-list-pane .qt-todo-item[data-qt-id="rel3-tag"] .qt-partof-chip').click();
-        assert.deepEqual(plain(sent.at(-1)), { type: 'qtGetTodo', questId: 'qa', todoId: 'rel1-release' });
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtGetTodo', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml' });
         assert.equal(header(window).classList.contains('collapsed'), false, 'the group is opened');
     });
 
@@ -147,10 +147,10 @@ describe('todo groups in the todo panel', () => {
     test('TGP-6: the queue button', () => {
         const { window, sent } = setupPanel(TODOS);
         window.document.querySelector('.qt-todogroup-queue-btn').click();
-        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release' });
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml' });
         window.qtRenderDetail({ ...TODOS[0], description: 'd' });
         window.document.getElementById('qt-d-group-queue').click();
-        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release' });
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueTodoGroup', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml' });
     });
 
     test('TGP-8: Queue as todo item', () => {
@@ -159,14 +159,14 @@ describe('todo groups in the todo panel', () => {
         const tile = (id: string) => window.document.querySelector(`#qt-list-pane .qt-todo-item[data-qt-id="${id}"]`);
         assert.equal(tile('rel2-changelog').querySelector('.qt-queue-item-btn'), null, 'a done todo has none');
         tile('rel3-tag').querySelector('.qt-queue-item-btn').click();
-        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag' });
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag', sourceFile: 'todos.qa.todo.yaml' });
         assert.equal(window.eval('qtSelectedTodoId'), '', 'the click does not select the row');
         assert.match(tile('rel1-release').querySelector('.qt-queue-item-btn').getAttribute('title'), /GROUP item/);
         window.qtRenderDetail({ ...TODOS[2], description: 'd' });
         const detailBtn = window.document.querySelector('.qt-queue-item-detail-btn');
         assert.match(detailBtn.title, /^Queue as todo item/, 'an icon button: its tooltip names it');
         detailBtn.click();
-        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag' });
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag', sourceFile: 'todos.qa.todo.yaml' });
     });
 });
 

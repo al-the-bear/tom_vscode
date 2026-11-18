@@ -122,6 +122,53 @@ function qtGroupTodosByPrefix(todos) {
  * @typedef {{ todo: QtGroupTodoLike, members: QtGroupMember[], done: number, total: number }} QtTodoGroup
  */
 
+/**
+ * The prefix groups of a list holding several quests: one group per quest and prefix, so a prefix two quests use
+ * gives two groups — a group is always one quest's (its walk, its rename and its group todos are that quest's).
+ * Each group carries its `quest` and an expand `key` (`<quest>::<prefix>`). Order: by prefix (natural), a prefix
+ * shared by quests by quest; the `Unprefixed` groups last, by quest.
+ *
+ * @param {QtTodoLike[] | null | undefined} todos
+ * @param {(t: QtTodoLike) => string} questOf the quest a row belongs to
+ * @returns {Array<QtPrefixGroup & { quest: string, key: string }>}
+ */
+function qtGroupTodosByQuestPrefix(todos, questOf) {
+    var split = qtSplitByQuest(todos, questOf);
+    /** @type {Array<QtPrefixGroup & { quest: string, key: string }>} */
+    var out = [];
+    split.quests.forEach(function(q) {
+        qtGroupTodosByPrefix(split.byQuest['#' + q]).forEach(function(g) {
+            out.push({ prefix: g.prefix, label: g.label, todos: g.todos, quest: q, key: q + '::' + g.prefix });
+        });
+    });
+    out.sort(function(a, b) {
+        if (!a.prefix !== !b.prefix) { return a.prefix ? -1 : 1; }
+        return qtNaturalCompare(a.prefix, b.prefix) || qtNaturalCompare(a.quest, b.quest);
+    });
+    return out;
+}
+
+/**
+ * The rows of a list by quest, the quests in natural order.
+ *
+ * @param {QtTodoLike[] | null | undefined} todos
+ * @param {(t: QtTodoLike) => string} questOf
+ * @returns {{ quests: string[], byQuest: Record<string, QtTodoLike[]> }}
+ */
+function qtSplitByQuest(todos, questOf) {
+    /** @type {Record<string, QtTodoLike[]>} */
+    var byQuest = {};
+    /** @type {string[]} */
+    var quests = [];
+    (todos || []).forEach(function(t) {
+        var q = String(questOf(t) || '');
+        if (!Object.prototype.hasOwnProperty.call(byQuest, '#' + q)) { byQuest['#' + q] = []; quests.push(q); }
+        byQuest['#' + q].push(t);
+    });
+    quests.sort(qtNaturalCompare);
+    return { quests: quests, byQuest: byQuest };
+}
+
 /** Statuses a group member counts as done with. */
 var QT_GROUP_DONE = ['completed', 'cancelled'];
 
@@ -183,6 +230,30 @@ function qtTodoGroupsOf(todos, questId) {
     }
     out.sort(/** @param {QtTodoGroup} a @param {QtTodoGroup} b */ function(a, b) {
         return qtNaturalCompare(String(a.todo.title || a.todo.id || ''), String(b.todo.title || b.todo.id || ''));
+    });
+    return out;
+}
+
+/**
+ * The todo groups of a list holding several quests: each quest's group todos with the members resolved in that
+ * quest (a member id names a todo of the group's own quest), sorted by title over all of them; each carries its
+ * `quest`.
+ *
+ * @param {QtGroupTodoLike[] | null | undefined} todos
+ * @param {(t: QtGroupTodoLike) => string} questOf
+ * @returns {Array<QtTodoGroup & { quest: string }>}
+ */
+function qtTodoGroupsByQuest(todos, questOf) {
+    var split = qtSplitByQuest(todos, questOf);
+    /** @type {Array<QtTodoGroup & { quest: string }>} */
+    var out = [];
+    split.quests.forEach(function(q) {
+        qtTodoGroupsOf(split.byQuest['#' + q], q).forEach(function(g) {
+            out.push({ todo: g.todo, members: g.members, done: g.done, total: g.total, quest: q });
+        });
+    });
+    out.sort(function(a, b) {
+        return qtNaturalCompare(String(a.todo.title || a.todo.id || ''), String(b.todo.title || b.todo.id || '')) || qtNaturalCompare(a.quest, b.quest);
     });
     return out;
 }

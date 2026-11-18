@@ -22,6 +22,8 @@ interface GroupingApi {
     qtTodoPrefix(id: unknown): string;
     qtGroupTodosByPrefix(todos: TodoLike[] | null | undefined): PrefixGroup[];
     qtCompareTodoIds(a: TodoLike, b: TodoLike): number;
+    qtGroupTodosByQuestPrefix(todos: Array<TodoLike & { q: string }>, questOf: (t: { q: string }) => string): Array<PrefixGroup & { quest: string; key: string }>;
+    qtTodoGroupsByQuest(todos: unknown[], questOf: (t: { q: string }) => string): Array<{ todo: { id: string }; quest: string; done: number; total: number; members: Array<{ row: { q: string } | null }> }>;
 }
 
 /**
@@ -209,5 +211,25 @@ describe('qtGroupTodosByPrefix', () => {
         for (const g of groups) { flat.push(...g.todos); }
         assert.equal(flat.length, todos.length, 'no todo may be dropped or duplicated');
         assert.equal(new Set(flat).size, todos.length);
+    });
+
+    test('several quests: a group is one quest\'s', () => {
+        const q = (t: { q: string }): string => t.q;
+        const todos = [
+            { id: 'vex2', q: 'b' }, { id: 'qr1', q: 'b' }, { id: 'qr2', q: 'a' }, { id: 'loose', q: 'b' }, { id: 'loose', q: 'a' }, { id: '01_x1', q: 'a' },
+        ];
+        const groups = api.qtGroupTodosByQuestPrefix(todos, q);
+        assert.deepEqual(Array.from(groups, (g) => g.key), ['a::01_x', 'a::qr', 'b::qr', 'b::vex', 'a::', 'b::'], 'by prefix, a shared prefix by quest, Unprefixed last');
+        assert.deepEqual(Array.from(groups, (g) => `${g.quest}:${g.todos.length}`), ['a:1', 'a:1', 'b:1', 'b:1', 'a:1', 'b:1']);
+        assert.equal(api.qtGroupTodosByQuestPrefix([], q).length, 0);
+        // Group todos: the members are the group's own quest's.
+        /* eslint-disable @typescript-eslint/naming-convention -- the todo schema's YAML key */
+        const withGroups = [
+            { id: 'm1', status: 'completed', q: 'a' }, { id: 'm1', status: 'not-started', q: 'b' },
+            { id: 'g1', title: 'Zed', status: 'group', comprised_of: ['m1'], q: 'b' }, { id: 'g1', title: 'Alf', status: 'group', comprised_of: ['m1'], q: 'a' },
+        ];
+        /* eslint-enable @typescript-eslint/naming-convention */
+        const tg = api.qtTodoGroupsByQuest(withGroups, q);
+        assert.deepEqual(Array.from(tg, (g) => [g.quest, g.done, g.total, g.members[0].row?.q]), [['a', 1, 1, 'a'], ['b', 0, 1, 'b']], 'by title; each resolves m1 in its own quest');
     });
 });

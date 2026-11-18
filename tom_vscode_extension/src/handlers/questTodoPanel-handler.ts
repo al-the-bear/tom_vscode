@@ -820,7 +820,11 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
 
     const effectiveQuestId = (incoming?: string): string => {
         // A panel showing several quests (its scope, vscimpb137) acts on each todo's own quest.
-        if (incoming === '__all_quests__' && _scopeInstance(cfg)) { return incoming; }
+        const scoped = _scopeInstance(cfg);
+        if (incoming === '__all_quests__' && scoped) { return incoming; }
+        // A list of several quests names a group's or a todo's own quest: that quest, when the scope shows it.
+        if (scoped && incoming && !incoming.startsWith('__') && incoming !== cfg.fixedQuestId
+            && resolveScopeQuests(_scopeOf(scoped, cfg), _scopeSources()).includes(incoming)) { return incoming; }
         if (cfg.fixedQuestId) { return cfg.fixedQuestId; }
         return incoming || '';
     };

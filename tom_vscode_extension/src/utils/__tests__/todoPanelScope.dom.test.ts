@@ -7,8 +7,11 @@
  *        say which files and whether the quest prefix is on; the controls post qtSetScope / qtPickScope
  *   SD-3 the rows: the quest in front of each id; an archived row marked, read-only (no stack circle, no actions)
  *        with Restore, which posts qtRestoreTodo with the row's file
- *   SD-4 the orderings: the groups of all quests combined; by quest then groups (each quest's own groups); by quest
- *        then list
+ *   SD-4 the orderings: combined — no quest level, but every prefix group is one quest's (a prefix two quests use
+ *        gives two groups, the quest in front of the prefix while the quest prefix is on), each with its walk and
+ *        rename in that quest; by quest then groups (each quest's own groups); by quest then list
+ *   SD-7 group todos in a list of several quests: each is its quest's — its members are resolved in its own quest
+ *        (the same id in another quest is not taken), its queue button names its file
  *   SD-5 an archived todo's detail: marked, every field disabled, Restore
  *   SD-6 back to the panel's own quest: it loads that quest again, the file select back; a refresh request reloads
  */
@@ -122,9 +125,23 @@ describe('the todo panel across quests (webview)', () => {
         const pane = (): Win => w.document.getElementById('qt-list-pane');
         assert.equal(pane().querySelectorAll('.qt-quest-header').length, 0, 'combined: no quest level');
         const xx = [...pane().querySelectorAll('.qt-group-header')].filter((h: Win) => /xx/.test(h.textContent));
-        assert.equal(xx.length, 1, 'one xx group for both quests');
-        assert.match(xx[0].querySelector('.qt-group-count').textContent, /\(3\)/);
-        assert.equal(xx[0].querySelector('.qt-group-walk-btn'), null, 'no walk over several quests');
+        assert.deepEqual(xx.map((h: Win) => h.getAttribute('data-qt-group')), ['alpha::xx', 'beta::xx'], 'a group is one quest\'s: xx twice');
+        assert.deepEqual(xx.map((h: Win) => h.querySelector('.qt-group-label').textContent), ['alpha/xx', 'beta/xx'], 'the quest in front, as on the ids');
+        assert.deepEqual(xx.map((h: Win) => h.querySelector('.qt-group-count').textContent), ['(1)', '(2)']);
+        assert.deepEqual(rowsOf(w), ['alpha/xx1', 'beta/xx2', 'beta/xx3']);
+        assert.ok(xx[1].querySelector('.qt-group-walk-btn') && xx[1].querySelector('.qt-group-rename-btn'), 'walk and rename, in its quest');
+        const sent: Win[] = [];
+        w.vscode.postMessage = (m: Win) => sent.push(JSON.parse(JSON.stringify(m)));
+        xx[1].querySelector('.qt-group-rename-btn').click();
+        assert.deepEqual(sent.at(-1), { type: 'qtRenameGroup', questId: 'beta', prefix: 'xx' });
+        [...pane().querySelectorAll('.qt-group-header')].filter((h: Win) => /xx/.test(h.textContent))[1].querySelector('.qt-group-walk-btn').click();
+        assert.deepEqual([sent.at(-1).type, sent.at(-1).questId, sent.at(-1).prefix], ['qtQueueGroupPrompt', 'beta', 'xx']);
+        // The quest prefix off: the prefix alone, the quest in the tooltip.
+        w.qtHandleMessage(MULTI('combined', false));
+        w.qtHandleMessage(ROWS);
+        const plainXx = [...pane().querySelectorAll('.qt-group-header')].filter((h: Win) => /xx/.test(h.textContent));
+        assert.deepEqual(plainXx.map((h: Win) => h.querySelector('.qt-group-label').textContent), ['xx', 'xx']);
+        assert.match(plainXx[1].title, /xx of quest beta/);
 
         w.qtHandleMessage(MULTI('quest-groups'));
         w.qtHandleMessage(ROWS);
@@ -146,6 +163,29 @@ describe('the todo panel across quests (webview)', () => {
         assert.equal(pane().querySelectorAll('.qt-quest-header').length, 2);
         assert.equal(pane().querySelectorAll('.qt-group-header').length, 0, 'the todos as a list');
         assert.deepEqual(rowsOf(w), ['alpha/xx1', 'beta/xx2', 'beta/xx3']);
+    });
+
+    test('SD-7: group todos in a list of several quests', (t) => {
+        const { w } = setup(t);
+        w.qtHandleMessage(MULTI('combined'));
+        /* eslint-disable @typescript-eslint/naming-convention -- the todo schema's YAML key */
+        w.qtHandleMessage({ type: 'qtTodos', questId: '__all_quests__', file: 'all', todos: [
+            { id: 'xx1', title: 'Alpha one', status: 'not-started', sourceFile: 'alpha/todos.alpha.todo.yaml' },
+            { id: 'xx1', title: 'Beta one', status: 'completed', sourceFile: 'beta/todos.beta.todo.yaml' },
+            { id: 'grp1', title: 'Beta group', status: 'group', comprised_of: ['xx1'], sourceFile: 'beta/todos.beta.todo.yaml' },
+        ] });
+        /* eslint-enable @typescript-eslint/naming-convention */
+        w.qtExpandAllGroups();
+        const pane = w.document.getElementById('qt-list-pane');
+        const header = pane.querySelector('.qt-todogroup-header');
+        assert.equal(header.querySelector('.tid').textContent, 'beta/grp1');
+        assert.equal(header.querySelector('.qt-todogroup-progress').textContent, '1/1', 'its member is beta\'s xx1 (completed), not alpha\'s');
+        const member = pane.querySelector('.qt-todogroup-members .qt-todo-item .ttitle, .qt-todogroup-members .qt-todo-item');
+        assert.match(member.textContent, /Beta one/);
+        const sent: Win[] = [];
+        w.vscode.postMessage = (m: Win) => sent.push(JSON.parse(JSON.stringify(m)));
+        header.querySelector('.qt-todogroup-queue-btn').click();
+        assert.deepEqual(sent.at(-1), { type: 'qtQueueTodoGroup', questId: '__all_quests__', todoId: 'grp1', sourceFile: 'beta/todos.beta.todo.yaml' });
     });
 
     test('SD-5: an archived todo\'s detail', (t) => {

@@ -13,6 +13,8 @@
  *   SC-7 @TOM TODO (vscimpb138): an instance of its own — it starts on the workspace's quests (vscimpb144) with the quest
  *        prefix on, its scope and its sort / filter state apart from the other panels'; without an active quest it
  *        starts on all quests
+ *   SC-8 a list of several quests names a group's own quest: the sidebar view (fixed on alpha) renames a group of
+ *        beta in beta when its scope shows beta; with its scope on alpha alone it stays alpha
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -189,6 +191,23 @@ describe('the todo panel across quests', () => {
             await send(webview, { type: 'qtGetScope' });
             assert.equal(last(posted, 'qtScope').available, false, JSON.stringify(config));
         }
+    });
+
+    test('SC-8: a group of another quest in the list', async () => {
+        const win = vscodeStub.stub.window as Json;
+        const original = win.showInputBox;
+        const titles: string[] = [];
+        win.showInputBox = async (opts: Json) => { titles.push(String(opts.title)); return undefined; };
+        try {
+            const multi = view({ ...SIDEBAR, scopeInstance: 'sc8-multi' });
+            await send(multi.webview, { type: 'qtSetScope', scope: { kind: 'all', files: { live: true, archived: false, deleted: false }, order: 'combined' } });
+            await send(multi.webview, { type: 'qtRenameGroup', questId: 'beta', prefix: 'be' });
+            assert.match(titles.at(-1)!, /of quest beta$/);
+            const one = view({ ...SIDEBAR, scopeInstance: 'sc8-one' });
+            await send(one.webview, { type: 'qtGetScope' });
+            await send(one.webview, { type: 'qtRenameGroup', questId: 'beta', prefix: 'be' });
+            assert.match(titles.at(-1)!, /of quest alpha$/, 'not in its scope: the panel\'s own quest');
+        } finally { win.showInputBox = original; }
     });
 
     test('SC-7: @TOM TODO', async () => {
