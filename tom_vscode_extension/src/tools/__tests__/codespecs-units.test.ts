@@ -1,7 +1,7 @@
 /**
  * IR document names (tools/codespecs-units.ts; vscimpb149, tom_specs irout2).
  *
- *   CU-1 snakeCase as irspecs' (`DataAccess` → `data_access`, digits and runs of capitals as it treats them)
+ *   CU-1 snakeCase as the IR mapper's (`DataAccess` → `data_access`, digits and runs of capitals as it treats them)
  *   CU-2 every active area of the bundled catalogue: `<CE-CODE>_<snake(canonicalId)>.ir.yaml`, all distinct, each
  *        naming its own area before the first `_`; an area without a canonical id keeps `<CE-CODE>.ir.yaml`
  *   CU-3 irDocumentOf: the new name first, else the older one, else none; both present is reported
@@ -29,7 +29,7 @@ describe('IR document names', () => {
         assert.equal(snakeCase('ServiceUnit'), 'service_unit');
         assert.equal(snakeCase('I18n'), 'i18n');
         assert.equal(snakeCase('Oauth2Flow'), 'oauth2_flow');
-        assert.equal(snakeCase('APIKeys'), 'apikeys', 'a run of capitals after a capital stays joined, as in irspecs');
+        assert.equal(snakeCase('APIKeys'), 'apikeys', 'a run of capitals after a capital stays joined, as in the IR mapper');
     });
 
     test('CU-2: every active area', () => {

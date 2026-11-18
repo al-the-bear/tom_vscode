@@ -1,21 +1,23 @@
 /**
  * The binaries layer (scripts/binaries-layer.cjs) and the fleet build
  * (scripts/fleet-binaries.cjs): a from-source build leaves this host's tom_bs
- * and clitool binaries (validate_codespecs, spec_checks) in tom_binaries/tom/<platform>/, committed and
+ * and clitool binary (tomspecs) in tom_binaries/tom/<platform>/, committed and
  * pushed; a VSIX for several platforms takes theirs from there and reports
  * how current each is. Run for real against throw-away git repositories (a
  * bare remote and its clones); the fleet driver's SSH side is checked through
  * its pure helpers (no host is contacted).
  *
- *   BL-1 publish: copies tom_bs, validate_codespecs and spec_checks with their stamps, writes tom_bs.build.json from the stamp
+ *   BL-1 publish: copies tom_bs and tomspecs with their stamps, writes tom_bs.build.json from the stamp
  *        tom_bs prints, commits exactly those files with a message naming the build, pushes; a second
  *        publish of the same build commits nothing; neither stamp nor message names the host (the layer
  *        is public)
+ *   BL-9 publish removes the retired clitool binaries (validate_codespecs, spec_checks, irspecs) and their
+ *        stamps from this platform's layer folder: committed ones in the build's commit, which names them
  *   BL-2 a refused push leaves the commit local (exit 3); --ff fast-forwards a layer that is only behind
  *        and pushes; --ff refuses a layer with commits of its own (exit 1) and commits nothing
  *   BL-3 bundle: the listed platforms' binaries into the extension's bin/<platform>/ with their stamps,
- *        a platform without binaries named
- *   BL-4 report verdicts: no stamp, a tom_bs commit this checkout lacks, each clitool binary fresh / stale against its own hash
+ *        a platform without binaries named; retired clitool binaries are neither bundled nor left there
+ *   BL-4 report verdicts: no stamp, a tom_bs commit this checkout lacks, tomspecs fresh / stale against its own hash
  *   BL-5 the bridge source hash in tom_bs's stamp: blind to `// Generated:` lines, CRLF and the versioner
  *        stamp file, moved by a real edit; a stamp whose hash matches the sources here is fresh (uncommitted
  *        edits included)
@@ -79,7 +81,7 @@ function makeLayer(): { root: string; remote: string; repo: string; layerDir: st
 function writeBuild(bin: string, build: number, commit = 'abcdef0'): void {
     const dir = path.join(bin, PLATFORM);
     fs.writeFileSync(path.join(dir, 'tom_bs'), `#!/bin/sh\necho "[BSTART] Version: 1.0.0+${build}.${commit} (2026-11-09T10:00:00Z) [Dart 3.13.7]"\n`, { mode: 0o755 });
-    for (const name of ['validate_codespecs', 'spec_checks']) {
+    for (const name of ['tomspecs']) {
         fs.writeFileSync(path.join(dir, name), `#!/bin/sh\necho ${build}\n`, { mode: 0o755 });
         fs.writeFileSync(path.join(dir, `${name}.build.json`), JSON.stringify({
             format: 'validate-codespecs-build', formatVersion: 1, platform: PLATFORM, builtAt: '2026-11-09T10:00:00.000Z',
@@ -103,7 +105,7 @@ describe('binaries layer', () => {
         const r = runLayer(t, 'publish');
         assert.equal(r.status, 0, r.stderr + r.stdout);
         const dir = path.join(t.layerDir, PLATFORM);
-        for (const f of ['tom_bs', 'validate_codespecs', 'validate_codespecs.build.json', 'spec_checks', 'spec_checks.build.json', 'tom_bs.build.json']) {
+        for (const f of ['tom_bs', 'tomspecs', 'tomspecs.build.json', 'tom_bs.build.json']) {
             assert.ok(fs.existsSync(path.join(dir, f)), f);
         }
         assert.ok((fs.statSync(path.join(dir, 'tom_bs')).mode & 0o111) !== 0, 'tom_bs executable');
@@ -118,8 +120,8 @@ describe('binaries layer', () => {
         assert.equal(stamp.builtAt, '2026-11-09T10:00:00.000Z', 'the versioner time, not the publish time');
         assert.ok(stamp.publishedAt);
         const files = git(t.repo, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort();
-        assert.deepEqual(files, ['spec_checks', 'spec_checks.build.json', 'tom_bs', 'tom_bs.build.json', 'validate_codespecs', 'validate_codespecs.build.json'].map((f) => `tom/${PLATFORM}/${f}`).sort());
-        assert.match(git(t.repo, 'log', '-1', '--format=%s'), new RegExp(`^tom_bs 1\\.0\\.0\\+41 \\(abcdef0\\), validate_codespecs \\(clitool 12345678\\), spec_checks \\(clitool 12345678\\) for ${PLATFORM}$`));
+        assert.deepEqual(files, ['tom_bs', 'tom_bs.build.json', 'tomspecs', 'tomspecs.build.json'].map((f) => `tom/${PLATFORM}/${f}`).sort());
+        assert.match(git(t.repo, 'log', '-1', '--format=%s'), new RegExp(`^tom_bs 1\\.0\\.0\\+41 \\(abcdef0\\), tomspecs \\(clitool 12345678\\) for ${PLATFORM}$`));
         assert.ok(!git(t.repo, 'log', '-1', '--format=%B').includes(os.hostname()), 'nor in the commit message');
         assert.equal(git(t.remote, 'rev-parse', 'main'), git(t.repo, 'rev-parse', 'HEAD'), 'pushed');
         assert.match(git(t.repo, 'status', '--porcelain'), /\?\? tom\/unrelated\.txt/, 'other files left alone');
@@ -128,6 +130,29 @@ describe('binaries layer', () => {
         assert.equal(again.status, 0);
         assert.match(again.stdout, /already holds this build for linux-x64/, 'the same build keeps its stamp');
         assert.equal(git(t.repo, 'rev-parse', 'HEAD'), head);
+    });
+
+    test('BL-9: publish removes the retired clitool binaries from the layer', () => {
+        const t = makeLayer();
+        const dir = path.join(t.layerDir, PLATFORM);
+        fs.mkdirSync(dir, { recursive: true });
+        // Committed by an earlier build: validate_codespecs and spec_checks with their stamps; irspecs never committed.
+        const committed = ['validate_codespecs', 'validate_codespecs.build.json', 'spec_checks', 'spec_checks.build.json'];
+        for (const f of committed) { fs.writeFileSync(path.join(dir, f), `old ${f}`); }
+        git(t.repo, 'add', '--', ...committed.map((f) => `tom/${PLATFORM}/${f}`));
+        git(t.repo, 'commit', '--quiet', '-m', 'an earlier build');
+        git(t.repo, 'push', '--quiet', 'origin', 'HEAD:main');
+        fs.writeFileSync(path.join(dir, 'irspecs'), 'untracked');
+        writeBuild(t.bin, 44);
+        const r = runLayer(t, 'publish');
+        assert.equal(r.status, 0, r.stderr + r.stdout);
+        assert.deepEqual(fs.readdirSync(dir).sort(), ['tom_bs', 'tom_bs.build.json', 'tomspecs', 'tomspecs.build.json'], 'every retired binary and stamp gone');
+        const changes = git(t.repo, 'show', '--name-status', '--format=', 'HEAD').split('\n').sort();
+        for (const f of committed) { assert.ok(changes.includes(`D\ttom/${PLATFORM}/${f}`), `${f} removed in the build's commit`); }
+        assert.match(git(t.repo, 'log', '-1', '--format=%s'), new RegExp(`, tomspecs \\(clitool 12345678\\), removed validate_codespecs, spec_checks for ${PLATFORM}$`));
+        assert.equal(git(t.repo, 'status', '--porcelain'), '', 'nothing left uncommitted');
+        assert.equal(git(t.remote, 'rev-parse', 'main'), git(t.repo, 'rev-parse', 'HEAD'), 'pushed');
+        fs.rmSync(t.root, { recursive: true, force: true });
     });
 
     test('BL-2: refused push, --ff on a behind layer, --ff on a layer with own commits', () => {
@@ -172,15 +197,19 @@ describe('binaries layer', () => {
         const t = makeLayer();
         const dir = path.join(t.layerDir, 'win32-x64');
         fs.mkdirSync(dir, { recursive: true });
-        for (const f of ['tom_bs.exe', 'validate_codespecs.exe', 'spec_checks.exe', 'irspecs.exe', 'tom_bs.build.json', 'validate_codespecs.build.json', 'spec_checks.build.json', 'irspecs.build.json']) {
+        // tomspecs and tom_bs, and the retired binaries a layer may still hold.
+        for (const f of ['tom_bs.exe', 'tomspecs.exe', 'tom_bs.build.json', 'tomspecs.build.json', ...layer.retiredFiles('win32-x64')]) {
             fs.writeFileSync(path.join(dir, f), f);
         }
+        // An earlier bundle left a retired binary in the extension's bin/win32-x64/.
+        fs.mkdirSync(path.join(t.bin, 'win32-x64'), { recursive: true });
+        for (const f of layer.retiredFiles('win32-x64')) { fs.writeFileSync(path.join(t.bin, 'win32-x64', f), 'old'); }
         const r = runLayer(t, 'bundle', '--platforms', 'win32-x64,darwin-x64');
         assert.equal(r.status, 0, r.stderr);
-        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['irspecs.build.json', 'irspecs.exe', 'spec_checks.build.json', 'spec_checks.exe', 'tom_bs.build.json', 'tom_bs.exe', 'validate_codespecs.build.json', 'validate_codespecs.exe'], 'the stamps too (.vscodeignore keeps them out of the VSIX)');
+        assert.deepEqual(fs.readdirSync(path.join(t.bin, 'win32-x64')).sort(), ['tom_bs.build.json', 'tom_bs.exe', 'tomspecs.build.json', 'tomspecs.exe'], 'the stamps too (.vscodeignore keeps them out of the VSIX); no retired binary');
         assert.match(fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8'), /^bin\/\*\/\*\.build\.json$/m);
-        assert.match(r.stdout, /darwin-x64: none of tom_bs, validate_codespecs, spec_checks, irspecs, tomspecs in the binaries layer/);
-        assert.match(r.stdout, /Bundled 4 binaries from the binaries layer/);
+        assert.match(r.stdout, /darwin-x64: none of tom_bs, tomspecs in the binaries layer/);
+        assert.match(r.stdout, /Bundled 2 binaries from the binaries layer/);
         assert.deepEqual(layer.DEFAULT_PLATFORMS, ['darwin-arm64', 'linux-x64', 'win32-x64'], "the fleet's build platforms only");
     });
 
@@ -225,27 +254,24 @@ describe('binaries layer', () => {
         const dir = path.join(t.layerDir, PLATFORM);
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(dir, 'tom_bs'), 'x');
-        fs.writeFileSync(path.join(dir, 'validate_codespecs'), 'x');
-        fs.writeFileSync(path.join(dir, 'spec_checks'), 'x');
-        const hashes = { validate_codespecs: 'h1', spec_checks: 's1' }; // eslint-disable-line @typescript-eslint/naming-convention -- binary names
+        fs.writeFileSync(path.join(dir, 'tomspecs'), 'x');
+        const hashes = { tomspecs: 'h1' };
         let d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHashes: hashes });
         assert.equal(d.tomBs.state, 'unknown');
         assert.match(d.tomBs.text, /no build stamp/);
-        assert.equal(d.clitool.validate_codespecs.state, 'unknown');
-        assert.match(d.clitool.spec_checks.text, /^spec_checks: no build stamp/);
+        assert.equal(d.clitool.tomspecs.state, 'unknown');
+        assert.match(d.clitool.tomspecs.text, /^tomspecs: no build stamp/);
         fs.writeFileSync(path.join(dir, 'tom_bs.build.json'), JSON.stringify({ version: '1.0.0', build: 7, commit: '0000000', builtAt: '2026-11-09T10:00:00.000Z' }));
-        fs.writeFileSync(path.join(dir, 'validate_codespecs.build.json'), JSON.stringify({ sourceHash: 'h1', builtAt: '2026-11-09T10:00:00.000Z' }));
-        fs.writeFileSync(path.join(dir, 'spec_checks.build.json'), JSON.stringify({ sourceHash: 's0', builtAt: '2026-11-09T10:00:00.000Z' }));
+        fs.writeFileSync(path.join(dir, 'tomspecs.build.json'), JSON.stringify({ sourceHash: 'h1', builtAt: '2026-11-09T10:00:00.000Z' }));
         d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHashes: hashes });
         assert.equal(d.tomBs.state, 'unknown', 'a commit this checkout does not have');
         assert.match(d.tomBs.text, /^tom_bs 1\.0\.0\+7 \(0000000, built 2026-11-09 10:00\)/);
-        assert.equal(d.clitool.validate_codespecs.state, 'fresh');
-        assert.equal(d.clitool.spec_checks.state, 'stale', 'each against its own source hash');
-        d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHashes: { ...hashes, validate_codespecs: 'h2' } }); // eslint-disable-line @typescript-eslint/naming-convention -- binary name
-        assert.equal(d.clitool.validate_codespecs.state, 'stale');
-        assert.match(d.clitool.validate_codespecs.text, /older than the sources/);
+        assert.equal(d.clitool.tomspecs.state, 'fresh');
+        d = layer.describePlatform(PLATFORM, { layer: t.layerDir, currentHashes: { tomspecs: 'h2' } });
+        assert.equal(d.clitool.tomspecs.state, 'stale', 'against its own source hash');
+        assert.match(d.clitool.tomspecs.text, /older than the sources/);
         assert.deepEqual(layer.describePlatform('darwin-x64', { layer: t.layerDir, currentHashes: hashes }),
-            { platform: 'darwin-x64', tomBs: null, clitool: { validate_codespecs: null, spec_checks: null, irspecs: null, tomspecs: null } }); // eslint-disable-line @typescript-eslint/naming-convention -- binary names
+            { platform: 'darwin-x64', tomBs: null, clitool: { tomspecs: null } });
     });
 });
 
@@ -341,19 +367,19 @@ describe('fleet build', () => {
         git(other, 'pull', '--quiet');
         commitIn(other, 'tom/win32-x64/tom_bs.exe', 'w2');
         git(other, 'push', '--quiet');
-        commitIn(t.repo, `tom/${PLATFORM}/spec_checks`, 'l2');
+        commitIn(t.repo, `tom/${PLATFORM}/tomspecs`, 'l2');
         r = runLayer(t, 'sync');
         assert.match(r.stdout, /1 commit\(s\) of this host put on top of 1/);
-        assert.deepEqual(remoteLog().split('\n').slice(0, 2), [`tom/${PLATFORM}/spec_checks`, 'tom/win32-x64/tom_bs.exe']);
+        assert.deepEqual(remoteLog().split('\n').slice(0, 2), [`tom/${PLATFORM}/tomspecs`, 'tom/win32-x64/tom_bs.exe']);
         // A conflict: aborted, packaged as it is.
         git(other, 'pull', '--quiet');
-        commitIn(other, `tom/${PLATFORM}/spec_checks`, 'theirs');
+        commitIn(other, `tom/${PLATFORM}/tomspecs`, 'theirs');
         git(other, 'push', '--quiet');
-        commitIn(t.repo, `tom/${PLATFORM}/spec_checks`, 'mine');
+        commitIn(t.repo, `tom/${PLATFORM}/tomspecs`, 'mine');
         r = runLayer(t, 'sync');
         assert.equal(r.status, 0);
         assert.match(r.stdout, /could not be put on top[\s\S]*Packaging the layer as it is/);
-        assert.equal(fs.readFileSync(path.join(t.layerDir, PLATFORM, 'spec_checks'), 'utf8'), 'mine', 'the rebase was aborted');
+        assert.equal(fs.readFileSync(path.join(t.layerDir, PLATFORM, 'tomspecs'), 'utf8'), 'mine', 'the rebase was aborted');
         assert.equal(git(t.repo, 'status', '--porcelain'), '', 'nothing left half-done');
         // No layer: nothing to do.
         assert.equal(runLayer({ layerDir: path.join(t.root, 'missing'), bin: t.bin }, 'sync').status, 0);

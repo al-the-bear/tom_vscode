@@ -4,7 +4,7 @@
 .DESCRIPTION
     create_vsix_nodart.ps1 [-NoRelease | --no-release]
 
-    No tom_bs, no validate_codespecs (no DartScript, no CodeSpecs validation),
+    No tom_bs, no tomspecs (no DartScript, no CodeSpecs validation),
     no Dart SDK needed. Otherwise as create_vsix.ps1: the workspace template
     inside the VSIX and beside it, no provider SDK (installed on request),
     nothing installed.

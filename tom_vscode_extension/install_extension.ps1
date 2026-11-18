@@ -7,7 +7,7 @@
                           [-BinariesOnly | --binaries-only] [-LayerBinaries | --layer-binaries] [-NoLayer | --no-layer]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
-    Dart SDK: no Dart step runs, and the VSIX carries no validate_codespecs and,
+    Dart SDK: no Dart step runs, and the VSIX carries no tomspecs and,
     from source, no tom_bs. Without the option the same happens when no Dart
     SDK is found (scripts/find-dart.cjs). The extension then loses only
     DartScript and CodeSpecs validation; everything else works.
@@ -17,12 +17,12 @@
     it).
 
     -BinariesOnly (or --binaries-only, or TOM_BINARIES_ONLY=1; from source
-    only) builds tom_bs and validate_codespecs for this host and puts them into
+    only) builds tom_bs and tomspecs for this host and puts them into
     the binaries layer - no npm, no TypeScript, no VSIX (the fleet build of
     create_fleetcompiled_vsix.* runs it on every fleet host).
 
     -LayerBinaries (or --layer-binaries, or TOM_LAYER_BINARIES=1) builds
-    nothing with Dart: tom_bs and validate_codespecs for every platform come
+    nothing with Dart: tom_bs and tomspecs for every platform come
     from the binaries layer (TOM_LAYER_PLATFORMS=a,b,... narrows them;
     create_*binaries_vsix.*).
 
@@ -179,7 +179,7 @@ $NpmVersion = Invoke-Native { npm --version }
 Write-Host "npm version: $NpmVersion"
 Write-Host ""
 
-# The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
+# The Dart SDK: tomspecs (and, from source, tom_bs) are compiled
 # below. Find it now - also when `dart` is not on PATH (Flutter's Dart,
 # DART_SDK, FLUTTER_ROOT, known locations; scripts/find-dart.cjs). Without one
 # the install goes on in no-Dart mode: every Dart step is skipped, and the
@@ -335,7 +335,7 @@ if ($Result -match "^[Yy]") {
     try {
 
     if ($LayerBinariesMode) {
-        # Every platform's tom_bs and validate_codespecs from the binaries
+        # Every platform's tom_bs and tomspecs from the binaries
         # layer, as its hosts left them (create_fleetcompiled_vsix.ps1,
         # create_currentbinaries_vsix.ps1); how current each is, is reported
         # there.
@@ -345,7 +345,7 @@ if ($Result -match "^[Yy]") {
             Write-Host "Bringing the binaries layer level with its remote..."
             Invoke-Native { node scripts/binaries-layer.cjs sync }
         }
-        Write-Host "Bundling tom_bs, tomspecs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
+        Write-Host "Bundling tom_bs and tomspecs from the binaries layer..."
         if ($env:TOM_LAYER_PLATFORMS) {
             Invoke-Native { node scripts/binaries-layer.cjs bundle --platforms $env:TOM_LAYER_PLATFORMS }
         } else {
@@ -504,21 +504,20 @@ if ($Result -match "^[Yy]") {
         foreach ($line in @($Provenance)) { Write-Host "  $line" }
     }
 
-    # ── Bundle tomspecs (and validate_codespecs, spec_checks, irspecs) for THIS host ──
+    # ── Bundle tomspecs for THIS host ──
     # The CodeSpecs tools and the TomSpecs process check tools run
-    # tom_specs_clitool's validate_codespecs, spec_checks and irspecs as compiled
-    # binaries from bin/<platform>/ - never via `dart run`. They are compiled
-    # here from tom_ai/ai_build, like tom_bs in from-source mode. The Dart SDK
-    # was found at the start of this script. Without Dart the VSIX carries
-    # neither: CodeSpecs validation and the process checks are unavailable.
+    # tom_specs_clitool's tomspecs as a compiled binary from bin/<platform>/ -
+    # never via `dart run`. It is compiled here from tom_ai/ai_build, like
+    # tom_bs in from-source mode. The Dart SDK was found at the start of this script. Without Dart the VSIX carries
+    # no tomspecs: CodeSpecs validation and the process checks are unavailable.
     if ($LayerBinariesMode) {
         # taken from the binaries layer above
     } elseif ($NoDartMode) {
-        Write-Host "No Dart: tomspecs (and validate_codespecs, spec_checks, irspecs) are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
+        Write-Host "No Dart: tomspecs is not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
     } else {
         Push-Location $ExtensionDir
         Invoke-Native { node scripts/build-validate-codespecs.cjs }
-        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building tomspecs / validate_codespecs / spec_checks / irspecs failed"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building tomspecs failed"; exit 1 }
         Pop-Location
     }
     Write-Host ""

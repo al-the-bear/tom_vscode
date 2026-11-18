@@ -1,19 +1,19 @@
 /**
- * tomAi_specCodeSpecsMap (vscimpb99): Phase 4's stage 5 through the bundled irspecs, on a copy of the Meridian
+ * tomAi_specCodeSpecsMap (vscimpb99): Phase 4's stage 5 through the bundled `tomspecs :ir-map`, on a copy of the Meridian
  * sample (its generation-unit register) with the phase-4 fixture's IR.
  *
  *   CM-1 dryRun: one run per unit and mapper (the unit's areas grouped by mapper), the commands with
  *        workspace-relative paths, no Dart SDK note; `unit` narrows to one unit; an unknown unit and a missing IR
  *        folder are refused
- *   CM-2 the runs: the arguments irspecs gets (`map --mapper --ir --spec --unit --out`) and nothing else (no
+ *   CM-2 the runs: the IR call's arguments (`map --mapper --ir --spec --unit --out`) and nothing else (no
  *        environment of its own), ok when every run exits 0, a failing run's error kept
  *   CM-3 a failing dart-tom run is an ordinary failure (no `formatterUnavailable`, no `dartSdk`); a missing binary
  *        is `binaryMissing` with `help` and `page`
- *   CM-4 the real bundled irspecs (when this platform has one): a unit on ts-shared is mapped without a Dart SDK
+ *   CM-4 the real bundled tomspecs (when this platform has one): a unit on ts-shared is mapped without a Dart SDK
  *   CM-5 registration (a writer, approval-gated), the runbook, the csgen31 text and the workflow name the tool;
- *        irspecs is one of the Dart binaries the window reports, built by codespecs:build with its stamp; the
+ *        tomspecs is one of the Dart binaries the window reports (with tom_bs, nothing else), built by codespecs:build with its stamp; the
  *        description and the runbook name no Dart SDK prerequisite and no TOM_DART
- *   CM-7 the real bundled irspecs (when this platform has one) with only /usr/bin:/bin on PATH and no TOM_DART
+ *   CM-7 the real bundled tomspecs (when this platform has one) with only /usr/bin:/bin on PATH and no TOM_DART
  *        (vscimpb147, tom_specs irfmt2: dart_style in-process): a dart-tom unit is written formatted, byte-equal
  *        to the committed trio's server package
  *   CM-9 a generation unit listing `markdown` among its emitters validates without `unitEmitterUnknown` (tom_specs
@@ -32,13 +32,13 @@ installVscodeStub({});
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
 import { DART_BINARIES, DART_BINARY_FEATURE, DartBinaryMissing, currentDartBinary } from '../../services/dartBinariesStatus.js';
-import { clitoolBinary, legacyBinariesMode, runClitool } from '../../services/tomspecsCalls.js';
+import { CLITOOL_BINARY, runClitool } from '../../services/tomspecsCalls.js';
 
-/** The mapping binary and its command: `tomspecs :ir-map`, or `irspecs map` with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
-const MAPPER_BIN = clitoolBinary('irspecs');
-const MAP_CMD = legacyBinariesMode() ? 'irspecs map' : 'tomspecs :ir-map';
+/** The mapping binary and its command. */
+const MAPPER_BIN = CLITOOL_BINARY;
+const MAP_CMD = 'tomspecs :ir-map';
 import type { SpecToolDeps } from '../spec-tool-common.js';
-import { CODESPECS_MAP_TOOL, codeSpecsMapImpl, setIrspecsRunnerForTest } from '../codespecs-map-tools.js';
+import { CODESPECS_MAP_TOOL, codeSpecsMapImpl, setIrRunnerForTest } from '../codespecs-map-tools.js';
 import { specValidateImpl } from '../spec-validate-tools.js';
 import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
 import { CATEGORY_MAP } from '../../utils/toolCategories.js';
@@ -49,7 +49,7 @@ const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
 
 const ws = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261114_vscimpb99_map-')));
-after(() => { setIrspecsRunnerForTest(undefined); fs.rmSync(ws, { recursive: true, force: true }); });
+after(() => { setIrRunnerForTest(undefined); fs.rmSync(ws, { recursive: true, force: true }); });
 fs.mkdirSync(path.join(ws, 'run'), { recursive: true });
 fs.writeFileSync(path.join(ws, 'run', 'meridian.docspecs.yaml'), MERIDIAN_YAML);
 fs.cpSync(FIXTURE_IR, path.join(ws, 'run', 'irspecs'), { recursive: true });
@@ -86,7 +86,7 @@ describe('tomAi_specCodeSpecsMap', () => {
 
     test('CM-2: the runs', async () => {
         const seen: string[][] = [];
-        setIrspecsRunnerForTest(async (...a: unknown[]) => {
+        setIrRunnerForTest(async (...a: unknown[]) => {
             const args = a[0] as string[];
             assert.equal(a.length, 1, 'the arguments only: no environment of its own');
             seen.push(args);
@@ -99,32 +99,32 @@ describe('tomAi_specCodeSpecsMap', () => {
         assert.deepEqual(r.runs.map((x: Json) => [x.unit, x.exitCode]), [['meridian_codespec_shared', 0], ['meridian_codespec_client', 1], ['meridian_codespec_server', 0]]);
         assert.equal(r.runs[0].written, '3 file(s) written and formatted.');
         assert.equal(r.runs[1].error, 'a client mapper failed');
-        setIrspecsRunnerForTest(async () => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
+        setIrRunnerForTest(async () => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
         assert.equal((await call({ file: FILE, out: 'run/mapped' })).ok, true);
     });
 
     test('CM-3: a failing run; a missing binary', async () => {
-        setIrspecsRunnerForTest(async () => ({ exitCode: 1, stdout: '', stderr: 'the server mapper failed' }));
+        setIrRunnerForTest(async () => ({ exitCode: 1, stdout: '', stderr: 'the server mapper failed' }));
         const r = await call({ file: FILE, out: 'run/mapped', unit: 'meridian_codespec_server' });
         assert.equal(r.ok, false);
         assert.equal(r.runs[0].error, 'the server mapper failed');
         assert.equal('formatterUnavailable' in r || 'formatterUnavailable' in r.runs[0], false, 'no formatterUnavailable');
         assert.equal('dartSdk' in r, false);
         assert.equal(r.note, undefined);
-        setIrspecsRunnerForTest(async () => { throw new DartBinaryMissing('irspecs', '/x/bin/darwin-arm64/irspecs'); });
+        setIrRunnerForTest(async () => { throw new DartBinaryMissing('tomspecs', '/x/bin/darwin-arm64/tomspecs'); });
         const missing = await call({ file: FILE, out: 'run/mapped' });
-        assert.deepEqual([missing.ok, missing.outcome, missing.expected], [false, 'binaryMissing', '/x/bin/darwin-arm64/irspecs']);
+        assert.deepEqual([missing.ok, missing.outcome, missing.expected], [false, 'binaryMissing', '/x/bin/darwin-arm64/tomspecs']);
         assert.ok(missing.help && missing.page, 'how to get it');
-        setIrspecsRunnerForTest(undefined);
+        setIrRunnerForTest(undefined);
     });
 
-    test('CM-4: the bundled irspecs maps a ts-shared unit without a Dart SDK', { skip: currentDartBinary(MAPPER_BIN, EXT_ROOT).path ? false : `no ${MAPPER_BIN} for this platform` }, async () => {
+    test('CM-4: the bundled tomspecs maps a ts-shared unit without a Dart SDK', { skip: currentDartBinary(MAPPER_BIN, EXT_ROOT).path ? false : `no ${MAPPER_BIN} for this platform` }, async () => {
         // The shared unit on the TypeScript mapper (no `dart format`); the run's PATH holds no Dart SDK.
         fs.writeFileSync(path.join(ws, 'run', 'ts.docspecs.yaml'), MERIDIAN_YAML.replace(/(unitId: \|2-\n\s+meridian_codespec_shared[\s\S]*?mapping: \|2-\n\s+)dart-tom/, '$1ts-shared'));
         const pathBefore = process.env.PATH;
         process.env.PATH = '/usr/bin:/bin';
         try {
-            setIrspecsRunnerForTest((args) => runClitool({ tool: 'irspecs', args }, { timeoutMs: 120_000, extensionRoot: EXT_ROOT }));
+            setIrRunnerForTest((args: string[]) => runClitool({ tool: 'ir', args }, { timeoutMs: 120_000, extensionRoot: EXT_ROOT }));
             const plan = await call({ file: 'run/ts.docspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared', dryRun: true });
             assert.ok(plan.runs.some((r: Json) => r.mapper === 'ts-shared'), JSON.stringify(plan.runs));
             const r = await call({ file: 'run/ts.docspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared' });
@@ -133,7 +133,7 @@ describe('tomAi_specCodeSpecsMap', () => {
             assert.match(ts.written, /file\(s\) written/);
         } finally {
             process.env.PATH = pathBefore;
-            setIrspecsRunnerForTest(undefined);
+            setIrRunnerForTest(undefined);
         }
     });
 
@@ -147,13 +147,11 @@ describe('tomAi_specCodeSpecsMap', () => {
         assert.match(src('src/services/codespecs-guides.ts'), /1\. Map\. tomAi_specCodeSpecsMap with `file: "\{file\}"`/);
         assert.match(src('src/tools/codespecs-plan-tools.ts'), /tomAi_specCodeSpecsMap with file '<document>' and out '<packages folder>'/);
         assert.match(src('src/tools/codespecs-workflow-tools.ts'), /Map each generation unit from the IR \(tomAi_specCodeSpecsMap\)/);
-        assert.ok((DART_BINARIES as readonly string[]).includes('irspecs'));
-        assert.ok((DART_BINARIES as readonly string[]).includes('tomspecs'));
-        assert.equal(DART_BINARY_FEATURE.irspecs, 'CodeSpecs mapping');
+        assert.deepEqual([...DART_BINARIES], ['tom_bs', 'tomspecs']);
         assert.equal(DART_BINARY_FEATURE.tomspecs, 'TomSpecs process checks, CodeSpecs validation and mapping');
-        assert.match(src('scripts/codespecs-binary-stamp.cjs'), /const CLITOOL_BINARIES = \['validate_codespecs', 'spec_checks', 'irspecs', 'tomspecs'\];/);
-        assert.match(src('scripts/check-vsix-contents.cjs'), /'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'\]/);
-        assert.match(src('scripts/vsix-release.cjs'), /'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'\]/);
+        assert.match(src('scripts/codespecs-binary-stamp.cjs'), /const CLITOOL_BINARIES = \['tomspecs'\];/);
+        assert.match(src('scripts/check-vsix-contents.cjs'), /const DART_BINARIES = \['tom_bs', 'tomspecs'\];/);
+        assert.match(src('scripts/vsix-release.cjs'), /const DART_BINARIES = \['tom_bs', 'tomspecs'\];/);
         // No Dart SDK prerequisite (vscimpb147).
         assert.doesNotMatch(CODESPECS_MAP_TOOL.description, /Dart SDK|TOM_DART|formatterUnavailable|dartSdk/);
         assert.doesNotMatch(src('src/tools/codespecs-map-tools.ts'), /TOM_DART|formatterUnavailable|dartSdk/);
@@ -161,12 +159,12 @@ describe('tomAi_specCodeSpecsMap', () => {
         assert.equal(fs.existsSync(path.join(EXT_ROOT, 'src', 'services', 'dartSdk.ts')), false);
     });
 
-    test('CM-7: the bundled irspecs maps a dart-tom unit formatted, without a Dart SDK', { skip: currentDartBinary(MAPPER_BIN, EXT_ROOT).path ? false : `no ${MAPPER_BIN} for this platform` }, async () => {
+    test('CM-7: the bundled tomspecs maps a dart-tom unit formatted, without a Dart SDK', { skip: currentDartBinary(MAPPER_BIN, EXT_ROOT).path ? false : `no ${MAPPER_BIN} for this platform` }, async () => {
         const pathBefore = process.env.PATH;
         const tomDartBefore = process.env.TOM_DART;
         process.env.PATH = '/usr/bin:/bin';
         delete process.env.TOM_DART;
-        setIrspecsRunnerForTest((args) => runClitool({ tool: 'irspecs', args }, { timeoutMs: 300_000, extensionRoot: EXT_ROOT }));
+        setIrRunnerForTest((args: string[]) => runClitool({ tool: 'ir', args }, { timeoutMs: 300_000, extensionRoot: EXT_ROOT }));
         try {
             // The server unit (the fixture's IR writes its four files; the shared unit's areas have none).
             const r = await call({ file: FILE, out: 'run/dart-out', unit: 'meridian_codespec_server' });
@@ -181,7 +179,7 @@ describe('tomAi_specCodeSpecsMap', () => {
         } finally {
             process.env.PATH = pathBefore;
             if (tomDartBefore !== undefined) { process.env.TOM_DART = tomDartBefore; }
-            setIrspecsRunnerForTest(undefined);
+            setIrRunnerForTest(undefined);
         }
     });
 

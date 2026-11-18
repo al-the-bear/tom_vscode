@@ -16,13 +16,13 @@
 #    fleet_hosts registry (darwin-arm64 mbp, linux-x64 bigbeast, win32-x64
 #    legiondary01) is reached and at this host's commits, then runs
 #    compile_and_install --binaries-only on each (this host first; over SSH,
-#    on Windows through PowerShell). Each builds tom_bs and validate_codespecs,
+#    on Windows through PowerShell). Each builds tom_bs and tomspecs,
 #    fast-forwards its binaries layer, commits its platform's binaries there
 #    and pushes; this host's layer is then fast-forwarded to hold them all.
 #    --dry-run stops after the check; --hosts builds on those hosts only (the
 #    others' binaries are packaged as the layer holds them).
 # 2. Packages the VSIX through install_extension.sh --package-only, taking
-#    tom_bs and validate_codespecs for darwin-arm64, linux-x64 and win32-x64
+#    tom_bs and tomspecs for darwin-arm64, linux-x64 and win32-x64
 #    from the layer, with the workspace template, as create_vsix.sh (no
 #    provider SDK: the extension installs them on request).
 # Every run publishes the VSIX files as the GitHub Release `vscode-extension-latest` of

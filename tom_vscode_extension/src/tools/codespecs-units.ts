@@ -9,9 +9,9 @@
  *   - The **IR folder**: `<spec-root>/irspecs/`, one
  *     `<CE-CODE>_<canonical id in snake case>.ir.yaml` per area
  *     (`CE-DB_data_access.ir.yaml`; tom_specs irout2), which the authoring
- *     steps write and `irspecs map --unit` turns into each unit's package. The
+ *     steps write and `tomspecs :ir-map --unit` turns into each unit's package. The
  *     readers still take the older `<CE-CODE>.ir.yaml`; a folder holding both
- *     names for one area is refused by irspecs and reported here.
+ *     names for one area is refused by `tomspecs :ir-map` and reported here.
  *   - A step's **units**: the units its extracts' entries go to, read off the
  *     entries' `units` (the nearest stored `units`, else the register's default).
  */
@@ -28,7 +28,7 @@ export const IR_DIR = 'irspecs';
 /** An IR document's file-name suffix. */
 export const IR_SUFFIX = '.ir.yaml';
 
-/** `DataAccess` → `data_access` (irspecs' `snakeCase`: an underscore before a capital that follows a lower-case letter or digit). */
+/** `DataAccess` → `data_access` (the IR mapper's `snakeCase`: an underscore before a capital that follows a lower-case letter or digit). */
 export function snakeCase(pascal: string): string {
     return pascal.replace(/(?<=[a-z0-9])([A-Z])/g, '_$1').toLowerCase();
 }
@@ -53,7 +53,7 @@ export interface IrDocumentFound {
     name: string;
     /** The name found on disk: the new one, else the older one; null when neither exists. */
     found: string | null;
-    /** Set when the folder holds both names for the area (irspecs refuses that folder). */
+    /** Set when the folder holds both names for the area (`tomspecs :ir-map` refuses that folder). */
     bothNames?: { names: [string, string]; message: string };
 }
 

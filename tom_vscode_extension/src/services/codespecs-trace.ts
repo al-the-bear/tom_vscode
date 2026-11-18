@@ -17,7 +17,7 @@
  * Extracts are read file by file through the runtime's reader, so an extract
  * in a format this runtime does not read is reported by name, never misread,
  * and the other files still answer. The back-link index is the JSON
- * `validate_codespecs --backlinks` writes (format `codespecs-backlinks`/1);
+ * `tomspecs :codespecs-validate --backlinks` writes (format `codespecs-backlinks`/1);
  * the code is never parsed here.
  *
  * vscode-free.
@@ -71,7 +71,7 @@ export function parseBacklinkIndex(text: string, source: string): BacklinkIndex 
     }
     if (json.format !== BACKLINKS_FORMAT || json.formatVersion !== BACKLINKS_FORMAT_VERSION) {
         throw new Error(`${source} declares ${json.format ?? 'no format'}/${json.formatVersion ?? '?'}; this reader understands `
-            + `${BACKLINKS_FORMAT}/${BACKLINKS_FORMAT_VERSION} only (the output of validate_codespecs --backlinks).`);
+            + `${BACKLINKS_FORMAT}/${BACKLINKS_FORMAT_VERSION} only (the output of tomspecs :codespecs-validate --backlinks).`);
     }
     if (!Array.isArray(json.declarations)) {
         throw new Error(`${source} has no declarations list.`);

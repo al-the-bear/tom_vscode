@@ -4,8 +4,9 @@
  * entries, symlinks) and only reports the Dart-built binaries, so a VSIX built
  * without a Dart SDK passes (vsc_nodart-1).
  *
- *   CVX-1 a VSIX without validate_codespecs and tom_bs passes and reports both missing for this host
- *   CVX-2 binaries for other platforms are listed per platform, with `.exe` on Windows
+ *   CVX-1 a VSIX without tomspecs and tom_bs passes and reports both missing for this host
+ *   CVX-2 binaries for other platforms are listed per platform, with `.exe` on Windows; the report names tom_bs and
+ *         tomspecs only
  *   CVX-3 a missing required entry still fails (exit 1)
  *   CVX-4 a symlink still fails (exit 1)
  */
@@ -72,28 +73,28 @@ const required = (): Entry[] => REQUIRED.map((name) => ({ name }));
 
 describe('check-vsix-contents', () => {
     test('CVX-1: no Dart-built binaries is a valid package', () => {
-        assert.ok(!REQUIRED.some((r) => r.includes('validate_codespecs') || r.includes('tom_bs')), 'no binary is required');
+        assert.ok(!REQUIRED.some((r) => r.includes('tomspecs') || r.includes('tom_bs')), 'no binary is required');
         const r = check('no-dart.vsix', required());
         assert.equal(r.status, 0, r.stderr);
         assert.match(r.stdout, /no symlinks/);
-        assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): tom_bs — missing, tomspecs — missing, validate_codespecs — missing`));
+        assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): tom_bs — missing, tomspecs — missing$`, 'm'));
     });
 
     test('CVX-2: per platform', () => {
         const names = new Set([
-            'extension/bin/darwin-arm64/tom_bs', 'extension/bin/darwin-arm64/validate_codespecs', 'extension/bin/darwin-arm64/spec_checks', 'extension/bin/darwin-arm64/irspecs',
-            'extension/bin/win32-x64/tom_bs.exe', 'extension/bin/win32-x64/spec_checks.exe', 'extension/bin/linux-x64/validate_codespecs',
+            'extension/bin/darwin-arm64/tom_bs', 'extension/bin/darwin-arm64/tomspecs',
+            'extension/bin/win32-x64/tom_bs.exe', 'extension/bin/linux-x64/tomspecs',
         ]);
         assert.deepEqual(dartBinaryReport(names, 'linux-arm64'), [
-            { platform: 'darwin-arm64', binaries: { tom_bs: true, tomspecs: false, validate_codespecs: true, spec_checks: true, irspecs: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-arm64', binaries: { tom_bs: false, tomspecs: false, validate_codespecs: false, spec_checks: false, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'linux-x64', binaries: { tom_bs: false, tomspecs: false, validate_codespecs: true, spec_checks: false, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
-            { platform: 'win32-x64', binaries: { tom_bs: true, tomspecs: false, validate_codespecs: false, spec_checks: true, irspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'darwin-arm64', binaries: { tom_bs: true, tomspecs: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-arm64', binaries: { tom_bs: false, tomspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'linux-x64', binaries: { tom_bs: false, tomspecs: true }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
+            { platform: 'win32-x64', binaries: { tom_bs: true, tomspecs: false }, buildTools: { buildkit: false, d4rtgen: false, reflectiongenerator: false, testkit: false } }, // eslint-disable-line @typescript-eslint/naming-convention
         ]);
         const exe = process.platform === 'win32' ? '.exe' : '';
-        const r = check('host.vsix', [...required(), { name: `extension/bin/${HOST}/validate_codespecs${exe}` }]);
+        const r = check('host.vsix', [...required(), { name: `extension/bin/${HOST}/tomspecs${exe}` }]);
         assert.equal(r.status, 0, r.stderr);
-        assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): tom_bs — missing, tomspecs — missing, validate_codespecs ✔`));
+        assert.match(r.stdout, new RegExp(`${HOST} \\(this host\\): tom_bs — missing, tomspecs ✔$`, 'm'));
     });
 
     test('CVX-5: the build tools, per platform', () => {

@@ -2,7 +2,7 @@
  * Validating TomSpecs (SOM) documents, and rendering one subtree, for the
  * agent tools (tomAi_specValidate / tomAi_specRender).
  *
- * Validation runs the three tiers tom_specs' `validate_spec` CLI runs, and
+ * Validation runs the three tiers `tomspecs :spec-validate` runs, and
  * reports them in the same shape (`spec-validation`/1: tiers, notRun,
  * violations `{tier, code, severity, file, line, location, message}`), so an
  * agent gets one answer for one file whichever tool asks:

@@ -9,11 +9,14 @@
  *   node scripts/binaries-layer.cjs unpushed
  *   node scripts/binaries-layer.cjs sync
  *
- * The extension carries four binaries per platform, built with the Dart SDK:
+ * The extension carries two binaries per platform, built with the Dart SDK:
  * tom_bs (the DartScript bridge) and tom_specs_clitool's tomspecs (the
- * TomSpecs process checks, CodeSpecs validation and mapping; with the older
- * validate_codespecs, spec_checks and irspecs until tom_specs' tsbin8) — the
- * clitool binaries of codespecs-binary-stamp.cjs (CLITOOL_BINARIES). A Dart binary can only be built on its own platform, so a VSIX
+ * TomSpecs process checks, CodeSpecs validation and mapping) — the clitool
+ * binary of codespecs-binary-stamp.cjs (CLITOOL_BINARIES). The clitool
+ * binaries tomspecs replaced (RETIRED_CLITOOL_BINARIES there) are deleted,
+ * with their stamps: by publish from the layer's folder of this platform (the
+ * deletion committed with the build), by bundle from each bin/<platform>/ it
+ * fills. A Dart binary can only be built on its own platform, so a VSIX
  * for several platforms takes the others' from the layer,
  * `tom_binaries/tom/<platform>/`, where every host that builds them leaves
  * its own.
@@ -97,6 +100,7 @@ const BUILD_TOOLS = ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit'];
 /** A bundled build tool's stamp file. */
 function toolStampName(name) { return `${name}.bundle.json`; }
 const CLITOOL_STAMPS = CLITOOL_BINARIES.map((name) => codespecsStamp.stampName(name));
+const RETIRED_BINARIES = codespecsStamp.RETIRED_CLITOOL_BINARIES;
 
 function layerDir() {
     return process.env.TOM_BINARIES_LAYER
@@ -225,6 +229,25 @@ function publish({ ff = false, push = true } = {}) {
         if (!f.endsWith('.json') && !platform.startsWith('win32')) { fs.chmodSync(path.join(dstDir, f), 0o755); }
         written.push(f);
     }
+    // The retired clitool binaries go from the layer, with their stamps; a
+    // committed one is removed in the same commit.
+    const realDst = fs.realpathSync(dstDir);
+    const toRel = (f) => path.relative(repo, path.join(realDst, f)).split(path.sep).join('/');
+    const removed = [];
+    try {
+        for (const f of codespecsStamp.retiredFiles(platform)) {
+            if (!fs.existsSync(path.join(dstDir, f))) { continue; }
+            if (git(['ls-files', '--', toRel(f)], repo) !== '') {
+                git(['rm', '--quiet', '--force', '--', toRel(f)], repo);
+                removed.push(f);
+            } else {
+                fs.rmSync(path.join(dstDir, f), { force: true });
+            }
+        }
+    } catch (e) {
+        console.error(`❌ Removing the retired binaries from the binaries layer failed: ${(e.stderr || e.message).toString().trim()}`);
+        return 1;
+    }
     let tomBs = null;
     if (present.includes(tomBsName)) {
         if (sameTomBs) {
@@ -237,10 +260,10 @@ function publish({ ff = false, push = true } = {}) {
     }
     // Against the real folder: git names the repository by its real path (a
     // symlinked parent would otherwise put the files "outside" it).
-    const realDst = fs.realpathSync(dstDir);
-    const rel = written.map((f) => path.relative(repo, path.join(realDst, f)).split(path.sep).join('/'));
+    const added = written.map(toRel);
+    const rel = [...added, ...removed.map(toRel)];
     try {
-        git(['add', '--', ...rel], repo);
+        git(['add', '--', ...added], repo);
         const changed = spawnSync('git', ['diff', '--cached', '--quiet', '--', ...rel], { cwd: repo }).status !== 0;
         if (!changed) {
             console.log(`✔ The binaries layer already holds this build for ${platform}.`);
@@ -254,6 +277,8 @@ function publish({ ff = false, push = true } = {}) {
             const head = cs && cs.clitool && cs.clitool.head ? ` (clitool ${String(cs.clitool.head).slice(0, 8)}${cs.clitool.dirty ? ', dirty' : ''})` : '';
             parts.push(`${name}${head}`);
         }
+        const retiredNames = RETIRED_BINARIES.filter((name) => removed.includes(exe(platform, name)));
+        if (retiredNames.length) { parts.push(`removed ${retiredNames.join(', ')}`); }
         const message = `${parts.join(', ')} for ${platform}`;
         git(['commit', '--quiet', '-m', message, '--', ...rel], repo);
         console.log(`✔ Binaries layer: committed ${message}`);
@@ -300,6 +325,7 @@ function bundle(platforms) {
         }
         const dstDir = path.join(extBinDir(), platform);
         fs.mkdirSync(dstDir, { recursive: true });
+        codespecsStamp.removeRetired(dstDir, platform);
         for (const f of found) {
             fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f));
             if (!platform.startsWith('win32')) { fs.chmodSync(path.join(dstDir, f), 0o755); }
@@ -540,7 +566,7 @@ function tools(platforms) {
     return 0;
 }
 
-module.exports = { DEFAULT_PLATFORMS, BUILD_TOOLS, toolStampName, toolStamp, tools, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed, sync };
+module.exports = { DEFAULT_PLATFORMS, BUILD_TOOLS, RETIRED_BINARIES, retiredFiles: codespecsStamp.retiredFiles, toolStampName, toolStamp, tools, layerDir, hostPlatform, bridgeSourceHash, tomBsStamp, publish, bundle, describePlatform, report, unpushed, sync };
 
 if (require.main === module) {
     const [cmd, ...argv] = process.argv.slice(2);

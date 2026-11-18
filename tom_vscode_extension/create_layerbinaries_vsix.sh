@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Package the private-distribution VSIX files with every platform's tom_bs and
-# validate_codespecs taken from the binaries layer; build nothing with Dart,
+# tomspecs taken from the binaries layer; build nothing with Dart,
 # install nothing.
 #
 # One VSIX per platform the layer has (darwin-arm64, linux-x64, win32-x64):

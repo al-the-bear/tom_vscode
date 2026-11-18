@@ -6,14 +6,14 @@ query, trace, validate and step-context tests (`codespecs-trace-tools.test.ts`,
 
 - `codespec/` — the sample's generated trio (`shared`, `client`, `server`), its
   recorded `validation_report.json` and the trio's IR (`irspecs/`, three
-  `*.ir.yaml`, what `irspecs from-codespecs` writes from the trio; the `ir`
+  `*.ir.yaml`, what `tomspecs :ir-from-codespecs` writes from the trio; the `ir`
   tests of `codespecs-validate-tools.test.ts` and `codespecs-workflow-tools.test.ts`),
   copied from the sample's `codespec/`;
 
 - `codespecs_extracts/` — the sample's 27 `*.extract.yaml`, written by its
   stage 2 to its gitignored `build/codespecs_extracts/`;
 - `backlinks.json` — the back-link index of the sample's generated trio, written
-  by `validate_codespecs --backlinks`, with the inputs made package-relative.
+  by `tomspecs :codespecs-validate --backlinks`, with the inputs made package-relative.
 
 To refresh, from `tom_ai/ai_build`:
 
@@ -24,7 +24,7 @@ FIX=../vscode/tom_vscode_extension/src/tools/__tests__/fixtures/phase4
 cp $SAMPLE/build/codespecs_extracts/*.extract.yaml $FIX/codespecs_extracts/
 cp -R $SAMPLE/codespec/{shared,client,server,irspecs,validation_report.json} \
    $FIX/codespec/
-cd tom_specs_clitool && dart run tom_specs_clitool:validate_codespecs \
+cd tom_specs_clitool && dart run tom_specs_clitool:tomspecs :codespecs-validate \
    --backlinks --shared ../$SAMPLE/codespec/shared \
    --client ../$SAMPLE/codespec/client --server ../$SAMPLE/codespec/server
 ```

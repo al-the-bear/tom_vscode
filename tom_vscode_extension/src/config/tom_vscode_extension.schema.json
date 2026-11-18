@@ -28,24 +28,9 @@
                             "description": "tom_specs_clitool's one binary, which the tools call: the TomSpecs process checks (tomAi_specImportAnswers, tomAi_specRequiredFields, tomAi_specQuestionRegister, tomAi_specFeatureRegister, tomAi_specProjectIdeaCoverage, tomAi_specAuthorizationCheck, tomAi_specCoverage), CodeSpecs validation (tomAi_specCodeSpecsValidate, the Trace agreement, tomAi_specCodeSpecsStatus) and mapping (tomAi_specCodeSpecsMap); for a platform the extension carries none for.",
                             "additionalProperties": { "type": "string" }
                         },
-                        "validate_codespecs": {
-                            "type": "object",
-                            "description": "Old CodeSpecs validator binary, used only with TOM_SPECS_LEGACY_BINARIES=1 until tom_specs' tsbin8 (the tools call tomspecs). The CodeSpecs validator binary (tomAi_specCodeSpecsValidate, the Trace agreement, the validation stage of tomAi_specCodeSpecsStatus); for a platform the extension carries none for.",
-                            "additionalProperties": { "type": "string" }
-                        },
                         "buildkit": {
                             "type": "object",
                             "description": "The buildkit binary the project list comes from (tomAi_listProjects, tomAi_getWorkspaceInfo, the project pickers: `buildkit :projects --all --json`). Not bundled; without this entry it is taken from the binaries layer (binaryPath, else <workspace>/tom_binaries/tom/<platform>/) or PATH.",
-                            "additionalProperties": { "type": "string" }
-                        },
-                        "spec_checks": {
-                            "type": "object",
-                            "description": "Old process checks binary, used only with TOM_SPECS_LEGACY_BINARIES=1 until tom_specs' tsbin8 (the tools call tomspecs). The TomSpecs process checks binary (tomAi_specImportAnswers, tomAi_specRequiredFields, tomAi_specQuestionRegister, tomAi_specFeatureRegister, tomAi_specProjectIdeaCoverage, tomAi_specAuthorizationCheck, tomAi_specCoverage); for a platform the extension carries none for.",
-                            "additionalProperties": { "type": "string" }
-                        },
-                        "irspecs": {
-                            "type": "object",
-                            "description": "Old mapping binary, used only with TOM_SPECS_LEGACY_BINARIES=1 until tom_specs' tsbin8 (the tools call tomspecs). The CodeSpecs mapping binary (tomAi_specCodeSpecsMap: `irspecs map` of each generation unit from the IR); for a platform the extension carries none for.",
                             "additionalProperties": { "type": "string" }
                         }
                     },

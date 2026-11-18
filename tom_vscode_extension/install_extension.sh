@@ -6,18 +6,18 @@
 #                          [--binaries-only] [--layer-binaries] [--no-layer]
 #
 # --no-dart builds as on a machine without a Dart SDK (also TOM_NO_DART=1):
-# no Dart step runs, and the VSIX carries no validate_codespecs and, from
+# no Dart step runs, and the VSIX carries no tomspecs and, from
 # source, no tom_bs. Without the option the same happens when no Dart SDK is
 # found (scripts/find-dart.cjs). The extension then loses only DartScript and
 # CodeSpecs validation; everything else works.
 # --package-only (also TOM_PACKAGE_ONLY=1) builds and checks the VSIX but does
 # not uninstall the old one or install it (create_vsix*.sh use it).
 # --binaries-only (also TOM_BINARIES_ONLY=1; from source only) builds tom_bs and
-# validate_codespecs for this host and puts them into the binaries layer —
+# tomspecs for this host and puts them into the binaries layer —
 # no npm, no TypeScript, no VSIX (create_fleetcompiled_vsix.sh runs it on
 # every fleet host).
 # --layer-binaries (also TOM_LAYER_BINARIES=1) builds nothing with Dart: tom_bs
-# and validate_codespecs for every platform come from the binaries layer
+# and tomspecs for every platform come from the binaries layer
 # (TOM_LAYER_PLATFORMS=a,b,... narrows them; create_*binaries_vsix.sh).
 # TOM_SPLIT_PLATFORMS=1 (with --package-only; the multi-platform create
 # scripts set it) packs one VSIX per platform bin/ holds,
@@ -123,7 +123,7 @@ fi
 
 echo ""
 
-# The Dart SDK: validate_codespecs (and, from source, tom_bs) are compiled
+# The Dart SDK: tomspecs (and, from source, tom_bs) are compiled
 # below. Find it now — also when `dart` is not on PATH (Flutter's Dart,
 # DART_SDK, FLUTTER_ROOT, known locations; scripts/find-dart.cjs). Without one
 # the install goes on in no-Dart mode: every Dart step is skipped, and the
@@ -266,7 +266,7 @@ tom_bin_kept_on_failure() {
 trap 'tom_bin_kept_on_failure $?; tom_build_lock_release' EXIT
 
 if [ "$LAYER_BINARIES" = "1" ]; then
-    # Every platform's tom_bs and validate_codespecs from the binaries layer, as
+    # Every platform's tom_bs and tomspecs from the binaries layer, as
     # its hosts left them (create_fleetcompiled_vsix.sh,
     # create_currentbinaries_vsix.sh); how current each is, is reported there.
     # The layer level with its remote first: the other hosts' binaries pulled, this
@@ -275,7 +275,7 @@ if [ "$LAYER_BINARIES" = "1" ]; then
         echo "🔄 Bringing the binaries layer level with its remote..."
         node scripts/binaries-layer.cjs sync || true
     fi
-    echo "📦 Bundling tom_bs, tomspecs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
+    echo "📦 Bundling tom_bs and tomspecs from the binaries layer..."
     LAYER_ARGS=()
     [ -n "${TOM_LAYER_PLATFORMS:-}" ] && LAYER_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")
     node scripts/binaries-layer.cjs bundle "${LAYER_ARGS[@]}" || exit 1
@@ -408,20 +408,19 @@ else
     ( cd "$SCRIPT_DIR" && node scripts/check-tom-bs-provenance.cjs ) | sed 's/^/  /' || true
 fi
 
-# ── Bundle tomspecs (and validate_codespecs, spec_checks, irspecs) for THIS host ──────
+# ── Bundle tomspecs for THIS host ──────
 # The CodeSpecs tools (validate, trace over a trio) and the TomSpecs process
-# check tools run tom_specs_clitool's validate_codespecs, spec_checks and irspecs as
-# compiled binaries from bin/<platform>/ — never via `dart run`. They are
-# compiled here from tom_ai/ai_build, like tom_bs above in from-source mode,
-# with the Dart SDK found at the start of this script. Without Dart the VSIX
-# carries neither: CodeSpecs validation and the process checks are unavailable.
+# check tools run tom_specs_clitool's tomspecs as a compiled binary from
+# bin/<platform>/ — never via `dart run`. It is compiled here from
+# tom_ai/ai_build, like tom_bs above in from-source mode, with the Dart SDK found at the start of this script. Without Dart the VSIX
+# does not carry it: CodeSpecs validation and the process checks are unavailable.
 if [ "$LAYER_BINARIES" = "1" ]; then
     : # taken from the binaries layer above
 elif [ "$NO_DART" = "1" ]; then
-    echo "📦 No Dart: tomspecs (and validate_codespecs, spec_checks, irspecs) are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
+    echo "📦 No Dart: tomspecs is not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
 else
     ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
-        echo "❌ Error: building tomspecs / validate_codespecs / spec_checks / irspecs failed"
+        echo "❌ Error: building tomspecs failed"
         exit 1
     }
 fi

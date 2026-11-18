@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
- * Are the bundled tom_specs_clitool binaries — validate_codespecs (CodeSpecs
- * validation), spec_checks (the TomSpecs process checks) and irspecs (the
- * CodeSpecs mapping from the IR) — built from the
- * clitool source as it is now?
+ * Is the bundled tom_specs_clitool binary — tomspecs (the TomSpecs process
+ * checks, CodeSpecs validation and the CodeSpecs mapping from the IR) — built
+ * from the clitool source as it is now?
  *
  *   node scripts/codespecs-binary-stamp.cjs     (npm run codespecs:check)
  *
  * `npm run codespecs:build` compiles bin/<platform>/<name> from ai_build's
- * tom_specs_clitool for each of CLITOOL_BINARIES and writes, beside it,
+ * tom_specs_clitool for each of CLITOOL_BINARIES (bin/<name>.dart) and writes, beside it,
  * <name>.build.json: a sha256 over the files the binary is built from, with
  * the clitool's git HEAD and dirty flag for the message (read only from
  * ai_build's own repository: an export without `.git` gets `head: null` and a
@@ -26,6 +25,11 @@
  * Like bin/, the stamp is gitignored and not packaged: it describes this
  * machine's binary.
  *
+ * RETIRED_CLITOOL_BINARIES are the clitool's binaries tomspecs replaced: no
+ * longer built or bundled, they (and their stamps) are deleted from every
+ * bin/<platform>/ the build and the binaries layer write into
+ * (removeRetired).
+ *
  * Exit codes (as a script, over every binary): 0 all fresh, 1 one stale or
  * without a stamp, 2 not measured (no binary, or no clitool source to compare
  * with) and none stale.
@@ -40,10 +44,11 @@ const { execFileSync } = require('child_process');
 const EXT_ROOT = path.resolve(__dirname, '..');
 const STAMP_FORMAT = 'validate-codespecs-build';
 const STAMP_FORMAT_VERSION = 1;
-/** The binaries compiled from tom_specs_clitool, each from its bin/<name>.dart. */
-/** `tomspecs` is the one binary the tools call; the other three stay bundled until tom_specs' tsbin8 removes them. */
-const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks', 'irspecs', 'tomspecs'];
-const DEFAULT_NAME = 'validate_codespecs';
+/** The binaries compiled from tom_specs_clitool, each from its bin/<name>.dart: tomspecs, its one entrypoint. */
+const CLITOOL_BINARIES = ['tomspecs'];
+const DEFAULT_NAME = 'tomspecs';
+/** The clitool's binaries tomspecs replaced: deleted, with their stamps, wherever a binaries folder is written. */
+const RETIRED_CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks', 'irspecs'];
 
 function aiBuildCheckout() {
     return process.env.TOM_SOM_AI_BUILD
@@ -71,6 +76,21 @@ function stampName(name = DEFAULT_NAME) {
 
 function stampPath(extRoot = EXT_ROOT, platform = hostPlatform(), name = DEFAULT_NAME) {
     return path.join(extRoot, 'bin', platform, stampName(name));
+}
+
+/** The files of the retired clitool binaries in a bin/<platform>/ folder: each binary and its stamp. */
+function retiredFiles(platform = hostPlatform()) {
+    return RETIRED_CLITOOL_BINARIES.flatMap((name) => [binaryName(platform, name), stampName(name)]);
+}
+
+/** Delete the retired clitool binaries and their stamps from `dir` (a bin/<platform>/ folder); answers the files removed. */
+function removeRetired(dir, platform = hostPlatform()) {
+    const removed = [];
+    for (const f of retiredFiles(platform)) {
+        const file = path.join(dir, f);
+        if (fs.existsSync(file)) { fs.rmSync(file, { force: true }); removed.push(f); }
+    }
+    return removed;
 }
 
 /** Every `*.dart` under `dir`, relative to `base`, in a stable order. */
@@ -245,8 +265,8 @@ function checkFreshness({ extRoot = EXT_ROOT, aiBuild = aiBuildCheckout(), platf
 
 module.exports = {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- exported constants keep their names
-    STAMP_FORMAT, STAMP_FORMAT_VERSION, CLITOOL_BINARIES,
-    aiBuildCheckout, hostPlatform, binaryName, binaryPath, stampName, stampPath,
+    STAMP_FORMAT, STAMP_FORMAT_VERSION, CLITOOL_BINARIES, RETIRED_CLITOOL_BINARIES,
+    aiBuildCheckout, retiredFiles, removeRetired, hostPlatform, binaryName, binaryPath, stampName, stampPath,
     feedFiles, sourceHash, gitInfo, isOwnGitRepo, NOT_A_CHECKOUT_NOTE, uncommittedFeedFiles, writeStamp, checkFreshness,
 };
 

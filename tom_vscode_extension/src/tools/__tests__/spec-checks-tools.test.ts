@@ -1,5 +1,5 @@
 /**
- * The TomSpecs process-check tools (src/tools/spec-checks-tools.ts) over the bundled spec_checks binary
+ * The TomSpecs process-check tools (src/tools/spec-checks-tools.ts) over the bundled tomspecs binary (`:spec-*`)
  * (src/services/spec-checks.ts), and its lines read back as structure.
  *
  *   SK-1 the reading: each check's lines as tom_specs_clitool prints them — findings by tag, the summary counts,
@@ -36,6 +36,7 @@ import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore, nodeSomDocumentIo } from '../../services/som-document-store.js';
 import { DartBinaryMissing, binaryFileName, setDartBinariesExtensionRoot } from '../../services/dartBinariesStatus.js';
 import { readSpecCheckRun, type SpecCheck } from '../../services/spec-checks.js';
+import { SPEC_COMMANDS } from '../../services/tomspecsCalls.js';
 import { getCurrentPlatform } from '../../utils/executableResolver.js';
 import {
     SPEC_CHECKS_TOOLS, specAuthorizationCheckImpl, specCoverageImpl, specFeatureRegisterImpl, specImportAnswersImpl,
@@ -48,12 +49,12 @@ const WORKSPACE = path.resolve(EXT, '..', '..', '..');
 const AI_BUILD = path.resolve(EXT, '..', '..', 'ai_build');
 const MERIDIAN = path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml');
 const ANSWER_FIXTURE = path.join(AI_BUILD, 'tom_specs_clitool', 'test', 'spec_checks', 'sbp_fixture.dart');
-const BINARY = path.join(EXT, 'bin', getCurrentPlatform(), binaryFileName('spec_checks'));
+const BINARY = path.join(EXT, 'bin', getCurrentPlatform(), binaryFileName('tomspecs'));
 const UAM = path.join(WORKSPACE, 'tom_uam', 'tom_specs');
 
 /** Why the real-binary tests cannot run here, or '' when they can. */
 function cannotRun(...files: string[]): string {
-    if (!fs.existsSync(BINARY)) { return `no spec_checks at ${BINARY} (npm run codespecs:build)`; }
+    if (!fs.existsSync(BINARY)) { return `no tomspecs at ${BINARY} (npm run codespecs:build)`; }
     const missing = files.find((f) => !fs.existsSync(f));
     return missing ? `no ${missing}` : '';
 }
@@ -112,7 +113,7 @@ describe('TomSpecs process checks', () => {
         assert.deepEqual(imp.findings, [{ kind: 'SCHEMA', text: 'line 19: missing' }]);
         assert.deepEqual(imp.lines, ['written   a.yaml', 'rendition a.md']);
         assert.equal(run('import-answers', 'decode    OK\n', 'REFUSED   the rendition differs beyond answers\n', 2).outcome, 'refused');
-        const usage = run('authorization', '', 'usage: spec_checks authorization <sbp.docspecs.yaml>\nthe role model is the project\'s: x/checks/authorization_cross_check.yaml\n', 2);
+        const usage = run('authorization', '', 'usage: tomspecs :spec-authorization <sbp.docspecs.yaml> — operations, role matrix, screens and use cases agree (checks/authorization_cross_check.yaml)\nthe role model is the project\'s: x/checks/authorization_cross_check.yaml\n', 2);
         assert.equal(usage.outcome, 'usageError');
         assert.equal(usage.stderr.length, 2);
     });
@@ -160,8 +161,8 @@ describe('TomSpecs process checks', () => {
         const yaml = 'imp/sbp.docspecs.yaml';
         const md = 'imp/sbp.md';
         fs.writeFileSync(path.join(ws, yaml), yamlText);
-        // The rendition, as spec_checks validate writes it (exit 1: the fixture is not complete enough for the schema tier).
-        try { execFileSync(BINARY, ['validate', path.join(ws, yaml), path.join(ws, md)], { stdio: 'ignore' }); } catch { /* findings, not a failure */ }
+        // The rendition, as `tomspecs :spec-render` writes it (exit 1: the fixture is not complete enough for the schema tier).
+        try { execFileSync(BINARY, [':spec-render', path.join(ws, yaml), path.join(ws, md)], { stdio: 'ignore' }); } catch { /* findings, not a failure */ }
         const rendition = read(md);
         assert.match(rendition, /> \*\*Answer:\*\*\n/);
         fs.writeFileSync(path.join(ws, md), rendition.replace('> **Answer:**\n', '> **Answer:** (a)\n'));
@@ -226,10 +227,10 @@ describe('TomSpecs process checks', () => {
     });
 
     test('SK-5: no binary for the platform', async () => {
-        const missing: SpecChecksDeps['runChecks'] = async () => { throw new DartBinaryMissing('spec_checks', '/ext/bin/x/spec_checks', 'x'); };
+        const missing: SpecChecksDeps['runChecks'] = async () => { throw new DartBinaryMissing('tomspecs', '/ext/bin/x/tomspecs', 'x'); };
         const r = await parse(specFeatureRegisterImpl(deps({ runChecks: missing }), { file: 'reg/doc.docspecs.yaml' }));
-        assert.deepEqual([r.ok, r.outcome, r.expected], [false, 'binaryMissing', '/ext/bin/x/spec_checks']);
-        assert.match(r.error, /spec_checks \(TomSpecs process checks\) is not available on x/);
+        assert.deepEqual([r.ok, r.outcome, r.expected], [false, 'binaryMissing', '/ext/bin/x/tomspecs']);
+        assert.match(r.error, /tomspecs \(TomSpecs process checks, CodeSpecs validation and mapping\) is not available on x/);
         assert.match(r.help, /tomAi\.showDartBinariesHelp/);
         assert.ok(r.page);
     });
@@ -251,7 +252,7 @@ describe('TomSpecs process checks', () => {
             const tool = JSON.parse(await call);
             let exitCode = 0;
             let stdout = '';
-            try { stdout = execFileSync(BINARY, [check, ...args.map((a) => path.join(WORKSPACE, a))], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
+            try { stdout = execFileSync(BINARY, [SPEC_COMMANDS[check], ...args.map((a) => path.join(WORKSPACE, a))], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
             catch (e) { exitCode = (e as { status: number }).status; stdout = String((e as { stdout: string }).stdout); }
             assert.equal(tool.exitCode, exitCode, check);
             const findingLines = stdout.split('\n').filter((l) => /^(MISSING|TYPE|FEATURES|REGISTER|UNKNOWN|uncovered)\s/.test(l)).length;
@@ -262,7 +263,7 @@ describe('TomSpecs process checks', () => {
         const sample = path.join(AI_BUILD, 'tom_som_conformance', 'samples', 'exercise_full_model.docspecs.yaml');
         if (fs.existsSync(sample)) {
             const cov = JSON.parse(await specCoverageImpl(live, { sample: path.relative(WORKSPACE, sample), file: `${B}/tom_uam.sbp.docspecs.yaml` }));
-            const out = execFileSync(BINARY, ['coverage', sample, path.join(WORKSPACE, B, 'tom_uam.sbp.docspecs.yaml')], { encoding: 'utf8', maxBuffer: 256 << 20 });
+            const out = execFileSync(BINARY, [SPEC_COMMANDS['coverage'], sample, path.join(WORKSPACE, B, 'tom_uam.sbp.docspecs.yaml')], { encoding: 'utf8', maxBuffer: 256 << 20 });
             assert.deepEqual(cov.summary.table, out.split(/\r?\n/).filter((l) => l.trim() !== ''));
         }
         // The import, as a dry run: what the binary's --dry-run reports, nothing written.
@@ -271,7 +272,7 @@ describe('TomSpecs process checks', () => {
         const imp = JSON.parse(await specImportAnswersImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml`, rendition: `${B}/tom_uam.sbp.md`, dryRun: true }));
         let impOut = '';
         let impCode = 0;
-        try { impOut = execFileSync(BINARY, ['import-answers', '--dry-run', yaml, path.join(WORKSPACE, B, 'tom_uam.sbp.md')], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
+        try { impOut = execFileSync(BINARY, [SPEC_COMMANDS['import-answers'], '--dry-run', yaml, path.join(WORKSPACE, B, 'tom_uam.sbp.md')], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
         catch (e) { impCode = (e as { status: number }).status; impOut = String((e as { stdout: string }).stdout); }
         assert.equal(imp.exitCode, impCode);
         const counts = /import\s+(\d+) answer\(s\), (\d+) other value\(s\)/.exec(impOut);

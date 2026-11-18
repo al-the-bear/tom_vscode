@@ -41,16 +41,13 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const HOST = getCurrentPlatform();
 const EXE = process.platform === 'win32' ? '.exe' : '';
 const OTHER = HOST.startsWith('win32') ? 'darwin-arm64' : 'win32-x64';
-/** The clitool binaries the status reports: tomspecs, or the old three with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
-const LEGACY = process.env.TOM_SPECS_LEGACY_BINARIES === '1';
-const CLI: string[] = LEGACY ? ['validate_codespecs', 'spec_checks', 'irspecs'] : ['tomspecs'];
-const VALIDATOR = LEGACY ? 'validate_codespecs' : 'tomspecs';
+/** The clitool binary the status reports. */
+const CLI: string[] = ['tomspecs'];
+const VALIDATOR = 'tomspecs';
 const FEATURE: Record<string, string> = {
-    validate_codespecs: 'CodeSpecs validation', spec_checks: 'TomSpecs process checks', irspecs: 'CodeSpecs mapping', // eslint-disable-line @typescript-eslint/naming-convention
     tomspecs: 'TomSpecs process checks, CodeSpecs validation and mapping',
 };
 const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const ALL_CLI = ['tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 
 function fakeRoot(binaries: Record<string, string[]> = {}): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dart-binaries-'));
@@ -78,22 +75,22 @@ describe('Dart-built binaries on this platform', () => {
     });
 
     test('DB-2: another platform\'s folder is missing here', () => {
-        const root = fakeRoot({ [OTHER]: ['tom_bs', ...ALL_CLI, 'tom_bs.exe', ...ALL_CLI.map((n) => `${n}.exe`)] });
+        const root = fakeRoot({ [OTHER]: ['tom_bs', ...CLI, 'tom_bs.exe', ...CLI.map((n) => `${n}.exe`)] });
         assert.deepEqual(dartBinariesStatus(root).missing, ['tom_bs', ...CLI]);
     });
 
     test('DB-3: configured first', () => {
-        const root = fakeRoot({ [HOST]: [`validate_codespecs${EXE}`] });
-        const own = fakeFile(`validate_codespecs${EXE}`);
-        const configured = resolveDartBinary('validate_codespecs', root, { executables: { validate_codespecs: { [HOST]: own } } }); // eslint-disable-line @typescript-eslint/naming-convention
-        assert.deepEqual(configured, { name: 'validate_codespecs', source: 'configured', path: own });
+        const root = fakeRoot({ [HOST]: [`tomspecs${EXE}`] });
+        const own = fakeFile(`tomspecs${EXE}`);
+        const configured = resolveDartBinary('tomspecs', root, { executables: { tomspecs: { [HOST]: own } } });
+        assert.deepEqual(configured, { name: 'tomspecs', source: 'configured', path: own });
         const gone = path.join(path.dirname(own), `nothing${EXE}`);
-        const fallback = resolveDartBinary('validate_codespecs', root, { executables: { validate_codespecs: { '*': gone } } }); // eslint-disable-line @typescript-eslint/naming-convention
+        const fallback = resolveDartBinary('tomspecs', root, { executables: { tomspecs: { '*': gone } } }); // eslint-disable-line @typescript-eslint/naming-convention
         assert.equal(fallback.source, 'bundled');
         assert.equal(fallback.configuredPath, gone);
-        const missing = resolveDartBinary('validate_codespecs', fakeRoot(), { executables: { validate_codespecs: { '*': gone } } }); // eslint-disable-line @typescript-eslint/naming-convention
-        assert.deepEqual(missing, { name: 'validate_codespecs', source: 'missing', configuredPath: gone });
-        const bare = resolveDartBinary('validate_codespecs', root, { executables: { validate_codespecs: { '*': 'validate_codespecs' } } }); // eslint-disable-line @typescript-eslint/naming-convention
+        const missing = resolveDartBinary('tomspecs', fakeRoot(), { executables: { tomspecs: { '*': gone } } }); // eslint-disable-line @typescript-eslint/naming-convention
+        assert.deepEqual(missing, { name: 'tomspecs', source: 'missing', configuredPath: gone });
+        const bare = resolveDartBinary('tomspecs', root, { executables: { tomspecs: { '*': 'tomspecs' } } }); // eslint-disable-line @typescript-eslint/naming-convention
         assert.equal(bare.source, 'bundled');
         assert.equal(bare.configuredPath, undefined);
     });
@@ -176,8 +173,6 @@ describe('Dart-built binaries on this platform', () => {
             'tomAi_specImportAnswers', 'tomAi_specCoverage', 'bin/tomspecs.dart', '"tomspecs"',
             // lost: CodeSpecs mapping
             'tomAi_specCodeSpecsMap', 'tomspecs :ir-map',
-            // the older binaries, still carried
-            'TOM_SPECS_LEGACY_BINARIES=1',
             // keeps working
             'prompt queue', 'TomSpecs editing', 'extraction, the gate, the verdicts',
             // installing Dart
@@ -196,7 +191,7 @@ describe('Dart-built binaries on this platform', () => {
     });
 
     test('DB-9: the summary', () => {
-        const env = { PATH: '', TOM_FIND_DART_DISABLE: '1', ...(LEGACY ? { TOM_SPECS_LEGACY_BINARIES: '1' } : {}) }; // eslint-disable-line @typescript-eslint/naming-convention
+        const env = { PATH: '', TOM_FIND_DART_DISABLE: '1' }; // eslint-disable-line @typescript-eslint/naming-convention
         const s = summarizeDartBinaries(dartBinariesStatus(fakeRoot({ [HOST]: [`${CLI[0]}${EXE}`, `buildkit${EXE}`] }), {}, env));
         assert.deepEqual(s, {
             platform: HOST,

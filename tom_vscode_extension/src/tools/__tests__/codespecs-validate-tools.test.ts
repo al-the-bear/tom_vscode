@@ -4,7 +4,7 @@
  * trio (codespec/shared, client, server), the trio's recorded validation
  * report (codespec/validation_report.json) and its 27 extracts.
  *
- * Validation runs the real validate_codespecs binary in bin/<platform>/,
+ * Validation runs the real `tomspecs :codespecs-validate` in bin/<platform>/,
  * which `npm run codespecs:build` compiles (the install scripts run it).
  *
  *   CV-1  validate over the sample trio matches its recorded report
@@ -19,7 +19,7 @@
  *         scripts/codespecs-binary-stamp.cjs); when ai_build is not checked out, not measured; when the
  *         source has uncommitted edits (another session's work in progress), skipped, naming them — a red
  *         CV-8 means something this checkout's install fixes (`npm run codespecs:check` stays strict)
- *   CV-9  `ir`: the trio's IR folder (codespec/irspecs, `irspecs from-codespecs` over the trio) validates
+ *   CV-9  `ir`: the trio's IR folder (codespec/irspecs, `tomspecs :ir-from-codespecs` over the trio) validates
  *         clean with the binary's own result, the inputs naming `ir`; `regeneratedIr` runs check 31
  *   CV-10 `ir`: a crafted violation in the IR carries its check number, as the binary reports it
  *   CV-11 `ir` with a trio, `regeneratedIr` without `ir`, a regenerated trio with `ir`, a missing IR
@@ -205,8 +205,8 @@ describe('CodeSpecs validate', () => {
     /** The binary's own `--json` report for `args` (relative to the test workspace); exit 0 or 1. */
     const cliReport = (args: string[]): Json => {
         try {
-            // The same call the tool makes: `tomspecs :codespecs-validate` (validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1).
-            const call = clitoolInvocation({ tool: 'validate_codespecs', args: ['--json', ...args] });
+            // The same call the tool makes: `tomspecs :codespecs-validate`.
+            const call = clitoolInvocation({ tool: 'codespecs', args: ['--json', ...args] });
             return JSON.parse(execFileSync(validateCodespecsBinary(), call.args, { cwd: ws, encoding: 'utf8' }));
         } catch (e) {
             const err = e as { status?: number; stdout?: string };
@@ -469,7 +469,7 @@ describe('CodeSpecs step context', () => {
         assert.deepEqual(scc.ir.documents.map((d: Json) => d.area), ['CE-EL', 'CE-FM', 'CE-AC', 'CE-SC', 'CE-ST', 'CE-NV'], 'one per area of the step');
         assert.deepEqual((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0],
             { area: 'CE-DB', path: 'unitrun/irspecs/CE-DB.ir.yaml', exists: true, legacyName: true });
-        // Both names for one area: the new one is named, the folder reported (irspecs refuses it).
+        // Both names for one area: the new one is named, the folder reported (`tomspecs :ir-map` refuses it).
         fs.writeFileSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB_data_access.ir.yaml'), 'format: "irspecs-ir"\n');
         const both = (await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0];
         assert.deepEqual([both.path, both.exists, both.legacyName], ['unitrun/irspecs/CE-DB_data_access.ir.yaml', true, undefined]);

@@ -2,7 +2,7 @@
  * CodeSpecs query and trace (vsctsa19), over a snapshot of
  * tom_specs_samples/phase4_codespecs_run: its 27 extracts (the run's
  * gitignored build/codespecs_extracts) and the back-link index of its
- * generated trio (`validate_codespecs --backlinks`), in fixtures/phase4/.
+ * generated trio (`tomspecs :codespecs-validate --backlinks`), in fixtures/phase4/.
  * CT-10 holds the snapshot to the sample when the sample has been run.
  *
  *   CT-1   query by token, area, path and text; the limit
@@ -19,7 +19,7 @@
  *   CT-13  generation units (SOM §11.2, vscimpb67d): the extracts written from Meridian carry each entry's `units`
  *          — the stored `units` of the message-key registry for its entries, the register's default for the rest —
  *          and tomAi_specCodeSpecsQueryExtracts and tomAi_specCodeSpecsStepContext show them
- *   CT-12  codeDirs through the bundled validate_codespecs: the same index and agreement as backlinks.json
+ *   CT-12  codeDirs through the bundled tomspecs: the same index and agreement as backlinks.json
  */
 
 import test, { before, describe } from 'node:test';

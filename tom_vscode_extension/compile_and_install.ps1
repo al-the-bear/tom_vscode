@@ -7,7 +7,7 @@
                             [-BinariesOnly | --binaries-only] [-NoLayer | --no-layer]
 
     -NoDart (or --no-dart, or TOM_NO_DART=1) builds as on a machine without a
-    Dart SDK: no tom_bs and no validate_codespecs are built, so the VSIX lacks
+    Dart SDK: no tom_bs and no tomspecs are built, so the VSIX lacks
     DartScript and CodeSpecs validation. The same happens when no Dart SDK is
     found. The VSIX path is printed at the end, to install it on other machines.
 
@@ -15,7 +15,7 @@
     tom_binaries/tom/<platform>/ (committed there and pushed), so the layer
     holds the latest build of every host; -NoLayer (or --no-layer, or
     TOM_NO_LAYER=1) skips that. -BinariesOnly (or --binaries-only) builds
-    tom_bs and validate_codespecs, puts them into the layer and stops: no VSIX,
+    tom_bs and tomspecs, puts them into the layer and stops: no VSIX,
     nothing installed (create_fleetcompiled_vsix.* runs it on every fleet host).
 
     Thin wrapper over install_extension.ps1: TOM_BRIDGE_FROM_SOURCE=1 switches

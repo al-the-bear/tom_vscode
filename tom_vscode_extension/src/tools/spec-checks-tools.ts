@@ -10,7 +10,7 @@
  *   - tomAi_specAuthorizationCheck   — operations, role matrix, screens and use cases agree
  *   - tomAi_specCoverage             — how much of the model the document fills
  *
- * `:spec-render` (the old `spec_checks validate`) and `:spec-accept-marks` have none: tomAi_specValidate and
+ * `:spec-render` and `:spec-accept-marks` have none: tomAi_specValidate and
  * tomAi_specDecideMarks (`all: "accept"`) do the same.
  *
  * The two writes go through the document store like every spec write: the
@@ -27,7 +27,7 @@ import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, FIRST_LOOK, failure, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
 import { DartBinaryMissing, dartBinariesHelp, type BinaryRun } from '../services/dartBinariesStatus';
 import { readSpecCheckRun, runSpecChecks, type SpecCheck, type SpecCheckReport } from '../services/spec-checks';
-import { SPEC_CHECKS_COMMANDS } from '../services/tomspecsCalls';
+import { SPEC_COMMANDS } from '../services/tomspecsCalls';
 
 /** How a check is run: `tomspecs :spec-<check>` with the arguments; replaceable in a test. */
 export type SpecChecksRunner = (check: SpecCheck, args: string[], options: { specRoot?: string }) => Promise<BinaryRun>;
@@ -45,7 +45,7 @@ function answerFor(report: SpecCheckReport, extra: Record<string, unknown> = {})
     return json({
         ok, check, outcome, exitCode, findingCount: findings.length, findings, summary,
         ...(lines.length ? { lines } : {}),
-        ...(stderr.length ? (ok ? { stderr } : { error: stderr.join('\n') || `tomspecs ${SPEC_CHECKS_COMMANDS[check] ?? check} exited ${exitCode}` }) : {}),
+        ...(stderr.length ? (ok ? { stderr } : { error: stderr.join('\n') || `tomspecs ${SPEC_COMMANDS[check] ?? check} exited ${exitCode}` }) : {}),
         ...extra,
     });
 }

@@ -1,8 +1,8 @@
 /**
  * tomAi_specCodeSpecsMap (vscimpb99): Phase 4's stage 5 (codespecs_mapping.md
  * §1.1.2) through the extension — each generation unit's package written from
- * the IR with the bundled `tomspecs` (`:ir-map`, the old `irspecs map`; tom_specs_clitool's bin/tomspecs.dart,
- * compiled by `npm run codespecs:build` beside validate_codespecs), so the
+ * the IR with the bundled `tomspecs :ir-map` (tom_specs_clitool's bin/tomspecs.dart,
+ * compiled by `npm run codespecs:build`), so the
  * stage needs no Dart SDK and no ai_build checkout at run time.
  *
  * Per unit of the document's register (codespecs-units.ts registerOf) and per
@@ -13,7 +13,7 @@
  * `dryRun` answers the runs it would make.
  *
  * The Dart + Tom mapper lays out what it writes with `dart_style`, linked
- * into irspecs and pinned to the SDK formatter (tom_specs irfmt2): every
+ * into tomspecs and pinned to the SDK formatter (tom_specs irfmt2): every
  * mapper runs without a Dart SDK on the machine.
  */
 
@@ -24,7 +24,7 @@ import { FILE_PARAM, json, liveDeps, resolveInput, toWorkspacePath, type SpecToo
 import { codeSpecsFailure } from './codespecs-tools';
 import { registerOf, IR_DIR, type UnitView } from './codespecs-units';
 import { DartBinaryMissing, currentDartBinary, dartBinariesHelp, type BinaryRun } from '../services/dartBinariesStatus';
-import { clitoolBinary, clitoolInvocation, runClitool } from '../services/tomspecsCalls';
+import { CLITOOL_BINARY, clitoolInvocation, runClitool } from '../services/tomspecsCalls';
 
 export interface CodeSpecsMapInput {
     /** The specification document whose register names the generation units. */
@@ -45,11 +45,11 @@ export const DART_TOM_MAPPER = 'dart-tom';
 /** Generous: a mapper writes a whole package (the Dart one formats it in-process). */
 const MAP_TIMEOUT_MS = 10 * 60_000;
 
-/** Runs an irspecs call (old form `map …`; through `tomspecs :ir-map …`, services/tomspecsCalls.ts); replaceable in a test. */
-export type IrspecsRunner = (args: string[]) => Promise<BinaryRun>;
-const liveRunner: IrspecsRunner = (args) => runClitool({ tool: 'irspecs', args }, { timeoutMs: MAP_TIMEOUT_MS });
-let runner: IrspecsRunner = liveRunner;
-export function setIrspecsRunnerForTest(r: IrspecsRunner | undefined): void {
+/** Runs an IR call (`map …`, run as `tomspecs :ir-map …`, services/tomspecsCalls.ts); replaceable in a test. */
+export type IrRunner = (args: string[]) => Promise<BinaryRun>;
+const liveRunner: IrRunner = (args) => runClitool({ tool: 'ir', args }, { timeoutMs: MAP_TIMEOUT_MS });
+let runner: IrRunner = liveRunner;
+export function setIrRunnerForTest(r: IrRunner | undefined): void {
     runner = r ?? liveRunner;
 }
 
@@ -103,7 +103,7 @@ export async function codeSpecsMapImpl(deps: SpecToolDeps, input: CodeSpecsMapIn
             }
         }
         const shown = (args: string[]): string => {
-            const call = clitoolInvocation({ tool: 'irspecs', args });
+            const call = clitoolInvocation({ tool: 'ir', args });
             return [call.binary, ...call.args.map((a) => (path.isAbsolute(a) ? rel(a) : a))].join(' ');
         };
         const head = {
@@ -111,7 +111,7 @@ export async function codeSpecsMapImpl(deps: SpecToolDeps, input: CodeSpecsMapIn
             ...(skipped.length ? { skipped: skipped.map((u) => ({ unit: u, reason: 'the unit names no mapper for any area' })) } : {}),
         };
         if (input.dryRun) {
-            const binary = currentDartBinary(clitoolBinary('irspecs'));
+            const binary = currentDartBinary(CLITOOL_BINARY);
             return json({
                 ok: true, dryRun: true, ...head,
                 binary: binary.path ? 'available' : 'missing',

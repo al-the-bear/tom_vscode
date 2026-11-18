@@ -441,7 +441,7 @@ function inputs(): Record<string, Input> {
         tomAi_specCodeSpecsValidate: { shared: 'specs/none_codespec_shared' },
         tomAi_specCodeSpecsMap: { file: 'specs/none.docspecs.yaml', out: 'specs/mapped', dryRun: true },
         tomAi_specConvert: { file: SPEC, target: 'specs/meridian.md' },
-        // The process checks (bundled spec_checks): the sandbox has no checks/ data, so authorization and
+        // The process checks (bundled tomspecs :spec-*): the sandbox has no checks/ data, so authorization and
         // coverage answer the usage error naming it; the import is a dry run on the rendition specConvert wrote.
         tomAi_specRequiredFields: { file: SPEC },
         tomAi_specFeatureRegister: { file: SPEC },

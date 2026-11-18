@@ -10,12 +10,12 @@
 #
 #   ./create_currentbinaries_vsix.sh [--no-release]
 #
-# 1. Builds tom_bs and validate_codespecs for THIS host and puts them into the
+# 1. Builds tom_bs and tomspecs for THIS host and puts them into the
 #    binaries layer, tom_binaries/tom/<platform>/ (compile_and_install.sh
 #    --binaries-only: committed there and pushed; a refused push stays a local
 #    commit). A Dart SDK is needed; without one use create_vsix_nodart.sh.
 # 2. Packages the VSIX through install_extension.sh --package-only, taking
-#    tom_bs and validate_codespecs for every platform from the layer
+#    tom_bs and tomspecs for every platform from the layer
 #    (TOM_LAYER_BINARIES=1), with the workspace template, as create_vsix.sh
 #    (no provider SDK: the extension installs them on request).
 # Every run publishes the VSIX files as the GitHub Release `vscode-extension-latest` of

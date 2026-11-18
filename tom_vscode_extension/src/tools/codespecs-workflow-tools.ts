@@ -168,7 +168,7 @@ const OPEN_GAP_LIST_LIMIT = 20;
 /**
  * The run's coverage-gap record (contract §2.11): facts the specification
  * states that CodeSpecs has no place for, recorded by Stage B, the authoring
- * steps and `validate_codespecs --record-gaps`. An open gap stops the run until
+ * steps and `tomspecs :codespecs-validate --record-gaps`. An open gap stops the run until
  * the review settles it (added, fixed or leaveAsIs); then Phase 4 restarts.
  */
 function coverageGapsStage(deps: SpecToolDeps, file: string): StageStatus {

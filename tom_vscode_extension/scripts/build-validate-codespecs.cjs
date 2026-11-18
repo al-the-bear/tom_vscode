@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Compile tom_specs_clitool's CLIs for THIS host into the extension's
- * bin/<platform>/, where the tools look for them:
+ * Compile tom_specs_clitool's one binary, tomspecs (`bin/tomspecs.dart`), for
+ * THIS host into the extension's bin/<platform>/, where the tools look for it.
+ * Its commands are what the tools run:
  *
- *   - validate_codespecs (`bin/validate_codespecs.dart`: the
- *     codespecs_derivation_contract.md §6 checks, plus the `--backlinks`
- *     index) — the CodeSpecs tools;
- *   - spec_checks (`bin/spec_checks.dart`: the TomSpecs process checks,
- *     doc/process_checks.md) — the tomAi_spec* process-check tools;
- *   - irspecs (`bin/irspecs.dart`: Phase 4's mapping of each generation unit
- *     from the IR, `irspecs map`) — tomAi_specCodeSpecsMap.
+ *   - `:codespecs-validate` (the codespecs_derivation_contract.md §6 checks,
+ *     plus the `--backlinks` index) — the CodeSpecs tools;
+ *   - `:spec-*` (the TomSpecs process checks, doc/process_checks.md) — the
+ *     tomAi_spec* process-check tools;
+ *   - `:ir-map` (Phase 4's mapping of each generation unit from the IR) —
+ *     tomAi_specCodeSpecsMap.
  *
  *   node scripts/build-validate-codespecs.cjs     (npm run codespecs:build)
  *
- * `dart compile exe` produces standalone binaries (the model is embedded):
+ * `dart compile exe` produces a standalone binary (the model is embedded):
  * the installed extension never runs `dart run` and never needs a Dart SDK. The SDK is needed here, at build time, exactly as it is for
  * the tom_bs bridge binary the install scripts compile beside it.
  *
@@ -23,19 +23,20 @@
  * edits in tom_specs_clitool are listed before the build: the binary is built
  * from the working tree.
  *
- * Beside each binary it writes <name>.build.json, a hash of the source it was
+ * Beside the binary it writes <name>.build.json, a hash of the source it was
  * built from; `npm run codespecs:check` and the CV-8 guard test
  * compare it with the source as it is now (codespecs-binary-stamp.cjs).
  *
  * The platform folder uses VS Code's naming (darwin-arm64, linux-x64,
  * win32-x64, …), the one src/utils/executableResolver.ts resolves against.
  *
- * All of them are compiled into a scratch folder first (out/codespecs-build/
- * <platform>/) and copied, with their stamps, into bin/<platform>/ only when
- * every one built: a failing build (another session's uncommitted edit that
- * does not compile, say) leaves the binaries and stamps there as they were,
- * and says so (vscimpb105). TOM_BINARIES_EXT_BIN names another bin folder
- * (the install's staging folder).
+ * The binary is compiled into a scratch folder first (out/codespecs-build/
+ * <platform>/) and copied, with its stamp, into bin/<platform>/ only when it
+ * built: a failing build (another session's uncommitted edit that does not
+ * compile, say) leaves the binary and stamp there as they were, and says so
+ * (vscimpb105). A successful build also deletes the clitool binaries tomspecs
+ * replaced (RETIRED_CLITOOL_BINARIES) and their stamps from bin/<platform>/.
+ * TOM_BINARIES_EXT_BIN names another bin folder (the install's staging folder).
  *
  * Exit codes: 0 built, 1 a step failed (the message names it).
  */
@@ -44,7 +45,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { CLITOOL_BINARIES, binaryName, stampName, writeStamp } = require('./codespecs-binary-stamp.cjs');
+const { CLITOOL_BINARIES, binaryName, removeRetired, stampName, writeStamp } = require('./codespecs-binary-stamp.cjs');
 const { findDart, notFoundMessage } = require('./find-dart.cjs');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
@@ -139,7 +140,7 @@ function buildAll({
             if (!fs.existsSync(scratchFile)) { throw new Error(`${file} was not written`); }
         } catch (e) {
             console.error(`❌ Building ${name} failed: ${e.message}`);
-            console.error(`   Nothing was copied: ${CLITOOL_BINARIES.join(', ')} are taken over only when all of them build.`);
+            console.error(`   Nothing was copied: ${CLITOOL_BINARIES.length === 1 ? `${CLITOOL_BINARIES[0]} is taken over only when it builds` : `${CLITOOL_BINARIES.join(', ')} are taken over only when all of them build`}.`);
             console.error(keptMessage(outDir));
             fs.rmSync(scratch, { recursive: true, force: true });
             return 1;
@@ -158,6 +159,9 @@ function buildAll({
         if (fs.existsSync(path.join(scratch, stampFile))) { fs.copyFileSync(path.join(scratch, stampFile), path.join(outDir, stampFile)); }
         console.log(`  ✔ ${path.relative(EXT_ROOT, path.join(outDir, file))} (source ${String(stamp.sourceHash).slice(0, 12)}, ${stamp.sourceFiles} files)`);
     }
+    // The clitool binaries tomspecs replaced go, with their stamps.
+    const removed = removeRetired(outDir, platform);
+    if (removed.length) { console.log(`  ✖ removed the retired ${removed.join(', ')} from ${path.relative(EXT_ROOT, outDir) || outDir}`); }
     fs.rmSync(scratch, { recursive: true, force: true });
     // The scratch's parent (out/codespecs-build/) goes too once it is empty.
     try { fs.rmdirSync(path.dirname(scratch)); } catch { /* other platforms' scratch, or already gone */ }

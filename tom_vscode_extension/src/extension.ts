@@ -401,7 +401,7 @@ export async function activate(context: vscode.ExtensionContext) {
     TrailService.init(context);
     timeStep('tomAiConfiguration + trailService', stepStart);
 
-    // Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks, irspecs) this platform has,
+    // Which Dart-built binaries (tom_bs, tomspecs) this platform has,
     // bundled or configured in `bridge.executables`; when one is missing, the
     // page about it opens once per build and platform, and a status-bar hint
     // stays.
@@ -920,7 +920,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerVsCodeLmTools(context);
     // The CodeSpecs trace reads a generated trio's back-links through
-    // validate_codespecs (configured, or bundled in bin/<platform>/). Without it
+    // `tomspecs :codespecs-validate` (configured, or bundled in bin/<platform>/). Without it
     // on this platform the provider answers null: the trace goes on without
     // back-links, its answer carries the warning, and the user is told once per
     // tool and window session (a warning with the Dart binaries help button).

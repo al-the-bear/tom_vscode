@@ -7,10 +7,7 @@ Four features of the Tom AI extension run programs compiled from Dart:
 - **TomSpecs process checks** run `tomspecs :spec-<check>`.
 - **CodeSpecs mapping** (tomAi_specCodeSpecsMap, Phase 4's stage 5) runs `tomspecs :ir-map`.
 
-`tomspecs` is tom_specs_clitool's one binary. The VSIX still carries the
-clitool's older binaries (`validate_codespecs`, `spec_checks`, `irspecs`) until
-they are retired; the extension calls them only when the environment variable
-`TOM_SPECS_LEGACY_BINARIES=1` is set.
+`tomspecs` is tom_specs_clitool's one binary.
 
 A VSIX carries them only for the platforms it was built with. A VSIX built
 without a Dart SDK has none, and one built on macOS has none for Windows or
@@ -119,8 +116,7 @@ machine. With the workspace checked out (`tom_ai/vscode`, `tom_ai/ai_build`,
 
 - `./compile_and_install.sh` (macOS, Linux) or `.\compile_and_install.ps1`
   (Windows) builds them all, packages a new VSIX and installs it;
-- `npm run codespecs:build` builds only `tomspecs` (and the older
-  `validate_codespecs`, `spec_checks` and `irspecs`), into the checkout's
+- `npm run codespecs:build` builds only `tomspecs`, into the checkout's
   `bin/{{platform}}/`.
 
 Without the full workspace, compile each one where its sources are:

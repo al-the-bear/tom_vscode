@@ -1,5 +1,5 @@
 /**
- * The TomSpecs process checks: tom_specs_clitool's `spec_checks` checks, run
+ * The TomSpecs process checks of tom_specs_clitool, run
  * as `tomspecs :spec-<check>` (services/tomspecsCalls.ts; doc/process_checks.md
  * there), compiled into `<extension>/bin/<platform>/`
  * by scripts/build-validate-codespecs.cjs, run here and its lines read back
@@ -25,9 +25,9 @@ export type SpecCheck =
 /** A large Blueprint (16 MB YAML) takes seconds per check; a hung binary must still not hang a tool call. */
 export const SPEC_CHECKS_TIMEOUT_MS = 5 * 60_000;
 
-/** Run a check: `tomspecs :spec-<check> [--spec-root <dir>] <args>` (the old `spec_checks [--spec-root <dir>] <check> <args>`). */
+/** Run a check: `tomspecs :spec-<check> [--spec-root <dir>] <args>`. */
 export function runSpecChecks(check: SpecCheck, args: string[], options: { specRoot?: string; extensionRoot?: string } = {}): Promise<BinaryRun> {
-    return runClitool({ tool: 'spec_checks', args: [check, ...args], specRoot: options.specRoot },
+    return runClitool({ tool: 'spec', args: [check, ...args], specRoot: options.specRoot },
         { timeoutMs: SPEC_CHECKS_TIMEOUT_MS, extensionRoot: options.extensionRoot });
 }
 

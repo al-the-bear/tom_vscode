@@ -3,7 +3,7 @@
  * documents — answers to the agent's questions, comments, optionally the open
  * questions and the inline marks — collected through the runtime's
  * extractAnswers / renderAnswers, never by a second parser here. The same
- * rules as tom_specs' `extract_answers` CLI: documents grouped by root in the
+ * rules as `tomspecs :spec-answers`: documents grouped by root in the
  * order given (fragments of one root assembled into one document), each
  * labelled by its file name without the format suffix, a malformed, misplaced
  * or duplicate annotation reported because the extraction would miss it.

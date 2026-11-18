@@ -86,7 +86,7 @@ function vsixFile(): string {
     return file;
 }
 const PLATFORMS = [
-    { platform: 'darwin-arm64', carried: ['tom_bs', 'validate_codespecs', 'spec_checks'], stamps: { tom_bs: '2026-11-11T17:23:07Z from 4113c17', validate_codespecs: '2026-11-11T17:23:54Z from b6848658abd0' } },
+    { platform: 'darwin-arm64', carried: ['tom_bs', 'tomspecs'], stamps: { tom_bs: '2026-11-11T17:23:07Z from 4113c17' } },
     { platform: 'linux-x64', carried: [], stamps: {} },
 ];
 
@@ -174,7 +174,7 @@ describe('the VSIX as a release', () => {
         assert.match(text, /Download: <https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension\.vsix>/);
         assert.match(text, /code --install-extension tom-ai-extension\.vsix/);
         assert.match(text, /\| Built from \| tom_vscode `c{40}` \|\n\| Built at \| 2026-11-11T17:30:00\.000Z \|\n\| Size \| 95\.9 MiB \|\n\| Packed by \| `create_currentbinaries_vsix\.sh` \|/);
-        assert.match(text, /\| darwin-arm64 \| tom_bs, validate_codespecs, spec_checks \| tom_bs: 2026-11-11T17:23:07Z from 4113c17; validate_codespecs: 2026-11-11T17:23:54Z from b6848658abd0; spec_checks: no stamp \|/);
+        assert.match(text, /\| darwin-arm64 \| tom_bs, tomspecs \| tom_bs: 2026-11-11T17:23:07Z from 4113c17; tomspecs: no stamp \|/);
         assert.match(text, /On linux-x64, win32-x64 the extension runs without DartScript and CodeSpecs validation/);
         const none = release.readmeText({ commit: 'c', date: 'd', size: 1, script: 'create_vsix_nodart.sh', platforms: [{ platform: 'darwin-arm64', carried: [], stamps: {} }] });
         assert.match(none, /None: DartScript and CodeSpecs validation are not available on any platform/);
@@ -219,7 +219,7 @@ describe('the VSIX as a release', () => {
         const logs: string[] = [];
         const platformsOf = (_file: string, platform: string) => [platform === 'linux-x64'
             ? { platform, carried: [], stamps: {}, tools: [] }
-            : { platform, carried: ['tom_bs', 'validate_codespecs'], stamps: { tom_bs: '2026-11-14T10:00:00Z from abc' }, tools: ['buildkit', 'testkit'] }];
+            : { platform, carried: ['tom_bs', 'tomspecs'], stamps: { tom_bs: '2026-11-14T10:00:00Z from abc' }, tools: ['buildkit', 'testkit'] }];
         const deps = { run: stub.run, gh: 'gh', repoDir: tom.clone, binariesRepo: bins.clone, workDir: path.join(SANDBOX, 'work6'), platforms: platformsOf, log: (l: string) => logs.push(l) };
         const r = release.publish({ vsix: files, script: 'create_layerbinaries_vsix.sh', precheck: `ok ${commit}` }, deps);
         assert.equal(r.updated, true, logs.join('\n'));
@@ -232,7 +232,7 @@ describe('the VSIX as a release', () => {
         assert.match(logs.join('\n'), /🚀 Release updated: https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension-darwin-arm64\.vsix, .*linux-x64\.vsix, .*win32-x64\.vsix/);
         const readme = git(bins.remote, 'show', 'main:vscode_extension/vsix/README.md');
         assert.match(readme, /One VSIX per platform: take the one for the machine it is installed on/);
-        assert.match(readme, /\| darwin-arm64 \| \[`tom-ai-extension-darwin-arm64\.vsix`\]\(https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension-darwin-arm64\.vsix\) \| 1\.0 MiB \| tom_bs \(2026-11-14T10:00:00Z from abc\), validate_codespecs \| buildkit, testkit \|/);
+        assert.match(readme, /\| darwin-arm64 \| \[`tom-ai-extension-darwin-arm64\.vsix`\]\(https:\/\/github\.com\/al-the-bear\/tom_binaries\/releases\/download\/vscode-extension-latest\/tom-ai-extension-darwin-arm64\.vsix\) \| 1\.0 MiB \| tom_bs \(2026-11-14T10:00:00Z from abc\), tomspecs \| buildkit, testkit \|/);
         assert.match(readme, /\| linux-x64 \| .* \| 2\.0 MiB \| none \(no DartScript, no CodeSpecs validation\) \| none \|/);
         assert.match(readme, /\| win32-x64 \| \[`tom-ai-extension-win32-x64\.vsix`\]/);
         assert.match(readme, /code --install-extension tom-ai-extension-<platform>\.vsix/);

@@ -2,10 +2,7 @@
  * Which Dart-built binaries this window can run, on the platform it runs on:
  * `tom_bs` (DartScript: the bridge) and `tomspecs` (tom_specs_clitool's one
  * binary: the TomSpecs process checks, CodeSpecs validation and mapping), and
- * how one is run ({@link runDartBinary}). The clitool's older binaries
- * (`validate_codespecs`, `spec_checks`, `irspecs`) are still bundled until
- * tom_specs' tsbin8 and reported only in legacy mode
- * (`TOM_SPECS_LEGACY_BINARIES=1`, services/tomspecsCalls.ts).
+ * how one is run ({@link runDartBinary}).
  *
  * A VSIX carries them only for the platforms it was built with (a build
  * without a Dart SDK carries none for its host; one built on macOS has no
@@ -50,30 +47,17 @@ import {
 import { BUILD_TOOL_PURPOSE, buildToolFileName, buildToolsStatus, type BuildToolName, type BuildToolSource, type BuildToolState } from './buildTools';
 
 /** Every Dart binary the extension can resolve (bundled or configured). */
-export const DART_BINARIES = ['tom_bs', 'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'] as const;
+export const DART_BINARIES = ['tom_bs', 'tomspecs'] as const;
 export type DartBinaryName = typeof DART_BINARIES[number];
 
-/** The clitool's older binaries: still bundled, called only in legacy mode (until tom_specs' tsbin8). */
-export const LEGACY_CLITOOL_BINARIES: readonly DartBinaryName[] = ['validate_codespecs', 'spec_checks', 'irspecs'];
-
-/** The tests' switch: the clitool calls run the old binaries instead of tomspecs. */
-export const LEGACY_BINARIES_ENV = 'TOM_SPECS_LEGACY_BINARIES';
-
-export function legacyBinariesMode(env: NodeJS.ProcessEnv = process.env): boolean {
-    return env[LEGACY_BINARIES_ENV] === '1';
-}
-
-/** The binaries a window needs, the ones its status reports: tom_bs and tomspecs (the old three in legacy mode). */
-export function reportedDartBinaries(env: NodeJS.ProcessEnv = process.env): DartBinaryName[] {
-    return legacyBinariesMode(env) ? ['tom_bs', ...LEGACY_CLITOOL_BINARIES] : ['tom_bs', 'tomspecs'];
+/** The binaries a window needs, the ones its status reports: tom_bs and tomspecs. */
+export function reportedDartBinaries(): DartBinaryName[] {
+    return [...DART_BINARIES];
 }
 
 /** What each binary gives the extension, for the page and the Status Page. */
 export const DART_BINARY_FEATURE: Record<DartBinaryName, string> = {
     tom_bs: 'DartScript', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
-    validate_codespecs: 'CodeSpecs validation', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
-    spec_checks: 'TomSpecs process checks', // eslint-disable-line @typescript-eslint/naming-convention -- the binary's name
-    irspecs: 'CodeSpecs mapping',
     tomspecs: 'TomSpecs process checks, CodeSpecs validation and mapping',
 };
 
@@ -152,7 +136,7 @@ export function resolveDartBinary(name: DartBinaryName, extensionRoot: string, c
 }
 
 export function dartBinariesStatus(extensionRoot: string, config: DartBinariesConfig = {}, env: NodeJS.ProcessEnv = process.env): DartBinariesStatus {
-    const binaries = reportedDartBinaries(env).map((name) => resolveDartBinary(name, extensionRoot, config));
+    const binaries = reportedDartBinaries().map((name) => resolveDartBinary(name, extensionRoot, config));
     return {
         platform: getCurrentPlatform(),
         binaries,

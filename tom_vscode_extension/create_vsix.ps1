@@ -5,7 +5,7 @@
     create_vsix.ps1 [-NoDart | --no-dart] [-NoRelease | --no-release]
 
     The VSIX carries:
-      - tom_bs and validate_codespecs for THIS host's platform (compiled from
+      - tom_bs and tomspecs for THIS host's platform (compiled from
         source, as compile_and_install.ps1; a Dart binary cannot be built for
         another platform);
       - the workspace template (resources/workspace_template.zip), which
@@ -90,7 +90,7 @@ $ErrorActionPreference = "Continue"
 $Platform = (& node -p "process.platform + '-' + process.arch" 2>$null)
 $ErrorActionPreference = "Stop"
 if (-not $NoDartMode) {
-    Write-Host "tom_bs and validate_codespecs are in this VSIX for $Platform only: a Dart binary"
+    Write-Host "tom_bs and tomspecs are in this VSIX for $Platform only: a Dart binary"
     Write-Host "cannot be built for another platform. Elsewhere the extension says what is missing"
     Write-Host "and how to add it (@T: Missing Dart Binaries)."
 } elseif ($NoDart) {

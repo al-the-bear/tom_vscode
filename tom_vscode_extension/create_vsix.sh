@@ -5,7 +5,7 @@
 #   ./create_vsix.sh [--no-dart] [--no-release]
 #
 # The VSIX carries:
-#   - tom_bs and validate_codespecs for THIS host's platform (compiled from
+#   - tom_bs and tomspecs for THIS host's platform (compiled from
 #     source, as compile_and_install.sh; a Dart binary cannot be built for
 #     another platform);
 #   - the workspace template (resources/workspace_template.zip), which
@@ -68,7 +68,7 @@ tom_print_vsix_path "$SCRIPT_DIR"
 [ -n "$VSIX" ] && ( cd "$SCRIPT_DIR" && node scripts/check-vsix-contents.cjs "$VSIX" | sed -n '2,$p' )
 PLATFORM="$(node -p "process.platform + '-' + process.arch")"
 if [ "${TOM_NO_DART:-0}" != "1" ]; then
-    echo "ℹ️  tom_bs and validate_codespecs are in this VSIX for $PLATFORM only: a Dart binary"
+    echo "ℹ️  tom_bs and tomspecs are in this VSIX for $PLATFORM only: a Dart binary"
     echo "   cannot be built for another platform. Elsewhere the extension says what is missing"
     echo "   and how to add it (@T: Missing Dart Binaries)."
 elif [ "$NO_DART_ON_PURPOSE" = "1" ]; then

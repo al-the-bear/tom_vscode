@@ -4,7 +4,7 @@
  *   - tomAi_specCodeSpecsValidate     — the `codespecs_derivation_contract.md`
  *                                       §6 checks over a generated trio (or its
  *                                       IR folder, `ir`), through
- *                                       the bundled validate_codespecs binary
+ *                                       the bundled tomspecs binary
  *   - tomAi_specCodeSpecsStepContext  — everything a Stage 3–4 authoring step
  *                                       may read (§2.9): the step, its areas'
  *                                       extracts, its contract entries, its
@@ -256,7 +256,7 @@ export const CODESPECS_VALIDATE_TOOL: SharedToolDefinition<CodeSpecsValidateInpu
     name: 'tomAi_specCodeSpecsValidate',
     displayName: 'CodeSpecs: Validate',
     description:
-        'Run the codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) — or, with `ir`, over the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), before any code exists — with the bundled tomspecs (`:codespecs-validate`, the old validate_codespecs). `ir` goes in place of shared / client / server, never with them (a `usageError`, as the binary refuses it); `regeneratedIr` with it for the determinism check (31). `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated` / `regeneratedIr`) — a check that did not run is not a pass. Coverage gaps (contract §2.11): `recordGaps` writes check 35\'s uncited tokens to coverage_gaps.yaml (`recordedGaps`); gaps left as they are come back as `leftAsIsGaps`.',
+        'Run the codespecs_derivation_contract.md §6 checks over a generated CodeSpecs trio (shared, client, server) — or, with `ir`, over the trio\'s IR (a folder of `*.ir.yaml` documents, irspecs_ir.md), before any code exists — with the bundled tomspecs (`:codespecs-validate`). `ir` goes in place of shared / client / server, never with them (a `usageError`, as the binary refuses it); `regeneratedIr` with it for the determinism check (31). `outcome` is `clean` or `violations` (each: check, section, file and line, token or area, message); `usageError` / `binaryMissing` with ok false (`binaryMissing`: none for this platform, with `help` and `page` on getting one). `notRun` lists the checks whose input was not given (`extractsDir`, `migrations`, `coreSource`, `regenerated` / `regeneratedIr`) — a check that did not run is not a pass. Coverage gaps (contract §2.11): `recordGaps` writes check 35\'s uncited tokens to coverage_gaps.yaml (`recordedGaps`); gaps left as they are come back as `leftAsIsGaps`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

@@ -9,7 +9,7 @@
  *
  * Extracts are read from a written run (any writer: these tools, the Dart CLI)
  * through the runtime's reader. The code side is the back-link index
- * `validate_codespecs --backlinks` writes; see services/codespecs-trace.ts.
+ * `tomspecs :codespecs-validate --backlinks` writes; see services/codespecs-trace.ts.
  */
 
 import * as fs from 'fs';
@@ -59,7 +59,7 @@ export interface CodeDirs {
 export interface CodeSpecsTraceInput extends ExtractsLocator {
     /** A `codespecs-backlinks` JSON file. */
     backlinks?: string;
-    /** The generated trio's package folders, read through the bundled validate_codespecs. */
+    /** The generated trio's package folders, read through the bundled `tomspecs :codespecs-validate`. */
     codeDirs?: CodeDirs;
     specPath?: string;
     token?: string;
@@ -70,14 +70,14 @@ export interface CodeSpecsTraceInput extends ExtractsLocator {
 
 /**
  * Produces the back-link index for a trio. The extension installs the bundled
- * validate_codespecs binary (`backlinkIndexJson`) at activation; a test may
+ * tomspecs binary (`backlinkIndexJson`) at activation; a test may
  * install its own. `null`: the binary is missing on this platform, so there
  * are no back-links (the trace goes on without them and says so).
  */
 export type BacklinkProvider = (dirs: CodeDirs) => Promise<string | null>;
 let backlinkProvider: BacklinkProvider | null = null;
 
-/** Install (or clear) the back-link provider: the bundled validate_codespecs binary. */
+/** Install (or clear) the back-link provider: the bundled tomspecs binary. */
 export function setBacklinkProvider(provider: BacklinkProvider | null): void {
     backlinkProvider = provider;
 }
@@ -104,10 +104,10 @@ function directoryHeader(deps: SpecToolDeps, dir: ExtractDirectory): Record<stri
     };
 }
 
-/** The warning a trace over `codeDirs` carries when validate_codespecs is missing. */
+/** The warning a trace over `codeDirs` carries when tomspecs is missing. */
 export const NO_AGREEMENT = 'no back-link agreement (checks 35, 36)';
 
-/** No back-links from `codeDirs`: validate_codespecs is missing on this platform. */
+/** No back-links from `codeDirs`: tomspecs is missing on this platform. */
 class BacklinksUnavailable extends Error {}
 
 async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Promise<BacklinkIndex | null> {
@@ -140,7 +140,7 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
 }
 
 /**
- * The back-links, or — when `codeDirs` needs validate_codespecs and it is
+ * The back-links, or — when `codeDirs` needs tomspecs and it is
  * missing — none, with the warning the answer carries (the user is told once).
  */
 async function loadBacklinksOrWarn(deps: SpecToolDeps, input: CodeSpecsTraceInput): Promise<{ index: BacklinkIndex | null; warnings: string[] }> {
@@ -312,7 +312,7 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
     name: 'tomAi_specCodeSpecsTrace',
     displayName: 'CodeSpecs: Trace',
     description:
-        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled tomspecs `:codespecs-validate --backlinks`, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36). Without validate_codespecs on this platform, `codeDirs` gives no `agreement`: the answer carries `warnings` and `help` instead.',
+        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled tomspecs `:codespecs-validate --backlinks`, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36). Without tomspecs on this platform, `codeDirs` gives no `agreement`: the answer carries `warnings` and `help` instead.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

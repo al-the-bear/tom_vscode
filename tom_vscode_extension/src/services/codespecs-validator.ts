@@ -1,6 +1,6 @@
 /**
- * The CodeSpecs validation (`tomspecs :codespecs-validate`, the old
- * validate_codespecs; services/tomspecsCalls.ts): where the binary is, how it
+ * The CodeSpecs validation (`tomspecs :codespecs-validate`;
+ * services/tomspecsCalls.ts): where the binary is, how it
  * is run, and the two documents it writes — the `codespecs-validation` report
  * (`--json`) and the `codespecs-backlinks` index (`--backlinks`).
  *
@@ -10,8 +10,6 @@
  * parses source text only, so it needs no Dart SDK at run time; nothing here
  * ever falls back to `dart run`. A binary configured for the platform
  * (`bridge.executables.tomspecs`) is used instead when it exists.
- * `TOM_SPECS_LEGACY_BINARIES=1` runs the old validate_codespecs instead
- * (until tom_specs' tsbin8).
  *
  * vscode-free.
  */
@@ -19,17 +17,16 @@
 import * as path from 'path';
 import { getCurrentPlatform } from '../utils/executableResolver';
 import { binaryFileName, currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND, runBinaryFile, type BinaryRun } from './dartBinariesStatus';
-import { clitoolBinary, clitoolInvocation } from './tomspecsCalls';
+import { CLITOOL_BINARY, clitoolCommandLine, clitoolInvocation } from './tomspecsCalls';
 
-/** What a message names as the validator: `tomspecs :codespecs-validate` (validate_codespecs in legacy mode). */
+/** What a message names as the validator: `tomspecs :codespecs-validate`. */
 function validatorLabel(): string {
-    const call = clitoolInvocation({ tool: 'validate_codespecs', args: [] });
-    return [call.binary, ...call.args].join(' ');
+    return clitoolCommandLine({ tool: 'codespecs', args: [] });
 }
 
-/** The binary CodeSpecs validation runs: tomspecs (validate_codespecs in legacy mode). */
-function validatorBinary(): 'tomspecs' | 'validate_codespecs' {
-    return clitoolBinary('validate_codespecs') as 'tomspecs' | 'validate_codespecs';
+/** The binary CodeSpecs validation runs. */
+function validatorBinary(): typeof CLITOOL_BINARY {
+    return CLITOOL_BINARY;
 }
 
 export const VALIDATION_FORMAT = 'codespecs-validation';
@@ -130,7 +127,7 @@ export type { BinaryRun };
 
 /** Run the binary with `args`; resolves with its exit code and both streams (a non-zero exit is not a rejection). */
 export function runValidateCodespecs(args: string[], extensionRoot?: string): Promise<BinaryRun> {
-    const call = clitoolInvocation({ tool: 'validate_codespecs', args });
+    const call = clitoolInvocation({ tool: 'codespecs', args });
     return runBinaryFile(validateCodespecsBinary(extensionRoot), call.args, call.binary, { timeoutMs: RUN_TIMEOUT_MS });
 }
 

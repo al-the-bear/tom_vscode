@@ -11,13 +11,13 @@
 
     create_currentbinaries_vsix.ps1
 
-    1. Builds tom_bs and validate_codespecs for THIS host and puts them into
+    1. Builds tom_bs and tomspecs for THIS host and puts them into
        the binaries layer, tom_binaries/tom/<platform>/
        (compile_and_install.ps1 -BinariesOnly: committed there and pushed; a
        refused push stays a local commit). A Dart SDK is needed; without one
        use create_vsix_nodart.ps1.
     2. Packages the VSIX through install_extension.ps1 -PackageOnly, taking
-       tom_bs and validate_codespecs for every platform from the layer
+       tom_bs and tomspecs for every platform from the layer
        (TOM_LAYER_BINARIES=1), with the workspace template, as
        create_vsix.ps1 (no provider SDK: the extension installs them on
        request).

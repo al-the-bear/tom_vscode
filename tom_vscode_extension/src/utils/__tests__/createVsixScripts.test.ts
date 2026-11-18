@@ -50,7 +50,7 @@ describe('create_vsix scripts', () => {
         const tail = sh.slice(sh.indexOf('"$SCRIPT_DIR/install_extension.sh"'));
         assert.match(tail, /tom_print_vsix_path "\$SCRIPT_DIR"/);
         assert.match(tail, /node scripts\/check-vsix-contents\.cjs "\$VSIX"/);
-        assert.match(tail, /tom_bs and validate_codespecs are in this VSIX for \$PLATFORM only: a Dart binary/);
+        assert.match(tail, /tom_bs and tomspecs are in this VSIX for \$PLATFORM only: a Dart binary/);
         assert.match(tail, /Built without the Dart binaries \(--no-dart\)/);
         assert.match(tail, /tom_print_no_dart_warning "\$TOM_NO_DART_REASON" 1\nfi\n(tom_release_publish [^\n]*\n)?echo "🕒 Finished at/, 'the red warning only when Dart was not found');
         assert.doesNotMatch(sh, /--install-extension"? "\$/, 'nothing installed by the wrapper');
@@ -77,7 +77,7 @@ describe('create_vsix scripts', () => {
         assert.match(ps1, /if \(\$Arg -eq '--no-dart'\) \{ \$NoDart = \$true \}/);
         assert.match(ps1, /Write-TomVsixPath \$ScriptDir/);
         assert.match(ps1, /& node scripts\/check-vsix-contents\.cjs \$Vsix/);
-        assert.match(ps1, /tom_bs and validate_codespecs are in this VSIX for \$Platform only/);
+        assert.match(ps1, /tom_bs and tomspecs are in this VSIX for \$Platform only/);
         assert.match(read('create_vsix_nodart.ps1'), /& \(Join-Path \$ScriptDir 'create_vsix\.ps1'\) -NoDart/);
     });
 

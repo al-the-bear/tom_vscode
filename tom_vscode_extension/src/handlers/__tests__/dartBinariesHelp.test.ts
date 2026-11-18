@@ -38,11 +38,10 @@ const statusPage = require('../statusPage-handler') as typeof import('../statusP
 
 const HOST = status.dartBinariesStatus(EXT).platform;
 const EXE = process.platform === 'win32' ? '.exe' : '';
-/** The binary CodeSpecs validation needs: tomspecs, or validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
-const LEGACY = process.env.TOM_SPECS_LEGACY_BINARIES === '1';
-const VALIDATOR = LEGACY ? 'validate_codespecs' : 'tomspecs';
-const VALIDATOR_FEATURE = LEGACY ? 'CodeSpecs validation' : 'TomSpecs process checks, CodeSpecs validation and mapping';
-const ALL = ['tom_bs', 'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'];
+/** The binary CodeSpecs validation needs. */
+const VALIDATOR = 'tomspecs';
+const VALIDATOR_FEATURE = 'TomSpecs process checks, CodeSpecs validation and mapping';
+const ALL = ['tom_bs', 'tomspecs'];
 
 function fakeExtension(binaries: string[]): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dart-help-ext-'));

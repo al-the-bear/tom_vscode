@@ -331,7 +331,7 @@ function planItems(
                     : []),
                 ...(isLast
                     ? [`After this step, map and validate (codespecs_mapping.md §1.1.2 stage 5, runbook codespecs-validate): `
-                        + `tomAi_specCodeSpecsMap with file '<document>' and out '<packages folder>' (the bundled irspecs: `
+                        + `tomAi_specCodeSpecsMap with file '<document>' and out '<packages folder>' (the bundled tomspecs: `
                         + (register.length > 0
                             ? `\`tomspecs :ir-map --mapper <the unit's mapper> --ir ${units.irRel} --spec <document> --unit <unit id> --out <packages folder>\` per unit `
                                 + `(${register.map((u) => u.unitId).join(', ')}))`

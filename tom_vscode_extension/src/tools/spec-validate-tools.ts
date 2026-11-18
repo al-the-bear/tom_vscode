@@ -6,7 +6,7 @@
  *   tomAi_specConvert   write the other format (YAML ↔ Markdown) beside or over the source
  *
  * Validation is the same three tiers, in the same report shape, as tom_specs'
- * `validate_spec` CLI (SomSpecValidation); each finding also carries the path
+ * `tomspecs :spec-validate` (SomSpecValidation); each finding also carries the path
  * to fix in the form the edit tools take.
  */
 
@@ -133,7 +133,7 @@ export const SPEC_VALIDATE_TOOL: SharedToolDefinition<SpecValidateInput> = {
     name: 'tomAi_specValidate',
     displayName: 'Spec: Validate',
     description:
-        'Is a TomSpecs document valid? The three tiers of tom_specs\' validate_spec: decode, schema (the root\'s DocSpecs schema over the Markdown rendition) and instance (types, enums, references, stated counts). Answers `{passed, summary, tiers, notRun, violations: [{tier, code, file, line, path, message}]}`, `path` the document path to fix. `files` validates fragments of one document as one; `path` keeps findings at or below it.' + FIRST_LOOK,
+        'Is a TomSpecs document valid? The three tiers of `tomspecs :spec-validate`: decode, schema (the root\'s DocSpecs schema over the Markdown rendition) and instance (types, enums, references, stated counts). Answers `{passed, summary, tiers, notRun, violations: [{tier, code, file, line, path, message}]}`, `path` the document path to fix. `files` validates fragments of one document as one; `path` keeps findings at or below it.' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'validate', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

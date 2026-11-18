@@ -8,7 +8,7 @@ Use this workflow after changing extension code when the runtime doesn't reflect
 2. Install the updated extension in the target VS Code host with
    `compile_and_install.sh` / `.ps1` — the install route on every host. It
    builds `tom_bs` from the bridge sources for that host and puts it, with
-   `tomspecs` (and the older `validate_codespecs`, `spec_checks`, `irspecs`), into the binaries layer (below). The prebuilt `tom_bs`
+   `tomspecs`, into the binaries layer (below). The prebuilt `tom_bs`
    binaries in `tom_binaries` are only as current as the last from-source build
    on each platform's host, so `install_extension.*`, which bundles them, is
    only for a machine without the d4rt and bridge checkouts, and its bridge may
@@ -75,7 +75,7 @@ pack recorded, so an install never ships a model npm kept from an earlier pack.
 Between installs, the CodeSpecs freshness test (CS-2b) fails once ai_build's
 model moves on; `npm run som:pack && npm install` (what every install does)
 brings the checkout level. The install
-scripts also compile `tomspecs` (the binary the tools call) and the older `validate_codespecs`, `spec_checks` and `irspecs` (tom_specs_clitool, bundled until its tsbin8) into
+scripts also compile `tomspecs` (tom_specs_clitool's binary, which the tools call) into
 `bin/<platform>/` (`npm run codespecs:build`) with the Dart SDK. Both install
 scripts look for it first (`scripts/find-dart.cjs`): `dart` on
 PATH, then `DART_SDK`, `FLUTTER_ROOT`, the folder of `flutter` on PATH, and
@@ -85,13 +85,13 @@ known locations (`~/Desktop/development/flutter/bin`, `~/flutter/bin`,
 the install. When none holds `dart` (or `--no-dart` / `-NoDart` is given,
 or `TOM_NO_DART=1`), the install goes on in no-Dart mode: the bridge-lock
 preflight, the from-source bridge build, the bridge freshness checks and the
-`tomspecs` / `validate_codespecs` / `spec_checks` / `irspecs` build are skipped, and the scripts end with a red warning
+`tomspecs` build are skipped, and the scripts end with a red warning
 before and after the Finished line. `TOM_FIND_DART_DISABLE=1` makes
 `find-dart.cjs` find nothing, to take the not-found route on a machine with
 Dart. The wrappers (`compile_and_install.*`) settle the mode before calling the
 base script and print the closing lines (`scripts/install_summary.sh` / `.ps1`):
 the VSIX path, the warning, the finish time, the warning again. Beside each binary the build writes
-`<name>.build.json` (`tomspecs.build.json`, `validate_codespecs.build.json`, `spec_checks.build.json`, `irspecs.build.json`), a hash of its source; `npm run codespecs:check`
+`<name>.build.json` (`tomspecs.build.json`), a hash of its source; `npm run codespecs:check`
 (and the test CV-8) say when tom_specs_clitool moved on since, so the binaries
 need `npm run codespecs:build` again. The stamp names the clitool's commit
 (`clitool.head`, `dirty`) only when ai_build is the top level of its own git
@@ -119,7 +119,7 @@ packaged; the next install clears it. Tests: `codespecs-binary-stamp.test.ts`
 (BS-5, BS-6), `installBinStaging.test.ts` (IB-1 – IB-3). After packaging,
 `node scripts/check-vsix-contents.cjs` confirms that the VSIX carries the SOM
 packages as real files and no symlinks, and lists per platform which of
-`tom_bs` / `tomspecs` / `validate_codespecs` / `spec_checks` / `irspecs` it carries (informational: a VSIX without them
+`tom_bs` / `tomspecs` it carries (informational: a VSIX without them
 is valid). It fails a VSIX that carries a provider SDK (anything under
 `node_modules/@anthropic-ai/`, or a `bin/<platform>/claude[.exe]`). Both help
 pages it requires (`resources/dart_binaries/missing_dart_binaries.md`,
@@ -215,7 +215,7 @@ target. Tests: `vsixSplit.test.ts` (VS-1 – VS-6).
 **The binaries layer** (`tom_binaries/tom/<platform>/`): every from-source build
 (`TOM_BRIDGE_FROM_SOURCE=1`: `compile_and_install.*`, `create_vsix.*`) ends its
 Dart part with `node scripts/binaries-layer.cjs publish`: it copies this host's
-`tom_bs` and each clitool binary (`tomspecs`, `validate_codespecs`, `spec_checks`, `irspecs`) with its `<name>.build.json` there, writes
+`tom_bs` and the clitool binary `tomspecs` with its `<name>.build.json` there (deleting the retired clitool binaries, `RETIRED_CLITOOL_BINARIES` of `scripts/codespecs-binary-stamp.cjs`, from that folder in the same commit), writes
 `tom_bs.build.json` (the versioner stamp `tom_bs` prints on start, its build
 time, the host, and `bridgeSourceHash`: the bridge's lib/ and bin/ Dart files
 and pubspec.yaml as built, without the versioner file and the `// Generated:`
@@ -261,7 +261,7 @@ BL-4 against throw-away git repositories, FB-1 – FB-3 the fleet helpers).
 
 For a machine without Dart there is `create_layerbinaries_vsix.sh` / `.ps1`:
 it builds the VSIX from source with no Dart step, bundling every platform's
-`tom_bs`, `tomspecs`, `validate_codespecs`, `spec_checks` and `irspecs` from a binaries layer — the workspace's
+`tom_bs` and `tomspecs` from a binaries layer — the workspace's
 `tom_binaries` checkout, `--layer <dir>` (`-Layer`), or with `--clone`
 (`-Clone`) a shallow clone of the public `al-the-bear/tom_binaries` into
 `.tom_binaries/`. The layer is public, so its build stamps and commit messages

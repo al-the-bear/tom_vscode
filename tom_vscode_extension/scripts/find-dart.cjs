@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Find the Dart SDK for the build steps that compile Dart (validate_codespecs,
- * the tom_bs bridge from source), also when `dart` is not on PATH.
+ * Find the Dart SDK for the build steps that compile Dart (tomspecs, the
+ * tom_bs bridge from source), also when `dart` is not on PATH.
  *
  *   node scripts/find-dart.cjs        prints the folder holding `dart`, exit 0;
  *                                     names every place it looked, exit 1

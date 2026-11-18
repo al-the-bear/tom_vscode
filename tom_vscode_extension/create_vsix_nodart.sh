@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Package a private-distribution VSIX without the Dart binaries: no tom_bs, no
-# validate_codespecs (no DartScript, no CodeSpecs validation), no Dart SDK
+# tomspecs (no DartScript, no CodeSpecs validation), no Dart SDK
 # needed. Otherwise as create_vsix.sh: the workspace template inside the VSIX
 # and beside it, no provider SDK (installed on request), nothing installed.
 #

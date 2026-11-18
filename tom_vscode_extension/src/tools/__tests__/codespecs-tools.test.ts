@@ -117,7 +117,7 @@ describe('CodeSpecs tools', () => {
         const versionOf = (read: (rel: string) => string) => JSON.parse(read('package.json')).version as string;
         const packaged = metaOf(readPackaged);
         const source = metaOf(readHead);
-        assert.ok(source.modelHash, 'ai_build\'s meta carries no modelHash: regenerate it (generate_som)');
+        assert.ok(source.modelHash, 'ai_build\'s meta carries no modelHash: regenerate it (tomspecs :som-generate)');
         if (packaged.modelHash !== source.modelHash) {
             const pv = versionOf(readPackaged);
             const sv = versionOf(readHead);

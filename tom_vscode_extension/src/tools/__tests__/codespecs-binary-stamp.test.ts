@@ -1,5 +1,5 @@
 /**
- * The validate_codespecs build stamp (scripts/codespecs-binary-stamp.cjs,
+ * The tomspecs build stamp (scripts/codespecs-binary-stamp.cjs,
  * vscimpa7): what the bundled binary was built from, compared with the source
  * as it is now — over a fake ai_build in a temp folder.
  *
@@ -15,9 +15,11 @@
  *   BS-5 the clitool's commit only from ai_build's own repository (vscimpb105): an export inside another
  *        repository (TOM_SOM_AI_BUILD, `git archive HEAD`) gets `head: null`, `dirty: null` and a note, and no
  *        uncommitted files of the enclosing repository; ai_build's own checkout gets its HEAD
- *   BS-6 the build (scripts/build-validate-codespecs.cjs buildAll, compile stubbed): all CLIs compiled into a
- *        scratch folder and taken over with their stamps only when every one built; a failing one leaves
- *        bin/<platform>/ (binaries and stamps) as it was and says so
+ *   BS-6 the build (scripts/build-validate-codespecs.cjs buildAll, compile stubbed): tomspecs compiled into a
+ *        scratch folder and taken over with its stamp only when it built; a failing build leaves
+ *        bin/<platform>/ (binaries and stamps, the retired ones too) as it was and says so; a build that goes
+ *        through deletes the retired clitool binaries and their stamps, nothing else
+ *   BS-7 tomspecs is the one clitool binary; the retired ones are named only for their removal
  */
 
 import test, { describe } from 'node:test';
@@ -37,6 +39,8 @@ const stamp = require(path.join(EXT_ROOT, 'scripts', 'codespecs-binary-stamp.cjs
     uncommittedFeedFiles(aiBuild: string): string[];
     NOT_A_CHECKOUT_NOTE: string; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     CLITOOL_BINARIES: string[]; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    RETIRED_CLITOOL_BINARIES: string[]; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
+    retiredFiles(platform: string): string[];
     checkFreshness(o: { extRoot: string; aiBuild: string; platform: string }): { state: string; message: string; uncommitted?: string[] };
     stampPath(extRoot: string, platform: string): string;
 };
@@ -54,7 +58,7 @@ function fixture(): { aiBuild: string; extRoot: string; put(rel: string, text: s
     };
     put('tom_specs_clitool/lib/tom_specs_clitool.dart', 'export "src/a.dart";');
     put('tom_specs_clitool/lib/src/a.dart', 'void a() {}');
-    put('tom_specs_clitool/bin/validate_codespecs.dart', 'void main() {}');
+    put('tom_specs_clitool/bin/tomspecs.dart', 'void main() {}');
     put('tom_specs_clitool/bin/other_tool.dart', 'void main() {}');
     put('tom_specs_clitool/test/a_test.dart', 'void main() {}');
     put('tom_specs_clitool/pubspec.yaml', 'name: tom_specs_clitool');
@@ -66,13 +70,13 @@ function fixture(): { aiBuild: string; extRoot: string; put(rel: string, text: s
     return { aiBuild, extRoot, put };
 }
 
-describe('the validate_codespecs build stamp', () => {
+describe('the tomspecs build stamp', () => {
     test('BS-1: the files the binary is built from', () => {
         const { aiBuild } = fixture();
         assert.deepEqual(stamp.feedFiles(aiBuild), [
             'sib/lib/sib.dart',
             'sib/pubspec.yaml',
-            'tom_specs_clitool/bin/validate_codespecs.dart',
+            'tom_specs_clitool/bin/tomspecs.dart',
             'tom_specs_clitool/lib/src/a.dart',
             'tom_specs_clitool/lib/tom_specs_clitool.dart',
             'tom_specs_clitool/pubspec.lock',
@@ -86,7 +90,7 @@ describe('the validate_codespecs build stamp', () => {
         const o = { extRoot, aiBuild, platform: PLATFORM };
         assert.equal(stamp.checkFreshness(o).state, 'noBinary');
         fs.mkdirSync(path.join(extRoot, 'bin', PLATFORM), { recursive: true });
-        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'validate_codespecs'), 'binary');
+        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'tomspecs'), 'binary');
         const none = stamp.checkFreshness(o);
         assert.equal(none.state, 'noStamp');
         assert.match(none.message, /npm run codespecs:build/);
@@ -116,7 +120,7 @@ describe('the validate_codespecs build stamp', () => {
     test('BS-3: no clitool source', () => {
         const { extRoot } = fixture();
         fs.mkdirSync(path.join(extRoot, 'bin', PLATFORM), { recursive: true });
-        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'validate_codespecs'), 'binary');
+        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'tomspecs'), 'binary');
         assert.equal(stamp.checkFreshness({ extRoot, aiBuild: path.join(extRoot, 'nowhere'), platform: PLATFORM }).state, 'noSource');
     });
 
@@ -129,7 +133,7 @@ describe('the validate_codespecs build stamp', () => {
         git('commit', '-q', '-m', 'seed');
         const o = { extRoot, aiBuild, platform: PLATFORM };
         fs.mkdirSync(path.join(extRoot, 'bin', PLATFORM), { recursive: true });
-        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'validate_codespecs'), 'binary');
+        fs.writeFileSync(path.join(extRoot, 'bin', PLATFORM, 'tomspecs'), 'binary');
         stamp.writeStamp(o);
         const fresh = stamp.checkFreshness(o);
         assert.equal(fresh.state, 'fresh');
@@ -166,8 +170,8 @@ describe('the validate_codespecs build stamp', () => {
         assert.deepEqual(stamp.uncommittedFeedFiles(aiBuild), [], 'the enclosing repository\'s changes are not ai_build\'s');
         const written = stamp.writeStamp({ extRoot, aiBuild, platform: PLATFORM, dir: (fs.mkdirSync(path.join(extRoot, 's'), { recursive: true }), path.join(extRoot, 's')) });
         assert.deepEqual(written.clitool, { head: null, dirty: null, note: stamp.NOT_A_CHECKOUT_NOTE });
-        assert.ok(fs.existsSync(path.join(extRoot, 's', 'validate_codespecs.build.json')), '`dir` names the stamp\'s folder');
-        assert.match(fs.readFileSync(path.join(extRoot, 's', 'validate_codespecs.build.json'), 'utf8'), /"note": "ai_build is not a git checkout of its own/);
+        assert.ok(fs.existsSync(path.join(extRoot, 's', 'tomspecs.build.json')), '`dir` names the stamp\'s folder');
+        assert.match(fs.readFileSync(path.join(extRoot, 's', 'tomspecs.build.json'), 'utf8'), /"note": "ai_build is not a git checkout of its own/);
         // ai_build's own checkout: its HEAD.
         const own = fixture();
         git(own.aiBuild, 'init', '-q');
@@ -177,7 +181,7 @@ describe('the validate_codespecs build stamp', () => {
         assert.deepEqual(stamp.gitInfo(own.aiBuild), { head: git(own.aiBuild, 'rev-parse', 'HEAD'), dirty: false });
     });
 
-    test('BS-6: all CLIs or none', () => {
+    test('BS-6: the build, or nothing', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const build = require(path.join(EXT_ROOT, 'scripts', 'build-validate-codespecs.cjs')) as {
             buildAll(o: Record<string, unknown>): number;
@@ -191,6 +195,8 @@ describe('the validate_codespecs build stamp', () => {
             fs.writeFileSync(path.join(outDir, `${name}.build.json`), `{"old": "${name}"}`);
         }
         fs.writeFileSync(path.join(outDir, 'buildkit'), 'old buildkit');
+        const retired = stamp.retiredFiles(PLATFORM);
+        for (const f of retired) { fs.writeFileSync(path.join(outDir, f), `retired ${f}`); }
         const errors: string[] = [];
         const origError = console.error;
         const origLog = console.log;
@@ -199,10 +205,10 @@ describe('the validate_codespecs build stamp', () => {
         try {
             const scratch = path.join(extRoot, 'scratch');
             const stampFor = (name: string, dir: string) => stamp.writeStamp({ extRoot, aiBuild, platform: PLATFORM, name, dir });
-            // The second CLI does not compile.
+            // tomspecs does not compile.
             const failing = build.buildAll({
                 platform: PLATFORM, outDir, scratch, resolve: () => undefined, stampFor,
-                compile: (name: string, outFile: string) => { if (name === stamp.CLITOOL_BINARIES[1]) { throw new Error('Type SpecGenerationUnit not found'); } fs.writeFileSync(outFile, `new ${name}`); },
+                compile: (name: string, outFile: string) => { if (name === 'tomspecs') { throw new Error('Type SpecGenerationUnit not found'); } fs.writeFileSync(outFile, `new ${name}`); },
             });
             assert.equal(failing, 1);
             for (const name of stamp.CLITOOL_BINARIES) {
@@ -210,10 +216,11 @@ describe('the validate_codespecs build stamp', () => {
                 assert.equal(fs.readFileSync(path.join(outDir, `${name}.build.json`), 'utf8'), `{"old": "${name}"}`, `${name}'s stamp kept`);
             }
             assert.equal(fs.readFileSync(path.join(outDir, 'buildkit'), 'utf8'), 'old buildkit');
+            for (const f of retired) { assert.ok(fs.existsSync(path.join(outDir, f)), `${f} kept by a failed build`); }
             assert.ok(!fs.existsSync(scratch), 'the scratch folder is cleared');
             const text = errors.join('\n');
-            assert.match(text, new RegExp(`Building ${stamp.CLITOOL_BINARIES[1]} failed: Type SpecGenerationUnit not found`));
-            assert.match(text, /Nothing was copied: validate_codespecs, spec_checks, irspecs, tomspecs are taken over only when all of them build/);
+            assert.match(text, /Building tomspecs failed: Type SpecGenerationUnit not found/);
+            assert.match(text, /Nothing was copied: tomspecs is taken over only when it builds/);
             assert.match(text, /is unchanged: the previous binaries and stamps are kept \(buildkit, irspecs, spec_checks, tomspecs, validate_codespecs\)/);
             // A failed dependency resolution says the same.
             errors.length = 0;
@@ -229,10 +236,20 @@ describe('the validate_codespecs build stamp', () => {
                 assert.equal(fs.readFileSync(path.join(outDir, name), 'utf8'), `new ${name}`);
                 assert.match(fs.readFileSync(path.join(outDir, `${name}.build.json`), 'utf8'), /"sourceHash"/);
             }
+            assert.deepEqual(fs.readdirSync(outDir).sort(), ['buildkit', 'tomspecs', 'tomspecs.build.json'], 'the retired binaries and stamps are gone, nothing else');
             assert.ok(!fs.existsSync(scratch));
         } finally {
             console.error = origError;
             console.log = origLog;
         }
+    });
+
+    test('BS-7: tomspecs is the one clitool binary', () => {
+        assert.deepEqual(stamp.CLITOOL_BINARIES, ['tomspecs']);
+        assert.deepEqual(stamp.RETIRED_CLITOOL_BINARIES, ['validate_codespecs', 'spec_checks', 'irspecs']);
+        assert.deepEqual(stamp.retiredFiles('win32-x64'), [
+            'validate_codespecs.exe', 'validate_codespecs.build.json', 'spec_checks.exe', 'spec_checks.build.json', 'irspecs.exe', 'irspecs.build.json',
+        ]);
+        assert.match(stamp.stampPath('/e', PLATFORM), /tomspecs\.build\.json$/, 'the default stamp is tomspecs\'');
     });
 });

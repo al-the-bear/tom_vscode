@@ -1,5 +1,5 @@
 /**
- * The CodeSpecs tools on a platform without the validator, tomspecs (validate_codespecs in legacy mode) (vsc_nodart-4):
+ * The CodeSpecs tools on a platform without the validator, tomspecs (vsc_nodart-4):
  * an extension root that has no binary for this platform and nothing
  * configured. With the binary present the CV-*, CT-* and WS-* tests hold.
  *
@@ -46,9 +46,8 @@ const WS_ROOT = path.resolve(EXT_ROOT, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const MERIDIAN = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml');
 const PLATFORM = getCurrentPlatform();
-/** The validator binary: tomspecs, or validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
-const LEGACY_MODE = process.env.TOM_SPECS_LEGACY_BINARIES === '1';
-const VALIDATOR = LEGACY_MODE ? 'validate_codespecs' : 'tomspecs';
+/** The validator binary. */
+const VALIDATOR = 'tomspecs';
 const WARNING = `${VALIDATOR} missing on ${PLATFORM}: no back-link agreement (checks 35, 36)`;
 const NOTICE = `CodeSpecs validation skipped: ${VALIDATOR} is not available on ${PLATFORM}.`;
 
@@ -74,7 +73,7 @@ const call = async (impl: (d: SpecToolDeps, i: any) => Promise<string>, input: o
 const activationProvider: BacklinkProvider = async (dirs) => (isValidatorAvailable() ? backlinkIndexJson(dirs) : null);
 const status: StatusDeps = { plan: {} as never, activeQuest: () => '' };
 
-describe('CodeSpecs without validate_codespecs', () => {
+describe('CodeSpecs without tomspecs', () => {
     before(() => { void service.model; });
 
     test('NV-1: validate answers binaryMissing with the help', async () => {
@@ -85,7 +84,7 @@ describe('CodeSpecs without validate_codespecs', () => {
         assert.equal(r.expected, path.join(noBinaryRoot, 'bin', PLATFORM, process.platform === 'win32' ? `${VALIDATOR}.exe` : VALIDATOR));
         assert.equal(r.help, HELP_HINT);
         assert.match(r.page, /missing_dart_binaries\.md$/);
-        for (const part of [`not available on ${PLATFORM}`, LEGACY_MODE ? `bridge.executables.${VALIDATOR}` : VALIDATOR_CONFIG_KEY, 'npm run codespecs:build', r.page, 'tomAi.showDartBinariesHelp']) {
+        for (const part of [`not available on ${PLATFORM}`, VALIDATOR_CONFIG_KEY, 'npm run codespecs:build', r.page, 'tomAi.showDartBinariesHelp']) {
             assert.ok(r.error.includes(part), `the error names ${part}`);
         }
     });

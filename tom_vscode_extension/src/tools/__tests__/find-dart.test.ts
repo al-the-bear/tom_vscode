@@ -10,7 +10,7 @@
  *   FD-6 the script as the install scripts run it: prints the folder (exit 0) or stops with the message (exit 1)
  *   FD-7 both install scripts look for Dart before their first build step and put the folder on PATH; without
  *        one (or with --no-dart / -NoDart / TOM_NO_DART=1) they go on in no-Dart mode: the lookup is skipped or its
- *        failure tolerated, and the Dart steps (bridge-lock preflight, from-source bridge build, validate_codespecs)
+ *        failure tolerated, and the Dart steps (bridge-lock preflight, from-source bridge build, tomspecs)
  *        are skipped; the wrappers settle the mode before calling them and print the closing warning
  *   FD-8 TOM_FIND_DART_DISABLE=1 finds nothing, wherever Dart is, and says why
  */
@@ -107,16 +107,16 @@ describe('finding the Dart SDK', () => {
         const ps1 = read('install_extension.ps1');
         for (const [name, text, onPath, noDartOn, gated] of [
             ['install_extension.sh', sh, /export PATH="\$DART_DIR:\$PATH"/, /--no-dart\) export TOM_NO_DART=1/,
-                /if \[ "\$NO_DART" = "1" \]; then\s+echo "📦 No Dart: tomspecs \(and validate_codespecs, spec_checks, irspecs\) are not built[^"]*"\s+else\s+\( cd "\$SCRIPT_DIR" && node scripts\/build-validate-codespecs\.cjs \)/],
+                /if \[ "\$NO_DART" = "1" \]; then\s+echo "📦 No Dart: tomspecs is not built[^"]*"\s+else\s+\( cd "\$SCRIPT_DIR" && node scripts\/build-validate-codespecs\.cjs \)/],
             ['install_extension.ps1', ps1, /\$env:Path = "\$DartDir;\$env:Path"/, /if \(\$Arg -eq '--no-dart'\) \{ \$NoDart = \$true \}/,
-                /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: tomspecs \(and validate_codespecs, spec_checks, irspecs\) are not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
+                /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: tomspecs is not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
         ] as const) {
             const find = text.indexOf('node scripts/find-dart.cjs');
             assert.ok(find > 0, `${name} runs find-dart.cjs`);
             assert.ok(find < text.indexOf('scripts/build-som-packages.cjs'), `${name} looks before its first build step`);
             assert.match(text, onPath, `${name} puts the found folder on PATH`);
             assert.match(text, noDartOn, `${name} takes --no-dart`);
-            assert.match(text, gated, `${name} skips the validate_codespecs build without Dart`);
+            assert.match(text, gated, `${name} skips the tomspecs build without Dart`);
             assert.match(text, /no Dart SDK found/, `${name} goes on when no Dart SDK is found`);
             assert.doesNotMatch(text, /DART_DIR="\$\(node scripts\/find-dart\.cjs\)" \|\| exit 1/, `${name} does not stop without Dart`);
         }

@@ -80,7 +80,7 @@ sections:
     title: Building and installing the extension
     description: >-
       compile_and_install.sh compiles the TypeScript, builds the Dart binaries (tom_bs,
-      validate_codespecs, spec_checks, irspecs) from the sibling checkouts and packages the VSIX.
+      tomspecs) from the sibling checkouts and packages the VSIX.
     tools:
       - id: node
         title: Node.js 25 or later
