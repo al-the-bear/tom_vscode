@@ -29,6 +29,7 @@ import { NESTED_FOLLOW_UP_LABELS } from '../utils/processStack';
 import { composeChoiceAnswers, questionText, type AskChoice, type ChoiceContext, type MoveOutcome, type QuestionAnswer, type StartOutcome } from '../utils/askChoices';
 import { EMPTY_PROCESS_STATE, type ProcessChange } from '../utils/processDefinition';
 import { SharedToolDefinition } from '../tools/shared-tool-registry';
+import { recordingAsk } from '../services/openAskRecord';
 
 // ===========================================================================
 // The question in the user-input panel
@@ -238,7 +239,8 @@ export function askUserWithChoices(input: { questions: string[]; title?: string;
 /** The live `tomAi_askUser` tool with its blocking executor wired in. */
 export const ASK_USER_LIVE_TOOL: SharedToolDefinition<AskUserInput> = {
     ...ASK_USER_DEF,
-    execute: (input) => askUserImpl(liveAskUserDeps, input),
+    // Recorded on the queue item while open, so a reload restores it (vscimpb166, services/openAskRecord.ts).
+    execute: (input) => recordingAsk('tomAi_askUser', input, () => askUserImpl(liveAskUserDeps, input)),
 };
 
 /**

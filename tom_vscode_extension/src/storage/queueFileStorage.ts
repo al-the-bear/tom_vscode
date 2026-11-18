@@ -203,6 +203,8 @@ export interface QueuePromptYaml {
     /** A GROUP item's members checked and unchecked by hand (utils/groupItemSelection.ts). */
     /** The todos the item's walk claimed and sent, in order. */
     'walked-todos'?: string[];
+    /** The ask tool call the item's turn waits in (services/openAskRecord.ts): tool, input, window-id, started-at. */
+    'open-ask'?: Record<string, unknown>;
     'group-selection'?: { checked?: string[]; unchecked?: string[] };
     /** A repeated item's main-prompt answer per repetition (the todo id or the repetition number). */
     'repetition-answers'?: Array<{ key: string; text: string; at: string; 'background-left'?: boolean }>;

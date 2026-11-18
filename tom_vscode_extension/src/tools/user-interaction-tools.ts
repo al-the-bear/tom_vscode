@@ -60,6 +60,7 @@ import { QuestionLogEntry } from '../utils/questionsLogFormat';
 import { appendQuestionLogEntry } from '../services/questionsLog';
 import { readChatQuestionsConfig } from '../handlers/chatQuestions-config';
 import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from '../services/free-text-picker';
+import { recordingAsk } from '../services/openAskRecord';
 
 // ===========================================================================
 // Narrow dep (the only seam between vscode and the impls)
@@ -563,7 +564,8 @@ export const ASK_USER_PICKER_TOOL: SharedToolDefinition<AskUserPickerInput> = {
             },
         },
     },
-    execute: (input) => askUserPickerImpl(liveUserPrompter, input, livePickerDeps()),
+    // Recorded on the queue item while open, so a reload restores it (vscimpb166, services/openAskRecord.ts).
+    execute: (input) => recordingAsk('tomAi_askUserPicker', input, () => askUserPickerImpl(liveUserPrompter, input, livePickerDeps())),
 };
 
 // ===========================================================================

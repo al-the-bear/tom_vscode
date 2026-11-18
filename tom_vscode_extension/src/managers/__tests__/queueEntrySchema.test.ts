@@ -79,6 +79,7 @@ const ITEM: Required<QueuedPrompt> = {
     itemKind: 'prefix',
     groupSelection: { checked: ['x2_a'], unchecked: ['x3_a'] },
     walkedTodos: ['x1_a'],
+    openAsk: { tool: 'tomAi_askUser', input: { questions: ['Which one?'], title: 'Pick' }, windowId: 'w1', startedAt: AT },
     repetitionAnswers: [{ key: 'x1_a', text: 'done', at: AT, backgroundLeft: true, continuations: 1, earlier: ['first'] }],
     doneNotificationPrompt: 'tell me', doneNotificationDisabled: true, doneNotificationQueuedFor: 'chg1', doneNotificationQuest: 'q2', doneNotificationRun: 'r2',
     doneNotificationPosted: { quest: 'q2', run: 'r2', file: 'f.yaml', waiting: true, at: AT },

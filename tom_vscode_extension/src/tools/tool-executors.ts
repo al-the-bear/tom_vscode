@@ -420,6 +420,8 @@ import {
 } from './md-browser-tools';
 import { mdBrowserAskDeps, mdBrowserController } from '../handlers/markdownBrowser-handler';
 import { ASK_IN_MD_BROWSER_TOOL, askInMdBrowserImpl, type AskInMdBrowserInput } from './ask-in-md-browser-tool';
+import { recordingAsk, setOpenAskRunner, type OpenAskTool } from '../services/openAskRecord';
+import { ASK_USER_PICKER_TOOL as ASK_USER_PICKER_RESTORE_TOOL } from './user-interaction-tools';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry';
 import { execFile } from 'child_process';
 import { WsPaths as EditorWsPaths } from '../utils/workspacePaths';
@@ -602,7 +604,8 @@ function describeTab(input: unknown): { file: boolean; absolutePath: string | nu
 (CLOSE_MD_BROWSER_TOOL as { execute: (input: CloseMdBrowserInput) => Promise<string> }).execute =
     (input) => closeMdBrowserImpl(mdBrowserController, input);
 (ASK_IN_MD_BROWSER_TOOL as { execute: (input: AskInMdBrowserInput) => Promise<string> }).execute =
-    (input) => askInMdBrowserImpl(mdBrowserAskDeps, input);
+    // Recorded on the queue item while open, so a reload restores it (vscimpb166, services/openAskRecord.ts).
+    (input) => recordingAsk('tomAi_askInMdBrowser', input, () => askInMdBrowserImpl(mdBrowserAskDeps, input));
 import {
     DIAGNOSTICS_TOOLS,
     GET_ERRORS_TOOL as GET_ERRORS_DEF_INSTALL,
@@ -1334,3 +1337,11 @@ export function resolveProfileTools(
         ? ALL_SHARED_TOOLS.filter((t) => enabledIds.includes(t.name))
         : [];
 }
+
+// An ask a reload left open runs again through the same live tools (vscimpb166, services/openAskRecord.ts).
+setOpenAskRunner((tool: OpenAskTool, input: Record<string, unknown>): Promise<string> => {
+    const def = tool === 'tomAi_askUser' ? ASK_USER_LIVE_TOOL
+        : tool === 'tomAi_askUserPicker' ? ASK_USER_PICKER_RESTORE_TOOL
+            : ASK_IN_MD_BROWSER_TOOL;
+    return (def as { execute: (input: never) => Promise<string> }).execute(input as never);
+});

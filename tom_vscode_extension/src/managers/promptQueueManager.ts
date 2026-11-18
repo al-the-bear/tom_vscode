@@ -81,6 +81,7 @@ import {
 import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem, type UserWaitKind } from '../services/userWaits';
+import { isAskLiveHere, openAskContinuationPrompt, sendOpenAskChatContinuation, openAskRecordToYaml, parseOpenAskRecord, runOpenAskTool, setOpenAskStore, shouldRestoreOpenAsk, type OpenAskRecord, type OpenAskTool } from '../services/openAskRecord';
 import { AskUserRegistry } from '../services/askUserRegistry';
 import { QUESTION_CLOSED_BY_RESEND, QUESTION_CLOSED_BY_SKIP, QUESTION_CLOSED_BY_STOP, RESEND_INTERRUPTED_NOTE } from '../utils/pendingQuestion';
 import { backgroundWaitFromYaml, backgroundWaitToYaml, validLimit, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
@@ -606,6 +607,13 @@ export interface QueuedPrompt {
      * members, in order. Persisted as `group-selection`.
      */
     groupSelection?: GroupSelection;
+    /**
+     * The ask tool call the item's turn waits in (tomAi_askUser,
+     * tomAi_askUserPicker, tomAi_askInMdBrowser): recorded while it is open and
+     * persisted as `open-ask`, so a window reload shows it again and its answer
+     * continues the item (services/openAskRecord.ts, vscimpb166).
+     */
+    openAsk?: OpenAskRecord;
     /**
      * The todos the item's walk claimed and sent, in order (the walk's own
      * record, beside the repetition answers, which an empty answer does not
@@ -1188,6 +1196,10 @@ export class PromptQueueManager {
         });
         PromptQueueManager._inst = m;
         PromptQueueManager._readyResolve?.(m);
+        // An open ask is recorded on its item; asks a reload left open are shown again (vscimpb166).
+        setOpenAskStore({ record: (itemId, call) => m._recordOpenAsk(itemId, call), clear: (itemId) => m._clearOpenAsk(itemId) });
+        ctx.subscriptions?.push({ dispose: () => setOpenAskStore(undefined) });
+        m._scheduleOpenAskRestore();
         // A prompt starts or stops waiting for the user: the editor shows it on the item.
         const stopWaits = onUserWaitsChanged(() => m._onDidChange.fire());
         ctx.subscriptions?.push({ dispose: stopWaits });
@@ -1444,6 +1456,11 @@ export class PromptQueueManager {
                 logQueue(`Health check: retry countdown elapsed for item ${item.id}; resuming as pending`);
             }
         }
+
+        // An ask whose window has gone since (closed, or reloaded while its heartbeat was still fresh) is taken
+        // over and shown here (vscimpb166).
+        this._keepItemsWithOpenAsk(this._items);
+        this._scheduleOpenAskRestore(0);
 
         if (resumedWaiting || resumedRetry) {
             this.persistSettings();
@@ -3913,7 +3930,7 @@ export class PromptQueueManager {
             itemKind: 'chat',
         };
         this._items.push(item);
-        settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id, isActive: isChatSendActive });
+        settleRunningChatItems(this._items, { ownWindowId, liveWindowIds: liveWindowIdSet(), keepId: item.id, isActive: (id) => isChatSendActive(id) || this._openAsksToRestore.has(id) || this._restoringAsks.has(id) });
         this.trimSentHistory();
         this.persist();
         this._onDidChange.fire();
@@ -4435,7 +4452,7 @@ export class PromptQueueManager {
     async resendLastPrompt(
         id: string,
         override?: { text: string; anthropicProfileId: string; session: string },
-        opts?: { interruptRunning?: boolean; note?: string },
+        opts?: { interruptRunning?: boolean; note?: string; continuation?: string },
     ): Promise<void> {
         const item = this._items.find(i => i.id === id);
         if (!item) {
@@ -4447,7 +4464,10 @@ export class PromptQueueManager {
         }
         // Resending a running stage (resendSendingStage): the item itself is sending, and is not in its own way.
         const interruptRunning = opts?.interruptRunning === true && item.status === 'sending';
-        const others = this._items.filter(i => i.status === 'sending' && !(interruptRunning && i.id === item.id));
+        // The continuation of a turn a reload ended while it waited in an ask (vscimpb166): the item is sending
+        // (no turn runs); the answer goes into the conversation that turn ran in, the stage's text stays.
+        const continuation = opts?.continuation;
+        const others = this._items.filter(i => i.status === 'sending' && !((interruptRunning || continuation !== undefined) && i.id === item.id));
         const busy = laneConflict(item, others, this._laneOptions(), (i) => this._laneTarget(i));
         if (busy) {
             throw new Error(`Cannot resend now: ${busy}; wait for it to finish before resending`);
@@ -4514,7 +4534,7 @@ export class PromptQueueManager {
             // the main stage — cancel / correct / resend is a workflow the
             // queue invites, and replaying the snapshot there sent the very
             // text the user had just cancelled. See `resolveResendText`.
-            const resendText = override?.text ?? resolveResendText(last, item.expandedText);
+            const resendText = continuation !== undefined ? last.expandedText : (override?.text ?? resolveResendText(last, item.expandedText));
             // After a hard interrupt or a lost turn (vscimpb112): a held direct / Local LLM conversation goes on
             // where it stopped (no resend); else the resend says the turn was interrupted, carries a result the
             // agent never saw, and continues the conversation the turn ran in.
@@ -4524,7 +4544,7 @@ export class PromptQueueManager {
             const resumeConversation = heldConversation
                 ? prefixHeldConversation(heldConversation, soft?.heldAt !== undefined ? heldForLine(Date.now() - soft.heldAt) : undefined)
                 : undefined;
-            const continueSessionId = interrupted && !resumeConversation ? item.turnSessionId : undefined;
+            const continueSessionId = (interrupted && !resumeConversation) || continuation !== undefined ? item.turnSessionId : undefined;
             delete item.interruptNote;
             delete item.softInterrupt;
             if (!resumeConversation) { this._dropHeldConversation(item); }
@@ -4533,7 +4553,7 @@ export class PromptQueueManager {
             const note = interruptRunning || (interrupted && !resumeConversation)
                 ? [RESEND_INTERRUPTED_NOTE, interrupted ? heldResultResendLine(soft) : undefined].filter(Boolean).join('\n\n')
                 : opts?.note;
-            const sentText = note ? `${note}\n\n${resendText}` : resendText;
+            const sentText = continuation ?? (note ? `${note}\n\n${resendText}` : resendText);
             if (resumeConversation) { logQueue(`resendLastPrompt(${item.id}): continuing the held conversation (${resumeConversation.transport})`); }
             const dispatchResult = await this.dispatchStage(sentText, {
                 ...resolved,
@@ -6514,7 +6534,9 @@ export class PromptQueueManager {
         this._loadFromEntryFiles(entries);
         console.log('[PromptQueueManager] restore: loaded', this._items.length, 'items from queue files');
         // Chat sends that can no longer report back (their window is gone) are settled.
-        if (settleRunningChatItems(this._items, { ownWindowId: getWindowStatusWindowId(), liveWindowIds: liveWindowIdSet() }) > 0) {
+        // A chat send that waited in an ask is kept and its ask shown again (vscimpb166); the others are settled.
+        this._keepItemsWithOpenAsk(this._items.filter((i) => i.status === CHAT_STATUS));
+        if (settleRunningChatItems(this._items, { ownWindowId: getWindowStatusWindowId(), liveWindowIds: liveWindowIdSet(), isActive: (id) => this._openAsksToRestore.has(id) || this._restoringAsks.has(id) }) > 0) {
             this._persistToFiles();
         }
 
@@ -6947,6 +6969,7 @@ export class PromptQueueManager {
             const recoverable = this._items.filter(i => !preservedIds.has(i.id));
             const recovered = this._applyCrashRecoveryTo(recoverable);
             this._pauseLostSoftRuns();
+            this._scheduleOpenAskRestore(0);
             if (recovered > 0) {
                 this._persistToFiles();
             }
@@ -7037,6 +7060,111 @@ export class PromptQueueManager {
     /** Runs whose soft-interrupted turn a reload lost: paused once the run settings are read (vscimpb112). */
     private readonly _lostSoftRuns = new Set<string>();
 
+    /** Items whose open ask is being shown again in this window (the restore runs until it is answered). */
+    private readonly _restoringAsks = new Set<string>();
+
+    /** Record the ask tool call queue item `itemId`'s turn waits in (services/openAskRecord.ts). */
+    _recordOpenAsk(itemId: string, call: { tool: OpenAskTool; input: Record<string, unknown> }): void {
+        const item = this._items.find((i) => i.id === itemId);
+        if (!item || (item.status !== 'sending' && item.status !== CHAT_STATUS)) { return; }
+        item.openAsk = { tool: call.tool, input: call.input, windowId: getWindowStatusWindowId(), startedAt: new Date().toISOString() };
+        this.persist();
+    }
+
+    /** The ask returned: its record goes. */
+    _clearOpenAsk(itemId: string): void {
+        const item = this._items.find((i) => i.id === itemId);
+        if (!item?.openAsk) { return; }
+        delete item.openAsk;
+        this.persist();
+    }
+
+    /**
+     * The sending items among `items` whose turn a reload (or a closed window) left waiting in an ask: kept
+     * sending, not reset. Those this window takes over are claimed (their window id becomes this window's) and
+     * restored once the window is up; an ask a live other window shows is left alone.
+     */
+    private _keepItemsWithOpenAsk(items: QueuedPrompt[]): Set<string> {
+        const kept = new Set<string>();
+        const withAsk = items.filter((i) => (i.status === 'sending' || i.status === CHAT_STATUS) && i.openAsk);
+        if (withAsk.length === 0) { return kept; }
+        const own = getWindowStatusWindowId();
+        const live = liveWindowIdSet();
+        for (const item of withAsk) {
+            kept.add(item.id);
+            if (isAskLiveHere(item.id) || this._restoringAsks.has(item.id)) { continue; }
+            if (!shouldRestoreOpenAsk(item.openAsk!, own, live)) { continue; }
+            item.openAsk = { ...item.openAsk!, windowId: own };
+            // A chat send is this window's from now on (its item is not settled as abandoned).
+            if (item.status === CHAT_STATUS) { item.chatWindowId = own; }
+            this._openAsksToRestore.add(item.id);
+            logQueue(`Reload: item ${item.id} waited in ${item.openAsk.tool} — it stays sending; the ask is shown again and its answer continues the item`);
+        }
+        return kept;
+    }
+
+    private readonly _openAsksToRestore = new Set<string>();
+
+    /** Show the asks a reload left open again, once the window's tools are installed. */
+    _scheduleOpenAskRestore(delayMs = 1000): void {
+        if (this._openAsksToRestore.size === 0) { return; }
+        setTimeout(() => { void this._restoreOpenAsks(); }, delayMs);
+    }
+
+    /** Show each ask a reload left open again; answers when every one has been answered (tests wait for it). */
+    async _restoreOpenAsks(): Promise<void> {
+        const ids = [...this._openAsksToRestore];
+        this._openAsksToRestore.clear();
+        if (ids.length > 0) { this.persist(); }
+        await Promise.all(ids.map((id) => this._restoreOpenAsk(id)));
+    }
+
+    /**
+     * Run the item's recorded ask again (the panel, the picker or the MD Browser come back as they were),
+     * then send its answer into the item's session as the continuation of the turn the reload ended. A Resend,
+     * Skip or Stop meanwhile closes the ask and takes the item over: then nothing is sent.
+     */
+    private async _restoreOpenAsk(id: string): Promise<void> {
+        const item = this._items.find((i) => i.id === id);
+        const record = item?.openAsk;
+        if (!item || !record || (item.status !== 'sending' && item.status !== CHAT_STATUS) || this._restoringAsks.has(id)) { return; }
+        const chat = item.status === CHAT_STATUS;
+        this._restoringAsks.add(id);
+        const epoch = this._epochOf(item);
+        try {
+            const run = runAsQueueItem(item.id, () => runOpenAskTool(record.tool, record.input) ?? Promise.reject(new Error('the ask tools are not installed')), itemRun(item));
+            const answer = await run;
+            const live = this._items.find((i) => i.id === id);
+            if (!live || live.status !== (chat ? CHAT_STATUS : 'sending') || dispatchWasSuperseded(epoch, this._epochOf(live))) {
+                logQueue(`Reload: item ${id}'s restored ${record.tool} was answered after the item moved on — nothing sent`);
+                return;
+            }
+            delete live.openAsk;
+            if (chat) {
+                // A panel send: its entry ends here, and the answer goes out as a new chat send in its session and run.
+                this.completeChatItem(id, { answerText: RELOADED_CHAT_SEND_NOTE });
+                logQueue(`Reload: chat send ${id}'s restored ${record.tool} answered — the answer continues it as a new chat send in session ${live.session ?? 'chat'}`);
+                if (!await sendOpenAskChatContinuation({ text: openAskContinuationPrompt(record, answer), ...(live.session ? { session: live.session } : {}), ...(live.run ? { run: live.run } : {}) })) {
+                    logQueue(`Reload: no chat send path is registered — the answer of chat send ${id} was not sent`);
+                }
+                return;
+            }
+            logQueue(`Reload: item ${id}'s restored ${record.tool} answered — the answer continues the item in its session`);
+            await this.resendLastPrompt(id, undefined, { continuation: openAskContinuationPrompt(record, answer) });
+        } catch (err) {
+            const live = this._items.find((i) => i.id === id);
+            if (live && live.status === CHAT_STATUS) {
+                delete live.openAsk;
+                this.completeChatItem(id, { error: `the question asked before the reload could not be shown again: ${(err as Error).message}` });
+            } else if (live && live.status === 'sending' && !dispatchWasSuperseded(epoch, this._epochOf(live))) {
+                delete live.openAsk;
+                this._markItemError(live, err, `restoreOpenAsk(${id})`);
+            }
+        } finally {
+            this._restoringAsks.delete(id);
+        }
+    }
+
     private _pauseLostSoftRuns(): void {
         for (const run of this._lostSoftRuns) {
             const item = this._items.find((i) => itemRun(i) === run && i.status === 'interrupted');
@@ -7046,6 +7174,10 @@ export class PromptQueueManager {
     }
 
     private _applyCrashRecoveryTo(items: QueuedPrompt[]): number {
+        // A turn that waited in an ask tool (vscimpb166): the item stays sending, its ask is shown again and its
+        // answer continues the item; an ask a live other window shows is left to that window.
+        const keptForAsk = this._keepItemsWithOpenAsk(items);
+        if (keptForAsk.size > 0) { items = items.filter((i) => !keptForAsk.has(i.id)); }
         // A turn held (or about to be held) by a soft interrupt is gone with the reload (vscimpb112): the item
         // becomes interrupted — its resume continues a saved conversation or resends with the note — and its run
         // stays paused. Its todo claim stays: the resume works on the same todo.
@@ -7212,6 +7344,7 @@ export class PromptQueueManager {
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
                 ...(queuedByFrom(main['queued-by']) ? { queuedBy: queuedByFrom(main['queued-by']) } : {}),
                 ...(parseGroupSelection(main['group-selection']) ? { groupSelection: parseGroupSelection(main['group-selection']) } : {}),
+                ...(parseOpenAskRecord(main['open-ask']) ? { openAsk: parseOpenAskRecord(main['open-ask']) } : {}),
                 ...(Array.isArray(main['walked-todos']) ? { walkedTodos: main['walked-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...(repetitionAnswersFromYaml(main['repetition-answers']) ? { repetitionAnswers: repetitionAnswersFromYaml(main['repetition-answers']) } : {}),
                 ...(main['answer-background-left'] === true ? { answerBackgroundLeft: true } : {}),
@@ -7374,6 +7507,7 @@ export class PromptQueueManager {
             ...(item.queuedBy ? { 'queued-by': queuedByToYaml(item.queuedBy) } : {}),
             'item-kind': (item.itemKind = deriveQueueItemKind(item)),
             ...(item.walkedTodos?.length ? { 'walked-todos': [...item.walkedTodos] } : {}),
+            ...(item.openAsk ? { 'open-ask': openAskRecordToYaml(item.openAsk) } : {}),
             ...(item.groupSelection ? { 'group-selection': { checked: [...item.groupSelection.checked], unchecked: [...item.groupSelection.unchecked] } } : {}),
             ...(item.repetitionAnswers?.length ? { 'repetition-answers': item.repetitionAnswers.map((a) => ({
                 key: a.key, text: a.text, at: a.at,
@@ -7716,6 +7850,11 @@ const QUEST_TODO_ANSWER_PORT: TodoAnswerPort = {
         }
     },
 };
+
+/** What a chat send's entry says when a reload ended it while it waited in an ask (vscimpb166). */
+export const RELOADED_CHAT_SEND_NOTE =
+    'The window was reloaded while this send waited for your answer. The question was shown again after the reload; ' +
+    'your answer continues it as a new chat send in the same session.';
 
 /** The windows of this machine with a live heartbeat (their window-state files). */
 function liveWindowIdSet(): Set<string> {

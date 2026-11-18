@@ -659,6 +659,24 @@ was already in place — `repeatIndex` lives in the per-item / per-stage
 window reload that recovers a `'sending'` item back to `'pending'` preserves
 the counters and the next drain picks up where the pause left off.
 
+An item whose turn waited in an ask tool when the window went down is the
+exception (vscimpb166, `services/openAskRecord.ts`): its open call
+(`open-ask`: the tool, its input, the window that showed it) is recorded while
+the ask is open, so crash recovery keeps the item `sending`, the window that
+takes it over (its own, or any once the asking window is gone; never a live
+other window's) runs the same tool again for the item, and the answer goes out
+through `resendLastPrompt` with `continuation`: the continuation prompt
+(`openAskContinuationPrompt`) in the item's session, resuming the interrupted
+turn's conversation (`turnSessionId`), the stage's own text kept. A Resend,
+Skip or Stop bumps the item's epoch: the restored ask is closed and its answer
+not sent. A chat item (a send of the @CHAT panel, status `chat`) with an open
+ask is kept from being settled as abandoned and restored the same way; its
+answer goes out as a new chat send in the item's session and run (the chat
+send path `runAnthropicSend`, registered with `setOpenAskChatSender`), and the
+item ends with `RELOADED_CHAT_SEND_NOTE`. While the window shuts down, an ask
+the shutdown closes keeps its record and its turn is held, so it does not
+finish the item before the window is gone.
+
 #### Error → auto-send off (anti-cascade brake)
 
 When any stage dispatch throws, all four catch sites funnel through the private

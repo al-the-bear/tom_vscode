@@ -113,6 +113,7 @@ import {
 } from './managers/extensionConfigStore';
 import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
 import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation';
+import { markShuttingDown, setOpenAskChatSender } from './services/openAskRecord';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -867,6 +868,13 @@ export async function activate(context: vscode.ExtensionContext) {
             };
         },
     });
+    // A panel send that waited in an ask when the window reloaded: its answer goes out as a new chat send in the
+    // same session and run (vscimpb166, services/openAskRecord.ts).
+    setOpenAskChatSender(async (p) => {
+        const { runAnthropicSend } = await import('./handlers/sendToChatRouter.js');
+        const outcome = await runAnthropicSend(context, p.text, { source: 'reload', ...(p.session ? { session: p.session } : {}), ...(p.run ? { run: p.run } : {}) });
+        if (!outcome.ok) { bridgeLog(`Reload: the answer to a chat send's question was not sent: ${outcome.error ?? 'unknown'}`, 'ERROR'); }
+    });
     PromptQueueManager.init(context);
     // A completed todo's `on_done`: carried out by the extension (ww_a_collab-5).
     installTodoOnDone();
@@ -958,6 +966,9 @@ export async function activate(context: vscode.ExtensionContext) {
  * Note: This is called synchronously when VS Code is about to reload/close
  */
 export function deactivate() {
+    // First: the asks the shutdown closes keep their record on their queue item, so the reloaded window
+    // shows them again and their answer continues the item (vscimpb166, services/openAskRecord.ts).
+    markShuttingDown();
     bridgeLog('Tom AI extension deactivating - stopping bridge...');
 
     // Stop the MCP server so it never leaks its listener across reloads (#19).
