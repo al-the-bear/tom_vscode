@@ -49,7 +49,7 @@ const ASSET = 'tom-ai-extension.vsix';
 const LINK = `https://github.com/${REPO}/releases/download/${TAG}/${ASSET}`;
 const README_PATH = 'vscode_extension/vsix/README.md';
 const TITLE = 'Tom AI VS Code extension — latest build';
-const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'];
+const DART_BINARIES = ['tom_bs', 'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 const BUILD_TOOLS = vsixContents.BUILD_TOOLS;
 /** The download link of a release asset. */
 function assetLink(asset) { return `https://github.com/${REPO}/releases/download/${TAG}/${asset}`; }

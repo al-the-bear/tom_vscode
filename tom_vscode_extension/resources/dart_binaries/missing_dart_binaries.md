@@ -3,9 +3,14 @@
 Four features of the Tom AI extension run programs compiled from Dart:
 
 - **DartScript** runs `tom_bs`, the Dart bridge.
-- **CodeSpecs validation** runs `validate_codespecs`.
-- **TomSpecs process checks** run `spec_checks`.
-- **CodeSpecs mapping** (tomAi_specCodeSpecsMap, Phase 4's stage 5) runs `irspecs`.
+- **CodeSpecs validation** runs `tomspecs :codespecs-validate`.
+- **TomSpecs process checks** run `tomspecs :spec-<check>`.
+- **CodeSpecs mapping** (tomAi_specCodeSpecsMap, Phase 4's stage 5) runs `tomspecs :ir-map`.
+
+`tomspecs` is tom_specs_clitool's one binary. The VSIX still carries the
+clitool's older binaries (`validate_codespecs`, `spec_checks`, `irspecs`) until
+they are retired; the extension calls them only when the environment variable
+`TOM_SPECS_LEGACY_BINARIES=1` is set.
 
 A VSIX carries them only for the platforms it was built with. A VSIX built
 without a Dart SDK has none, and one built on macOS has none for Windows or
@@ -53,24 +58,20 @@ Without `tom_bs` (DartScript):
   **@T: Print Configuration**, **@T: Run Tests**;
 - the scripting tools that work through the bridge.
 
-Without `validate_codespecs` (CodeSpecs validation):
+Without `tomspecs`:
 
-- `tomAi_specCodeSpecsValidate` (the 41 checks over a generated trio);
-- the agreement part of `tomAi_specCodeSpecsTrace` over code folders;
-- the validation stage of `tomAi_specCodeSpecsStatus`.
-
-Without `irspecs` (CodeSpecs mapping):
-
-- `tomAi_specCodeSpecsMap` answers `binaryMissing` and names this page. The
-  units can still be mapped with `dart run tom_specs_clitool:irspecs map …`
-  from a tom_specs_clitool checkout.
-
-Without `spec_checks` (TomSpecs process checks):
-
-- `tomAi_specImportAnswers`, `tomAi_specRequiredFields`,
-  `tomAi_specQuestionRegister`, `tomAi_specFeatureRegister`,
-  `tomAi_specProjectIdeaCoverage`, `tomAi_specAuthorizationCheck` and
-  `tomAi_specCoverage` answer `binaryMissing`.
+- CodeSpecs validation: `tomAi_specCodeSpecsValidate` (the 41 checks over a
+  generated trio), the agreement part of `tomAi_specCodeSpecsTrace` over code
+  folders, the validation stage of `tomAi_specCodeSpecsStatus`;
+- CodeSpecs mapping: `tomAi_specCodeSpecsMap` answers `binaryMissing` and
+  names this page. The units can still be mapped with
+  `dart run tom_specs_clitool:tomspecs :ir-map …` from a tom_specs_clitool
+  checkout;
+- the TomSpecs process checks: `tomAi_specImportAnswers`,
+  `tomAi_specRequiredFields`, `tomAi_specQuestionRegister`,
+  `tomAi_specFeatureRegister`, `tomAi_specProjectIdeaCoverage`,
+  `tomAi_specAuthorizationCheck` and `tomAi_specCoverage` answer
+  `binaryMissing`.
 
 ## What keeps working
 
@@ -117,9 +118,10 @@ machine. With the workspace checked out (`tom_ai/vscode`, `tom_ai/ai_build`,
 `tom_ai/d4rt`), from `tom_ai/vscode/tom_vscode_extension/`:
 
 - `./compile_and_install.sh` (macOS, Linux) or `.\compile_and_install.ps1`
-  (Windows) builds all four, packages a new VSIX and installs it;
-- `npm run codespecs:build` builds only `validate_codespecs`,
-  `spec_checks` and `irspecs`, into the checkout's `bin/{{platform}}/`.
+  (Windows) builds them all, packages a new VSIX and installs it;
+- `npm run codespecs:build` builds only `tomspecs` (and the older
+  `validate_codespecs`, `spec_checks` and `irspecs`), into the checkout's
+  `bin/{{platform}}/`.
 
 Without the full workspace, compile each one where its sources are:
 
@@ -128,15 +130,12 @@ Without the full workspace, compile each one where its sources are:
 dart pub get
 dart compile exe bin/tom_bs.dart -o tom_bs
 
-# validate_codespecs, in tom_ai/ai_build/tom_specs_clitool
+# tomspecs, in tom_ai/ai_build/tom_specs_clitool
 dart pub get
-dart compile exe bin/validate_codespecs.dart -o validate_codespecs
-dart compile exe bin/spec_checks.dart -o spec_checks
-dart compile exe bin/irspecs.dart -o irspecs
+dart compile exe bin/tomspecs.dart -o tomspecs
 ```
 
-On Windows name the outputs `tom_bs.exe`, `validate_codespecs.exe`,
-`spec_checks.exe` and `irspecs.exe`.
+On Windows name the outputs `tom_bs.exe` and `tomspecs.exe`.
 
 ## Use binaries you already have
 
@@ -160,20 +159,10 @@ before the bundled one.
         "linux-x64": "/opt/tom/bin/tom_bs",
         "win32-x64": "C:\\tools\\tom\\tom_bs.exe"
       },
-      "validate_codespecs": {
-        "darwin-arm64": "~/.tom/bin/darwin-arm64/validate_codespecs",
-        "linux-x64": "/opt/tom/bin/validate_codespecs",
-        "win32-x64": "C:\\tools\\tom\\validate_codespecs.exe"
-      },
-      "spec_checks": {
-        "darwin-arm64": "~/.tom/bin/darwin-arm64/spec_checks",
-        "linux-x64": "/opt/tom/bin/spec_checks",
-        "win32-x64": "C:\\tools\\tom\\spec_checks.exe"
-      },
-      "irspecs": {
-        "darwin-arm64": "~/.tom/bin/darwin-arm64/irspecs",
-        "linux-x64": "/opt/tom/bin/irspecs",
-        "win32-x64": "C:\\tools\\tom\\irspecs.exe"
+      "tomspecs": {
+        "darwin-arm64": "~/.tom/bin/darwin-arm64/tomspecs",
+        "linux-x64": "/opt/tom/bin/tomspecs",
+        "win32-x64": "C:\\tools\\tom\\tomspecs.exe"
       }
     }
   }

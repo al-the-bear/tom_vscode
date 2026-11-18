@@ -220,7 +220,7 @@ export class WindowStatusViewProvider implements vscode.WebviewViewProvider {
                         reload: s.build?.reloadNeeded
                             ? { running: buildLabel(s.build.running), installed: buildLabel(s.build.installed) }
                             : undefined,
-                        // The Dart-built binaries it lacks on its platform (tom_bs: DartScript, validate_codespecs: CodeSpecs validation, spec_checks: TomSpecs process checks).
+                        // The Dart-built binaries it lacks on its platform (tom_bs: DartScript, tomspecs: TomSpecs checks, CodeSpecs validation and mapping).
                         dartMissing: s.dartBinaries?.missing.length
                             ? `${s.dartBinaries.missing.join(', ')} (${s.dartBinaries.platform})`
                             : undefined,

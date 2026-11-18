@@ -75,7 +75,7 @@ export function irDocumentOf(irDir: string, area: string, canonicalId: string | 
         ...(hasNew && hasLegacy ? {
             bothNames: {
                 names: [name, legacy],
-                message: `${area} has two IR documents, ${name} and ${legacy}; irspecs and validate_codespecs refuse the folder: keep ${name} and remove ${legacy}.`,
+                message: `${area} has two IR documents, ${name} and ${legacy}; tomspecs (:ir-map, :codespecs-validate) refuses the folder: keep ${name} and remove ${legacy}.`,
             },
         } : {}),
     };

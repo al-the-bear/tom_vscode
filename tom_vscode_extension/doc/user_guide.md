@@ -1117,13 +1117,13 @@ When no provider is installed, the page opens when the extension starts. The **A
 
 ### Missing binaries on this platform
 
-Three features run programs a VSIX carries only for some platforms: DartScript (`tom_bs`), CodeSpecs validation (`validate_codespecs`) and the TomSpecs process checks (`spec_checks`). The extension checks them when it starts, for the platform it runs on, so the same VSIX gives the right answer on every machine. The Anthropic transports need the provider SDKs, which no VSIX carries: see [Provider SDKs](#provider-sdks).
+Features that run programs a VSIX carries only for some platforms: DartScript (`tom_bs`), and CodeSpecs validation and mapping and the TomSpecs process checks (`tomspecs`, tom_specs_clitool's binary). The extension checks them when it starts, for the platform it runs on, so the same VSIX gives the right answer on every machine. The Anthropic transports need the provider SDKs, which no VSIX carries: see [Provider SDKs](#provider-sdks).
 
 - **`@T: Missing Dart Binaries (DartScript / CodeSpecs validation)`** opens a page filled for this machine: what is missing, what does not work and what keeps working, how to install the Dart SDK, how to build the binaries there, and how to configure prebuilt ones (`bridge.executables.tom_bs` / `bridge.executables.validate_codespecs` per platform in `.tom/tom_vscode_extension.json`) or copy them into the extension's `bin/<platform>/`. It opens by itself once per extension build and platform when a binary is missing.
 - The status bar shows **Dart binaries missing** while one is; a click opens the page.
 - The Status Page has a **Dart binaries** section: the platform, each binary as *configured*, *bundled* or *missing* (warned), and **Open the page**. The bridge row says *Not available (tom_bs missing)* instead of *Disconnected*.
-- CodeSpecs mapping (`tomAi_specCodeSpecsMap`) needs no Dart SDK: the bundled `irspecs` formats what the Dart + Tom mapper writes itself, in the layout `dart format` gives.
-- Without `validate_codespecs`, `tomAi_specCodeSpecsValidate` answers that it is missing; Trace and Status skip validation and a warning `"CodeSpecs validation skipped: validate_codespecs is not available on <platform>."` with **What does this mean?** shows once per tool and window session.
+- CodeSpecs mapping (`tomAi_specCodeSpecsMap`) needs no Dart SDK: the bundled `tomspecs` (`:ir-map`) formats what the Dart + Tom mapper writes itself, in the layout `dart format` gives.
+- Without `tomspecs`, `tomAi_specCodeSpecsValidate` answers that it is missing; Trace and Status skip validation and a warning `"CodeSpecs validation skipped: tomspecs is not available on <platform>."` with **What does this mean?** shows once per tool and window session.
 - **`@T: Missing Agent SDK (provider SDK or Claude CLI not installed)`**: without the Anthropic provider (or with no Claude CLI for this platform) an Anthropic prompt fails before it runs, and the error (once per window session) has **Install provider SDKs** (the Provider SDKs page) and **What does this mean?** (this page).
 
 WINDOW STATUS marks a window with **no Dart binaries**; agents read the same as `dartBinaries` in `tomAi_getWorkspaceInfo` and `tomAi_getQuestWindowStatus`.

@@ -272,7 +272,7 @@ describe('CodeSpecs plan todos', () => {
         const byStem = (stem: string): Json => todos.find((t) => t.id.startsWith(`${stem}_`));
         const server = byStem('csproj3');
         assert.match(server.description, /^- CE-DB: dart-tom$/m, 'each area the unit holds, with its mapper');
-        assert.match(server.description, /irspecs map --unit meridian_codespec_server/);
+        assert.match(server.description, /tomspecs :ir-map --unit meridian_codespec_server/);
 
         const db = byStem('csgen10');
         assert.match(db.description, /It writes the IR documents u\/irspecs\/CE-DB_data_access\.ir\.yaml \(irspecs_ir\.md\), not Dart/);
@@ -282,7 +282,7 @@ describe('CodeSpecs plan todos', () => {
             assert.ok(db.dependencies.includes(byStem(`csproj${n}`).id), `csgen10 comes after csproj${n}`);
         }
         const last = byStem('csgen31');
-        assert.match(last.description, /irspecs map --mapper <the unit's mapper> --ir u\/irspecs --spec <document> --unit <unit id> --out <packages folder>` per unit \(meridian_codespec_shared, meridian_codespec_client, meridian_codespec_server\)/);
+        assert.match(last.description, /tomspecs :ir-map --mapper <the unit's mapper> --ir u\/irspecs --spec <document> --unit <unit id> --out <packages folder>` per unit \(meridian_codespec_shared, meridian_codespec_client, meridian_codespec_server\)/);
         assert.match(last.description, /tomAi_specCodeSpecsValidate with ir 'u\/irspecs'/);
 
         const noDoc = await call({ specRoot: 'u', questId: 'q8b', appName: 'meridian', dryRun: true });

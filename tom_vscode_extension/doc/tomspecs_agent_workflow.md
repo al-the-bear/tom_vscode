@@ -289,7 +289,7 @@ it after each step. How to do a stage is in its runbook:
    step records it as a coverage gap and holds the walk at the gap review.
 6. **Map, validate and trace.** `tomAi_specCodeSpecsMap` (`file`, `out`,
    optionally `unit`, `dryRun`) maps each unit's package from the IR with the
-   bundled `irspecs` — per unit and per mapper it names, `irspecs map --mapper
+   bundled `tomspecs` — per unit and per mapper it names, `tomspecs :ir-map --mapper
    <m> --ir <spec-root>/irspecs --spec <document> --unit <unit id> --out <out>`
    (the runbook `codespecs-validate`). No mapper needs a Dart SDK: the Dart +
    Tom mapper (`dart-tom`) formats in-process, in `dart format`'s layout.

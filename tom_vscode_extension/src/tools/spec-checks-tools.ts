@@ -1,6 +1,6 @@
 /**
- * The TomSpecs process checks as tools — tom_specs_clitool's `spec_checks`
- * (bundled per platform, src/services/spec-checks.ts), one tool per check:
+ * The TomSpecs process checks as tools — tom_specs_clitool's checks, run as
+ * `tomspecs :spec-<check>` (bundled per platform, src/services/spec-checks.ts), one tool per check:
  *
  *   - tomAi_specImportAnswers        — the answers typed into the rendition, into the YAML (writes)
  *   - tomAi_specRequiredFields       — required form fields filled, int / bool / enum values typed
@@ -10,7 +10,7 @@
  *   - tomAi_specAuthorizationCheck   — operations, role matrix, screens and use cases agree
  *   - tomAi_specCoverage             — how much of the model the document fills
  *
- * `spec_checks validate` and `accept-marks` have none: tomAi_specValidate and
+ * `:spec-render` (the old `spec_checks validate`) and `:spec-accept-marks` have none: tomAi_specValidate and
  * tomAi_specDecideMarks (`all: "accept"`) do the same.
  *
  * The two writes go through the document store like every spec write: the
@@ -27,8 +27,9 @@ import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, FIRST_LOOK, failure, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
 import { DartBinaryMissing, dartBinariesHelp, type BinaryRun } from '../services/dartBinariesStatus';
 import { readSpecCheckRun, runSpecChecks, type SpecCheck, type SpecCheckReport } from '../services/spec-checks';
+import { SPEC_CHECKS_COMMANDS } from '../services/tomspecsCalls';
 
-/** How a check is run: `spec_checks` with the arguments; replaceable in a test. */
+/** How a check is run: `tomspecs :spec-<check>` with the arguments; replaceable in a test. */
 export type SpecChecksRunner = (check: SpecCheck, args: string[], options: { specRoot?: string }) => Promise<BinaryRun>;
 
 export interface SpecChecksDeps extends SpecToolDeps {
@@ -44,7 +45,7 @@ function answerFor(report: SpecCheckReport, extra: Record<string, unknown> = {})
     return json({
         ok, check, outcome, exitCode, findingCount: findings.length, findings, summary,
         ...(lines.length ? { lines } : {}),
-        ...(stderr.length ? (ok ? { stderr } : { error: stderr.join('\n') || `spec_checks ${check} exited ${exitCode}` }) : {}),
+        ...(stderr.length ? (ok ? { stderr } : { error: stderr.join('\n') || `tomspecs ${SPEC_CHECKS_COMMANDS[check] ?? check} exited ${exitCode}` }) : {}),
         ...extra,
     });
 }
@@ -210,8 +211,8 @@ export function specQuestionRegisterImpl(deps: SpecChecksDeps, input: SpecQuesti
 
 const COMMON =
     ' Answers `{ok, check, outcome, exitCode, findingCount, findings: [{kind, text}], summary}` — `outcome` `clean` (exit 0) or `findings` (exit 1);'
-    + ' `usageError` / `refused` (exit 2) and `binaryMissing` (no spec_checks for this platform, with `help` and `page`) with ok false.'
-    + ' Runs the bundled spec_checks (tom_specs_clitool); the project\'s data is read from `<spec root>/checks/`.'
+    + ' `usageError` / `refused` (exit 2) and `binaryMissing` (no tomspecs for this platform, with `help` and `page`) with ok false.'
+    + ' Runs the bundled tomspecs (tom_specs_clitool); the project\'s data is read from `<spec root>/checks/`.'
     + FIRST_LOOK;
 
 const SPEC_ROOT_PARAM = {
@@ -225,7 +226,7 @@ export const SPEC_IMPORT_ANSWERS_TOOL: SharedToolDefinition<SpecImportAnswersInp
     name: 'tomAi_specImportAnswers',
     displayName: 'TomSpecs: Import Answers',
     description:
-        'Import the answers typed into a document\'s rendition (`*.md`) into its YAML, in place and verified (spec_checks import-answers), then regenerate the rendition. A rendition that differs in more than answers is refused (`refused`, the REFUSED lines) unless `allowOtherEdits` (narrative values replaced too). Both files are written through the editor checks: refused when dirty in an editor or changed since read (`expectedRevision` for the YAML); `dryRun` answers the diffs and writes nothing. `summary.imported` lists the answers (question id, path, first line), `files` what was written.'
+        'Import the answers typed into a document\'s rendition (`*.md`) into its YAML, in place and verified (tomspecs :spec-import-answers), then regenerate the rendition. A rendition that differs in more than answers is refused (`refused`, the REFUSED lines) unless `allowOtherEdits` (narrative values replaced too). Both files are written through the editor checks: refused when dirty in an editor or changed since read (`expectedRevision` for the YAML); `dryRun` answers the diffs and writes nothing. `summary.imported` lists the answers (question id, path, first line), `files` what was written.'
         + COMMON,
     tags: TAGS,
     readOnly: false,
@@ -248,7 +249,7 @@ export const SPEC_REQUIRED_FIELDS_TOOL: SharedToolDefinition<SpecDocumentCheckIn
     name: 'tomAi_specRequiredFields',
     displayName: 'TomSpecs: Required Fields',
     description:
-        'Every form holds the fields the model marks required, and its int, bool and enum fields hold values of their type (spec_checks required-fields). Findings `MISSING` / `TYPE`; `summary` {forms, missing, badTypes}.'
+        'Every form holds the fields the model marks required, and its int, bool and enum fields hold values of their type (tomspecs :spec-required-fields). Findings `MISSING` / `TYPE`; `summary` {forms, missing, badTypes}.'
         + COMMON,
     tags: TAGS,
     readOnly: true,
@@ -260,7 +261,7 @@ export const SPEC_QUESTION_REGISTER_TOOL: SharedToolDefinition<SpecQuestionRegis
     name: 'tomAi_specQuestionRegister',
     displayName: 'TomSpecs: Question Register',
     description:
-        'A question index file against the document\'s question blocks (spec_checks question-register; conventions from `checks/question_register.yaml`). Findings `REGISTER`; `summary` {indexRows, blocks, waiting, waitingStarred, findings, answeredNotApplied}. `write: true` rewrites the index\'s status counts, the sentence below them and the id range (refused when the index is dirty in an editor or changed since read; `expectedRevision`, `dryRun` answers the diff).'
+        'A question index file against the document\'s question blocks (tomspecs :spec-question-register; conventions from `checks/question_register.yaml`). Findings `REGISTER`; `summary` {indexRows, blocks, waiting, waitingStarred, findings, answeredNotApplied}. `write: true` rewrites the index\'s status counts, the sentence below them and the id range (refused when the index is dirty in an editor or changed since read; `expectedRevision`, `dryRun` answers the diff).'
         + COMMON,
     tags: TAGS,
     readOnly: false,
@@ -284,7 +285,7 @@ export const SPEC_FEATURE_REGISTER_TOOL: SharedToolDefinition<SpecDocumentCheckI
     name: 'tomAi_specFeatureRegister',
     displayName: 'TomSpecs: Feature Register',
     description:
-        'Every functional requirement linked by exactly one feature; every linked id and prototype feature resolving; the stated total matching (spec_checks feature-register, on a solution blueprint). Findings `FEATURES`; `summary` {features, functionalRequirements, prototypeFeatures, findings}.'
+        'Every functional requirement linked by exactly one feature; every linked id and prototype feature resolving; the stated total matching (tomspecs :spec-feature-register, on a solution blueprint). Findings `FEATURES`; `summary` {features, functionalRequirements, prototypeFeatures, findings}.'
         + COMMON,
     tags: TAGS,
     readOnly: true,
@@ -296,7 +297,7 @@ export const SPEC_PROJECT_IDEA_COVERAGE_TOOL: SharedToolDefinition<SpecProjectId
     name: 'tomAi_specProjectIdeaCoverage',
     displayName: 'TomSpecs: Project Idea Coverage',
     description:
-        'Every Project Idea id cited by a requirement\'s source, carried by a covered id, or excluded by a record (spec_checks project-idea-coverage; exclusions from `checks/project_idea_coverage.yaml` or `exclusions`). Findings: the `uncovered` ids and `UNKNOWN` exclusions; `summary.entries` each id that is not plainly covered ({class, id, kind, detail}; `all` lists the covered too), `summary.classes` the counts per class.'
+        'Every Project Idea id cited by a requirement\'s source, carried by a covered id, or excluded by a record (tomspecs :spec-idea-coverage; exclusions from `checks/project_idea_coverage.yaml` or `exclusions`). Findings: the `uncovered` ids and `UNKNOWN` exclusions; `summary.entries` each id that is not plainly covered ({class, id, kind, detail}; `all` lists the covered too), `summary.classes` the counts per class.'
         + COMMON,
     tags: TAGS,
     readOnly: true,
@@ -318,7 +319,7 @@ export const SPEC_AUTHORIZATION_CHECK_TOOL: SharedToolDefinition<SpecDocumentChe
     name: 'tomAi_specAuthorizationCheck',
     displayName: 'TomSpecs: Authorization Check',
     description:
-        'Operations, the role matrix, screens and use cases agree (spec_checks authorization; the role model is `checks/authorization_cross_check.yaml`, required). Findings: one per item, `kind` the check (A operations reachable … F called by); `summary.checks` the count per check, `summary.notes` the consistent other-actor steps and the steps waiting for an open question, {operations, screens, useCases}.'
+        'Operations, the role matrix, screens and use cases agree (tomspecs :spec-authorization; the role model is `checks/authorization_cross_check.yaml`, required). Findings: one per item, `kind` the check (A operations reachable … F called by); `summary.checks` the count per check, `summary.notes` the consistent other-actor steps and the steps waiting for an open question, {operations, screens, useCases}.'
         + COMMON,
     tags: TAGS,
     readOnly: true,
@@ -330,7 +331,7 @@ export const SPEC_COVERAGE_TOOL: SharedToolDefinition<SpecCoverageInput> = {
     name: 'tomAi_specCoverage',
     displayName: 'TomSpecs: Coverage',
     description:
-        'How much of the model the document fills, per configured row, and the class of every empty section (spec_checks coverage; rows and reasons from `checks/coverage_rows.yaml` and `coverage_reasons.yaml`, both required). `summary.table` is the report\'s lines; `tsv: true` adds `tsv`, the empty sections as tab-separated text. Always exit 0.'
+        'How much of the model the document fills, per configured row, and the class of every empty section (tomspecs :spec-coverage; rows and reasons from `checks/coverage_rows.yaml` and `coverage_reasons.yaml`, both required). `summary.table` is the report\'s lines; `tsv: true` adds `tsv`, the empty sections as tab-separated text. Always exit 0.'
         + COMMON,
     tags: TAGS,
     readOnly: true,

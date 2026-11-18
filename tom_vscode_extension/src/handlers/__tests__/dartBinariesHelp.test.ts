@@ -38,6 +38,11 @@ const statusPage = require('../statusPage-handler') as typeof import('../statusP
 
 const HOST = status.dartBinariesStatus(EXT).platform;
 const EXE = process.platform === 'win32' ? '.exe' : '';
+/** The binary CodeSpecs validation needs: tomspecs, or validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
+const LEGACY = process.env.TOM_SPECS_LEGACY_BINARIES === '1';
+const VALIDATOR = LEGACY ? 'validate_codespecs' : 'tomspecs';
+const VALIDATOR_FEATURE = LEGACY ? 'CodeSpecs validation' : 'TomSpecs process checks, CodeSpecs validation and mapping';
+const ALL = ['tom_bs', 'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 
 function fakeExtension(binaries: string[]): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dart-help-ext-'));
@@ -71,7 +76,7 @@ describe('the missing Dart binaries page in a window', () => {
         assert.equal((opened[0][1] as { fsPath: string }).fsPath, filled(root));
         const page = fs.readFileSync(filled(root), 'utf8');
         assert.match(page, new RegExp(`Platform: \\*\\*${HOST}\\*\\*`));
-        assert.match(page, /Missing: `validate_codespecs(\.exe)?` \(CodeSpecs validation\)/);
+        assert.ok(page.includes(`Missing: \`${VALIDATOR}${EXE}\` (${VALIDATOR_FEATURE})`), `the page names ${VALIDATOR} missing`);
         assert.deepEqual(state.get(handler.HELP_SHOWN_STATE_KEY), [`abc1234@2026-11-08T08:00:00.000Z|${HOST}`]);
         assert.equal(status.dartBinariesHelp().page, filled(root), 'tools point at the filled page');
         handler.initDartBinariesHelp(fakeContext(root, state) as never);
@@ -79,7 +84,7 @@ describe('the missing Dart binaries page in a window', () => {
     });
 
     test('DH-2: nothing missing', () => {
-        const root = fakeExtension(['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs']);
+        const root = fakeExtension(ALL);
         const state = new Map<string, unknown>();
         const before = previews().length;
         handler.initDartBinariesHelp(fakeContext(root, state) as never);
@@ -113,11 +118,11 @@ describe('the missing Dart binaries page in a window', () => {
         assert.match(html, /data-section="dartBinaries" style="border-color: var\(--vscode-inputValidation-warningBorder\)/);
         assert.match(html, new RegExp(`<label>Platform:</label><span>${HOST}</span>`));
         assert.match(html, /tom_bs(\.exe)? \(DartScript\):<\/label><span title="[^"]+">bundled<\/span>/);
-        assert.match(html, /validate_codespecs(\.exe)? \(CodeSpecs validation\):<\/label><span title="">⚠️ missing<\/span>/);
+        assert.ok(html.includes(`${VALIDATOR}${EXE} (${VALIDATOR_FEATURE}):</label><span title="">⚠️ missing</span>`), `${VALIDATOR} shown missing`);
         assert.match(html, /data-status-action="showDartBinariesHelp"/);
         // No Dart SDK row: no tool needs one at run time (vscimpb147).
         assert.doesNotMatch(html, /data-dart-sdk|TOM_DART/);
-        const complete = statusPage.dartBinariesSectionHtml(status.dartBinariesStatus(fakeExtension(['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'])));
+        const complete = statusPage.dartBinariesSectionHtml(status.dartBinariesStatus(fakeExtension(ALL)));
         assert.doesNotMatch(complete, /warningBorder/);
         assert.equal(statusPage.dartBinariesSectionHtml(undefined), '');
     });

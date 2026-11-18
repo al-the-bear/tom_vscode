@@ -275,7 +275,7 @@ if [ "$LAYER_BINARIES" = "1" ]; then
         echo "🔄 Bringing the binaries layer level with its remote..."
         node scripts/binaries-layer.cjs sync || true
     fi
-    echo "📦 Bundling tom_bs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
+    echo "📦 Bundling tom_bs, tomspecs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
     LAYER_ARGS=()
     [ -n "${TOM_LAYER_PLATFORMS:-}" ] && LAYER_ARGS=(--platforms "$TOM_LAYER_PLATFORMS")
     node scripts/binaries-layer.cjs bundle "${LAYER_ARGS[@]}" || exit 1
@@ -408,7 +408,7 @@ else
     ( cd "$SCRIPT_DIR" && node scripts/check-tom-bs-provenance.cjs ) | sed 's/^/  /' || true
 fi
 
-# ── Bundle validate_codespecs, spec_checks and irspecs for THIS host ──────────────────
+# ── Bundle tomspecs (and validate_codespecs, spec_checks, irspecs) for THIS host ──────
 # The CodeSpecs tools (validate, trace over a trio) and the TomSpecs process
 # check tools run tom_specs_clitool's validate_codespecs, spec_checks and irspecs as
 # compiled binaries from bin/<platform>/ — never via `dart run`. They are
@@ -418,10 +418,10 @@ fi
 if [ "$LAYER_BINARIES" = "1" ]; then
     : # taken from the binaries layer above
 elif [ "$NO_DART" = "1" ]; then
-    echo "📦 No Dart: validate_codespecs, spec_checks and irspecs are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
+    echo "📦 No Dart: tomspecs (and validate_codespecs, spec_checks, irspecs) are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
 else
     ( cd "$SCRIPT_DIR" && node scripts/build-validate-codespecs.cjs ) || {
-        echo "❌ Error: building validate_codespecs / spec_checks / irspecs failed"
+        echo "❌ Error: building tomspecs / validate_codespecs / spec_checks / irspecs failed"
         exit 1
     }
 fi

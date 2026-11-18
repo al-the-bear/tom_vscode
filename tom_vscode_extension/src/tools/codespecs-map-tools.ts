@@ -1,15 +1,15 @@
 /**
  * tomAi_specCodeSpecsMap (vscimpb99): Phase 4's stage 5 (codespecs_mapping.md
  * §1.1.2) through the extension — each generation unit's package written from
- * the IR with the bundled `irspecs` (tom_specs_clitool's bin/irspecs.dart,
+ * the IR with the bundled `tomspecs` (`:ir-map`, the old `irspecs map`; tom_specs_clitool's bin/tomspecs.dart,
  * compiled by `npm run codespecs:build` beside validate_codespecs), so the
  * stage needs no Dart SDK and no ai_build checkout at run time.
  *
  * Per unit of the document's register (codespecs-units.ts registerOf) and per
  * mapper that unit names for its areas, one
- * `irspecs map --mapper <m> --ir <spec-root>/irspecs --spec <document> --unit <id> --out <out>`;
+ * `tomspecs :ir-map --mapper <m> --ir <spec-root>/irspecs --spec <document> --unit <id> --out <out>`;
  * a document without units maps the trio with the Dart + Tom mapper
- * (`irspecs map --mapper dart-tom --ir … --out …`). A writer: approval-gated;
+ * (`tomspecs :ir-map --mapper dart-tom --ir … --out …`). A writer: approval-gated;
  * `dryRun` answers the runs it would make.
  *
  * The Dart + Tom mapper lays out what it writes with `dart_style`, linked
@@ -23,7 +23,8 @@ import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
 import { codeSpecsFailure } from './codespecs-tools';
 import { registerOf, IR_DIR, type UnitView } from './codespecs-units';
-import { DartBinaryMissing, currentDartBinary, dartBinariesHelp, runDartBinary, type BinaryRun } from '../services/dartBinariesStatus';
+import { DartBinaryMissing, currentDartBinary, dartBinariesHelp, type BinaryRun } from '../services/dartBinariesStatus';
+import { clitoolBinary, clitoolInvocation, runClitool } from '../services/tomspecsCalls';
 
 export interface CodeSpecsMapInput {
     /** The specification document whose register names the generation units. */
@@ -44,9 +45,9 @@ export const DART_TOM_MAPPER = 'dart-tom';
 /** Generous: a mapper writes a whole package (the Dart one formats it in-process). */
 const MAP_TIMEOUT_MS = 10 * 60_000;
 
-/** Runs `irspecs` with the arguments; replaceable in a test. */
+/** Runs an irspecs call (old form `map …`; through `tomspecs :ir-map …`, services/tomspecsCalls.ts); replaceable in a test. */
 export type IrspecsRunner = (args: string[]) => Promise<BinaryRun>;
-const liveRunner: IrspecsRunner = (args) => runDartBinary('irspecs', args, { timeoutMs: MAP_TIMEOUT_MS });
+const liveRunner: IrspecsRunner = (args) => runClitool({ tool: 'irspecs', args }, { timeoutMs: MAP_TIMEOUT_MS });
 let runner: IrspecsRunner = liveRunner;
 export function setIrspecsRunnerForTest(r: IrspecsRunner | undefined): void {
     runner = r ?? liveRunner;
@@ -101,13 +102,16 @@ export async function codeSpecsMapImpl(deps: SpecToolDeps, input: CodeSpecsMapIn
                 }
             }
         }
-        const shown = (args: string[]): string => `irspecs ${args.map((a) => (path.isAbsolute(a) ? rel(a) : a)).join(' ')}`;
+        const shown = (args: string[]): string => {
+            const call = clitoolInvocation({ tool: 'irspecs', args });
+            return [call.binary, ...call.args.map((a) => (path.isAbsolute(a) ? rel(a) : a))].join(' ');
+        };
         const head = {
             file: rel(fileAbs), ir: rel(irAbs), out: rel(outAbs),
             ...(skipped.length ? { skipped: skipped.map((u) => ({ unit: u, reason: 'the unit names no mapper for any area' })) } : {}),
         };
         if (input.dryRun) {
-            const binary = currentDartBinary('irspecs');
+            const binary = currentDartBinary(clitoolBinary('irspecs'));
             return json({
                 ok: true, dryRun: true, ...head,
                 binary: binary.path ? 'available' : 'missing',
@@ -139,9 +143,9 @@ export const CODESPECS_MAP_TOOL: SharedToolDefinition<CodeSpecsMapInput> = {
     name: 'tomAi_specCodeSpecsMap',
     displayName: 'CodeSpecs: Map',
     description:
-        'Phase 4 stage 5: write each generation unit\'s package from the IR with the bundled irspecs: per unit of the document\'s register (`unit`: one id; default every unit) and per mapper the unit names for its areas, `irspecs map --mapper <m> --ir <spec-root>/irspecs --spec <file> --unit <id> --out <out>`; a document without units maps the trio with dart-tom. '
+        'Phase 4 stage 5: write each generation unit\'s package from the IR with the bundled tomspecs: per unit of the document\'s register (`unit`: one id; default every unit) and per mapper the unit names for its areas, `tomspecs :ir-map --mapper <m> --ir <spec-root>/irspecs --spec <file> --unit <id> --out <out>`; a document without units maps the trio with dart-tom. '
         + 'Answers each run (unit, mapper, areas, command, exit code, what it wrote, error); ok when every run exited 0. `dryRun` answers the runs without making them. '
-        + '`binaryMissing` (no irspecs for this platform, with `help` and `page`) and `irMissing` / `unknownUnit` with ok false. A mapped package is never edited by hand: change the IR and map again. Then tomAi_specCodeSpecsValidate with `ir`.',
+        + '`binaryMissing` (no tomspecs for this platform, with `help` and `page`) and `irMissing` / `unknownUnit` with ok false. A mapped package is never edited by hand: change the IR and map again. Then tomAi_specCodeSpecsValidate with `ir`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: false,
     requiresApproval: true,

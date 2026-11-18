@@ -1,21 +1,36 @@
 /**
- * The bundled validate_codespecs binary: where it is, how it is run, and the
- * two documents it writes — the `codespecs-validation` report (`--json`) and
- * the `codespecs-backlinks` index (`--backlinks`).
+ * The CodeSpecs validation (`tomspecs :codespecs-validate`, the old
+ * validate_codespecs; services/tomspecsCalls.ts): where the binary is, how it
+ * is run, and the two documents it writes — the `codespecs-validation` report
+ * (`--json`) and the `codespecs-backlinks` index (`--backlinks`).
  *
- * The binary is tom_specs_clitool's `bin/validate_codespecs.dart`, compiled
- * with `dart compile exe` into `<extension>/bin/<platform>/` by
+ * The binary is tom_specs_clitool's `bin/tomspecs.dart`, compiled with
+ * `dart compile exe` into `<extension>/bin/<platform>/` by
  * scripts/build-validate-codespecs.cjs (which the install scripts run). It
  * parses source text only, so it needs no Dart SDK at run time; nothing here
  * ever falls back to `dart run`. A binary configured for the platform
- * (`bridge.executables.validate_codespecs`) is used instead when it exists.
+ * (`bridge.executables.tomspecs`) is used instead when it exists.
+ * `TOM_SPECS_LEGACY_BINARIES=1` runs the old validate_codespecs instead
+ * (until tom_specs' tsbin8).
  *
  * vscode-free.
  */
 
 import * as path from 'path';
 import { getCurrentPlatform } from '../utils/executableResolver';
-import { currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND, runBinaryFile, type BinaryRun } from './dartBinariesStatus';
+import { binaryFileName, currentDartBinary, dartBinariesExtensionRoot, dartBinariesHelp, HELP_COMMAND, runBinaryFile, type BinaryRun } from './dartBinariesStatus';
+import { clitoolBinary, clitoolInvocation } from './tomspecsCalls';
+
+/** What a message names as the validator: `tomspecs :codespecs-validate` (validate_codespecs in legacy mode). */
+function validatorLabel(): string {
+    const call = clitoolInvocation({ tool: 'validate_codespecs', args: [] });
+    return [call.binary, ...call.args].join(' ');
+}
+
+/** The binary CodeSpecs validation runs: tomspecs (validate_codespecs in legacy mode). */
+function validatorBinary(): 'tomspecs' | 'validate_codespecs' {
+    return clitoolBinary('validate_codespecs') as 'tomspecs' | 'validate_codespecs';
+}
 
 export const VALIDATION_FORMAT = 'codespecs-validation';
 export const VALIDATION_FORMAT_VERSION = 1;
@@ -37,13 +52,13 @@ export const CS_VOCABULARY_FILE = path.join(EXTENSION_ROOT, 'resources', 'codesp
 /** Generous for a run measured at under a second; a hung binary must not hang a tool call. */
 const RUN_TIMEOUT_MS = 60_000;
 
-/** Where a validate_codespecs of the user's own is configured. */
-export const VALIDATOR_CONFIG_KEY = 'bridge.executables.validate_codespecs';
+/** Where a tomspecs of the user's own is configured. */
+export const VALIDATOR_CONFIG_KEY = 'bridge.executables.tomspecs';
 
 export class CodeSpecsBinaryMissing extends Error {
     constructor(readonly expected: string, readonly platform: string = getCurrentPlatform()) {
-        super(`validate_codespecs is not available on ${platform}: it is not bundled with this extension (expected at ${expected}) `
-            + `and none is configured (\`${VALIDATOR_CONFIG_KEY}\` in .tom/tom_vscode_extension.json). `
+        super(`${validatorBinary()} is not available on ${platform}: it is not bundled with this extension (expected at ${expected}) `
+            + `and none is configured (\`bridge.executables.${validatorBinary()}\` in .tom/tom_vscode_extension.json). `
             + `It is compiled from tom_ai/ai_build/tom_specs_clitool by \`${BUILD_COMMAND}\` in the extension `
             + '(compile_and_install.sh / .ps1 run it), which needs a Dart SDK at build time only. '
             + `How to get or configure it: ${dartBinariesHelp().page} (command ${HELP_COMMAND}).`);
@@ -52,19 +67,19 @@ export class CodeSpecsBinaryMissing extends Error {
 
 // ── Working around a missing binary ───────────────────────────────────────────
 
-/** Whether validate_codespecs is there (configured or bundled) for this platform, read now. */
+/** Whether the validator (tomspecs) is there (configured or bundled) for this platform, read now. */
 export function isValidatorAvailable(): boolean {
-    return currentDartBinary('validate_codespecs').source !== 'missing';
+    return currentDartBinary(validatorBinary()).source !== 'missing';
 }
 
-/** The warning a tool answer carries when it skipped what needs the binary: `validate_codespecs missing on <platform>: <what>`. */
+/** The warning a tool answer carries when it skipped what needs the binary: `tomspecs missing on <platform>: <what>`. */
 export function validatorMissingWarning(what: string, platform: string = getCurrentPlatform()): string {
-    return `validate_codespecs missing on ${platform}: ${what}`;
+    return `${validatorBinary()} missing on ${platform}: ${what}`;
 }
 
 /** The message shown to the user when a tool skipped validation. */
 export function validationSkippedMessage(platform: string = getCurrentPlatform()): string {
-    return `CodeSpecs validation skipped: validate_codespecs is not available on ${platform}.`;
+    return `CodeSpecs validation skipped: ${validatorBinary()} is not available on ${platform}.`;
 }
 
 let skippedNotifier: ((message: string) => void) | null = null;
@@ -95,16 +110,16 @@ export function resetValidationSkippedNotices(): void {
 export class CodeSpecsUsageError extends Error {}
 
 function binaryName(): string {
-    return process.platform === 'win32' ? 'validate_codespecs.exe' : 'validate_codespecs';
+    return binaryFileName(validatorBinary());
 }
 
 /**
- * The binary's path: a configured `bridge.executables.validate_codespecs` that
+ * The binary's path: a configured `bridge.executables.tomspecs` that
  * exists first, else the bundled one (services/dartBinariesStatus.ts); throws
  * {@link CodeSpecsBinaryMissing} naming the build step when neither is there.
  */
 export function validateCodespecsBinary(extensionRoot: string = dartBinariesExtensionRoot()): string {
-    const found = currentDartBinary('validate_codespecs', extensionRoot);
+    const found = currentDartBinary(validatorBinary(), extensionRoot);
     if (!found.path) {
         throw new CodeSpecsBinaryMissing(path.join(extensionRoot, 'bin', getCurrentPlatform(), binaryName()));
     }
@@ -115,7 +130,8 @@ export type { BinaryRun };
 
 /** Run the binary with `args`; resolves with its exit code and both streams (a non-zero exit is not a rejection). */
 export function runValidateCodespecs(args: string[], extensionRoot?: string): Promise<BinaryRun> {
-    return runBinaryFile(validateCodespecsBinary(extensionRoot), args, 'validate_codespecs', { timeoutMs: RUN_TIMEOUT_MS });
+    const call = clitoolInvocation({ tool: 'validate_codespecs', args });
+    return runBinaryFile(validateCodespecsBinary(extensionRoot), call.args, call.binary, { timeoutMs: RUN_TIMEOUT_MS });
 }
 
 /** The trio's three package folders, absolute. */
@@ -188,10 +204,10 @@ export function parseValidationReport(text: string): CodeSpecsValidationReport {
     try {
         json = JSON.parse(text) as Partial<CodeSpecsValidationReport>;
     } catch (e) {
-        throw new Error(`validate_codespecs --json did not write JSON: ${(e as Error).message}`);
+        throw new Error(`${validatorLabel()} --json did not write JSON: ${(e as Error).message}`);
     }
     if (json.format !== VALIDATION_FORMAT || json.formatVersion !== VALIDATION_FORMAT_VERSION) {
-        throw new Error(`validate_codespecs wrote ${json.format ?? 'no format'}/${json.formatVersion ?? '?'}; this reader understands `
+        throw new Error(`${validatorLabel()} wrote ${json.format ?? 'no format'}/${json.formatVersion ?? '?'}; this reader understands `
             + `${VALIDATION_FORMAT}/${VALIDATION_FORMAT_VERSION} only. Rebuild the binary with \`${BUILD_COMMAND}\` from a matching tom_specs_clitool.`);
     }
     return json as CodeSpecsValidationReport;
@@ -252,14 +268,14 @@ export function validationArgs(options: ValidationOptions): string[] {
 export async function validateCodeSpecs(options: ValidationOptions, extensionRoot?: string): Promise<CodeSpecsValidationReport> {
     const run = await runValidateCodespecs(validationArgs(options), extensionRoot);
     if (run.exitCode === 2) {
-        throw new CodeSpecsUsageError(run.stderr.trim() || 'validate_codespecs refused its arguments.');
+        throw new CodeSpecsUsageError(run.stderr.trim() || `${validatorLabel()} refused its arguments.`);
     }
     if (run.exitCode !== 0 && run.exitCode !== 1) {
-        throw new Error(`validate_codespecs exited ${run.exitCode}: ${run.stderr.trim()}`);
+        throw new Error(`${validatorLabel()} exited ${run.exitCode}: ${run.stderr.trim()}`);
     }
     const report = parseValidationReport(run.stdout);
     if (report.passed !== (run.exitCode === 0)) {
-        throw new Error(`validate_codespecs exited ${run.exitCode} with a report that says passed=${report.passed}.`);
+        throw new Error(`${validatorLabel()} exited ${run.exitCode} with a report that says passed=${report.passed}.`);
     }
     return report;
 }
@@ -269,7 +285,7 @@ export async function backlinkIndexJson(dirs: { shared?: string; client?: string
     const trio = resolveTrio(dirs);
     const run = await runValidateCodespecs(['--backlinks', '--shared', trio.shared, '--client', trio.client, '--server', trio.server], extensionRoot);
     if (run.exitCode !== 0) {
-        throw new CodeSpecsUsageError(run.stderr.trim() || `validate_codespecs --backlinks exited ${run.exitCode}.`);
+        throw new CodeSpecsUsageError(run.stderr.trim() || `${validatorLabel()} --backlinks exited ${run.exitCode}.`);
     }
     return run.stdout;
 }

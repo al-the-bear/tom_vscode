@@ -289,7 +289,7 @@ async function validationStage(deps: SpecToolDeps, file: string, trio: { shared?
         // open as if validation had not been asked for; the answer says why.
         noteValidationSkipped('tomAi_specCodeSpecsStatus');
         const warning = validatorMissingWarning('the trio is not validated (the validation stage is notChecked)');
-        return { stage: 'validation', state: 'notChecked', summary: `${warning}. Validate on a host that has validate_codespecs, or configure one (${r.help}).`, tool, details: { warnings: [warning], help: r.help, page: r.page } };
+        return { stage: 'validation', state: 'notChecked', summary: `${warning}. Validate on a host that has tomspecs, or configure one (${r.help}).`, tool, details: { warnings: [warning], help: r.help, page: r.page } };
     }
     if (!r.ok) {
         return { stage: 'validation', state: 'failing', summary: `Validation could not run (${r.outcome}): ${r.error}`, tool };
@@ -418,7 +418,7 @@ export const CODESPECS_STATUS_TOOL: SharedToolDefinition<CodeSpecsStatusInput> =
         + 'details; and `next`: the first stage not done and what to do. Reads only: every stage is checked with its own '
         + 'tool\'s dry run. `questId` defaults to the active quest; pass `shared` (the generated trio) or `ir` (its IR folder, '
         + '`*.ir.yaml`, before any code exists; not both) to include validation (without '
-        + 'validate_codespecs on this platform it is notChecked, with `warnings` and `help`). How to do each '
+        + 'tomspecs on this platform it is notChecked, with `warnings` and `help`). How to do each '
         + 'stage: tomAi_specCodeSpecsGuide with `runbook`.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,

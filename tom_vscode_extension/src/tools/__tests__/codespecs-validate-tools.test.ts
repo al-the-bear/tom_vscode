@@ -53,6 +53,7 @@ installVscodeStub({});
 import { SomModelService } from '../../services/som-model-service.js';
 import { SomDocumentStore } from '../../services/som-document-store.js';
 import { CS_VOCABULARY_FILE, CodeSpecsBinaryMissing, validateCodespecsBinary } from '../../services/codespecs-validator.js';
+import { clitoolInvocation } from '../../services/tomspecsCalls.js';
 import { CONTRACT_FILE } from '../../services/codespecs-contract.js';
 import { codeSpecsWriteExtractsImpl } from '../codespecs-tools.js';
 import type { SpecToolDeps } from '../spec-tool-common.js';
@@ -204,7 +205,9 @@ describe('CodeSpecs validate', () => {
     /** The binary's own `--json` report for `args` (relative to the test workspace); exit 0 or 1. */
     const cliReport = (args: string[]): Json => {
         try {
-            return JSON.parse(execFileSync(validateCodespecsBinary(), ['--json', ...args], { cwd: ws, encoding: 'utf8' }));
+            // The same call the tool makes: `tomspecs :codespecs-validate` (validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1).
+            const call = clitoolInvocation({ tool: 'validate_codespecs', args: ['--json', ...args] });
+            return JSON.parse(execFileSync(validateCodespecsBinary(), call.args, { cwd: ws, encoding: 'utf8' }));
         } catch (e) {
             const err = e as { status?: number; stdout?: string };
             if (err.status === 1 && err.stdout) { return JSON.parse(err.stdout); }
@@ -470,7 +473,7 @@ describe('CodeSpecs step context', () => {
         fs.writeFileSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB_data_access.ir.yaml'), 'format: "irspecs-ir"\n');
         const both = (await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0];
         assert.deepEqual([both.path, both.exists, both.legacyName], ['unitrun/irspecs/CE-DB_data_access.ir.yaml', true, undefined]);
-        assert.match(both.finding, /^CE-DB has two IR documents, CE-DB_data_access\.ir\.yaml and CE-DB\.ir\.yaml; irspecs and validate_codespecs refuse the folder/);
+        assert.match(both.finding, /^CE-DB has two IR documents, CE-DB_data_access\.ir\.yaml and CE-DB\.ir\.yaml; tomspecs \(:ir-map, :codespecs-validate\) refuses the folder/);
         // The new name alone.
         fs.rmSync(path.join(ws, 'unitrun', 'irspecs', 'CE-DB.ir.yaml'));
         assert.deepEqual((await call(codeSpecsStepContextImpl, { file, step: 10 })).ir.documents[0],

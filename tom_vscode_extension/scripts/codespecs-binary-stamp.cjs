@@ -41,7 +41,8 @@ const EXT_ROOT = path.resolve(__dirname, '..');
 const STAMP_FORMAT = 'validate-codespecs-build';
 const STAMP_FORMAT_VERSION = 1;
 /** The binaries compiled from tom_specs_clitool, each from its bin/<name>.dart. */
-const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks', 'irspecs'];
+/** `tomspecs` is the one binary the tools call; the other three stay bundled until tom_specs' tsbin8 removes them. */
+const CLITOOL_BINARIES = ['validate_codespecs', 'spec_checks', 'irspecs', 'tomspecs'];
 const DEFAULT_NAME = 'validate_codespecs';
 
 function aiBuildCheckout() {

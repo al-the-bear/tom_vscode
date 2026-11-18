@@ -75,8 +75,8 @@ tom_print_no_dart_warning() {
         "" \
         "WARNING: BUILT WITHOUT A DART SDK ($reason)" \
         "" \
-        "CodeSpecs validation and mapping (validate_codespecs, irspecs) and" \
-        "the TomSpecs process checks (spec_checks) are NOT in this VSIX." \
+        "CodeSpecs validation and mapping and the TomSpecs process checks" \
+        "(tomspecs) are NOT in this VSIX." \
         "$dartscript" \
         "" \
         "On its first start the extension shows a page explaining what is" \

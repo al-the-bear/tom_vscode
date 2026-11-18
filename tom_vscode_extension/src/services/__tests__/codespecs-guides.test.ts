@@ -12,7 +12,7 @@
  *         arguments are filled in; an unknown runbook is refused
  *   GD-5  the runbooks follow IR authoring and generation units (vscimpb67e, codespecs_mapping.md §1.1.2): an
  *         authoring step writes IR into <spec-root>/irspecs/, reads its units; validation maps each unit
- *         (`irspecs map --unit`) and validates with `ir`; Stage C plans csproj per generation unit
+ *         (`tomspecs :ir-map --unit`) and validates with `ir`; Stage C plans csproj per generation unit
  *   GD-6  the runbooks name the coverage-gap record (vscimpb110, contract §2.11): Stage B and an authoring step record a
  *         fact with no place in coverage_gaps.yaml and file the run's gap review; validation offers `recordGaps`; the
  *         next-step runbook says an open gap stops the run
@@ -143,7 +143,7 @@ describe('CodeSpecs guides', () => {
         assert.match(authoring, /irspecs_ir\.md §8\.1/);
         const validate = text('codespecs-validate');
         assert.match(validate, /1\. Map\. tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"` and `out`/);
-        assert.match(validate, /`irspecs map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml --unit <id> --out <out>`/);
+        assert.match(validate, /`tomspecs :ir-map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml --unit <id> --out <out>`/);
         assert.match(validate, /No mapper needs a Dart SDK: dart-tom\s+formats in-process\./);
         assert.doesNotMatch(validate, /formatterUnavailable|TOM_DART/, 'no Dart SDK prerequisite (vscimpb147)');
         assert.match(authoring, /tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"`, `out: <scratch>`/);

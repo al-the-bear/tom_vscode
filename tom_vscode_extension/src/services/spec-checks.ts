@@ -1,6 +1,7 @@
 /**
- * The TomSpecs process checks: tom_specs_clitool's `spec_checks`
- * (doc/process_checks.md there), compiled into `<extension>/bin/<platform>/`
+ * The TomSpecs process checks: tom_specs_clitool's `spec_checks` checks, run
+ * as `tomspecs :spec-<check>` (services/tomspecsCalls.ts; doc/process_checks.md
+ * there), compiled into `<extension>/bin/<platform>/`
  * by scripts/build-validate-codespecs.cjs, run here and its lines read back
  * as structure — one finding per line, the summary counts, the exit verdict.
  *
@@ -13,7 +14,8 @@
  * the arguments and do the writes. vscode-free.
  */
 
-import { runDartBinary, type BinaryRun } from './dartBinariesStatus';
+import { type BinaryRun } from './dartBinariesStatus';
+import { runClitool } from './tomspecsCalls';
 
 /** The checks the tools run (`validate` and `accept-marks` have tools of their own: tomAi_specValidate, tomAi_specDecideMarks). */
 export type SpecCheck =
@@ -23,10 +25,10 @@ export type SpecCheck =
 /** A large Blueprint (16 MB YAML) takes seconds per check; a hung binary must still not hang a tool call. */
 export const SPEC_CHECKS_TIMEOUT_MS = 5 * 60_000;
 
-/** Run `spec_checks [--spec-root <dir>] <check> <args>`. */
+/** Run a check: `tomspecs :spec-<check> [--spec-root <dir>] <args>` (the old `spec_checks [--spec-root <dir>] <check> <args>`). */
 export function runSpecChecks(check: SpecCheck, args: string[], options: { specRoot?: string; extensionRoot?: string } = {}): Promise<BinaryRun> {
-    const head = options.specRoot ? ['--spec-root', options.specRoot] : [];
-    return runDartBinary('spec_checks', [...head, check, ...args], { timeoutMs: SPEC_CHECKS_TIMEOUT_MS, extensionRoot: options.extensionRoot });
+    return runClitool({ tool: 'spec_checks', args: [check, ...args], specRoot: options.specRoot },
+        { timeoutMs: SPEC_CHECKS_TIMEOUT_MS, extensionRoot: options.extensionRoot });
 }
 
 export interface SpecCheckFinding {

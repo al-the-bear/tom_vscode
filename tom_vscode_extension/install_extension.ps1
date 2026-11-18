@@ -345,7 +345,7 @@ if ($Result -match "^[Yy]") {
             Write-Host "Bringing the binaries layer level with its remote..."
             Invoke-Native { node scripts/binaries-layer.cjs sync }
         }
-        Write-Host "Bundling tom_bs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
+        Write-Host "Bundling tom_bs, tomspecs, validate_codespecs, spec_checks and irspecs from the binaries layer..."
         if ($env:TOM_LAYER_PLATFORMS) {
             Invoke-Native { node scripts/binaries-layer.cjs bundle --platforms $env:TOM_LAYER_PLATFORMS }
         } else {
@@ -504,7 +504,7 @@ if ($Result -match "^[Yy]") {
         foreach ($line in @($Provenance)) { Write-Host "  $line" }
     }
 
-    # ── Bundle validate_codespecs, spec_checks and irspecs for THIS host ──────────
+    # ── Bundle tomspecs (and validate_codespecs, spec_checks, irspecs) for THIS host ──
     # The CodeSpecs tools and the TomSpecs process check tools run
     # tom_specs_clitool's validate_codespecs, spec_checks and irspecs as compiled
     # binaries from bin/<platform>/ - never via `dart run`. They are compiled
@@ -514,11 +514,11 @@ if ($Result -match "^[Yy]") {
     if ($LayerBinariesMode) {
         # taken from the binaries layer above
     } elseif ($NoDartMode) {
-        Write-Host "No Dart: validate_codespecs, spec_checks and irspecs are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
+        Write-Host "No Dart: tomspecs (and validate_codespecs, spec_checks, irspecs) are not built (CodeSpecs validation and mapping and the TomSpecs process checks will not be available)."
     } else {
         Push-Location $ExtensionDir
         Invoke-Native { node scripts/build-validate-codespecs.cjs }
-        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building validate_codespecs / spec_checks / irspecs failed"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "building tomspecs / validate_codespecs / spec_checks / irspecs failed"; exit 1 }
         Pop-Location
     }
     Write-Host ""

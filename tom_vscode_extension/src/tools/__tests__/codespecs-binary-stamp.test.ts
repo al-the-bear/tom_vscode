@@ -213,8 +213,8 @@ describe('the validate_codespecs build stamp', () => {
             assert.ok(!fs.existsSync(scratch), 'the scratch folder is cleared');
             const text = errors.join('\n');
             assert.match(text, new RegExp(`Building ${stamp.CLITOOL_BINARIES[1]} failed: Type SpecGenerationUnit not found`));
-            assert.match(text, /Nothing was copied: validate_codespecs, spec_checks, irspecs are taken over only when all of them build/);
-            assert.match(text, /is unchanged: the previous binaries and stamps are kept \(buildkit, irspecs, spec_checks, validate_codespecs\)/);
+            assert.match(text, /Nothing was copied: validate_codespecs, spec_checks, irspecs, tomspecs are taken over only when all of them build/);
+            assert.match(text, /is unchanged: the previous binaries and stamps are kept \(buildkit, irspecs, spec_checks, tomspecs, validate_codespecs\)/);
             // A failed dependency resolution says the same.
             errors.length = 0;
             assert.equal(build.buildAll({ platform: PLATFORM, outDir, scratch, resolve: () => { throw new Error('pub get'); }, compile: () => undefined, stampFor }), 1);

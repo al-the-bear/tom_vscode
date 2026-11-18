@@ -119,8 +119,8 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
     if (input.codeDirs) {
         if (!backlinkProvider) {
             throw new TraceInputError('noBacklinkSource',
-                'No back-link provider is installed: the extension installs the bundled validate_codespecs at activation. '
-                + 'Pass `backlinks` instead: the JSON `validate_codespecs --backlinks --shared … --client … --server …` writes.');
+                'No back-link provider is installed: the extension installs the bundled tomspecs at activation. '
+                + 'Pass `backlinks` instead: the JSON `tomspecs :codespecs-validate --backlinks --shared … --client … --server …` writes.');
         }
         const resolved: CodeDirs = {};
         for (const k of ['shared', 'client', 'server'] as const) {
@@ -134,7 +134,7 @@ async function loadBacklinks(deps: SpecToolDeps, input: CodeSpecsTraceInput): Pr
             throw e;
         }
         if (indexJson === null) { throw new BacklinksUnavailable(); }
-        return parseBacklinkIndex(indexJson, 'validate_codespecs --backlinks');
+        return parseBacklinkIndex(indexJson, 'tomspecs :codespecs-validate --backlinks');
     }
     return null;
 }
@@ -312,18 +312,18 @@ export const CODESPECS_TRACE_TOOL: SharedToolDefinition<CodeSpecsTraceInput> = {
     name: 'tomAi_specCodeSpecsTrace',
     displayName: 'CodeSpecs: Trace',
     description:
-        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled validate_codespecs, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36). Without validate_codespecs on this platform, `codeDirs` gives no `agreement`: the answer carries `warnings` and `help` instead.',
+        'Trace between a specification and its generated code by section-id TOKEN (what `@CodeSpec(source: […])` / `@DocSpec` back-links cite). Start from exactly one of `specPath`, `token`, `codeFile` + `line`, `declaration`; each token comes with its extract entries. With back-links (`codeDirs`, read by the bundled tomspecs `:codespecs-validate --backlinks`, or a `backlinks` index) `agreement` lists uncited and dangling tokens (checks 35, 36). Without validate_codespecs on this platform, `codeDirs` gives no `agreement`: the answer carries `warnings` and `help` instead.',
     tags: ['tomspecs', 'codespecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
         type: 'object',
         properties: {
             ...LOCATOR,
-            backlinks: { type: 'string', description: 'A `codespecs-backlinks` JSON file (validate_codespecs --backlinks).' },
+            backlinks: { type: 'string', description: 'A `codespecs-backlinks` JSON file (`tomspecs :codespecs-validate --backlinks`).' },
             codeDirs: {
                 type: 'object',
                 properties: { shared: { type: 'string' }, client: { type: 'string' }, server: { type: 'string' } },
-                description: 'The generated trio\'s package folders, read by the bundled validate_codespecs. client and server default to the shared folder\'s siblings (name ending `client` / `server` instead of `shared`).',
+                description: 'The generated trio\'s package folders, read by the bundled tomspecs (`:codespecs-validate --backlinks`). client and server default to the shared folder\'s siblings (name ending `client` / `server` instead of `shared`).',
             },
             specPath: { type: 'string', description: 'Trace from this spec path.' },
             token: { type: 'string', description: 'Trace this section-id token.' },

@@ -25,8 +25,8 @@
  *     the extension installs them on request (Provider SDKs page), it never
  *     carries them.
  *
- * Reported, not checked: which Dart-built binaries (tom_bs, validate_codespecs,
- * spec_checks) and which tom build tools bundled as the last fallback
+ * Reported, not checked: which Dart-built binaries (tom_bs, tomspecs, and the
+ * older validate_codespecs, spec_checks, irspecs) and which tom build tools bundled as the last fallback
  * (buildkit, d4rtgen, reflectiongenerator, testkit; src/services/buildTools.ts)
  * the VSIX carries for which platform. A VSIX built without a Dart SDK has none
  * for its host and is still a valid package: the extension then runs without
@@ -43,7 +43,7 @@ const path = require('path');
 const EXT_ROOT = path.resolve(__dirname, '..');
 
 /** The Dart-built binaries under bin/<platform>/, reported per platform. */
-const DART_BINARIES = ['tom_bs', 'validate_codespecs', 'spec_checks', 'irspecs'];
+const DART_BINARIES = ['tom_bs', 'tomspecs', 'validate_codespecs', 'spec_checks', 'irspecs'];
 /** The tom build tools under bin/<platform>/ (scripts/binaries-layer.cjs tools), reported per platform. */
 const BUILD_TOOLS = ['buildkit', 'd4rtgen', 'reflectiongenerator', 'testkit'];
 const HOST_PLATFORM = `${process.platform}-${process.arch}`;

@@ -1819,7 +1819,7 @@ export interface StatusData {
     configErrors: string[];
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
-    /** Which Dart-built binaries (tom_bs, validate_codespecs, spec_checks, irspecs) this platform has. */
+    /** Which Dart-built binaries (tom_bs, tomspecs) this platform has. */
     dartBinaries?: DartBinariesStatus;
     /** This window's usage totals (live-trail usage events, any transport). */
     usage?: UsageSummary;
@@ -2342,9 +2342,9 @@ const DART_SOURCE_LABEL = { configured: 'configured', bundled: 'bundled', missin
 const BUILD_TOOL_LABEL: Record<BuildToolSource, string> = { configured: 'configured', layer: 'binaries layer', path: 'PATH', bundled: 'bundled', missing: 'missing' };
 
 /**
- * The Dart binaries section: this platform, and for tom_bs (DartScript),
- * validate_codespecs (CodeSpecs validation) and spec_checks (TomSpecs process
- * checks) whether each is configured, bundled
+ * The Dart binaries section: this platform, and for tom_bs (DartScript) and
+ * tomspecs (TomSpecs process checks, CodeSpecs validation and mapping)
+ * whether each is configured, bundled
  * or missing, with a button to the page about them. Warns when one is missing.
  */
 export function dartBinariesSectionHtml(status: DartBinariesStatus | undefined): string {

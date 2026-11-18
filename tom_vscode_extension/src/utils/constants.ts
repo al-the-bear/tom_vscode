@@ -214,7 +214,7 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specRender',
     'tomAi_specAnnotations',
     'tomAi_specExtractAnswers',
-    // TomSpecs process checks (the bundled spec_checks)
+    // TomSpecs process checks (the bundled tomspecs)
     'tomAi_specRequiredFields',
     'tomAi_specQuestionRegister',
     'tomAi_specFeatureRegister',

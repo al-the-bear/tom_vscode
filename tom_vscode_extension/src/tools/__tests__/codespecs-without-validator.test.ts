@@ -1,5 +1,5 @@
 /**
- * The CodeSpecs tools on a platform without validate_codespecs (vsc_nodart-4):
+ * The CodeSpecs tools on a platform without the validator, tomspecs (validate_codespecs in legacy mode) (vsc_nodart-4):
  * an extension root that has no binary for this platform and nothing
  * configured. With the binary present the CV-*, CT-* and WS-* tests hold.
  *
@@ -46,8 +46,11 @@ const WS_ROOT = path.resolve(EXT_ROOT, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const MERIDIAN = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml');
 const PLATFORM = getCurrentPlatform();
-const WARNING = `validate_codespecs missing on ${PLATFORM}: no back-link agreement (checks 35, 36)`;
-const NOTICE = `CodeSpecs validation skipped: validate_codespecs is not available on ${PLATFORM}.`;
+/** The validator binary: tomspecs, or validate_codespecs with TOM_SPECS_LEGACY_BINARIES=1 (until tsbin8). */
+const LEGACY_MODE = process.env.TOM_SPECS_LEGACY_BINARIES === '1';
+const VALIDATOR = LEGACY_MODE ? 'validate_codespecs' : 'tomspecs';
+const WARNING = `${VALIDATOR} missing on ${PLATFORM}: no back-link agreement (checks 35, 36)`;
+const NOTICE = `CodeSpecs validation skipped: ${VALIDATOR} is not available on ${PLATFORM}.`;
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-no-validator-'));
 fs.cpSync(path.join(FIXTURE, 'codespec'), path.join(ws, 'run', 'codespec'), { recursive: true });
@@ -79,10 +82,10 @@ describe('CodeSpecs without validate_codespecs', () => {
         const r = await call(codeSpecsValidateImpl, { shared: 'run/codespec/shared', client: 'run/codespec/client', server: 'run/codespec/server' });
         assert.equal(r.ok, false);
         assert.equal(r.outcome, 'binaryMissing');
-        assert.equal(r.expected, path.join(noBinaryRoot, 'bin', PLATFORM, process.platform === 'win32' ? 'validate_codespecs.exe' : 'validate_codespecs'));
+        assert.equal(r.expected, path.join(noBinaryRoot, 'bin', PLATFORM, process.platform === 'win32' ? `${VALIDATOR}.exe` : VALIDATOR));
         assert.equal(r.help, HELP_HINT);
         assert.match(r.page, /missing_dart_binaries\.md$/);
-        for (const part of [`not available on ${PLATFORM}`, VALIDATOR_CONFIG_KEY, 'npm run codespecs:build', r.page, 'tomAi.showDartBinariesHelp']) {
+        for (const part of [`not available on ${PLATFORM}`, LEGACY_MODE ? `bridge.executables.${VALIDATOR}` : VALIDATOR_CONFIG_KEY, 'npm run codespecs:build', r.page, 'tomAi.showDartBinariesHelp']) {
             assert.ok(r.error.includes(part), `the error names ${part}`);
         }
     });
@@ -120,9 +123,9 @@ describe('CodeSpecs without validate_codespecs', () => {
         assert.equal(r.ok, true, JSON.stringify(r));
         const v = r.stages.find((s: Json) => s.stage === 'validation');
         assert.equal(v.state, 'notChecked');
-        assert.match(v.summary, new RegExp(`^validate_codespecs missing on ${PLATFORM}: the trio is not validated`));
+        assert.match(v.summary, new RegExp(`^${VALIDATOR} missing on ${PLATFORM}: the trio is not validated`));
         assert.deepEqual(r.warnings, v.details.warnings);
-        assert.match(r.warnings[0], new RegExp(`^validate_codespecs missing on ${PLATFORM}: `));
+        assert.match(r.warnings[0], new RegExp(`^${VALIDATOR} missing on ${PLATFORM}: `));
         assert.equal(r.help, HELP_HINT);
         assert.deepEqual(r.next, without.next, 'next as if validation was not asked for');
     });
@@ -149,14 +152,14 @@ describe('CodeSpecs without validate_codespecs', () => {
     test('NV-5: runbook, process, activation', (t) => {
         const rb = runbookText('codespecs-validate', { file: 'spec.docspecs.yaml', shared: 'app_codespec_shared' });
         assert.ok(rb.ok);
-        assert.match((rb as { text: string }).text, /`outcome: "binaryMissing"`[\s\S]*"validation not run: validate_codespecs missing on <platform>"[\s\S]*carry on with the other steps\. The G4 gate stays unpassed until\nvalidation has run on a host that has the binary/);
+        assert.match((rb as { text: string }).text, /`outcome: "binaryMissing"`[\s\S]*"validation not run: tomspecs missing on <platform>"[\s\S]*carry on with the other steps\. The G4 gate stays unpassed until\nvalidation has run on a host that has the binary/);
         const ext = fs.readFileSync(path.join(EXT_ROOT, 'src', 'extension.ts'), 'utf8');
         assert.match(ext, /setBacklinkProvider\(async \(dirs\) => \(isValidatorAvailable\(\) \? backlinkIndexJson\(dirs\) : null\)\);/);
         assert.match(ext, /setValidationSkippedNotifier\(\(message\) => \{ void showWithDartBinariesHelp\('warning', message\); \}\);/);
         const processFile = path.join(WS_ROOT, '_ai', 'processes', 'tom_specs', 'tom_specs.process.yaml');
         if (!fs.existsSync(processFile)) { t.skip('no _ai/processes around this checkout'); return; }
         const yaml = fs.readFileSync(processFile, 'utf8');
-        assert.match(yaml, /When the validate tool answers `outcome: "binaryMissing"`[^\n]*"validation not run: validate_codespecs missing on <platform>"[^\n]*gate G4 stays unpassed/);
-        assert.match(yaml, /G4-VAL-1 derivation-contract checks pass \(validated on a host that has validate_codespecs: "validation not run" is not a pass\)/);
+        assert.match(yaml, /When the validate tool answers `outcome: "binaryMissing"`[^\n]*"validation not run: tomspecs missing on <platform>"[^\n]*gate G4 stays unpassed/);
+        assert.match(yaml, /G4-VAL-1 derivation-contract checks pass \(validated on a host that has tomspecs: "validation not run" is not a pass\)/);
     });
 });

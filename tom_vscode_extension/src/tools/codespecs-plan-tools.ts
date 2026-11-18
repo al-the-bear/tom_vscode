@@ -231,7 +231,7 @@ function planItems(
                 'Its areas and the mapper that writes each:',
                 ...inPass.map(([area, mapper]) => `- ${area}: ${mapper || '(no mapper set)'}`),
                 ...(out.length > 0 ? [`Out of this pass (no folders): ${out.map(([area]) => `${area} (${verdictLabel(verdictFor(area))})`).join(', ')}.`] : []),
-                `The package's code is written later from the IR (${units.irRel}) by \`irspecs map --unit ${unit.unitId}\`; `
+                `The package's code is written later from the IR (${units.irRel}) by \`tomspecs :ir-map --unit ${unit.unitId}\`; `
                     + 'this todo only scaffolds it. Nothing in it is chosen: the register determines the rung (codespecs_mapping.md §1.1.3).',
             ].join('\n'),
             status: 'not-started',
@@ -333,9 +333,9 @@ function planItems(
                     ? [`After this step, map and validate (codespecs_mapping.md §1.1.2 stage 5, runbook codespecs-validate): `
                         + `tomAi_specCodeSpecsMap with file '<document>' and out '<packages folder>' (the bundled irspecs: `
                         + (register.length > 0
-                            ? `\`irspecs map --mapper <the unit's mapper> --ir ${units.irRel} --spec <document> --unit <unit id> --out <packages folder>\` per unit `
+                            ? `\`tomspecs :ir-map --mapper <the unit's mapper> --ir ${units.irRel} --spec <document> --unit <unit id> --out <packages folder>\` per unit `
                                 + `(${register.map((u) => u.unitId).join(', ')}))`
-                            : `\`irspecs map --mapper dart-tom --ir ${units.irRel} --out <packages folder>\` for the trio)`)
+                            : `\`tomspecs :ir-map --mapper dart-tom --ir ${units.irRel} --out <packages folder>\` for the trio)`)
                         + `, then tomAi_specCodeSpecsValidate with ir '${units.irRel}' and extractsDir '${extractsRel}'.`]
                     : []),
             ].join('\n'),
