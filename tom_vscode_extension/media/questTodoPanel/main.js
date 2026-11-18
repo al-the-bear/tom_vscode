@@ -465,6 +465,7 @@ function qtNavPush(todoId) {
     // The Done notification toggle's state: the host answers qtDoneNotification, and again on every change.
     // (Where an item goes is asked per queue add and send, vscimpb139: no run or session in the bar.)
     vscode.postMessage({ type: 'qtGetDoneNotification' });
+    qtApplyQueueToggles();
     var qtDoneNotificationBtn = document.getElementById('qt-done-notification');
     if (qtDoneNotificationBtn) {
         // Off and disabled until the host says a template is set (vscimpb146).
@@ -3268,21 +3269,92 @@ function qtUserActionRow(checked, withGuide) {
  */
 function qtTodoButtonsRow(todo) {
     var which = todo && todo.user_action === true ? 'user-action' : 'other';
-    // Icon buttons (vscimpb151): the default queue button first (the default run, default@default, the end),
-    // then the ones that ask where.
+    var isGroup = !!(todo && (todo.status === 'group' || (Array.isArray(todo.comprised_of) && todo.comprised_of.length)));
+    // The Next and Fresh toggles lead (they hold for every button of the row and of the bar), then the default
+    // queue button (the default run, default@default), then the ones that ask where; a group todo ends with its
+    // two GROUP item buttons.
     return qtFormRow('Run', '<div class="qt-todo-buttons">' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queueDefault" title="Queue this todo in the default run (default@default), at the end (Anthropic), with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        qtQueueToggleButtonsHtml() +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queueDefault" title="Queue this todo in the default run (default@default) (Anthropic), next or at the end as the Next toggle says, with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
         '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="chat" title="Send this todo now in a free session of this window (asked for), with the ANTHROPIC/LLM panel\'s profile and the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-send"></span></button>' +
-        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to a prompt queue (Anthropic): asks the quest, run, free session and next / end; with the Todo buttons template for ' + which + ' todos (Status Page)">' +
+        '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to a prompt queue (Anthropic): asks the quest, run and free session (next or at the end as the Next toggle says); with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
         '<button class="icon-btn qt-queue-item-detail-btn" type="button" title="Queue as todo item: ' +
-            (todo && (todo.status === 'group' || (Array.isArray(todo.comprised_of) && todo.comprised_of.length)) ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
-            '; asks the quest, run, free session and next / end">' +
+            (isGroup ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
+            '; asks the quest, run and free session (next or at the end as the Next toggle says)">' +
             '<span class="codicon codicon-run-all"></span></button>' +
+        (isGroup
+            ? '<button class="icon-btn qt-group-item-btn" type="button" data-qt-group-item="default" title="Queue as group in the default run (default@default): a GROUP item that walks the group\'s members in order, without asking; next or at the end as the Next toggle says">' +
+                '<span class="codicon codicon-add"></span><span class="codicon codicon-layers"></span></button>' +
+              '<button class="icon-btn qt-group-item-btn" type="button" data-qt-group-item="ask" title="Queue as group with options: a GROUP item that walks the group\'s members in order; asks the quest, run and free session (next or at the end as the Next toggle says)">' +
+                '<span class="codicon codicon-account"></span><span class="codicon codicon-layers"></span></button>'
+            : '') +
         '</div>');
 }
+
+/** The Next and Fresh toggles, kept by the host (qtQueueToggles): one state in the bar and in every Run row. */
+var qtQueueNext = false;
+var qtFresh = false;
+
+/** The two toggles as buttons; qtApplyQueueToggles gives every copy its icon, state and tooltip. */
+function qtQueueToggleButtonsHtml() {
+    return '<button type="button" class="icon-btn qt-toggle-btn qt-next-toggle" data-qt-queue-toggle="next" aria-pressed="' + (qtQueueNext ? 'true' : 'false') + '" aria-label="Queue next" title="' + qtQueueNextTitle() + '">' +
+            '<span class="codicon ' + (qtQueueNext ? 'codicon-debug-step-out' : 'codicon-debug-step-into') + '"></span></button>' +
+        '<button type="button" class="icon-btn qt-toggle-btn qt-fresh-toggle' + (qtFresh ? ' pressed' : '') + '" data-qt-queue-toggle="fresh" aria-pressed="' + (qtFresh ? 'true' : 'false') + '" aria-label="Fresh session" title="' + qtFreshTitle() + '">' +
+            '<span class="codicon codicon-sparkle"></span></button>';
+}
+
+function qtQueueNextTitle() {
+    return (qtQueueNext
+        ? 'Queue next: on \u2014 every queue button of the todo panel puts its item at the front of the queue, sent next (after the item or iteration that is running).'
+        : 'Queue next: off \u2014 every queue button of the todo panel puts its item at the end of the queue.') +
+        ' Click to switch. It holds for the queue buttons of this bar and of a todo\u2019s Run row, in every todo panel of this window; a direct Send has no place in the queue.';
+}
+
+function qtFreshTitle() {
+    return 'Fresh: ' + (qtFresh ? 'on' : 'off') + ' \u2014 when on, a todo this panel queues or sends runs in a fresh session: a new one-prompt session based on the session picked ' +
+        '(the default session of the run for the default buttons). It starts from that session\u2019s conversation, changes nothing in it and is removed when the prompt is done. ' +
+        'It holds for the buttons of this bar and of a todo\u2019s Run row, in every todo panel of this window.';
+}
+
+/** Show the toggles' state on every copy (the bar's and an open Run row's). */
+function qtApplyQueueToggles() {
+    var all = document.querySelectorAll('[data-qt-queue-toggle]');
+    for (var i = 0; i < all.length; i++) {
+        var btn = all[i];
+        var next = btn.getAttribute('data-qt-queue-toggle') === 'next';
+        var on = next ? qtQueueNext : qtFresh;
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        // Next shows its state by its icon (both states are a choice); Fresh as a pressed toggle.
+        btn.classList.toggle('pressed', !next && on);
+        btn.title = next ? qtQueueNextTitle() : qtFreshTitle();
+        var icon = btn.querySelector('.codicon');
+        if (icon && next) { icon.className = 'codicon ' + (on ? 'codicon-debug-step-out' : 'codicon-debug-step-into'); }
+    }
+}
+
+document.addEventListener('click', function(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-qt-queue-toggle]') : null;
+    if (!btn) { return; }
+    e.preventDefault();
+    var which = btn.getAttribute('data-qt-queue-toggle') === 'next' ? 'next' : 'fresh';
+    var on = btn.getAttribute('aria-pressed') !== 'true';
+    if (which === 'next') { qtQueueNext = on; } else { qtFresh = on; }
+    qtApplyQueueToggles();
+    vscode.postMessage({ type: 'qtSetQueueToggle', which: which, on: on });
+});
+
+/** A group todo's GROUP item buttons: in the default run without asking, or with the queue-target flow. */
+document.addEventListener('click', function(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.qt-group-item-btn') : null;
+    if (!btn || !qtDetailTodo || btn.disabled) { return; }
+    e.preventDefault();
+    qtPauseButton(btn);
+    vscode.postMessage(Object.assign({ type: 'qtQueueTodoGroup', questId: qtCurrentQuestId, todoId: qtDetailTodo.id, sourceFile: qtDetailTodo._sourceFile || undefined },
+        btn.getAttribute('data-qt-group-item') === 'default' ? { defaultTarget: true } : {}));
+});
 
 /**
  * The double-click guard of the todo buttons (Send / Queue, Guide me): the
@@ -3674,6 +3746,12 @@ function qtHandleMessage(msg) {
                     });
                 }
             }
+            break;
+        case 'qtQueueToggles':
+            // The Next and Fresh toggles, kept by the host for every todo panel of the window.
+            qtQueueNext = msg.next === true;
+            qtFresh = msg.fresh === true;
+            qtApplyQueueToggles();
             break;
         case 'qtDoneNotification':
             // The Done notification toggle, kept per quest by the host (unset: off; disabled without a template).

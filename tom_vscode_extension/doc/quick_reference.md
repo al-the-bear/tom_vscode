@@ -69,7 +69,7 @@
 ## Quest TODO Panel — top bar
 
 - Quest scope button (one quest / the open windows' quests / all quests with checkboxes; kept per view), file toggles (live, archived, deleted — archived and deleted read-only with ↩️ Restore), order with several quests (groups of all quests / by quest then groups / by quest then list), quest prefix toggle (on by default with several quests)
-- Right end: **Done notification** toggle (bell, pressed = on, kept per quest; off by default, disabled while no Todo — Done Notification template is set; on: the panel's items record the run and session they are queued into, where a todo's After done notify is delivered), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), Save to Queue in the default run (`default@default`, the end, no questions), Save to Queue (asks quest, run, session, next / end), Send
+- Right end: **Done notification** toggle (bell, pressed = on, kept per quest; off by default, disabled while no Todo — Done Notification template is set; on: the panel's items record the run and session they are queued into, where a todo's After done notify is delivered), **template button** (the selection, at most 20 characters; click = picker of the templates on offer), the **Next** toggle (arrow down to a point = the end of the queue, arrow up from a point = next; for every queue button of the panel) and the **Fresh** toggle (sparkle; on: queued and sent todos run in a one-prompt session based on the session picked) — the same pair leads a todo's Run row —, Save to Queue in the default run (`default@default`, no questions), Save to Queue (asks quest, run, session), Send
 
 ## Quest TODO Panel — where a todo goes
 

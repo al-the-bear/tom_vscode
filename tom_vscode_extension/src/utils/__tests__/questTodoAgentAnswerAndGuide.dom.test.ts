@@ -112,7 +112,7 @@ describe('todo detail: agent answer and guide me', () => {
         assert.match(guide, /const use = msg\.type === 'qtGuideUserAction' \? 'userAction' : todoButtonTemplateUse\(todo\)/, 'Guide me: the user-action template setting');
         const run = host.slice(host.indexOf('async function _runTodoButton('));
         assert.match(host.slice(host.indexOf('async function _queueTodo(')), /template: tpl\.id,\s*transport: 'anthropic',/, 'queued on Anthropic, where the queue-target flow says (vscimpb139)');
-        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}`, session: sendTarget\.session, run: sendTarget\.run,/, 'sent with the template, in the free session picked (vscimpb139)');
+        assert.match(run, /runAnthropicSend\(ctx, todoPrompt, \{\s*userMessageTemplate: tpl\.body, source: `todo panel: \$\{use === 'userAction' \? 'guide me' : 'send'\}`, session, run: sendTarget\.run,/, 'sent with the template, in the free session picked (vscimpb139)');
         assert.match(run, /onChatItem: \(chatItemId\) => \{ void _recordChatQueuedBy\(chatItemId\); \}/, 'who queued its todo, for the done notification (vscimpb146)');
     });
 });

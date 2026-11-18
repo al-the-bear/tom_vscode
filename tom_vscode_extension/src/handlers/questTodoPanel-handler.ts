@@ -35,8 +35,8 @@ import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
-import { storedQueueTarget, storedSendTarget, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey } from '../utils/todoPanelRunSession';
-import { busySessionsOfEntries, defaultTargetQuest, positionPickItems, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
+import { storedQueueTarget, storedSendTarget, TODO_PANEL_FRESH_KEY, TODO_PANEL_QUEUE_NEXT_KEY, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey, todoPanelQueuePosition } from '../utils/todoPanelRunSession';
+import { busySessionsOfEntries, defaultTargetQuest, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueuePosition, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
 import { runSessionName } from '../utils/runSessions';
 import { isAnthropicSendInFlight } from './sendToChatState.js';
 import type { RunActivityEntry } from '../utils/runActivity';
@@ -369,7 +369,8 @@ function _busyTest(quest: string): (session: string) => boolean {
 /**
  * The flow every queue button of the panel calls (vscimpb139): quest (one with an open window; default the
  * todo's own when it has one, else the window's) → run (with its state) → a free session of the run, the queue
- * default or a new one → next or end. "Last: …" first queues where the last item went. Escape at any step: none.
+ * default or a new one. Next or end is the panel's Next toggle, never asked. "Last: …" first queues where the last
+ * item went. Escape at any step: none.
  */
 /**
  * Set while a message of the panel's default queue buttons is handled (`defaultTarget: true`, vscimpb151): the
@@ -378,15 +379,65 @@ function _busyTest(quest: string): (session: string) => boolean {
  */
 let _queueToDefaultTarget = false;
 
-/** The target of the default queue buttons: the default run of the todo's quest, its default session, the end. */
-export function defaultTodoQueueTarget(todoQuest: string | undefined, windowQuest: string): TodoQueueTarget {
+/** The Next toggle of the todo panels: every queue button queues next instead of at the end. */
+function _todoQueuePosition(): TodoQueuePosition {
+    return todoPanelQueuePosition(_extensionContext?.workspaceState.get(TODO_PANEL_QUEUE_NEXT_KEY));
+}
+
+/** The Fresh toggle of the todo panels: a queued or sent todo runs in a one-prompt session based on the one picked. */
+function _todoFresh(): boolean {
+    return _extensionContext?.workspaceState.get(TODO_PANEL_FRESH_KEY) === true;
+}
+
+/**
+ * The target of the default queue buttons: the default run of the todo's quest, its default session, at the end —
+ * or next with the Next toggle on (`position`).
+ */
+export function defaultTodoQueueTarget(todoQuest: string | undefined, windowQuest: string, position: TodoQueuePosition = 'end'): TodoQueueTarget {
     const quest = todoQuest && !todoQuest.startsWith('__') ? todoQuest : windowQuest;
-    return { quest, run: DEFAULT_RUN, session: runDefaultSession(DEFAULT_RUN), position: 'end' };
+    return { quest, run: DEFAULT_RUN, session: runDefaultSession(DEFAULT_RUN), position };
+}
+
+/** A one-prompt session of this window's quest based on `base`, for an item queued with Fresh on. */
+function _createFreshSession(base: string, token: string): { ok: true; session: string } | { ok: false; error: string } {
+    /* eslint-disable @typescript-eslint/no-require-imports -- the stores pull in the manager layer: loaded on use */
+    const { TwoTierMemoryService } = require('../services/memory-service.js') as typeof import('../services/memory-service');
+    const sessions = require('../services/agentSdkSessionStore.js') as typeof import('../services/agentSdkSessionStore');
+    const { createTemporarySession } = require('../services/temporarySessions.js') as typeof import('../services/temporarySessions');
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const folder = TwoTierMemoryService.instance.agentSdkSessionsFolder(_windowQuest());
+    return createTemporarySession({
+        sessionsFolder: () => folder,
+        hasSession: (f, name) => sessions.readSession(f, name) !== undefined,
+        createSession: (f, name, opts) => sessions.createSession(f, name, opts),
+    }, base, token);
+}
+
+/** Remove a one-prompt session again (its send is over, or its item was not queued). */
+function _discardFreshSession(session: string): void {
+    try {
+        /* eslint-disable @typescript-eslint/no-require-imports */
+        const { TwoTierMemoryService } = require('../services/memory-service.js') as typeof import('../services/memory-service');
+        const { discardSessionCompletely } = require('../services/temporarySessions.js') as typeof import('../services/temporarySessions');
+        /* eslint-enable @typescript-eslint/no-require-imports */
+        discardSessionCompletely(TwoTierMemoryService.instance.agentSdkSessionsFolder(_windowQuest()), _windowQuest(), session);
+    } catch { /* nothing left */ }
+}
+
+/**
+ * A direct send of the panel in `target`, or with Fresh on in a one-prompt session based on its session, which is
+ * discarded when the send is over.
+ */
+async function _sendTodoInTarget<T>(target: TodoSendTarget, send: (session: string) => Promise<T>): Promise<T> {
+    if (!_todoFresh()) { return send(target.session); }
+    const made = _createFreshSession(target.session, 'fresh');
+    if (!made.ok) { throw new Error(made.error); }
+    try { return await send(made.session); } finally { _discardFreshSession(made.session); }
 }
 
 async function pickTodoQueueTarget(instance: string, todoQuest: string | undefined, what: string): Promise<TodoQueueTarget | undefined> {
     const windowQuest = _windowQuest();
-    if (_queueToDefaultTarget) { return defaultTodoQueueTarget(todoQuest, windowQuest); }
+    if (_queueToDefaultTarget) { return defaultTodoQueueTarget(todoQuest, windowQuest, _todoQueuePosition()); }
     const open = _openQuestsNow();
     if (!open.length) {
         void vscode.window.showWarningMessage('Queue: no quest has an open window on this machine.');
@@ -395,20 +446,21 @@ async function pickTodoQueueTarget(instance: string, todoQuest: string | undefin
     const state = _extensionContext?.workspaceState;
     const last = storedQueueTarget(state?.get(todoPanelLastQueueTargetKey(instance)));
     const title = `Queue ${what}`;
-    const q = await _pickTargetItem(questPickItems(open, defaultTargetQuest(todoQuest, windowQuest, open), windowQuest, last), `${title} — 1/4 quest`, 'The quest whose queue gets it (a quest with an open window)');
+    const q = await _pickTargetItem(questPickItems(open, defaultTargetQuest(todoQuest, windowQuest, open), windowQuest, last), `${title} — 1/3 quest`, 'The quest whose queue gets it (a quest with an open window)');
     if (!q) { return undefined; }
     let target: TodoQueueTarget;
     if ('last' in q) {
-        target = q.last;
+        // Where the last item went; next or end is the Next toggle's, as for every queue button.
+        target = { ...q.last, position: _todoQueuePosition() };
     } else {
         const quest = q.quest;
         const lastHere = last && last.quest === quest ? last : undefined;
-        const run = await _pickTargetItem(runPickItems(_runChoicesOf(quest), lastHere?.run), `${title} — 2/4 run of ${quest}`, 'The process run whose queue gets it');
+        const run = await _pickTargetItem(runPickItems(_runChoicesOf(quest), lastHere?.run), `${title} — 2/3 run of ${quest}`, 'The process run whose queue gets it');
         if (!run) { return undefined; }
         const busy = _busyTest(quest);
         const free = runSessionCandidates(_sessionNamesOf(quest), run, quest === windowQuest).filter((s) => !busy(s));
         const lastSession = lastHere && lastHere.run === run ? lastHere : undefined;
-        const s = await _pickTargetItem(sessionPickItems(free, run, lastSession), `${title} — 3/4 session in run ${run}`, 'A free session: no item sends in it and no chat send runs in it');
+        const s = await _pickTargetItem(sessionPickItems(free, run, lastSession), `${title} — 3/3 session in run ${run}`, 'A free session: no item sends in it and no chat send runs in it');
         if (!s) { return undefined; }
         let session: string | undefined;
         let newSession = false;
@@ -424,8 +476,7 @@ async function pickTodoQueueTarget(instance: string, todoQuest: string | undefin
         } else {
             session = s.session;
         }
-        const position = await _pickTargetItem(positionPickItems(lastHere?.position), `${title} — 4/4 position`, 'Next, or the end of the queue');
-        if (!position) { return undefined; }
+        const position = _todoQueuePosition();
         target = { quest, run, ...(session ? { session } : {}), ...(newSession ? { newSession: true } : {}), position };
     }
     // Kept for the next queue add of this panel: the new session exists by then.
@@ -450,6 +501,8 @@ interface TodoQueueEntry {
  * items). A todo already queued here is offered to be queued again.
  */
 async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQueueEntry[], again = false): Promise<{ added: number; error?: string; held?: string }> {
+    // Fresh: each item in a one-prompt session based on the session picked; a new named session is fresh as it is.
+    const fresh = _todoFresh() && !target.newSession;
     if (target.quest !== _windowQuest()) {
         try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -465,8 +518,10 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
                     ...(e.repeatCount !== undefined ? { repeatCount: e.repeatCount } : {}),
                     ...(e.todoIdPattern ? { todoIdPattern: e.todoIdPattern } : {}),
                     run: target.run,
-                    ...(target.session && !target.newSession ? { session: target.session } : {}),
+                    ...(target.session && !target.newSession && !fresh ? { session: target.session } : {}),
                     ...(target.session && target.newSession ? { newSession: { name: target.session } } : {}),
+                    // Fresh: a temporary session there, based on the session picked (the run's default without one).
+                    ...(fresh && !target.newSession ? { newSession: { basedOn: target.session ?? runDefaultSession(target.run) } } : {}),
                     ...(target.position === 'next' ? { position: 'next' as const } : {}),
                     ..._queuedByFields(target),
                     from: { quest: _windowQuest() || 'default', run: _windowRuns().windowRun, windowId: me.windowId, host: me.host, sentAt: new Date().toISOString() },
@@ -489,6 +544,12 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
     const refused: TodoQueueEntry[] = [];
     const notices: string[] = [];
     for (const e of entries) {
+        let freshSession: string | undefined;
+        if (fresh) {
+            const made = _createFreshSession(target.session ?? runDefaultSession(target.run), `fresh${added + refused.length}`);
+            if (!made.ok) { return { added, error: made.error }; }
+            freshSession = made.session;
+        }
         const opts = {
             originalText: e.text,
             ...(e.template ? { template: e.template } : {}),
@@ -496,7 +557,7 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
             ...(e.repeatCount !== undefined ? { repeatCount: e.repeatCount } : {}),
             ...(e.todoIdPattern ? { todoIdPattern: e.todoIdPattern } : {}),
             run: target.run,
-            ...(target.session ? { session: target.session } : {}),
+            ...(freshSession ? { session: freshSession, temporarySession: true } : target.session ? { session: target.session } : {}),
             ...(again ? { allowDuplicateTodo: true } : {}),
             ..._queuedByFields(target),
         };
@@ -505,6 +566,7 @@ async function deliverTodoQueueEntries(target: TodoQueueTarget, entries: TodoQue
             added++;
             if (item.status === 'error') { held = item.error ?? 'it has nothing to walk over'; }
         } catch (err) {
+            if (freshSession) { _discardFreshSession(freshSession); }
             if (isTodoAlreadyQueued(err)) { refused.push(e); notices.push(err.message); continue; }
             return { added, error: (err as Error).message };
         }
@@ -534,7 +596,8 @@ async function queueTodoEntriesWithFlow(instance: string, todoQuest: string | un
         void vscode.window.showWarningMessage(`Queued ${what} — ${queueTargetSentence(target)} — but held in error: ${result.held}`);
     } else if (result.added) {
         const via = target.quest !== _windowQuest() ? ' (through its window\'s inbox)' : '';
-        void vscode.window.showInformationMessage(`Queued ${what} — ${queueTargetSentence(target)}${via}.`);
+        const freshNote = _todoFresh() && !target.newSession ? ', in a fresh one-prompt session based on it' : '';
+        void vscode.window.showInformationMessage(`Queued ${what} — ${queueTargetSentence(target)}${freshNote}${via}.`);
     }
     return target;
 }
@@ -613,10 +676,19 @@ function _postDoneNotification(): void {
     }
 }
 
-/** Show the toggle's state in `view`, and again when it changes. */
+/** Tell every todo view the Next and Fresh toggles' state (one for all of the window's todo panels). */
+function _postQueueToggles(): void {
+    const message = { type: 'qtQueueToggles', next: _todoQueuePosition() === 'next', fresh: _todoFresh() };
+    for (const view of [..._doneNotificationViews]) {
+        try { void view.postMessage(message); } catch { _doneNotificationViews.delete(view); }
+    }
+}
+
+/** Show the toggles' state in `view`, and again when it changes. */
 function _watchDoneNotification(view: vscode.Webview): void {
     _doneNotificationViews.add(view);
     _postDoneNotification();
+    _postQueueToggles();
 }
 
 // ---- Global provider references for cross-module access ----
@@ -778,6 +850,13 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             await _extensionContext?.workspaceState.update(todoPanelDoneNotificationKey(WsPaths.getWorkspaceQuestId()),
                 msg.on === true && _todoDoneNotificationTemplateSet() ? true : undefined);
             _postDoneNotification();
+            return true;
+        }
+        case 'qtSetQueueToggle': {
+            // The Next and Fresh toggles (the bar and a todo's Run row): one state for the window's todo panels.
+            const key = msg.which === 'fresh' ? TODO_PANEL_FRESH_KEY : msg.which === 'next' ? TODO_PANEL_QUEUE_NEXT_KEY : undefined;
+            if (key) { await _extensionContext?.workspaceState.update(key, msg.on === true ? true : undefined); }
+            _postQueueToggles();
             return true;
         }
         // The quest scope (vscimpb137): which quests and files the panel shows.
@@ -2016,7 +2095,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             const wrappedText = _todoPromptFragment(todo, questId, msg.sourceFile).yaml;
             const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
             if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'queue', selectedTemplate, `queued: todo ${todo.id}`)) { return true; }
-            // Where it goes: quest → run → free session → next / end (vscimpb139).
+            // Where it goes: quest → run → free session (vscimpb139); next or end is the Next toggle.
             await queueTodoEntriesWithFlow(instance, _todoQuestOf(questId, msg.sourceFile, todo.id), `todo ${todoId}`, [{
                 todoId: todo.id, text: wrappedText, template: selectedTemplate, todoIdPattern: todo.id,
             }]);
@@ -3046,11 +3125,11 @@ async function _runTodoButton(
     // In a free session of this window's runs, asked for (vscimpb139).
     const sendTarget = await pickTodoSendTarget(instance);
     if (!sendTarget) { return; }
-    const outcome = await runAnthropicSend(ctx, todoPrompt, {
-        userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session: sendTarget.session, run: sendTarget.run,
+    const outcome = await _sendTodoInTarget(sendTarget, (session) => runAnthropicSend(ctx, todoPrompt, {
+        userMessageTemplate: tpl.body, source: `todo panel: ${use === 'userAction' ? 'guide me' : 'send'}`, session, run: sendTarget.run,
         // Sent by the panel's buttons: its todo done notification (DP-part-done-notification-1).
         onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
-    });
+    }));
     if (outcome.rejected) {
         vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
     } else if (!outcome.ok && outcome.error) {
@@ -3188,11 +3267,11 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
         // In a free session of this window's runs, asked for (vscimpb139).
         const sendTarget = await pickTodoSendTarget(instance);
         if (!sendTarget) { return; }
-        const outcome = await runAnthropicSend(ctx, todoPrompt, {
-            source: 'todo panel', session: sendTarget.session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
+        const outcome = await _sendTodoInTarget(sendTarget, (session) => runAnthropicSend(ctx, todoPrompt, {
+            source: 'todo panel', session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
             // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
             onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
-        });
+        }));
         if (outcome.rejected) {
             vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
         } else if (!outcome.ok && outcome.error) {
@@ -3546,7 +3625,7 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
 
 /**
  * Queue a todo as a TODO item, or a group todo as a GROUP item (vscimpb127), where the queue-target flow says
- * (vscimpb139: quest → run → free session → next / end). A TODO item is the panel's todo prompt —
+ * (vscimpb139: quest → run → free session; next or end is the Next toggle). A TODO item is the panel's todo prompt —
  * {@link TODO_ITEM_TEXT} in the Todo buttons template for that todo, on Anthropic, as the Queue button beside it;
  * a GROUP item has the quest's group prompt, as a `<prefix>*` walk. The walk appends each todo's record and goes
  * over the todos of the todo's own quest, so it is queued into that quest (another quest's through its window's

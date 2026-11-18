@@ -1,10 +1,11 @@
 /**
  * What the todo panel keeps between its sends and queue adds (vscimpb139): the
  * last queue target and the last direct-send target of each panel instance —
- * the "Last: …" entry of the queue-target flow (utils/todoQueueTarget.ts) — and
- * the Done notification toggle of each quest (off unless turned on). The panel no longer picks a run
- * and a session of its own: every queue button asks quest → run → free session
- * → next / end, a direct send a free session.
+ * the "Last: …" entry of the queue-target flow (utils/todoQueueTarget.ts) —,
+ * the Done notification toggle of each quest (off unless turned on), and the
+ * Next and Fresh toggles of the window's todo panels. The panel picks no run and
+ * no session of its own: every queue button asks quest → run → free session
+ * (next or end is the Next toggle), a direct send a free session.
  *
  * Pure (no vscode, no fs).
  */
@@ -22,6 +23,23 @@ export function todoPanelDoneNotificationKey(quest: string): string {
  */
 export function todoPanelDoneNotificationOn(stored: unknown, templateSet = true): boolean {
     return stored === true && templateSet;
+}
+
+/**
+ * The workspaceState key of the panel's Next toggle: on, every queue button of the todo panels queues next (the
+ * front of the queue); off (unset), at the end. One state for every todo panel of the window.
+ */
+export const TODO_PANEL_QUEUE_NEXT_KEY = 'tomAi.todoPanel.queueNext';
+
+/**
+ * The workspaceState key of the panel's Fresh toggle: on, a todo the panel queues or sends runs in a new one-prompt
+ * session based on the session picked (as the ANTHROPIC/LLM panel's Fresh). One state for every todo panel.
+ */
+export const TODO_PANEL_FRESH_KEY = 'tomAi.todoPanel.fresh';
+
+/** Where the queue buttons queue: next with the Next toggle on, else the end. */
+export function todoPanelQueuePosition(storedNext: unknown): TodoQueuePosition {
+    return storedNext === true ? 'next' : 'end';
 }
 
 /** The workspaceState key of a panel instance's last queue target. */

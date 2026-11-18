@@ -263,6 +263,9 @@
 /* The Done notification box in front of the Template dropdown */
 /* The Done notification toggle (aria-pressed) and the template button (its selection, at most 20 characters). */
 .icon-btn.qt-toggle-btn { opacity: 0.6; border: 1px solid transparent; border-radius: 3px; }
+/* The Next toggle is a choice between two places, shown by its icon: never dimmed. */
+.icon-btn.qt-toggle-btn.qt-next-toggle { opacity: 1; }
+.icon-btn.qt-toggle-btn.qt-next-toggle[aria-pressed="true"] { color: var(--vscode-charts-orange, #d18616); }
 .icon-btn.qt-toggle-btn.pressed { opacity: 1; background: var(--vscode-inputOption-activeBackground, rgba(0, 127, 212, 0.4)); border-color: var(--vscode-inputOption-activeBorder, #007acc); color: var(--vscode-inputOption-activeForeground, inherit); }
 .icon-btn.qt-toggle-btn:focus-visible, .qt-template-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .qt-template-btn { display: inline-flex; align-items: center; gap: 3px; width: auto; padding: 0 6px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 10px; cursor: pointer; font-size: 11px; white-space: nowrap; }
