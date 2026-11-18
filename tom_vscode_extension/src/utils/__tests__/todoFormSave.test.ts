@@ -6,6 +6,8 @@
  *   TFS-2 unticking (or ticking) "Your to do" alone is a change — it was skipped, so the mark could not be
  *         cleared; so is a changed Created date
  *   TFS-3 every other field the form sends counts too; absent and empty agree
+ *   TFS-4 a group todo's members (`comprised_of`): a member removed, added or moved alone is a change — it was
+ *         skipped, so a removed member came back; a form without members (undefined) on a todo without any is none
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -43,5 +45,16 @@ describe('todo form save', () => {
             assert.equal(todoFormUnchanged(CURRENT, { ...FORM, [key]: value }), false, key);
         }
         assert.equal(todoFormUnchanged({ ...CURRENT, notes: '' }, { ...FORM, notes: undefined }), true, 'empty and absent agree');
+    });
+
+    test('TFS-4: a group todo\'s members', () => {
+        const group = { ...CURRENT, status: 'group', comprised_of: ['a1', 'a2'] };
+        assert.equal(todoFormUnchanged(group, { ...group }), true, 'untouched');
+        assert.equal(todoFormUnchanged(group, { ...group, comprised_of: ['a1'] }), false, 'a member removed');
+        assert.equal(todoFormUnchanged(group, { ...group, comprised_of: [] }), false, 'the last members removed');
+        assert.equal(todoFormUnchanged(group, { ...group, comprised_of: ['a1', 'a2', 'a3'] }), false, 'a member added');
+        assert.equal(todoFormUnchanged(group, { ...group, comprised_of: ['a2', 'a1'] }), false, 'the order changed');
+        assert.equal(todoFormUnchanged(CURRENT, { ...FORM, comprised_of: undefined }), true, 'no members, none sent');
+        assert.equal(todoFormUnchanged({ ...CURRENT, status: 'group' }, { ...FORM, status: 'group', comprised_of: [] }), true, 'an empty group, [] sent');
     });
 });

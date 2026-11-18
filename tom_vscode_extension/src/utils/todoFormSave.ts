@@ -8,7 +8,7 @@
 
 /** The fields of the detail form, as `qtSaveTodo` sends them. */
 export const TODO_FORM_FIELDS = [
-    'title', 'status', 'priority', 'description', 'tags', 'dependencies', 'blocked_by', 'notes', 'scope',
+    'title', 'status', 'priority', 'description', 'tags', 'dependencies', 'blocked_by', 'comprised_of', 'notes', 'scope',
     'references', 'decisions', 'created', 'completed_date', 'completed_by', 'user_action', 'repeat', 'on_done',
 ] as const;
 
