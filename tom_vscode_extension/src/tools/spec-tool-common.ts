@@ -4,7 +4,7 @@
  * carries, failure answers, and the live dependencies for the extension.
  */
 
-import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -20,6 +20,11 @@ import { agentAuthorId, reviewMemberId } from '../utils/reviewAuthors';
 export interface SpecToolDeps {
     /** Workspace root; relative `file` / `dir` inputs resolve against it, and nothing outside it is read. */
     wsRoot: string;
+    /**
+     * The `.tom` configuration layers, root first (utils/workspaceLayout.ts), where DocSpecs schemas are looked
+     * up after the walk inside the workspace folder (02_wslayout-7). Unset: only the walk up to `wsRoot`.
+     */
+    configLayers?: readonly string[];
     store: SomDocumentStore;
     service: SomModelService;
     /** specListDocuments' time budget when the input gives none; default SPEC_LIST_TIME_BUDGET_MS (spec-tools.ts). */
@@ -143,6 +148,7 @@ export const sharedCursors = new SomSearchCursors();
 export function liveDeps(): SpecToolDeps {
     return {
         wsRoot: layoutWorkspaceFolder() ?? '',
+        configLayers: getLayout()?.configLayers ?? [],
         store: somDocumentStore(),
         service: SomModelService.instance,
         cursors: sharedCursors,

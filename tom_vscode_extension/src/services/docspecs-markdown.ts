@@ -134,8 +134,23 @@ function load(text: string): { schema: DocSpecsSchema; warnings: string[] } {
 }
 
 /**
+ * Where a document's schema is looked for in the layout (02_wslayout-7): the
+ * window's workspace folder and the `.tom` configuration layers, root first
+ * (utils/workspaceLayout.ts `configLayers`).
+ */
+export interface DocSpecsLayers {
+    workspaceFolder: string;
+    configLayers: readonly string[];
+}
+
+/**
  * The schema for a document at `filePath`, from `override` or the document's
- * declaration. `wsRoot` bounds the walk up for `.tom/docspecs-schema/`.
+ * declaration. Without `layers`, `wsRoot` bounds the walk up for
+ * `.tom/docspecs-schema/`. With them ({@link docSpecsSchemaDirs}): a document
+ * inside the workspace folder walks up to it (a package-local schema wins),
+ * then the configuration layers, workspace folder before root; a document
+ * outside it (the root's `_ai`, a file by absolute path) only the layers. Then
+ * the SOM model's schemas.
  */
 export function resolveDocSpecsSchema(
     service: SomModelService,
@@ -143,6 +158,7 @@ export function resolveDocSpecsSchema(
     declared: string | null,
     wsRoot: string,
     override?: string,
+    layers?: DocSpecsLayers,
 ): SchemaLookup {
     if (override) {
         if (override.endsWith('.docspecs-schema.yaml')) {
@@ -150,21 +166,53 @@ export function resolveDocSpecsSchema(
             if (!fs.existsSync(file)) { return { declared, resolved: null, searched: [file] }; }
             return { declared, resolved: { ref: override, source: 'argument', file, ...load(fs.readFileSync(file, 'utf8')) } };
         }
-        return { ...resolveRef(service, filePath, override, wsRoot), declared };
+        return { ...resolveRef(service, filePath, override, wsRoot, layers), declared };
     }
     if (!declared || declared === 'none') { return { declared, resolved: null }; }
-    return { ...resolveRef(service, filePath, declared, wsRoot), declared };
+    return { ...resolveRef(service, filePath, declared, wsRoot, layers), declared };
 }
 
-function resolveRef(service: SomModelService, filePath: string, ref: string, wsRoot: string): Omit<SchemaLookup, 'declared'> {
+function isAtOrBelow(p: string, dir: string): boolean {
+    const rel = path.relative(dir, p);
+    return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * The `.tom/docspecs-schema/` folders a document's schema is looked for in, in
+ * order. Without `layers`: every folder from the document's up to `wsRoot`.
+ * With them: a document inside the workspace folder (by its path as opened)
+ * walks up to the workspace folder; then each configuration layer's
+ * `docspecs-schema/`, the workspace folder's before the root's, each once. A
+ * `.tom` deeper in a repository counts only through the walk from below it.
+ */
+export function docSpecsSchemaDirs(filePath: string, wsRoot: string, layers?: DocSpecsLayers): string[] {
+    const dirs: string[] = [];
+    const add = (d: string): void => { if (!dirs.includes(d)) { dirs.push(d); } };
+    const walk = (bound: string): void => {
+        const root = path.resolve(bound);
+        let dir = path.dirname(path.resolve(filePath));
+        for (;;) {
+            add(path.join(dir, SCHEMA_DIR));
+            if (dir === root || path.dirname(dir) === dir || !isAtOrBelow(dir, root)) { break; }
+            dir = path.dirname(dir);
+        }
+    };
+    if (!layers) {
+        walk(wsRoot || path.parse(filePath).root);
+        return dirs;
+    }
+    const folder = path.resolve(layers.workspaceFolder);
+    if (layers.workspaceFolder && isAtOrBelow(path.resolve(filePath), folder)) { walk(folder); }
+    for (const layer of [...layers.configLayers].reverse()) { add(path.join(path.resolve(layer), 'docspecs-schema')); }
+    return dirs;
+}
+
+function resolveRef(service: SomModelService, filePath: string, ref: string, wsRoot: string, layers?: DocSpecsLayers): Omit<SchemaLookup, 'declared'> {
     const parts = splitRef(ref);
     if (!parts) { return { resolved: null, searched: [] }; }
     const searched: string[] = [];
-    const root = path.resolve(wsRoot || path.parse(filePath).root);
-    let dir = path.dirname(path.resolve(filePath));
     const fileName = `${parts.id}.${parts.version}.docspecs-schema.yaml`;
-    for (;;) {
-        const schemaDir = path.join(dir, SCHEMA_DIR);
+    for (const schemaDir of docSpecsSchemaDirs(filePath, wsRoot, layers)) {
         // The folder is named after the id, or carries a suffix (`schema-test.sct/`).
         const suffixed = fs.existsSync(schemaDir)
             ? fs.readdirSync(schemaDir).filter((n) => n.startsWith(`${parts.id}.`)).sort().map((n) => path.join(schemaDir, n, fileName))
@@ -175,8 +223,6 @@ function resolveRef(service: SomModelService, filePath: string, ref: string, wsR
                 return { resolved: { ref, source: 'workspace', file: candidate, ...load(fs.readFileSync(candidate, 'utf8')) } };
             }
         }
-        if (dir === root || path.dirname(dir) === dir || !dir.startsWith(root)) { break; }
-        dir = path.dirname(dir);
     }
     if (service.schemaIds.includes(parts.id)) {
         return { resolved: { ref, source: 'generated', schema: service.schema(parts.id), warnings: [] } };

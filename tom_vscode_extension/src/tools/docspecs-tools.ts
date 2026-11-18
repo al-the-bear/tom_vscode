@@ -66,7 +66,8 @@ function open(deps: SpecToolDeps, file: string, schema?: string): Opened {
     const filePath = resolveInput(deps, file);
     const { text, revision } = deps.store.readText(filePath);
     const declared = DocSpecsDocument.parse(text).declaredSchema;
-    const lookup = resolveDocSpecsSchema(deps.service, filePath, declared, deps.wsRoot, schema);
+    const lookup = resolveDocSpecsSchema(deps.service, filePath, declared, deps.wsRoot, schema,
+        deps.configLayers?.length ? { workspaceFolder: deps.wsRoot, configLayers: deps.configLayers } : undefined);
     return { filePath, text, revision, lookup };
 }
 
@@ -213,7 +214,7 @@ export const DOCSPECS_VALIDATE_TOOL: SharedToolDefinition<DocSpecsValidateInput>
     name: 'tomAi_docspecsValidate',
     displayName: 'DocSpecs: Validate',
     description:
-        'Check a DocSpecs Markdown document against its schema: the one its header declares (looked up in `.tom/docspecs-schema/` from the document\'s folder upwards, else among the SOM model\'s), or `schema`. Answers `{passed, findings: [{rule, line, sectionId, message}], schema}`; an unknown or misplaced declaration is itself a finding, and `ignoredByRuntime` lists schema keys whose constraints are not checked.' + FORM_NOTE,
+        'Check a DocSpecs Markdown document against its schema: the one its header declares (looked up in `.tom/docspecs-schema/` from the document\'s folder up to the workspace folder, then in the workspace folder\'s and the root\'s `.tom`, else among the SOM model\'s), or `schema`. Answers `{passed, findings: [{rule, line, sectionId, message}], schema}`; an unknown or misplaced declaration is itself a finding, and `ignoredByRuntime` lists schema keys whose constraints are not checked.' + FORM_NOTE,
     tags: ['docspecs', 'validate', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: { file: FILE, schema: SCHEMA }, required: ['file'] },
