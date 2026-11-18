@@ -20,6 +20,7 @@
  *    disturbed.
  */
 
+import { guidelineLevelGroups, projectGuidelineDirs } from '../utils/guidelineFolders';
 import * as vscode from 'vscode';
 import type { SomCommentContext } from '../services/som-review-comments';
 import { SomCommentsWorkerClient } from '../services/som-review-comments-client';
@@ -538,9 +539,10 @@ class MdBrowserPanel {
             const groups: DocPickerGroup[] = [];
             const projects: { id: string; label: string }[] = [];
 
-            const guidelinesDir = WsPaths.guidelines();
-            if (guidelinesDir && fs.existsSync(guidelinesDir)) {
-                groups.push({ id: 'global', label: 'Guidelines' });
+            // The guideline levels: `global` is the workspace folder's, then the
+            // root's and a second folder name of a level (guidelineLevelGroups).
+            for (const g of guidelineLevelGroups(WsPaths.guidelineLevels())) {
+                groups.push({ id: g.id, label: g.id === 'global' ? 'Guidelines' : `Guidelines: ${g.label}` });
             }
 
             // Offer Workspace Docs only when the resolved dir actually holds
@@ -581,9 +583,8 @@ class MdBrowserPanel {
             }
 
             detectProjects(wsRoot).forEach(proj => {
-                const projGuidelinesDir = path.join(wsRoot, proj.relPath, '_copilot_guidelines');
                 const projDocDir = path.join(wsRoot, proj.relPath, 'doc');
-                if (fs.existsSync(projGuidelinesDir)) {
+                if (projectGuidelineDirs(path.join(wsRoot, proj.relPath)).length > 0) {
                     projects.push({ id: 'project:' + proj.relPath, label: proj.name + ' (guidelines)' });
                 }
                 if (fs.existsSync(projDocDir)) {
@@ -1445,6 +1446,10 @@ function resolveGroupDir(group: string): string | undefined {
     if (!wsRoot) return undefined;
 
     if (group === 'global') return WsPaths.guidelines();
+    if (group.startsWith('level:')) {
+        const [, levelName, index] = group.split(':');
+        return WsPaths.guidelineLevels().find((l) => l.level === levelName)?.dirs[Number(index)];
+    }
     if (group === 'roles') return WsPaths.ai('roles');
     if (group === 'quests') return WsPaths.ai('quests');
     if (group === 'copilot-instructions') return WsPaths.github();
@@ -1453,7 +1458,7 @@ function resolveGroupDir(group: string): string | undefined {
         return resolveWorkspaceDocsDir(wsRoot, workspaceDocsProbe()) ?? undefined;
     }
     if (group.startsWith('project:')) {
-        return path.join(wsRoot, group.substring('project:'.length), '_copilot_guidelines');
+        return WsPaths.guidelines(group.substring('project:'.length));
     }
     if (group.startsWith('docproject:')) {
         return path.join(wsRoot, group.substring('docproject:'.length), 'doc');

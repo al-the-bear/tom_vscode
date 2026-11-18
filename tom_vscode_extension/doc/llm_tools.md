@@ -208,19 +208,21 @@ repository test).
 
 Guidelines split into two scopes:
 
-- **Global** — workspace-root `_copilot_guidelines/` (recursive).
-- **Project** — `{projectPath}/_copilot_guidelines/` inside each project folder (recursive). Discover projectPath values via `tomAi_listProjects`.
+- **Global** — two levels: the root's guidelines, then the workspace folder's (`utils/guidelineFolders.ts`, from the window's layout). A file of the same relative path in the workspace folder wins; the list and search tools name each file once with its `level` (`root` / `workspace`); root == workspace folder is one level. Each level is read under both folder names, `_agent_guidelines/` first, then `_copilot_guidelines/` (a file in both is taken from `_agent_guidelines/`). Each level's index is `index_root.md` / `index_workspace.md`, else its `index.md`; `tomAi_readGlobalGuideline` without a file and its description at activation show both, the root's first.
+- **Project** — `{projectPath}/_agent_guidelines/` and `{projectPath}/_copilot_guidelines/` inside each project folder (recursive, both read, not layered). Discover projectPath values via `tomAi_listProjects`.
+
+A requested path that does not exist is looked up by its file name (the workspace's first); the file is read and a VS Code warning names the requested and the found path, so the stale path can be corrected where it came from. Pattern prompts are looked up in the levels' `pattern_prompts/` (the workspace folder's first, each under both names), then `_copilot_tomai/pattern_prompts/`.
 
 The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer supported.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_readGlobalGuideline` | Read a single global guideline (workspace root `_copilot_guidelines/`). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_readGlobalGuideline` | Read a single global guideline (both levels; the workspace's wins). | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_listGlobalGuidelines` | List all global guidelines recursively. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_searchGlobalGuidelines` | Grep inside global `_copilot_guidelines/`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_searchGlobalGuidelines` | Grep inside the global guidelines (both levels, each path once). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_readProjectGuideline` | Read a single project guideline. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_listProjectGuidelines` | List a project's guidelines recursively. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_searchProjectGuidelines` | Grep inside one project's `_copilot_guidelines/`. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_searchProjectGuidelines` | Grep inside one project's guidelines (both folder names). | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_listPatternPrompts` | List workspace `!<name>` pattern prompts. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_readPatternPrompt` | Read a `!<name>` prompt body. | ✅ | ✅ | ✅ | ✅ |
 

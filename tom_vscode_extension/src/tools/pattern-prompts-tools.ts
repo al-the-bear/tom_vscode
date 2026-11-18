@@ -25,17 +25,18 @@
  *     `{ok: false, error, ...}` consistently. Success still includes
  *     all the per-prompt metadata (name, invocation, source, size)
  *     so callers can keep using the shape.
- *   - **Fallback chain documented at the model surface**:
- *     `_copilot_guidelines/pattern_prompts/` is searched first, then
- *     `_copilot_tomai/pattern_prompts/`; first match wins per name.
- *     This is what the implementation has always done — now it's in
- *     the description so the model doesn't have to guess.
+ *   - **Fallback chain documented at the model surface**: the
+ *     `pattern_prompts/` of the workspace folder's guidelines, then of the
+ *     root's (each under `_agent_guidelines/`, then `_copilot_guidelines/`),
+ *     then `_copilot_tomai/pattern_prompts/`; first match wins per name.
  *   - **Naming convention spelled out**: each `.md` file's basename
  *     (sans extension) is the invocation name; bare names + `!name`
  *     + `name.md` all resolve to the same prompt.
  */
 
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { WsPaths } from '../utils/workspacePaths';
+import { GUIDELINE_FOLDER_NAMES, type GuidelineLevel } from '../utils/guidelineFolders';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 
@@ -55,9 +56,9 @@ export interface PatternPromptFile {
 export interface PatternPromptStore {
     /**
      * Return the searched-and-existing prompt directories in lookup
-     * order (`_copilot_guidelines/pattern_prompts/` first,
-     * `_copilot_tomai/pattern_prompts/` second).  Missing dirs are
-     * filtered out by the implementation.
+     * order (the guideline levels' `pattern_prompts/`, the workspace
+     * folder's first, then `_copilot_tomai/pattern_prompts/`).  Missing
+     * dirs are filtered out by the implementation.
      */
     promptDirs(): Array<{ absolutePath: string; relativePath: string }>;
     /**
@@ -124,9 +125,9 @@ export async function listPatternPromptsImpl(store: PatternPromptStore, _input: 
     try {
         const dirs = store.promptDirs();
         if (dirs.length === 0) {
-            return err('No pattern_prompts folder found under _copilot_guidelines/ or _copilot_tomai/.', {
+            return err('No pattern_prompts folder found in the guidelines (_agent_guidelines/ or _copilot_guidelines/, workspace folder and root) or _copilot_tomai/.', {
                 searched: [
-                    '_copilot_guidelines/pattern_prompts',
+                    ...GUIDELINE_FOLDER_NAMES.map((n) => `${n}/pattern_prompts`),
                     '_copilot_tomai/pattern_prompts',
                 ],
             });
@@ -163,8 +164,9 @@ export async function listPatternPromptsImpl(store: PatternPromptStore, _input: 
 
 export const LIST_PATTERN_PROMPTS_DESCRIPTION =
     'List the workspace\'s pattern prompts. **Storage**: ' +
-    '`_copilot_guidelines/pattern_prompts/` (searched first), then ' +
-    '`_copilot_tomai/pattern_prompts/` (fallback). **First match per ' +
+    'the guidelines\' `pattern_prompts/` — the workspace folder\'s, then the ' +
+    'root\'s, each under `_agent_guidelines/` before `_copilot_guidelines/` — ' +
+    'then `_copilot_tomai/pattern_prompts/` (fallback). **First match per ' +
     'name wins** across the fallback chain — a guideline-folder prompt ' +
     'masks a tomai-folder one with the same name. **Naming**: each ' +
     '`.md` file\'s basename (sans extension) is the invocation name; ' +
@@ -204,7 +206,7 @@ export async function readPatternPromptImpl(store: PatternPromptStore, input: Re
         }
         const dirs = store.promptDirs();
         if (dirs.length === 0) {
-            return err('No pattern_prompts folder found under _copilot_guidelines/ or _copilot_tomai/.');
+            return err('No pattern_prompts folder found in the guidelines (_agent_guidelines/ or _copilot_guidelines/, workspace folder and root) or _copilot_tomai/.');
         }
         for (const dir of dirs) {
             const file = path.join(dir.absolutePath, `${normalised}.md`);
@@ -233,8 +235,9 @@ export const READ_PATTERN_PROMPT_DESCRIPTION =
     '`!continue`, or `continue.md` — the impl strips the leading `!` ' +
     'and trailing `.md` and then expects a **bare basename** (no path ' +
     'separators, no `..`). The fallback chain is the same as ' +
-    '`tomAi_listPatternPrompts`: `_copilot_guidelines/pattern_prompts/` ' +
-    'first, `_copilot_tomai/pattern_prompts/` second; first match wins. ' +
+    '`tomAi_listPatternPrompts`: the guidelines\' `pattern_prompts/` (the ' +
+    'workspace folder\'s, then the root\'s; `_agent_guidelines/` before ' +
+    '`_copilot_guidelines/`), then `_copilot_tomai/pattern_prompts/`; first match wins. ' +
     'Response: `{ok, name, invocation, source, content}` on success; ' +
     '`{ok: false, error, hint, searchedDirs}` when not found.';
 
@@ -260,17 +263,18 @@ export const READ_PATTERN_PROMPT_TOOL: SharedToolDefinition<ReadPatternPromptInp
 
 import * as fs from 'fs';
 
-const PATTERN_SUBDIRS: ReadonlyArray<string> = [
-    '_copilot_guidelines/pattern_prompts',
-    '_copilot_tomai/pattern_prompts',
-];
+/** The prompt folders in lookup order: the guideline levels' (workspace folder first), then `_copilot_tomai/`. */
+export function patternPromptDirs(root: string, levels: readonly GuidelineLevel[]): Array<{ absolutePath: string; relativePath: string }> {
+    const fromLevels = [...levels].reverse().flatMap((l) => l.dirs.map((d) => path.join(d, 'pattern_prompts')));
+    return [...fromLevels, path.join(root, '_copilot_tomai', 'pattern_prompts')]
+        .map((abs) => ({ absolutePath: abs, relativePath: path.relative(root, abs).split(path.sep).join('/') }));
+}
 
 const liveStore: PatternPromptStore = {
     promptDirs() {
         const root = layoutWorkspaceFolder();
         if (!root) { return []; }
-        return PATTERN_SUBDIRS
-            .map((sub) => ({ absolutePath: path.join(root, sub), relativePath: sub }))
+        return patternPromptDirs(root, WsPaths.guidelineLevels())
             .filter((d) => {
                 try { return fs.existsSync(d.absolutePath) && fs.statSync(d.absolutePath).isDirectory(); }
                 catch { return false; }

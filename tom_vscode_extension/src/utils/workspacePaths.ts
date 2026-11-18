@@ -20,6 +20,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { hostSlugOf } from './hostSlug';
 import { getLayout, questIdOf } from './workspaceLayout';
+import { GUIDELINE_FOLDER, GUIDELINES_GLOB, LEGACY_GUIDELINE_FOLDER, type GuidelineLevel, guidelineLevels, projectGuidelineDirs } from './guidelineFolders';
 
 // ============================================================================
 // Configurable folder names (the ONLY place these strings appear)
@@ -42,10 +43,12 @@ function getAiFolderName(): string {
 }
 
 /**
- * Workspace folder for copilot / AI guidelines documents.
- * Currently `_copilot_guidelines`.
+ * The guidelines folder names: `_agent_guidelines`, and the older
+ * `_copilot_guidelines`, both read (`utils/guidelineFolders.ts`).
  */
-const GUIDELINES_FOLDER = '_copilot_guidelines';
+const GUIDELINES_FOLDER = GUIDELINE_FOLDER;
+// legacy name, removed by 06a_wslayout-8 (if it goes: both names may stay readable)
+const LEGACY_GUIDELINES_FOLDER = LEGACY_GUIDELINE_FOLDER;
 
 /**
  * Home-directory base for Tom user-level data.
@@ -111,8 +114,10 @@ export class WsPaths {
     // ── Raw folder names (for pattern matching, glob, display) ──────
     /** The AI folder name, e.g. `_ai` */
     static get aiFolder(): string { return getAiFolderName(); }
-    /** The guidelines folder name, e.g. `_copilot_guidelines` */
+    /** The guidelines folder name, `_agent_guidelines` (the older `_copilot_guidelines` is read too). */
     static get guidelinesFolder(): string { return GUIDELINES_FOLDER; }
+    /** The older guidelines folder name, `_copilot_guidelines`, still read. */
+    static get legacyGuidelinesFolder(): string { return LEGACY_GUIDELINES_FOLDER; }
     /** The GitHub folder name, e.g. `.github` */
     static get githubFolder(): string { return GITHUB_FOLDER; }
     /** The home-level Tom folder name, e.g. `.tom` */
@@ -202,16 +207,32 @@ export class WsPaths {
     }
 
     /**
-     * Resolve the guidelines directory.
-     * @param projectRelPath  If given, resolves inside a project sub-folder
+     * The global guideline levels: the root's guidelines, then the workspace
+     * folder's, each with its existing folders under both names (new first).
+     */
+    static guidelineLevels(): GuidelineLevel[] {
+        return guidelineLevels(getLayout()?.guidelineDirs ?? []);
+    }
+
+    /**
+     * Resolve one guidelines directory.
+     * @param projectRelPath  If given, the project's guidelines folder: its
+     *   `_agent_guidelines`, else its `_copilot_guidelines`, else the new
+     *   name's path (to create).
+     * Without it: the workspace folder's guidelines folder (the higher level),
+     * else the root's — for a single folder; readers of every guideline use
+     * `guidelineLevels()`.
      */
     static guidelines(projectRelPath?: string): string | undefined {
         const ws = this.wsRoot;
         if (!ws) return undefined;
         if (projectRelPath) {
-            return path.join(ws, projectRelPath, GUIDELINES_FOLDER);
+            const abs = path.join(ws, projectRelPath);
+            return projectGuidelineDirs(abs)[0] ?? path.join(abs, GUIDELINES_FOLDER);
         }
-        return path.join(ws, GUIDELINES_FOLDER);
+        const levels = this.guidelineLevels();
+        const top = levels[levels.length - 1];
+        return top?.dirs[0] ?? getLayout()?.guidelineDirs.at(-1) ?? path.join(ws, GUIDELINES_FOLDER);
     }
 
     /** Resolve the `.github` directory. */
@@ -257,9 +278,9 @@ export class WsPaths {
         return `${this.aiFolder}/quests/**/*.todo.yaml`;
     }
 
-    /** Glob pattern for all guidelines markdown files (global). */
+    /** Glob pattern for all guidelines markdown files (global), under both names. */
     static get guidelinesGlob(): string {
-        return `${GUIDELINES_FOLDER}/**/*.md`;
+        return GUIDELINES_GLOB;
     }
 
     // ── Variable resolver integration ───────────────────────────────
@@ -287,7 +308,7 @@ export class WsPaths {
             // as an alias means existing trail patterns in user config
             // files keep resolving without a migration step.
             ai:                  ai,
-            guidelinesPath:      ws ? path.join(ws, GUIDELINES_FOLDER) : '',
+            guidelinesPath:      ws ? (this.guidelines() ?? '') : '',
             questsPath:          ai ? path.join(ai, 'quests') : '',
             rolesPath:           ai ? path.join(ai, 'roles') : '',
             wsConfigPath:        config,

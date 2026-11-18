@@ -333,7 +333,8 @@ const CATEGORY_FOLDER_LABEL: Record<DocumentCategory, string> = {
     answers:    '_ai/answers/copilot',
     notes:      '_ai/notes',
     roles:      '_ai/roles',
-    guidelines: '_copilot_guidelines',
+    // The workspace folder's guidelines folder (else the root's), under either name.
+    guidelines: '_agent_guidelines (or _copilot_guidelines)',
 };
 
 /**
@@ -405,7 +406,9 @@ export const LIST_DOCUMENTS_DESCRIPTION =
     'Recursively list files in a workspace document category folder. ' +
     'Category → folder mapping: `prompts` → `_ai/prompt`, `answers` → ' +
     '`_ai/answers/copilot`, `notes` → `_ai/notes`, `roles` → `_ai/roles`, ' +
-    '`guidelines` → `_copilot_guidelines`. The walk returns **every** file ' +
+    '`guidelines` → the workspace folder\'s guidelines folder (`_agent_guidelines`, ' +
+    'or the older `_copilot_guidelines`; else the root\'s; the global guideline ' +
+    'tools read both levels). The walk returns **every** file ' +
     '(not only `.md`) under the resolved folder; hidden entries (`.foo`) ' +
     'are skipped. Paths in the response are relative to the category root ' +
     'and posix-style. Optional `subPath` narrows the walk to a sub-folder ' +
@@ -427,7 +430,7 @@ export const LIST_DOCUMENTS_TOOL: SharedToolDefinition<ListDocumentsInput> = {
             category: {
                 type: 'string',
                 enum: ['prompts', 'answers', 'notes', 'roles', 'guidelines'],
-                description: 'prompts → _ai/prompt; answers → _ai/answers/copilot; notes → _ai/notes; roles → _ai/roles; guidelines → _copilot_guidelines.',
+                description: 'prompts → _ai/prompt; answers → _ai/answers/copilot; notes → _ai/notes; roles → _ai/roles; guidelines → the workspace folder\'s guidelines folder (_agent_guidelines or _copilot_guidelines).',
             },
             subPath: {
                 type: 'string',

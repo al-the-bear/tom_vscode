@@ -9,9 +9,10 @@
  *
  * Two guideline scopes live in the workspace:
  *
- *   - **Global** — `<wsRoot>/_copilot_guidelines/` (recursively).
- *   - **Project** — `<wsRoot>/<projectPath>/_copilot_guidelines/`
- *     (recursively), for any project folder that has one.
+ *   - **Global** — the root's and the workspace folder's guidelines
+ *     (`utils/guidelineFolders.ts`: two levels, both folder names).
+ *   - **Project** — `<wsRoot>/<projectPath>/_agent_guidelines/` or
+ *     `_copilot_guidelines/` (recursively), for any project folder that has one.
  *
  * The previous implementation accepted only a bare basename (or a
  * subfolder/basename path resolved relative to the scope's root). When
@@ -32,9 +33,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { GUIDELINE_FOLDER, GUIDELINE_FOLDER_NAMES, lastGuidelineSegment } from '../utils/guidelineFolders';
 
-/** Canonical folder name for guideline collections at any scope. */
-export const GUIDELINE_FOLDER = '_copilot_guidelines';
+export { GUIDELINE_FOLDER, GUIDELINE_FOLDER_NAMES };
 
 /** Outcome of classifying a user-supplied path. */
 export type GuidelineClassification =
@@ -84,13 +85,13 @@ export function ensureMdSuffix(name: string): string {
  *
  *   1. Empty → returns global with empty relPath (caller treats as
  *      "list the index").
- *   2. Contains a `_copilot_guidelines/` segment:
+ *   2. Contains a `_agent_guidelines/` or `_copilot_guidelines/` segment:
  *        - If the part before it is empty → **global**, with the
  *          remainder as relPath.
  *        - Otherwise → **project**, with the part before as
  *          projectPath and the remainder as relPath.
- *      (We pick the LAST `_copilot_guidelines/` segment so nested
- *      copies don't trip the parser.)
+ *      (We pick the LAST such segment so nested copies don't trip the
+ *      parser.)
  *   3. Otherwise → **global**, with the whole path as relPath.
  *
  * Absolute paths are treated as workspace-relative when they start
@@ -110,23 +111,14 @@ export function classifyGuidelinePath(
     if (!s) {
         return { kind: 'global', relPath: '' };
     }
-    // Find the LAST `_copilot_guidelines/` segment. Using a regex with
-    // anchored slashes avoids false-positives like `..._copilot_guidelinesX/`.
-    const marker = `/${GUIDELINE_FOLDER}/`;
-    const leadingMarker = `${GUIDELINE_FOLDER}/`;
-    let cutIdx = -1;
-    if (s.startsWith(leadingMarker)) {
-        // Whole path lives directly under the global folder.
-        return { kind: 'global', relPath: s.slice(leadingMarker.length) };
-    }
-    cutIdx = s.lastIndexOf(marker);
-    if (cutIdx >= 0) {
-        const projectPath = s.slice(0, cutIdx);
-        const relPath = s.slice(cutIdx + marker.length);
-        if (!projectPath) {
-            return { kind: 'global', relPath };
+    // The LAST segment naming a guideline folder (either name), so nested
+    // copies don't trip the parser.
+    const seg = lastGuidelineSegment(s);
+    if (seg) {
+        if (!seg.before) {
+            return { kind: 'global', relPath: seg.after };
         }
-        return { kind: 'project', projectPath, relPath };
+        return { kind: 'project', projectPath: seg.before, relPath: seg.after };
     }
     // Bare path with no marker — assume global scope.
     return { kind: 'global', relPath: s };
@@ -180,15 +172,18 @@ export function resolveGuidelineFile(baseDir: string, relPath: string): string |
 
 /**
  * Compute the absolute paths to:
- *   - the workspace's global `_copilot_guidelines/` folder
- *   - the workspace-relative project path's `_copilot_guidelines/` folder
+ *   - a folder's own guidelines folder (`_agent_guidelines/`, else `_copilot_guidelines/`)
+ *   - the workspace-relative project path's guidelines folder (the same pair)
  *
- * Returns undefined for either when the folder doesn't exist on disk.
+ * Returns undefined for either when no such folder exists on disk.
  */
 export function globalGuidelinesRoot(wsRoot: string | undefined): string | undefined {
     if (!wsRoot) { return undefined; }
-    const p = path.join(wsRoot, GUIDELINE_FOLDER);
-    return fs.existsSync(p) && fs.statSync(p).isDirectory() ? p : undefined;
+    for (const name of GUIDELINE_FOLDER_NAMES) {
+        const p = path.join(wsRoot, name);
+        if (fs.existsSync(p) && fs.statSync(p).isDirectory()) { return p; }
+    }
+    return undefined;
 }
 
 export function projectGuidelinesRoot(wsRoot: string | undefined, projectPath: string): string | undefined {
@@ -196,8 +191,11 @@ export function projectGuidelinesRoot(wsRoot: string | undefined, projectPath: s
     const abs = path.isAbsolute(projectPath)
         ? projectPath
         : (wsRoot ? path.join(wsRoot, projectPath) : projectPath);
-    const candidate = path.join(abs, GUIDELINE_FOLDER);
-    return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory() ? candidate : undefined;
+    for (const name of GUIDELINE_FOLDER_NAMES) {
+        const candidate = path.join(abs, name);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) { return candidate; }
+    }
+    return undefined;
 }
 
 /**

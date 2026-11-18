@@ -9,6 +9,7 @@
  * - workspace.* - Workspace/project/quest operations
  */
 
+import { listLevelFiles, resolveInFiles } from '../utils/guidelineFolders';
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -703,7 +704,7 @@ export class TomScriptingBridgeHandler {
                 basePath = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
                 break;
             case 'guidelines':
-                basePath = path.join(wsRoot, '_copilot_guidelines');
+                basePath = WsPaths.guidelines() || path.join(wsRoot, WsPaths.guidelinesFolder);
                 break;
             case 'quest':
                 basePath = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
@@ -841,68 +842,34 @@ export class TomScriptingBridgeHandler {
         return null;
     }
 
+    /** Every guideline of both levels (root, workspace folder; either folder name), each path once. */
     private async listGuidelines(category?: string): Promise<any> {
         const wsRoot = layoutWorkspaceFolder() ?? '';
-        const guidelinesDir = path.join(wsRoot, '_copilot_guidelines');
-        const guidelines: any[] = [];
+        const files = listLevelFiles(WsPaths.guidelineLevels());
         const categories = new Set<string>();
-
-        if (!fs.existsSync(guidelinesDir)) {
-            return { guidelines, categories: [] };
+        const guidelines: any[] = [];
+        for (const f of files) {
+            const parts = f.path.split('/');
+            const cat = parts.length > 1 ? parts[0] : undefined;
+            if (cat) { categories.add(cat); }
+            if (category && category !== cat) { continue; }
+            guidelines.push({
+                name: parts[parts.length - 1],
+                path: f.abs,
+                relativePath: path.relative(wsRoot, f.abs),
+                category: cat,
+                level: f.level,
+            });
         }
-
-        const processDir = (dirPath: string, cat?: string) => {
-            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-            for (const entry of entries) {
-                const fullPath = path.join(dirPath, entry.name);
-                const relativePath = path.relative(wsRoot, fullPath);
-
-                if (entry.isDirectory()) {
-                    categories.add(entry.name);
-                    if (!category || category === entry.name) {
-                        processDir(fullPath, entry.name);
-                    }
-                } else if (entry.name.endsWith('.md')) {
-                    if (!category || category === cat) {
-                        guidelines.push({
-                            name: entry.name,
-                            path: fullPath,
-                            relativePath,
-                            category: cat,
-                        });
-                    }
-                }
-            }
-        };
-
-        processDir(guidelinesDir);
-
-        return { guidelines, categories: Array.from(categories) };
+        return { guidelines, categories: Array.from(categories).sort() };
     }
 
+    /** One guideline by path or name: the workspace folder's, else the root's (exact path, then by name). */
     private async readGuideline(name: string): Promise<any> {
-        const wsRoot = layoutWorkspaceFolder() ?? '';
-        const guidelinesDir = path.join(wsRoot, '_copilot_guidelines');
-
-        // First try direct match
-        let filePath = path.join(guidelinesDir, name);
-        if (!name.endsWith('.md')) {
-            filePath += '.md';
+        const found = resolveInFiles(listLevelFiles(WsPaths.guidelineLevels()), name);
+        if (found) {
+            return this.readDocument(found.file.abs);
         }
-
-        if (fs.existsSync(filePath)) {
-            return this.readDocument(filePath);
-        }
-
-        // Search in subdirectories
-        const subdirs = ['dart', 'cloud', 'd4rt'];
-        for (const subdir of subdirs) {
-            const subPath = path.join(guidelinesDir, subdir, name.endsWith('.md') ? name : `${name}.md`);
-            if (fs.existsSync(subPath)) {
-                return this.readDocument(subPath);
-            }
-        }
-
         throw new Error(`Guideline not found: ${name}`);
     }
 

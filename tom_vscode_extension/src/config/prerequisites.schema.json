@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tom-ai.dev/schemas/prerequisites.schema.json",
   "title": "Project prerequisites (prerequisites.yaml)",
-  "description": "What a project needs before it builds or runs: the secrets it reads and how each can be provided (never a value), and the software it expects on the PATH. At a project's root, or at a repository root for repository-wide prerequisites. Guideline: _copilot_guidelines/prerequisites_yaml.md. The Tom AI extension's PREREQUISITES view (@TOM VSC) lists and checks them; parsePrerequisites (src/utils/prerequisites.ts) also enforces ids unique in a file / section.",
+  "description": "What a project needs before it builds or runs: the secrets it reads and how each can be provided (never a value), and the software it expects on the PATH. At a project's root, or at a repository root for repository-wide prerequisites. Guideline: _agent_guidelines/prerequisites_yaml.md. The Tom AI extension's PREREQUISITES view (@TOM VSC) lists and checks them; parsePrerequisites (src/utils/prerequisites.ts) also enforces ids unique in a file / section.",
   "type": "object",
   "additionalProperties": false,
   "required": [

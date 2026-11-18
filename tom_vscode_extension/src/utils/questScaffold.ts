@@ -5,6 +5,7 @@
  * user and writes the overview and the first todos. No vscode here.
  */
 
+import { LEGACY_GUIDELINE_FOLDER } from './guidelineFolders';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildIdPrefix } from '../tools/id-prefix-tools';
@@ -16,7 +17,8 @@ export const QUEST_ID_PATTERN = /^[A-Za-z0-9_]+$/;
 /** The no-quest workspace's folder name, never a quest. */
 export const RESERVED_QUEST_IDS = ['default'];
 /** Where the Active Quests table lives, relative to the workspace root. */
-export const ACTIVE_QUESTS_FILE = path.join('_copilot_guidelines', 'quests_and_processes.md');
+// The container's transition copy (legacy folder name); 02_wslayout-11 removes the registration.
+export const ACTIVE_QUESTS_FILE = path.join(LEGACY_GUIDELINE_FOLDER, 'quests_and_processes.md');
 const ACTIVE_QUESTS_HEADING = '## Active Quests';
 
 /** Why `id` cannot be a new quest under `questsDir`, or undefined when it can. */
@@ -52,7 +54,7 @@ export function questSetupTodoDescription(id: string): string {
         '3. Repositories and projects: the folders, repositories and packages it works on.',
         '4. Processes and roles: whether it follows a process from `_ai/processes/` (tomAi_listProcesses) and which roles (`_ai/roles/`) do its work.',
         '',
-        `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree. Fill in the description of the quest's row in the Active Quests table (\`_copilot_guidelines/quests_and_processes.md\`).`,
+        `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree. Fill in the description of the quest's row in the Active Quests table (\`${ACTIVE_QUESTS_FILE.split(path.sep).join('/')}\`).`,
         '',
         `Last, bring \`short_description.${id}.md\` up to date: keep its title line, write 2–4 sentences on what the quest is for and what it covers (the repositories it works on included), and a \`**State:**\` line with where it stands now. It holds the current state only; the overview stays the long form.`,
     ].join('\n');

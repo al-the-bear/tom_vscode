@@ -80,9 +80,10 @@ Both subpanels are queue-compatible.
 
 ### Guidelines Panel
 
-The Guidelines panel in @WS provides a document browser for copilot guidelines. Features:
+The Guidelines panel in @WS provides a document browser for the guidelines. Features:
 
-- **Project dropdown**: Filter guidelines by project (shows projects with `_copilot_guidelines/` folders)
+- **Levels**: **Workspace** is the workspace folder's guidelines folder, **Root** the root's (when the root is another folder); a level holding both `_agent_guidelines/` and `_copilot_guidelines/` shows each as its own entry
+- **Project dropdown**: Filter guidelines by project (shows projects with an `_agent_guidelines/` or `_copilot_guidelines/` folder)
 - **Quest dropdown**: Filter guidelines by quest (shows quests when quest project type selected)
 - **Link navigation**: Click links to navigate within the panel or open in Markdown Browser
 

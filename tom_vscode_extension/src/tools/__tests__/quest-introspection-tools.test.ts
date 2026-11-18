@@ -356,7 +356,7 @@ describe('listDocumentsImpl', () => {
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
         assert.equal(r.category, 'guidelines');
-        assert.equal(r.categoryFolder, '_copilot_guidelines');
+        assert.equal(r.categoryFolder, '_agent_guidelines (or _copilot_guidelines)');
         assert.equal(r.exists, true);
         assert.deepEqual(r.files, ['dart/coding.md', 'index.md']);
     });
@@ -367,7 +367,7 @@ describe('listDocumentsImpl', () => {
             answers:    '_ai/answers/copilot',
             notes:      '_ai/notes',
             roles:      '_ai/roles',
-            guidelines: '_copilot_guidelines',
+            guidelines: '_agent_guidelines (or _copilot_guidelines)',
         };
         for (const cat of Object.keys(expectations) as DocumentCategory[]) {
             const r = JSON.parse(await listDocumentsImpl(documentSource, { category: cat }));

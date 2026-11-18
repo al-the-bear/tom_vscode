@@ -8,6 +8,7 @@
  */
 
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { guidelineLevelGroups, projectGuidelineDirs } from '../utils/guidelineFolders';
 import { wireQuestHintMessages } from './questHint-handler';
 import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
@@ -232,7 +233,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                     if (!wsRoot) {
                         break;
                     }
-                    const guidelinesDir = WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
+                    const guidelinesDir = WsPaths.guidelines() || path.join(wsRoot, WsPaths.guidelinesFolder);
                     if (fs.existsSync(guidelinesDir)) {
                         await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(guidelinesDir), { forceNewWindow: false });
                     } else {
@@ -394,7 +395,13 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             return null;
         }
         if (!group || group === 'global') {
-            return WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
+            return WsPaths.guidelines() || path.join(wsRoot, WsPaths.guidelinesFolder);
+        }
+        if (group.startsWith('level:')) {
+            // `level:<root|workspace>:<i>` — one guidelines folder of a level (both names may exist).
+            const [, levelName, index] = group.split(':');
+            const level = WsPaths.guidelineLevels().find((l) => l.level === levelName);
+            return level?.dirs[Number(index)] ?? null;
         }
         if (group === 'copilot-instructions') {
             return WsPaths.github() || path.join(wsRoot, '.github');
@@ -407,7 +414,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             if (!projectRelPath) {
                 return null;
             }
-            return path.join(wsRoot, projectRelPath, WsPaths.guidelinesFolder);
+            const abs = path.join(wsRoot, projectRelPath);
+            return projectGuidelineDirs(abs)[0] ?? path.join(abs, WsPaths.guidelinesFolder);
         }
         if (group.startsWith('quest:')) {
             const questId = group.substring('quest:'.length);
@@ -431,8 +439,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
 
         for (const proj of projects) {
             if (matchesExcludeGlob(proj.relativePath, exclude)) { continue; }
-            const guidelinesDir = path.join(proj.absolutePath, WsPaths.guidelinesFolder);
-            if (fs.existsSync(guidelinesDir)) {
+            if (projectGuidelineDirs(proj.absolutePath).length > 0) {
                 result.push({ id: `project:${proj.relativePath}`, label: proj.name });
             }
         }
@@ -465,15 +472,15 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'guidelinesGroups', groups: [], projects: [], quests: [] });
             return;
         }
-        const wsRoot = workspaceFolder.uri.fsPath;
+        const wsRoot = layoutWorkspaceFolder() ?? workspaceFolder.uri.fsPath;
         const groups: { id: string; label: string }[] = [];
         const projectsWithGuidelines: { id: string; label: string }[] = await this._collectGuidelinesProjects();
         const questFolders: { id: string; label: string }[] = this._collectGuidelinesQuests();
 
-        const globalDir = WsPaths.guidelines() || path.join(wsRoot, '_copilot_guidelines');
-        if (fs.existsSync(globalDir)) {
-            groups.push({ id: 'global', label: 'Workspace' });
-        }
+        // The guideline levels: the workspace folder's first folder is `global`
+        // (the default group), every other folder of a level its own group —
+        // the root's, and a second name in one level.
+        groups.push(...guidelineLevelGroups(WsPaths.guidelineLevels()));
 
         if (projectsWithGuidelines.length > 0) {
             groups.push({ id: 'project', label: 'Project' });
@@ -858,3 +865,4 @@ export function registerWsPanel(context: vscode.ExtensionContext): void {
     // setQuestTodoContext(context) has run, so the popout module's context is set.
     registerQuestTodoPopoutSerializer(context);
 }
+

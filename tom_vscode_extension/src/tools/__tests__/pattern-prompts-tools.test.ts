@@ -179,6 +179,7 @@ describe('listPatternPromptsImpl', () => {
         assert.equal(r.ok, false);
         assert.match(r.error, /No pattern_prompts folder found/);
         assert.deepEqual(r.searched, [
+            '_agent_guidelines/pattern_prompts',
             '_copilot_guidelines/pattern_prompts',
             '_copilot_tomai/pattern_prompts',
         ]);

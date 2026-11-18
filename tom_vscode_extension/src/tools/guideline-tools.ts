@@ -3,10 +3,12 @@
  *
  * Two scopes:
  *
- *   - **Global guidelines** live at the workspace root in
- *     `_copilot_guidelines/` (recursively).
+ *   - **Global guidelines** are two levels (`utils/guidelineFolders.ts`):
+ *     the root's guidelines, then the workspace folder's; a file of the same
+ *     relative path in the workspace folder wins. Each level is read under
+ *     both folder names, `_agent_guidelines/` first, then `_copilot_guidelines/`.
  *   - **Project guidelines** live inside each project folder at
- *     `{projectPath}/_copilot_guidelines/` (recursively).
+ *     `{projectPath}/_agent_guidelines/` and/or `_copilot_guidelines/` (not layered).
  *
  * Smart path handling (see guideline-paths.ts for the pure logic):
  *
@@ -18,23 +20,35 @@
  *   not found" loop chasing a path the tool refuses to resolve.
  *
  * `initializeToolDescriptions()` is called at extension activation to
- * embed the global `_copilot_guidelines/index.md` into the global-read
- * tool's description so the model sees the inventory without a lookup.
+ * embed the levels' indexes (`index_root.md`, `index_workspace.md`, else each
+ * level's `index.md`) into the global-read tool's description so the model
+ * sees the inventory without a lookup.
  */
 
-import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import {
     GUIDELINE_FOLDER,
     classifyGuidelinePath,
-    globalGuidelinesRoot,
-    projectGuidelinesRoot,
-    resolveGuidelineFile,
-    searchMarkdown,
-    walkMarkdown,
+    escapeRegex,
 } from './guideline-paths';
+import {
+    GUIDELINE_FOLDER_NAMES,
+    type GuidelineFile,
+    type GuidelineLevel,
+    guidelineLevels,
+    levelIndexes,
+    listLevelFiles,
+    listProjectFiles,
+    projectGuidelineDirs,
+    resolveInFiles,
+    subfoldersOf,
+} from '../utils/guidelineFolders';
+
+/** The folder names as a reader sees them: `_agent_guidelines/` (or `_copilot_guidelines/`). */
+const FOLDER_LABEL = `${GUIDELINE_FOLDER}/ (or ${GUIDELINE_FOLDER_NAMES[1]}/)`;
 
 // ---------------------------------------------------------------------------
 // Helpers (vscode-aware wrappers around the pure path logic)
@@ -46,6 +60,79 @@ function wsRoot(): string | undefined {
 
 function readFileSafe(filePath: string): string | undefined {
     try { return fs.readFileSync(filePath, 'utf8'); } catch { return undefined; }
+}
+
+/**
+ * Where the guideline tools look: the workspace folder (project paths are
+ * relative to it), the global levels, and who is told when a requested path
+ * was found only by its file name elsewhere.
+ */
+export interface GuidelineScope {
+    wsRoot?: string;
+    levels: GuidelineLevel[];
+    /** A guideline asked for by a path that does not exist was found by its name at `found`. */
+    onFoundByName?: (requested: string, found: string) => void;
+}
+
+/** A bare workspace root (tests, callers without a layout): one level, its own guidelines folder. */
+function scopeOf(root: string | undefined | GuidelineScope): GuidelineScope {
+    if (root && typeof root === 'object') { return root; }
+    return { wsRoot: root, levels: root ? guidelineLevels([path.join(root, GUIDELINE_FOLDER)]) : [] };
+}
+
+/** The window's scope: the layout's levels, a toast for a path found only by name. */
+function windowScope(): GuidelineScope {
+    const layout = getLayout();
+    return {
+        wsRoot: wsRoot(),
+        levels: guidelineLevels(layout?.guidelineDirs ?? []),
+        onFoundByName: (requested, found) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const vscode = require('vscode') as typeof import('vscode');
+                void vscode.window.showWarningMessage(
+                    `Guideline path not found: '${requested}'. Read '${found}' instead (found by its file name); correct the path where it came from.`,
+                );
+            } catch { /* no VS Code */ }
+        },
+    };
+}
+
+function relForDisplay(scope: GuidelineScope, abs: string): string {
+    return scope.wsRoot ? path.relative(scope.wsRoot, abs).split(path.sep).join('/') : abs;
+}
+
+function fileEntry(f: GuidelineFile): { path: string; size: number; level: string } {
+    return { path: f.path, size: f.size, level: f.level };
+}
+
+/** Substring search over listed files. */
+function searchFiles(files: readonly GuidelineFile[], query: string, caseSensitive: boolean, max: number):
+    Array<{ file: string; level: string; line: number; text: string }> {
+    const pattern = new RegExp(escapeRegex(query), caseSensitive ? '' : 'i');
+    const matches: Array<{ file: string; level: string; line: number; text: string }> = [];
+    for (const f of files) {
+        if (matches.length >= max) { break; }
+        const content = readFileSafe(f.abs);
+        if (content === undefined) { continue; }
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length && matches.length < max; i++) {
+            if (pattern.test(lines[i])) { matches.push({ file: f.path, level: f.level, line: i + 1, text: lines[i].slice(0, 200) }); }
+        }
+    }
+    return matches;
+}
+
+/** An absolute path inside one of the levels' folders: its path relative to that folder. */
+function relInLevels(scope: GuidelineScope, input: string): string | undefined {
+    if (!path.isAbsolute(input)) { return undefined; }
+    for (const l of scope.levels) {
+        for (const d of l.dirs) {
+            const rel = path.relative(d, input);
+            if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) { return rel.split(path.sep).join('/'); }
+        }
+    }
+    return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,48 +148,47 @@ function readFileSafe(filePath: string): string | undefined {
 
 interface ReadGlobalGuidelineInput { fileName?: string }
 
-export async function readGlobalGuidelineImpl(root: string | undefined, input: ReadGlobalGuidelineInput): Promise<string> {
-    const globalRoot = globalGuidelinesRoot(root);
-    if (!globalRoot) {
-        return `Global \`${GUIDELINE_FOLDER}/\` folder not found at workspace root.`;
+export async function readGlobalGuidelineImpl(root: string | undefined | GuidelineScope, input: ReadGlobalGuidelineInput): Promise<string> {
+    const scope = scopeOf(root);
+    if (scope.levels.length === 0) {
+        return `Global guidelines folder not found (\`${FOLDER_LABEL}\`, at the root or in the workspace folder).`;
     }
+    const files = listLevelFiles(scope.levels);
     if (!input.fileName) {
-        const files = walkMarkdown(globalRoot, globalRoot).sort((a, b) => a.path.localeCompare(b.path));
-        let result = `Available global guideline files under \`${GUIDELINE_FOLDER}/\`:\n\n`;
-        result += files.map((f) => `- ${f.path}`).join('\n');
-        const indexPath = path.join(globalRoot, 'index.md');
-        if (fs.existsSync(indexPath)) {
-            result += '\n\n---\n\nindex.md:\n\n';
-            result += fs.readFileSync(indexPath, 'utf8');
+        let result = `Available global guideline files (root, then workspace folder; a workspace file of the same path wins):\n\n`;
+        result += files.map((f) => `- ${f.path} (${f.level})`).join('\n');
+        for (const ix of levelIndexes(scope.levels)) {
+            result += `\n\n---\n\n${path.basename(ix.file)} (${ix.level}):\n\n${ix.content}`;
         }
         return result;
     }
-    // Classify the input so a project-style path auto-delegates to
-    // the project handler instead of returning "not found".
-    const classification = classifyGuidelinePath(input.fileName, root);
-    if (classification.kind === 'project') {
-        return readProjectGuidelineImpl(root, {
-            projectPath: classification.projectPath,
-            fileName: classification.relPath,
-        });
+    // An absolute path inside a level's folder; else classify, so a
+    // project-style path auto-delegates to the project handler.
+    let relPath = relInLevels(scope, input.fileName);
+    if (relPath === undefined) {
+        const classification = classifyGuidelinePath(input.fileName, scope.wsRoot);
+        if (classification.kind === 'project') {
+            return readProjectGuidelineImpl(scope, {
+                projectPath: classification.projectPath,
+                fileName: classification.relPath,
+            });
+        }
+        relPath = classification.relPath;
     }
-    const resolved = resolveGuidelineFile(globalRoot, classification.relPath);
+    const resolved = resolveInFiles(files, relPath);
     if (!resolved) {
-        const filesPreview = walkMarkdown(globalRoot, globalRoot)
-            .map((f) => f.path)
-            .sort()
-            .slice(0, 30)
-            .join('\n  - ');
+        const filesPreview = files.map((f) => f.path).slice(0, 30).join('\n  - ');
         return `Global guideline file not found: '${input.fileName}'.\n\n` +
-            `Tried path relative to ${GUIDELINE_FOLDER}/: '${classification.relPath}'.\n\n` +
+            `Tried path relative to the guidelines folders: '${relPath}'.\n\n` +
             `If this is a project-level guideline, use tomAi_readProjectGuideline with the correct projectPath. ` +
             `Available global guideline files (first 30):\n  - ${filesPreview}`;
     }
-    return readFileSafe(resolved) ?? `Read error: ${resolved}`;
+    if (resolved.byName) { scope.onFoundByName?.(input.fileName, relForDisplay(scope, resolved.file.abs)); }
+    return readFileSafe(resolved.file.abs) ?? `Read error: ${resolved.file.abs}`;
 }
 
 async function executeReadGlobalGuideline(input: ReadGlobalGuidelineInput): Promise<string> {
-    return readGlobalGuidelineImpl(wsRoot(), input);
+    return readGlobalGuidelineImpl(windowScope(), input);
 }
 
 export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelineInput> = {
@@ -112,14 +198,17 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
         // Description is partially overwritten by `initializeToolDescriptions()`
         // at activation to embed the actual index.md; keep this static copy
         // sensible as a fallback.
-        `Read a WORKSPACE-LEVEL guideline file from \`<workspaceRoot>/${GUIDELINE_FOLDER}/\` (recursively).\n\n` +
+        `Read a WORKSPACE-LEVEL guideline file: from the root's guidelines and the workspace folder's ` +
+        `(\`${FOLDER_LABEL}\`, recursively; a file of the same path in the workspace folder wins). ` +
+        `A path that does not exist is looked up by its file name, and the user is told.\n\n` +
         `**fileName accepts any of these shapes:**\n` +
         `  - bare name (with or without .md): "documentation_guidelines" or "documentation_guidelines.md"\n` +
         `  - subfolder/basename: "dart/coding_guidelines.md"\n` +
         `  - rooted form: "${GUIDELINE_FOLDER}/dart/coding_guidelines.md"\n\n` +
         `If the path looks like a PROJECT guideline (e.g. "tom_ai/.../${GUIDELINE_FOLDER}/local_llm.md"), this tool ` +
         `auto-delegates to tomAi_readProjectGuideline — you don't need to switch tools manually.\n\n` +
-        `Omit fileName to get the file list + index.md of the global folder.`,
+        `Omit fileName to get the file list (with each file's level) and the levels' indexes ` +
+        `(\`index_root.md\`, \`index_workspace.md\`, else \`index.md\`).`,
     tags: ['guidelines', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -129,7 +218,7 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
                 type: 'string',
                 description:
                     'Bare filename, subfolder/filename, rooted form, or project-style path. Examples: ' +
-                    '"coding_guidelines.md", "dart/coding_guidelines.md", "_copilot_guidelines/coding_guidelines.md", ' +
+                    '"coding_guidelines.md", "dart/coding_guidelines.md", "_agent_guidelines/coding_guidelines.md", ' +
                     '"tom_ai/vscode/tom_vscode_extension/_copilot_guidelines/local_llm.md". Omit to list all global files.',
             },
         },
@@ -139,62 +228,55 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
 
 interface ListGlobalGuidelinesInput { subfolder?: string }
 
-export async function listGlobalGuidelinesImpl(root: string | undefined, input: ListGlobalGuidelinesInput): Promise<string> {
-    const globalRoot = globalGuidelinesRoot(root);
-    if (!globalRoot) {
-        return JSON.stringify({ error: `${GUIDELINE_FOLDER} folder not found at workspace root` });
+export async function listGlobalGuidelinesImpl(root: string | undefined | GuidelineScope, input: ListGlobalGuidelinesInput): Promise<string> {
+    const scope = scopeOf(root);
+    if (scope.levels.length === 0) {
+        return JSON.stringify({ error: `Global guidelines folder not found (${FOLDER_LABEL}, at the root or in the workspace folder)` });
     }
+    const levels = scope.levels.map((l) => ({ level: l.level, dirs: l.dirs.map((d) => relForDisplay(scope, d)) }));
     if (!input.subfolder) {
-        const files = walkMarkdown(globalRoot, globalRoot).sort((a, b) => a.path.localeCompare(b.path));
-        return JSON.stringify({ folder: '.', count: files.length, files }, null, 2);
+        const files = listLevelFiles(scope.levels).map(fileEntry);
+        return JSON.stringify({ folder: '.', levels, count: files.length, files }, null, 2);
     }
-    // Auto-delegate path-shape project requests (those containing
-    // `_copilot_guidelines/`).
-    const classification = classifyGuidelinePath(input.subfolder, root);
+    // Auto-delegate path-shape project requests (those naming a guidelines folder).
+    const classification = classifyGuidelinePath(input.subfolder, scope.wsRoot);
     if (classification.kind === 'project') {
-        return listProjectGuidelinesImpl(root, {
+        return listProjectGuidelinesImpl(scope, {
             projectPath: classification.projectPath,
             subfolder: classification.relPath || undefined,
         });
     }
-    const target = path.join(globalRoot, classification.relPath);
-    if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-        const files = walkMarkdown(target, globalRoot).sort((a, b) => a.path.localeCompare(b.path));
-        return JSON.stringify({ folder: classification.relPath || '.', count: files.length, files }, null, 2);
+    const allDirs = scope.levels.flatMap((l) => l.dirs);
+    const sub = classification.relPath;
+    if (allDirs.some((d) => isDirectory(path.join(d, sub)))) {
+        const files = listLevelFiles(scope.levels, sub).map(fileEntry);
+        return JSON.stringify({ folder: sub || '.', levels, count: files.length, files }, null, 2);
     }
-    // Filesystem-based fallback: when the bare path doesn't resolve
-    // as a global subfolder but DOES resolve as a project folder that
-    // owns its own `_copilot_guidelines/`, delegate to the project
-    // handler. This catches the common case where the model passes a
-    // workspace-relative project path (e.g. `tom_ai/vscode/tom_vscode_extension`)
-    // hoping the global tool will figure out where to look.
-    if (projectGuidelinesRoot(root, classification.relPath)) {
-        return listProjectGuidelinesImpl(root, { projectPath: classification.relPath });
+    // Filesystem-based fallback: a workspace-relative project path that owns
+    // its own guidelines folder is delegated to the project handler.
+    if (scope.wsRoot && projectGuidelineDirs(path.isAbsolute(sub) ? sub : path.join(scope.wsRoot, sub)).length > 0) {
+        return listProjectGuidelinesImpl(scope, { projectPath: sub });
     }
     return JSON.stringify({
         error: `Subfolder not found inside global guidelines: '${input.subfolder}'`,
-        availableSubfolders: listSubdirectories(globalRoot),
+        availableSubfolders: subfoldersOf(allDirs),
     });
 }
 
-async function executeListGlobalGuidelines(input: ListGlobalGuidelinesInput): Promise<string> {
-    return listGlobalGuidelinesImpl(wsRoot(), input);
+function isDirectory(p: string): boolean {
+    try { return fs.statSync(p).isDirectory(); } catch { return false; }
 }
 
-function listSubdirectories(dir: string): string[] {
-    try {
-        return fs.readdirSync(dir, { withFileTypes: true })
-            .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
-            .map((d) => d.name)
-            .sort();
-    } catch { return []; }
+async function executeListGlobalGuidelines(input: ListGlobalGuidelinesInput): Promise<string> {
+    return listGlobalGuidelinesImpl(windowScope(), input);
 }
 
 export const LIST_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<ListGlobalGuidelinesInput> = {
     name: 'tomAi_listGlobalGuidelines',
     displayName: 'List Global Guidelines',
     description:
-        `List markdown files under \`<workspaceRoot>/${GUIDELINE_FOLDER}/\` (recursive).\n\n` +
+        `List the global guideline markdown files (recursive): the root's guidelines and the workspace folder's ` +
+        `(\`${FOLDER_LABEL}\`), each path once with its \`level\` (\`root\` / \`workspace\`; a workspace file of the same path wins).\n\n` +
         `**subfolder accepts:**\n` +
         `  - a direct subfolder name: "dart" or "cloud"\n` +
         `  - a project-style path: "tom_ai/vscode/tom_vscode_extension" — auto-delegates to tomAi_listProjectGuidelines\n\n` +
@@ -207,7 +289,7 @@ export const LIST_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<ListGlobalGuideli
             subfolder: {
                 type: 'string',
                 description:
-                    'Optional subfolder name within global guidelines (e.g. "dart", "cloud"), or a project path that contains a `_copilot_guidelines/` folder (auto-delegates).',
+                    'Optional subfolder name within global guidelines (e.g. "dart", "cloud"), or a project path that contains a `_agent_guidelines/` or `_copilot_guidelines/` folder (auto-delegates).',
             },
         },
     },
@@ -216,14 +298,14 @@ export const LIST_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<ListGlobalGuideli
 
 interface SearchGlobalGuidelinesInput { query: string; caseSensitive?: boolean; maxMatches?: number }
 
-export async function searchGlobalGuidelinesImpl(root: string | undefined, input: SearchGlobalGuidelinesInput): Promise<string> {
-    const globalRoot = globalGuidelinesRoot(root);
-    if (!globalRoot) {
-        return JSON.stringify({ error: `${GUIDELINE_FOLDER} folder not found at workspace root` });
+export async function searchGlobalGuidelinesImpl(root: string | undefined | GuidelineScope, input: SearchGlobalGuidelinesInput): Promise<string> {
+    const scope = scopeOf(root);
+    if (scope.levels.length === 0) {
+        return JSON.stringify({ error: `Global guidelines folder not found (${FOLDER_LABEL}, at the root or in the workspace folder)` });
     }
     if (!input.query) { return JSON.stringify({ error: 'query is required' }); }
     const max = Math.max(1, input.maxMatches ?? 100);
-    const matches = searchMarkdown(globalRoot, input.query, !!input.caseSensitive, max);
+    const matches = searchFiles(listLevelFiles(scope.levels), input.query, !!input.caseSensitive, max);
     return JSON.stringify({
         query: input.query,
         count: matches.length,
@@ -233,15 +315,16 @@ export async function searchGlobalGuidelinesImpl(root: string | undefined, input
 }
 
 async function executeSearchGlobalGuidelines(input: SearchGlobalGuidelinesInput): Promise<string> {
-    return searchGlobalGuidelinesImpl(wsRoot(), input);
+    return searchGlobalGuidelinesImpl(windowScope(), input);
 }
 
 export const SEARCH_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<SearchGlobalGuidelinesInput> = {
     name: 'tomAi_searchGlobalGuidelines',
     displayName: 'Search Global Guidelines',
     description:
-        `Substring-search every \`.md\` file under \`<workspaceRoot>/${GUIDELINE_FOLDER}/\`. ` +
-        `Returns up to maxMatches \`{file, line, text}\` hits, where \`file\` is relative to the global folder.`,
+        `Substring-search every global guideline \`.md\` file (the root's and the workspace folder's, \`${FOLDER_LABEL}\`; ` +
+        `each path once, the workspace's winning). Returns up to maxMatches \`{file, level, line, text}\` hits, ` +
+        `where \`file\` is relative to its guidelines folder.`,
     tags: ['guidelines', 'search', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -262,58 +345,61 @@ export const SEARCH_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<SearchGlobalGui
 
 interface ReadProjectGuidelineInput { projectPath: string; fileName?: string }
 
-export async function readProjectGuidelineImpl(root: string | undefined, input: ReadProjectGuidelineInput): Promise<string> {
+/** A project's guideline folders (both names), from a workspace-relative or absolute project path. */
+function projectDirs(scope: GuidelineScope, projectPath: string): string[] {
+    const abs = path.isAbsolute(projectPath) ? projectPath : (scope.wsRoot ? path.join(scope.wsRoot, projectPath) : projectPath);
+    return projectGuidelineDirs(abs);
+}
+
+export async function readProjectGuidelineImpl(root: string | undefined | GuidelineScope, input: ReadProjectGuidelineInput): Promise<string> {
+    const scope = scopeOf(root);
     if (!input.projectPath) {
         return 'projectPath is required (workspace-relative or absolute). Example: "tom_ai/vscode/tom_vscode_extension".';
     }
-    const projRoot = projectGuidelinesRoot(root, input.projectPath);
-    if (!projRoot) {
-        return `No \`${GUIDELINE_FOLDER}/\` folder found at ${input.projectPath}/${GUIDELINE_FOLDER}/. ` +
-            `Pass projectPath as the folder containing _copilot_guidelines/, not the guidelines folder itself.`;
+    const dirs = projectDirs(scope, input.projectPath);
+    if (dirs.length === 0) {
+        return `No guidelines folder (\`${FOLDER_LABEL}\`) found at ${input.projectPath}/. ` +
+            `Pass projectPath as the folder containing the guidelines folder, not the guidelines folder itself.`;
     }
+    const files = listProjectFiles(dirs);
     if (!input.fileName) {
-        const files = walkMarkdown(projRoot, projRoot).sort((a, b) => a.path.localeCompare(b.path));
-        let result = `Available project guideline files under \`${input.projectPath}/${GUIDELINE_FOLDER}/\`:\n\n`;
+        let result = `Available project guideline files under \`${input.projectPath}/\` (${dirs.map((d) => path.basename(d) + '/').join(', ')}):\n\n`;
         result += files.map((f) => `- ${f.path}`).join('\n');
-        const indexPath = path.join(projRoot, 'index.md');
-        if (fs.existsSync(indexPath)) {
+        const index = files.find((f) => f.path === 'index.md');
+        if (index) {
             result += '\n\n---\n\nindex.md:\n\n';
-            result += fs.readFileSync(indexPath, 'utf8');
+            result += readFileSafe(index.abs) ?? '';
         }
         return result;
     }
     // Accept either a bare filename or a glued workspace path —
     // re-classify so callers can pass the same shape they got from
     // findFiles without thinking about which tool to use.
-    const classification = classifyGuidelinePath(input.fileName, root);
-    const effectiveRelPath = classification.relPath;
-    const resolved = resolveGuidelineFile(projRoot, effectiveRelPath);
+    const classification = classifyGuidelinePath(input.fileName, scope.wsRoot);
+    const resolved = resolveInFiles(files, classification.relPath);
     if (!resolved) {
-        const filesPreview = walkMarkdown(projRoot, projRoot)
-            .map((f) => f.path)
-            .sort()
-            .slice(0, 30)
-            .join('\n  - ');
-        return `Project guideline file not found: '${input.fileName}' under ${input.projectPath}/${GUIDELINE_FOLDER}/.\n\n` +
+        const filesPreview = files.map((f) => f.path).slice(0, 30).join('\n  - ');
+        return `Project guideline file not found: '${input.fileName}' under ${input.projectPath}/.\n\n` +
             `Available files (first 30):\n  - ${filesPreview}`;
     }
-    return readFileSafe(resolved) ?? `Read error: ${resolved}`;
+    if (resolved.byName) { scope.onFoundByName?.(input.fileName, relForDisplay(scope, resolved.file.abs)); }
+    return readFileSafe(resolved.file.abs) ?? `Read error: ${resolved.file.abs}`;
 }
 
 async function executeReadProjectGuideline(input: ReadProjectGuidelineInput): Promise<string> {
-    return readProjectGuidelineImpl(wsRoot(), input);
+    return readProjectGuidelineImpl(windowScope(), input);
 }
 
 export const READ_PROJECT_GUIDELINE_TOOL: SharedToolDefinition<ReadProjectGuidelineInput> = {
     name: 'tomAi_readProjectGuideline',
     displayName: 'Read Project Guideline',
     description:
-        `Read a PROJECT-LEVEL guideline file from \`{projectPath}/${GUIDELINE_FOLDER}/\` (recursively).\n\n` +
+        `Read a PROJECT-LEVEL guideline file from \`{projectPath}/${GUIDELINE_FOLDER}/\` or \`{projectPath}/${GUIDELINE_FOLDER_NAMES[1]}/\` (recursively; both are read, the first wins for a file in both).\n\n` +
         `**Example call shapes:**\n` +
         `  - {"projectPath": "tom_ai/vscode/tom_vscode_extension", "fileName": "local_llm.md"}\n` +
         `  - {"projectPath": "tom_ai/devops/tom_build", "fileName": "build_process.md"}\n` +
         `  - {"projectPath": "tom_ai/vscode/tom_vscode_extension"} → returns the file list + index.md\n\n` +
-        `\`projectPath\` is the FOLDER CONTAINING \`${GUIDELINE_FOLDER}/\` — not the guidelines folder itself. ` +
+        `\`projectPath\` is the FOLDER CONTAINING the guidelines folder — not the guidelines folder itself. ` +
         `Use \`tomAi_listProjects\` (if available) or \`tomAi_findFiles\` to discover valid projectPath values.`,
     tags: ['guidelines', 'project', 'tom-ai-chat'],
     readOnly: true,
@@ -324,7 +410,7 @@ export const READ_PROJECT_GUIDELINE_TOOL: SharedToolDefinition<ReadProjectGuidel
             projectPath: {
                 type: 'string',
                 description:
-                    'Workspace-relative folder path containing a `_copilot_guidelines/` subfolder. Example: "tom_ai/vscode/tom_vscode_extension".',
+                    'Workspace-relative folder path containing a `_agent_guidelines/` or `_copilot_guidelines/` subfolder. Example: "tom_ai/vscode/tom_vscode_extension".',
             },
             fileName: {
                 type: 'string',
@@ -338,39 +424,38 @@ export const READ_PROJECT_GUIDELINE_TOOL: SharedToolDefinition<ReadProjectGuidel
 
 interface ListProjectGuidelinesInput { projectPath: string; subfolder?: string }
 
-export async function listProjectGuidelinesImpl(root: string | undefined, input: ListProjectGuidelinesInput): Promise<string> {
+export async function listProjectGuidelinesImpl(root: string | undefined | GuidelineScope, input: ListProjectGuidelinesInput): Promise<string> {
+    const scope = scopeOf(root);
     if (!input.projectPath) { return JSON.stringify({ error: 'projectPath is required' }); }
-    const projRoot = projectGuidelinesRoot(root, input.projectPath);
-    if (!projRoot) {
+    const dirs = projectDirs(scope, input.projectPath);
+    if (dirs.length === 0) {
+        return JSON.stringify({ error: `No guidelines folder (${FOLDER_LABEL}) at ${input.projectPath}/` });
+    }
+    if (input.subfolder && !dirs.some((d) => isDirectory(path.join(d, input.subfolder!)))) {
         return JSON.stringify({
-            error: `No ${GUIDELINE_FOLDER}/ folder at ${input.projectPath}/${GUIDELINE_FOLDER}/`,
+            error: `Subfolder not found inside ${input.projectPath}'s guidelines: '${input.subfolder}'`,
+            availableSubfolders: subfoldersOf(dirs),
         });
     }
-    const target = input.subfolder ? path.join(projRoot, input.subfolder) : projRoot;
-    if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
-        return JSON.stringify({
-            error: `Subfolder not found inside ${input.projectPath}/${GUIDELINE_FOLDER}/: '${input.subfolder}'`,
-            availableSubfolders: listSubdirectories(projRoot),
-        });
-    }
-    const files = walkMarkdown(target, projRoot).sort((a, b) => a.path.localeCompare(b.path));
+    const files = listProjectFiles(dirs, input.subfolder).map((f) => ({ path: f.path, size: f.size }));
     return JSON.stringify({
         projectPath: input.projectPath,
-        folder: path.relative(projRoot, target) || '.',
+        folders: dirs.map((d) => path.basename(d)),
+        folder: input.subfolder || '.',
         count: files.length,
         files,
     }, null, 2);
 }
 
 async function executeListProjectGuidelines(input: ListProjectGuidelinesInput): Promise<string> {
-    return listProjectGuidelinesImpl(wsRoot(), input);
+    return listProjectGuidelinesImpl(windowScope(), input);
 }
 
 export const LIST_PROJECT_GUIDELINES_TOOL: SharedToolDefinition<ListProjectGuidelinesInput> = {
     name: 'tomAi_listProjectGuidelines',
     displayName: 'List Project Guidelines',
     description:
-        `List markdown files under \`{projectPath}/${GUIDELINE_FOLDER}/\`. Pass projectPath as the FOLDER ` +
+        `List markdown files under \`{projectPath}/${GUIDELINE_FOLDER}/\` and \`{projectPath}/${GUIDELINE_FOLDER_NAMES[1]}/\` (each path once). Pass projectPath as the FOLDER ` +
         `CONTAINING the guidelines folder. Example: ` +
         `{"projectPath": "tom_ai/vscode/tom_vscode_extension"}.`,
     tags: ['guidelines', 'project', 'context', 'tom-ai-chat'],
@@ -382,7 +467,7 @@ export const LIST_PROJECT_GUIDELINES_TOOL: SharedToolDefinition<ListProjectGuide
             projectPath: {
                 type: 'string',
                 description:
-                    'Workspace-relative folder path containing a `_copilot_guidelines/` subfolder.',
+                    'Workspace-relative folder path containing a `_agent_guidelines/` or `_copilot_guidelines/` subfolder.',
             },
             subfolder: {
                 type: 'string',
@@ -400,17 +485,17 @@ interface SearchProjectGuidelinesInput {
     maxMatches?: number;
 }
 
-export async function searchProjectGuidelinesImpl(root: string | undefined, input: SearchProjectGuidelinesInput): Promise<string> {
+export async function searchProjectGuidelinesImpl(root: string | undefined | GuidelineScope, input: SearchProjectGuidelinesInput): Promise<string> {
+    const scope = scopeOf(root);
     if (!input.projectPath) { return JSON.stringify({ error: 'projectPath is required' }); }
-    const projRoot = projectGuidelinesRoot(root, input.projectPath);
-    if (!projRoot) {
-        return JSON.stringify({
-            error: `No ${GUIDELINE_FOLDER}/ folder at ${input.projectPath}/${GUIDELINE_FOLDER}/`,
-        });
+    const dirs = projectDirs(scope, input.projectPath);
+    if (dirs.length === 0) {
+        return JSON.stringify({ error: `No guidelines folder (${FOLDER_LABEL}) at ${input.projectPath}/` });
     }
     if (!input.query) { return JSON.stringify({ error: 'query is required' }); }
     const max = Math.max(1, input.maxMatches ?? 100);
-    const matches = searchMarkdown(projRoot, input.query, !!input.caseSensitive, max);
+    const matches = searchFiles(listProjectFiles(dirs), input.query, !!input.caseSensitive, max)
+        .map(({ file, line, text }) => ({ file, line, text }));
     return JSON.stringify({
         projectPath: input.projectPath,
         query: input.query,
@@ -421,14 +506,14 @@ export async function searchProjectGuidelinesImpl(root: string | undefined, inpu
 }
 
 async function executeSearchProjectGuidelines(input: SearchProjectGuidelinesInput): Promise<string> {
-    return searchProjectGuidelinesImpl(wsRoot(), input);
+    return searchProjectGuidelinesImpl(windowScope(), input);
 }
 
 export const SEARCH_PROJECT_GUIDELINES_TOOL: SharedToolDefinition<SearchProjectGuidelinesInput> = {
     name: 'tomAi_searchProjectGuidelines',
     displayName: 'Search Project Guidelines',
     description:
-        `Substring-search every \`.md\` file under \`{projectPath}/${GUIDELINE_FOLDER}/\`. Returns up to ` +
+        `Substring-search every \`.md\` file under \`{projectPath}/${GUIDELINE_FOLDER}/\` and \`${GUIDELINE_FOLDER_NAMES[1]}/\`. Returns up to ` +
         `maxMatches \`{file, line, text}\` hits, where \`file\` is relative to the project guidelines folder.`,
     tags: ['guidelines', 'project', 'search', 'tom-ai-chat'],
     readOnly: true,
@@ -450,17 +535,12 @@ export const SEARCH_PROJECT_GUIDELINES_TOOL: SharedToolDefinition<SearchProjectG
 // ---------------------------------------------------------------------------
 
 export function initializeToolDescriptions(): void {
-    const workspaceRoot = wsRoot();
-    if (!workspaceRoot) { return; }
-    const globalIndexPath = path.join(workspaceRoot, GUIDELINE_FOLDER, 'index.md');
-    if (fs.existsSync(globalIndexPath)) {
-        try {
-            const indexContent = fs.readFileSync(globalIndexPath, 'utf8');
-            const intro = READ_GLOBAL_GUIDELINE_TOOL.description ?? '';
-            READ_GLOBAL_GUIDELINE_TOOL.description =
-                `${intro}\n\n---\n\nGlobal guideline index (current contents of \`${GUIDELINE_FOLDER}/index.md\`):\n\n${indexContent}`;
-        } catch { /* keep static description */ }
-    }
+    const indexes = levelIndexes(windowScope().levels);
+    if (indexes.length === 0) { return; }
+    const intro = READ_GLOBAL_GUIDELINE_TOOL.description ?? '';
+    READ_GLOBAL_GUIDELINE_TOOL.description = intro + indexes.map((ix) =>
+        `\n\n---\n\nGuideline index of the ${ix.level} (current contents of \`${path.basename(path.dirname(ix.file))}/${path.basename(ix.file)}\`):\n\n${ix.content}`,
+    ).join('');
 }
 
 // ---------------------------------------------------------------------------

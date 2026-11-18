@@ -36,6 +36,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { WsPaths } from './workspacePaths';
+import { levelIndexes, listLevelFiles } from './guidelineFolders';
 import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
 import { osLoginName } from './osUserName';
@@ -800,10 +801,14 @@ export function resolveDynamicKey(key: string, values: Record<string, string>, n
  *                                user-level file, the folder chain with the
  *                                CLAUDE.local.md files, the @imports
  *                                (services/claudeMd.ts)
- *   ${guidelines-<name>}      → <workspace>/_copilot_guidelines/<name>.md
- *                                (fallback: _guidelines/<name>.md). `<name>` can
+ *   ${guidelines-<name>}      → <name>.md of the guidelines: the workspace
+ *                                folder's, else the root's (either folder name;
+ *                                fallback: _guidelines/<name>.md). `<name>` can
  *                                already include `.md`; no double-extension.
- *                                `${guidelines-index}` is the folder's index.md.
+ *   ${guidelines-index}       → the levels' indexes concatenated, the root's
+ *                                first (`index_root.md`, `index_workspace.md`,
+ *                                each else its level's index.md)
+ *   ${root-guidelines-index} / ${workspace-guidelines-index} → one level's index
  *   ${role-<name>}            → <workspace>/_ai/roles/<name>.md
  *                                (fallback: _ai/roles/<name>/role.md)
  *   ${quest-<type>}           → first file matching
@@ -833,17 +838,26 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
     }
 
-    // ${guidelines-<name>} — read a single file from the guidelines folder.
-    // Tries `_copilot_guidelines/<name>` first (the project convention), then
-    // falls back to `_guidelines/<name>`. Appends `.md` if the caller didn't.
+    // The guideline indexes: both levels concatenated, or one level's.
+    if (key === 'guidelines-index' || key === 'root-guidelines-index' || key === 'workspace-guidelines-index') {
+        const wanted = key === 'guidelines-index' ? undefined : key.slice(0, key.indexOf('-'));
+        return levelIndexes(WsPaths.guidelineLevels())
+            .filter((ix) => !wanted || ix.level === wanted)
+            .map((ix) => ix.content.trimEnd())
+            .join('\n\n');
+    }
+
+    // ${guidelines-<name>} — one file of the guidelines: the workspace
+    // folder's, else the root's, under either folder name; then the old
+    // `_guidelines/<name>` fallback. Appends `.md` if the caller didn't.
     if (key.startsWith('guidelines-')) {
         const rawName = key.slice('guidelines-'.length);
         if (!rawName) { return ''; }
         const fileName = rawName.endsWith('.md') ? rawName : `${rawName}.md`;
-        const primary = values['guidelinesPath'] || (wsRoot ? path.join(wsRoot, '_copilot_guidelines') : '');
+        const found = listLevelFiles(WsPaths.guidelineLevels()).find((f) => f.path === fileName);
+        const content = found ? safeReadFileSync(found.abs) : '';
+        if (content) { return content; }
         const fallback = wsRoot ? path.join(wsRoot, '_guidelines') : '';
-        const primaryContent = primary ? safeReadFileSync(path.join(primary, fileName)) : '';
-        if (primaryContent) { return primaryContent; }
         return fallback ? safeReadFileSync(path.join(fallback, fileName)) : '';
     }
 
@@ -1212,12 +1226,12 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${workspaceFolder}</code> – The workspace folder (the window's first folder)<br>
 <code>\${tomRoot}</code> – The root of the Tom workspace (the folder with .tom/tom_root.yaml; the workspace folder when standalone)<br>
 <code>\${aiFolder}</code> – AI folder name (_ai)<br>
-<code>\${guidelinesFolder}</code> – Guidelines folder name (_copilot_guidelines)<br>
+<code>\${guidelinesFolder}</code> – Guidelines folder name (_agent_guidelines; _copilot_guidelines is read too)<br>
 <code>\${githubFolder}</code> – GitHub folder name (.github)<br>
 <code>\${homeTomFolder}</code> – Home Tom folder name (.tom)<br>
 <code>\${wsConfigFolder}</code> – Workspace config folder name (.tom)<br>
 <code>\${aiPath}</code> – AI folder absolute path (the workspace folder's _ai, else the root's)<br>
-<code>\${guidelinesPath}</code> – Guidelines folder absolute path<br>
+<code>\${guidelinesPath}</code> – The workspace folder's guidelines folder, absolute (else the root's)<br>
 <code>\${questsPath}</code> – Quests folder absolute path<br>
 <code>\${rolesPath}</code> – Roles folder absolute path<br>
 <code>\${wsConfigPath}</code> – Config folder absolute path (the root's .tom)<br>
@@ -1296,7 +1310,8 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
 <code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>
 <code>\${claudeMd}</code> – Every <code>CLAUDE.md</code> as Claude Code loads it: <code>~/.claude/CLAUDE.md</code>, the folder chain with <code>CLAUDE.local.md</code>, the <code>@imports</code> (for direct, Local LLM and VS Code LM profiles; the Agent SDK loads them itself)<br>
-<code>\${guidelines-NAME}</code> – <code>_copilot_guidelines/NAME.md</code> (fallback: <code>_guidelines/NAME.md</code>). Omit or include <code>.md</code>. Example: <code>\${guidelines-index}</code>, <code>\${guidelines-project_guidelines}</code>.<br>
+<code>\${guidelines-NAME}</code> – <code>NAME.md</code> of the guidelines: the workspace folder's, else the root's (<code>_agent_guidelines/</code> or <code>_copilot_guidelines/</code>; fallback: <code>_guidelines/NAME.md</code>). Omit or include <code>.md</code>. Example: <code>\${guidelines-project_guidelines}</code>.<br>
+<code>\${guidelines-index}</code> – Both levels' guideline indexes, the root's first (<code>index_root.md</code>, <code>index_workspace.md</code>, each else its level's <code>index.md</code>); <code>\${root-guidelines-index}</code>, <code>\${workspace-guidelines-index}</code> – one level's<br>
 <code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
 <code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-copilot_todos}</code>.<br>
 <code>\${file-PATH}</code> – Inline any file; <code>PATH</code> is workspace-relative, or absolute when it starts with <code>/</code>. Example: <code>\${file-README.md}</code>, <code>\${file-/etc/hosts}</code>.<br>

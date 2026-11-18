@@ -8,7 +8,7 @@
  * schema `src/config/prerequisites.schema.json` also makes), the presence
  * checks per way of providing a secret (every effect through
  * {@link PrerequisiteCheckDeps}, so tests use fakes), and the roll-up the
- * SECRETS view shows. The guideline is `_copilot_guidelines/prerequisites_yaml.md`.
+ * SECRETS view shows. The guideline is `_agent_guidelines/prerequisites_yaml.md` (the root guidelines).
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- the format's own names (via values, tool names, env names, paths) */
@@ -203,7 +203,7 @@ function parseSecret(s: unknown, at: string, problems: PrerequisitesProblem[]): 
 export function prerequisitesSkeleton(projectName: string): string {
     return [
         '# What this project needs before it builds or runs: secrets (never their values) and software.',
-        '# Format: _copilot_guidelines/prerequisites_yaml.md; schema: the Tom AI extension\'s prerequisites.schema.json.',
+        '# Format: _agent_guidelines/prerequisites_yaml.md; schema: the Tom AI extension\'s prerequisites.schema.json.',
         `formatVersion: ${PREREQUISITES_FORMAT_VERSION}`,
         'sections:',
         '  - id: main',

@@ -144,8 +144,8 @@ import {
 export type { GetErrorsInput };
 export const GET_ERRORS_TOOL = GET_ERRORS_DEF;
 
-// Guideline tools — global (`_copilot_guidelines/`) + project
-// (`{project}/_copilot_guidelines/`) — plus initializeToolDescriptions()
+// Guideline tools — global (the root's and the workspace folder's guidelines,
+// `_agent_guidelines/` or `_copilot_guidelines/`) + project — plus initializeToolDescriptions()
 // live in `./guideline-tools.ts`.
 
 // ============================================================================

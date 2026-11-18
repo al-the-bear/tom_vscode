@@ -152,7 +152,7 @@ describe('readGlobalGuidelineImpl', () => {
         const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-ws-'));
         try {
             const r = await readGlobalGuidelineImpl(empty, { fileName: 'foo.md' });
-            assert.match(r, /folder not found at workspace root/);
+            assert.match(r, /folder not found/);
         } finally {
             fs.rmSync(empty, { recursive: true, force: true });
         }
@@ -319,7 +319,7 @@ describe('readProjectGuidelineImpl', () => {
             projectPath: 'tom_ai/nonexistent',
             fileName: 'foo.md',
         });
-        assert.match(r, /No `_copilot_guidelines\/` folder/);
+        assert.match(r, /No guidelines folder \(`_agent_guidelines\/ \(or _copilot_guidelines\/\)`\) found/);
         assert.match(r, /Pass projectPath as the folder containing/);
     });
 
@@ -352,7 +352,7 @@ describe('readProjectGuidelineImpl', () => {
         // classification fallback in the fileName.
         // (We document current behaviour — the lookup is at
         // `<wrongProject>/_copilot_guidelines` which doesn't exist.)
-        assert.match(r, /No `_copilot_guidelines\/` folder/);
+        assert.match(r, /No guidelines folder \(`_agent_guidelines\/ \(or _copilot_guidelines\/\)`\) found/);
     });
 });
 
@@ -387,7 +387,7 @@ describe('listProjectGuidelinesImpl', () => {
 
     test('missing project folder returns error', async () => {
         const r = JSON.parse(await listProjectGuidelinesImpl(tmp, { projectPath: 'tom_ai/nonexistent' }));
-        assert.match(r.error, /No _copilot_guidelines/);
+        assert.match(r.error, /No guidelines folder/);
     });
 });
 

@@ -1278,13 +1278,19 @@ function categoryFolder(category: DocumentCategory): string | undefined {
     }
 }
 
-const CATEGORY_RELATIVE: Record<DocumentCategory, string> = {
+const CATEGORY_RELATIVE: Record<Exclude<DocumentCategory, 'guidelines'>, string> = {
     prompts:    '_ai/prompt',
     answers:    '_ai/answers/copilot',
     notes:      '_ai/notes',
     roles:      '_ai/roles',
-    guidelines: '_copilot_guidelines',
 };
+
+/** A category's folder relative to the workspace folder (the guidelines folder is the one in use). */
+function categoryRelative(category: DocumentCategory, abs: string): string {
+    if (category !== 'guidelines') { return CATEGORY_RELATIVE[category]; }
+    const ws = WsPaths.wsRoot;
+    return ws ? path.relative(ws, abs).split(path.sep).join('/') : abs;
+}
 
 function walkRecursive(dir: string, prefix = ''): string[] {
     if (!fs.existsSync(dir)) { return []; }
@@ -1305,7 +1311,7 @@ const liveDocumentSource: DocumentSource = {
     resolveCategoryFolder(category) {
         const abs = categoryFolder(category);
         if (!abs) { return undefined; }
-        return { absolute: abs, relative: CATEGORY_RELATIVE[category] };
+        return { absolute: abs, relative: categoryRelative(category, abs) };
     },
     listFilesRecursive(absoluteFolder) {
         if (!fs.existsSync(absoluteFolder)) { return { exists: false, files: [] }; }
