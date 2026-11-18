@@ -442,7 +442,7 @@ todo-id-pattern: chat*                  # the todos it runs: a todo id, <prefix>
                                         # the todo panel marks them queued (utils/todoQueueMarks.ts)
 ```
 
-**Queue settings per run** persist to `queue-settings.yaml` via `QueueSettings` (`utils/runQueueSettings.ts`): each process run has its own auto-send, Auto-Start / -Pause / -Continue, walk continuations, defaults (transport, profile, configuration, session, prompt template) and Copilot answer timeout and reminder template, under `runs:`:
+**Queue settings per run** persist to `queue-settings.yaml` via `QueueSettings` (`utils/runQueueSettings.ts`): each process run has its own auto-send, Auto-Start / -Pause / -Continue, walk continuations, defaults (transport, profile, configuration, session, prompt template) and Copilot answer timeout and reminder template, per quest under `runs-by-quest.<quest>.<run>` (vscimpb168; a quest without an entry reads the older shared `runs:`, and its first write starts its entry from them). The file is shared by every window of every quest, so a window writes only the runs it changed (`_putRunSettings` / `_dropRunSettings` mark them; `persistSettings` merges them into the file read fresh through `questRunsInFile`): a run's auto-send held from its Auto-Start at activation stays in that window's memory and never switches another window's run off. An item from another quest (the inbox) without a run is queued in `default` with `runIsExplicit`, never in the window's current run or an inherited process position. The keys of a run entry:
 
 ```yaml
 runs:

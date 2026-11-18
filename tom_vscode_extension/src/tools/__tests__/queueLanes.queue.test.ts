@@ -10,7 +10,7 @@
  *        file when its own step's item is done, while the other run's item still sends
  *   QM-4 auto-send per run: a paused run starts nothing while another sends; its sending item stops before its
  *        next prompt (the pause gate); resuming it starts it; each run's auto-send is in the settings file
- *        (`runs:`), no lane keys
+ *        (`runs-by-quest.<quest>`), no lane keys
  *   QM-6 an error in one run (an item the API refuses) pauses only that run; the other run's next item sends
  *   QM-7 each run's defaults: transport, profile, configuration, session, prompt template, reminder template,
  *        Copilot answer timeout and walk continuations are the item's run's
@@ -19,7 +19,7 @@
  *        paused, one with Auto-Continue and an interrupted item gets its 30 s start; a run created later
  *        starts from the start values
  *   QM-10 a settings file in the old shape (top-level keys) loads into the default run and gives a new run its
- *        start values; writing keeps the old keys as they were and adds `runs:`
+ *        start values; writing keeps the old keys as they were and writes the run changed under `runs-by-quest`
  *   QM-13 Make default (vscimpb60g): a run's shown settings become the file's top-level keys (the start values);
  *        `runs:` and the file's other keys stay as they are; runs with settings of their own (the source run
  *        included) keep them, a run created later starts from the new values, also after the file is read again;
@@ -50,6 +50,9 @@ const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '
 const WS = path.join(SANDBOX, 'ws');
 const HOME = path.join(SANDBOX, 'home');
 const QUEST = 'q1';
+/** This quest's run settings in the shared settings file (runs-by-quest.<quest>, vscimpb168). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const questRuns = (): any => ((readQueueSettings() as any)?.['runs-by-quest'] ?? {})[QUEST] ?? {};
 
 function put(rel: string, text: string): void {
     const abs = path.join(WS, rel);
@@ -227,7 +230,7 @@ describe('lanes and settings per run', () => {
         const held = { ...queue().getById(b.id)!, status: 'sending', repeatIndex: 1 } as QueuedPrompt;
         assert.equal((queue() as Json)._pauseBeforeNextDispatch(held), true);
         assert.equal(gate(a), false);
-        const runs = (readQueueSettings() as Json).runs;
+        const runs = questRuns();
         assert.equal(runs.r2['auto-send-enabled'], false);
         assert.equal(runs.r1['auto-send-enabled'], true);
         queue().setRunAutoSend('r2', true);
@@ -235,7 +238,7 @@ describe('lanes and settings per run', () => {
         assert.equal(statusOf(b), 'sending', 'resuming the run starts it');
         await finish(a);
         await finish(b);
-        assert.equal((readQueueSettings() as Json).runs.r2['auto-send-enabled'], true);
+        assert.equal(questRuns().r2['auto-send-enabled'], true);
         clean();
     });
 
@@ -345,9 +348,10 @@ describe('lanes and settings per run', () => {
         queue().setRunQueueSettings('r1', { autoPause: true });
         const written = readQueueSettings() as Json;
         assert.equal(written['auto-pause-enabled'], false, 'the old keys stay as they were');
-        assert.equal(written.runs.default['default-anthropic-profile-id'], 'pOld');
-        assert.equal(written.runs.r1['auto-pause-enabled'], true);
-        assert.equal(written.runs.r1['default-anthropic-profile-id'], 'pOld', 'r1 started from the start values');
+        // Per quest (vscimpb168): only the run this window changed is written, under runs-by-quest.<quest>.
+        assert.deepEqual(Object.keys(written['runs-by-quest'][QUEST]), ['r1'], 'only the run changed');
+        assert.equal(written['runs-by-quest'][QUEST].r1['auto-pause-enabled'], true);
+        assert.equal(written['runs-by-quest'][QUEST].r1['default-anthropic-profile-id'], 'pOld', 'r1 started from the start values');
         // A file with `runs:` reads each run's own settings over the start values.
         (queue() as Json).restoreSettings();
         assert.equal(queue().runQueueSettings('r1').autoPause, true);
@@ -506,7 +510,7 @@ describe('lanes and settings per run', () => {
         // Only the finished ones: the others and the settings stay.
         assert.deepEqual(queue().removeRunQueue('r1', 'finished'), { removed: 2, kept: 2, settingsRemoved: false });
         assert.deepEqual([statusOf(a), statusOf(b), statusOf(c), statusOf(e), statusOf(x)], ['pending', 'staged', undefined, undefined, 'pending']);
-        assert.ok((readQueueSettings() as Json).runs.r1, 'r1 keeps its settings while it has items');
+        assert.ok(questRuns().r1, 'r1 keeps its settings while it has items');
         const left = runQueueRemovalDialog(runQueueRemovalPlan(queue().items, 'r1'));
         assert.deepEqual(left.choices.map((ch) => ch.mode), ['all'], 'nothing finished left: only Delete all');
         // All: a sending item is stopped, the settings go.
@@ -517,9 +521,9 @@ describe('lanes and settings per run', () => {
         assert.match(runQueueRemovalDialog(runQueueRemovalPlan(queue().items, 'r1')).detail, /the sending one is stopped/);
         assert.deepEqual(queue().removeRunQueue('r1', 'all'), { removed: 2, kept: 0, settingsRemoved: true });
         assert.deepEqual([statusOf(a), statusOf(b)], [undefined, undefined]);
-        assert.equal((readQueueSettings() as Json).runs.r1, undefined, 'runs.r1 removed: a run created later starts from the defaults');
+        assert.equal(questRuns().r1, undefined, 'r1 removed: a run created later starts from the defaults');
         assert.equal(statusOf(x), 'pending', 'r2\'s item untouched');
-        assert.ok((readQueueSettings() as Json).runs.r2, 'r2\'s settings untouched');
+        assert.ok(questRuns().r2, 'r2\'s settings untouched');
         const only = runQueueRemovalDialog({ run: 'z', total: 3, finished: ['1', '2', '3'], open: [], openByStatus: {}, sending: false });
         assert.deepEqual(only.choices, [{ label: 'Delete 3 items', mode: 'all' }], 'all finished: one confirmation');
         inFlight.clear();

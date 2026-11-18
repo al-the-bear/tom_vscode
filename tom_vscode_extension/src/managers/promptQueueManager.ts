@@ -7,7 +7,7 @@
  */
 
 import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
-import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, defaultSettingsDiff, readRunQueueSettings, runQueueSettingsToFile, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
+import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, defaultSettingsDiff, questRunsInFile, readQuestRunQueueSettings, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
@@ -2560,7 +2560,7 @@ export class PromptQueueManager {
         const kept = this._items.filter((i) => itemRun(i) === run).length;
         let settingsRemoved = false;
         if (kept === 0 && run !== DEFAULT_RUN && this._runSettings.has(run)) {
-            this._runSettings.delete(run);
+            this._dropRunSettings(run);
             const timer = this._autoContinueTimers.get(run);
             if (timer) { clearTimeout(timer); this._autoContinueTimers.delete(run); }
             this.persistSettings();
@@ -5103,7 +5103,7 @@ export class PromptQueueManager {
         // next pending item.
         for (const run of new Set(errorItems.map((i) => itemRun(i)))) {
             if (this._settingsOf(run).autoSend) { continue; }
-            this._runSettings.set(run, { ...this._settingsOf(run), autoSend: true });
+            this._putRunSettings(run, { ...this._settingsOf(run), autoSend: true });
             logQueue(`retryAllErrors: re-enabled auto-send of run ${run} for the retry cascade`);
         }
         this.persistSettings();
@@ -5753,7 +5753,10 @@ export class PromptQueueManager {
         }
         // An item another quest sends is deliberate: it is queued even when its todos already are.
         // `queueNext` (the todo panel's "next", vscimpb139): at the front of its run's queue.
-        const { queueNext, ...asQueued } = conversion.enqueue;
+        // Its run: the one the sender named, else `default` (vscimpb168) — never this window's current run, nor a
+        // process position the take-up happens to run in: a delivered item does not land in the run the user works on.
+        const { queueNext, ...named } = conversion.enqueue;
+        const asQueued = { ...named, run: named.run ?? DEFAULT_RUN, runIsExplicit: true as const };
         const withoutSession = { ...asQueued, session: undefined, temporarySession: undefined, allowDuplicateTodo: true };
         let item: QueuedPrompt;
         try {
@@ -6601,12 +6604,52 @@ export class PromptQueueManager {
         // Auto-send toggling changes whether this window drives the queue, so
         // refresh the live 'queue' window-status dot.
         this._refreshQueueWindowStatus();
-        writeQueueSettings({ runs: runQueueSettingsToFile(this._runSettings) });
+        writeQueueSettings({ [RUNS_BY_QUEST_KEY]: this._changedRunsInFile() });
     }
 
-    /** Restore the run settings from disk (any shape: old top-level keys, `runs:`, both). */
+    /** The runs this window changed since it last wrote them (vscimpb168: only those are written). */
+    private readonly _changedRuns = new Set<string>();
+    private readonly _droppedRuns = new Set<string>();
+
+    /** Store a run's settings as changed by this window (written at the next persist). */
+    private _putRunSettings(run: string, settings: RunQueueSettings): void {
+        this._runSettings.set(run, settings);
+        this._changedRuns.add(run);
+        this._droppedRuns.delete(run);
+    }
+
+    /** Drop a run's settings (written at the next persist). */
+    private _dropRunSettings(run: string): void {
+        this._runSettings.delete(run);
+        this._changedRuns.delete(run);
+        this._droppedRuns.add(run);
+    }
+
+    /** The quest whose run settings this window keeps (`runs-by-quest.<quest>`). */
+    private _settingsQuest(): string {
+        return this.activeQuestId() || 'default';
+    }
+
+    /**
+     * The file's `runs-by-quest` with this window's changes in it (vscimpb168): read fresh, so the runs another
+     * window changed and the runs this window only holds in memory (a run's auto-send set from its Auto-Start at
+     * activation) are left as the file has them. One window cannot switch another's run off.
+     */
+    private _changedRunsInFile(): Record<string, Record<string, unknown>> {
+        const changed = new Map<string, RunQueueSettings>();
+        for (const run of this._changedRuns) {
+            const s = this._runSettings.get(run);
+            if (s) { changed.set(run, s); }
+        }
+        const value = questRunsInFile(readQueueSettings(), this._settingsQuest(), changed, this._droppedRuns);
+        this._changedRuns.clear();
+        this._droppedRuns.clear();
+        return value;
+    }
+
+    /** Restore the run settings from disk: this quest's (`runs-by-quest`), else the old shared `runs:`. */
     private restoreSettings(): void {
-        const stored = readRunQueueSettings(readQueueSettings());
+        const stored = readQuestRunQueueSettings(readQueueSettings(), this._settingsQuest());
         this._runStart = stored.start;
         this._runSettings = stored.runs;
         logQueue(`restoreSettings: runs ${[...this._runSettings.keys()].join(', ')}`);
@@ -6683,7 +6726,7 @@ export class PromptQueueManager {
         for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId'] as const) {
             if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
         }
-        this._runSettings.set(name, next);
+        this._putRunSettings(name, next);
         const changed = Object.keys(patch).filter((k) => (before as unknown as Record<string, unknown>)[k] !== (next as unknown as Record<string, unknown>)[k]);
         if (changed.length) { logQueue(`Run ${name}: ${changed.map((k) => `${k}=${String((next as unknown as Record<string, unknown>)[k])}`).join(', ')}`); }
         this.persistSettings();
@@ -6717,7 +6760,7 @@ export class PromptQueueManager {
         this._runStart = startWithDefaultsFrom(this._runStart, from);
         logQueue(`Make default from run ${name}: ${changed.length ? changed.join(', ') : 'nothing changed'}`);
         this._refreshQueueWindowStatus();
-        writeQueueSettings({ ...runQueueSettingsToKeys(this._runStart, DEFAULT_SETTING_FIELDS), runs: runQueueSettingsToFile(this._runSettings) });
+        writeQueueSettings({ ...runQueueSettingsToKeys(this._runStart, DEFAULT_SETTING_FIELDS), [RUNS_BY_QUEST_KEY]: this._changedRunsInFile() });
         this._onDidChange.fire();
         return changed;
     }
@@ -6731,7 +6774,7 @@ export class PromptQueueManager {
     private _pauseRunOf(item: QueuedPrompt | undefined, why: string): void {
         const run = item ? itemRun(item) : this._windowRun();
         if (!this._settingsOf(run).autoSend) { return; }
-        this._runSettings.set(run, { ...this._settingsOf(run), autoSend: false });
+        this._putRunSettings(run, { ...this._settingsOf(run), autoSend: false });
         logQueue(`Run ${run} paused: ${why}`);
         this.persistSettings();
         this._onDidChange.fire();

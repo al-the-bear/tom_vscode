@@ -164,3 +164,63 @@ export function runQueueSettingsToFile(runs: ReadonlyMap<string, RunQueueSetting
     for (const name of names) { out[name] = runQueueSettingsToKeys(runs.get(name)!); }
     return out;
 }
+
+/**
+ * The run settings are kept per quest (vscimpb168): `runs-by-quest.<quest>.<run>`
+ * of the settings file. The file is shared by every window of every quest, and
+ * run names repeat across quests (`default` always), so one quest's runs never
+ * change another's. A quest without an entry yet reads the old shared `runs:`
+ * (they become its own at its first write).
+ */
+export const RUNS_BY_QUEST_KEY = 'runs-by-quest';
+
+function questRunsRaw(file: unknown, quest: string): Record<string, unknown> | undefined {
+    if (typeof file !== 'object' || file === null) { return undefined; }
+    const byQuest = (file as Record<string, unknown>)[RUNS_BY_QUEST_KEY];
+    if (typeof byQuest !== 'object' || byQuest === null || Array.isArray(byQuest)) { return undefined; }
+    const own = (byQuest as Record<string, unknown>)[quest];
+    return typeof own === 'object' && own !== null && !Array.isArray(own) ? own as Record<string, unknown> : undefined;
+}
+
+/** The run settings of `quest` in a settings file: its own entry, else the old shared `runs:`. */
+export function readQuestRunQueueSettings(file: unknown, quest: string): StoredRunQueueSettings {
+    const shared = readRunQueueSettings(file);
+    const own = questRunsRaw(file, quest);
+    if (!own) { return shared; }
+    const runs = new Map<string, RunQueueSettings>();
+    for (const [name, raw] of Object.entries(own)) {
+        if (!name.trim()) { continue; }
+        runs.set(normalizeRun(name), applyRunQueueKeys(shared.start, raw));
+    }
+    if (!runs.has(DEFAULT_RUN)) { runs.set(DEFAULT_RUN, { ...shared.start }); }
+    return { start: shared.start, runs };
+}
+
+/**
+ * The new `runs-by-quest` value: the file's, with `quest`'s entry changed only
+ * in the runs given (`changed` written, `removed` dropped). The other quests,
+ * and the runs of `quest` this window did not change, stay as the file has
+ * them. A quest without an entry starts from the old shared `runs:`.
+ */
+export function questRunsInFile(
+    file: unknown,
+    quest: string,
+    changed: ReadonlyMap<string, RunQueueSettings>,
+    removed: Iterable<string> = [],
+): Record<string, Record<string, unknown>> {
+    const f = (typeof file === 'object' && file !== null ? file : {}) as Record<string, unknown>;
+    const byQuest = typeof f[RUNS_BY_QUEST_KEY] === 'object' && f[RUNS_BY_QUEST_KEY] !== null && !Array.isArray(f[RUNS_BY_QUEST_KEY])
+        ? { ...(f[RUNS_BY_QUEST_KEY] as Record<string, Record<string, unknown>>) }
+        : {};
+    // A quest's first entry starts from the old shared runs, each written out in full over the start values as
+    // the file has them now: a later Make default (new start values) does not change them.
+    const legacy = typeof f.runs === 'object' && f.runs !== null && !Array.isArray(f.runs) ? f.runs as Record<string, unknown> : {};
+    const start = applyRunQueueKeys(BUILTIN_RUN_QUEUE_SETTINGS, file);
+    const seed = questRunsRaw(file, quest)
+        ?? Object.fromEntries(Object.entries(legacy).filter(([name]) => name.trim()).map(([name, raw]) => [name, runQueueSettingsToKeys(applyRunQueueKeys(start, raw))]));
+    const own: Record<string, unknown> = { ...seed };
+    for (const name of removed) { delete own[name]; }
+    for (const [name, s] of changed) { own[name] = runQueueSettingsToKeys(s); }
+    byQuest[quest] = own;
+    return byQuest;
+}

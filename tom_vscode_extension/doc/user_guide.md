@@ -789,7 +789,7 @@ The queue uses RequestId-based answer file matching:
 
 ### Automation Settings
 
-Every process run has its own queue settings: the ones below, the defaults new items take (transport, profile, session, prompt template), the walk continuations, and the Copilot answer timeout and reminder template. Each run's tab (see *Process runs* below) shows and sets that run's settings. Only the compaction and memory-extraction models are shared by all runs (above the tabs). The settings are kept in `queue-settings.yaml` under `runs:`. The file's top-level keys (one set for the whole queue, also the old shape of the file) are the start values: the settings of a run that has none of its own yet. **Make default** (the pin button in a tab's toolbar, *Make these settings the default for new runs*) writes the tab's settings there: runs without settings of their own and runs created later start from them, runs with their own keep them. The status bar says what changed; the button is disabled while the tab's settings already are the default. The walk continuations are not copied.
+Every process run has its own queue settings: the ones below, the defaults new items take (transport, profile, session, prompt template), the walk continuations, and the Copilot answer timeout and reminder template. Each run's tab (see *Process runs* below) shows and sets that run's settings. Only the compaction and memory-extraction models are shared by all runs (above the tabs). The settings are kept per quest, in `queue-settings.yaml` under `runs-by-quest:` → the quest → the run: the file is shared by every window of every quest, and two quests' runs of the same name (every quest's `default`) keep their own settings. A window writes only the runs it changed, so one window never switches another window's run on or off; a quest without its own entry yet starts from the older shared `runs:`. The file's top-level keys (one set for the whole queue, also the old shape of the file) are the start values: the settings of a run that has none of its own yet. **Make default** (the pin button in a tab's toolbar, *Make these settings the default for new runs*) writes the tab's settings there: runs without settings of their own and runs created later start from them, runs with their own keep them. The status bar says what changed; the button is disabled while the tab's settings already are the default. The walk continuations are not copied.
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -939,7 +939,10 @@ done-notification prompt, typically one that sends a message back, and where
 that notification is queued (back in the sender's quest and run, so it hears
 back directly). The item can go into a process run of the target quest, and
 it can be a todo walk there: `repeatCount: "<prefix>*"` walks the target
-quest's todos with that prefix in that run's lane. A run the target quest does
+quest's todos with that prefix in that run's lane. Without a run it goes into
+the target quest's `default` run (and its queue's default session) — never the
+run the target window happens to work on, so its *pause after this* holds
+`default`, not the run you work on there. A run the target quest does
 not have is refused when the item is sent; a sent item never creates a run. In
 those prompts `${senderQuest}` and `${senderRun}` are the sending quest and
 run.

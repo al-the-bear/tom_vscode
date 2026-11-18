@@ -350,6 +350,12 @@ export interface QueueSettings {
      * (PromptQueueManager.setDefaultQueueSettings).
      */
     runs?: Record<string, Record<string, unknown>>;
+    /**
+     * The run settings of each quest (utils/runQueueSettings.ts RUNS_BY_QUEST_KEY): `<quest>` → `<run>` → keys like
+     * `runs:`. A quest without an entry reads the old shared `runs:` above; a window writes only its own quest's
+     * runs, and only those it changed.
+     */
+    'runs-by-quest'?: Record<string, Record<string, unknown>>;
     /** Old shape (Queue per run is always on now); ignored. */
     'queue-per-run'?: boolean;
     /** Old shape (a paused run is one whose auto-send is off); ignored. */
