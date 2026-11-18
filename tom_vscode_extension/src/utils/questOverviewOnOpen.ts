@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import { samePath } from './pathCompare';
 
 /** globalState key: the quest ids whose overview was shown on this machine (and VS Code profile). */
 export const QUEST_OVERVIEW_SHOWN_KEY = 'tomAi.questOverview.shown';
@@ -49,6 +50,6 @@ export function isOpenInMdBrowser(
 ): boolean {
     const target = path.resolve(file);
     const name = path.basename(file);
-    return entries.some((e) => (e.filePath !== '' && path.resolve(e.filePath) === target)
+    return entries.some((e) => (e.filePath !== '' && samePath(e.filePath, target))
         || (e.filePath === '' && !!e.label && (e.label === `MD: ${name}` || e.label === `MD (live): ${name}`)));
 }

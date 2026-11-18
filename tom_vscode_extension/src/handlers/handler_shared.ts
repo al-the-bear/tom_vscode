@@ -5,7 +5,7 @@
  * including logging, error handling, workspace utilities, and bridge management.
  */
 
-import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -148,18 +148,6 @@ export function reportException(context: string, error: unknown, details?: Recor
 // ============================================================================
 // Workspace Utilities
 // ============================================================================
-
-/**
- * The workspace folder: the window's first folder (`getLayout().workspaceFolder`),
- * undefined without a folder.
- *
- * @deprecated Use `getLayout().workspaceFolder` (`utils/workspaceLayout.ts`) for
- * the workspace folder, `WsPaths.ai*` / `getLayout().aiRoot` for `_ai`. Kept for
- * the `_ai` call sites until 02_wslayout-3 moves them and removes this.
- */
-export function getWorkspaceRoot(): string | undefined {
-    return getLayout()?.workspaceFolder;
-}
 
 /**
  * Get the resolved path to the extension config file.

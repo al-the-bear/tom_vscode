@@ -29,6 +29,7 @@
 import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
+import { relativeInside } from './pathCompare';
 import { isMap, isSeq, parse, type YAMLMap } from 'yaml';
 import { isArchivedOrDeletedTodoFile } from './todoArchiveNames';
 import { liveQuestTodoFiles, setAfterTodoWriteHook, writeTodoFileText } from './todoBlockingSync';
@@ -501,8 +502,8 @@ export function applyBlockingCascade(crossings: readonly StatusCrossing[], quest
 // The hook: after a write of a live quest todo file, the dependents of the todos that crossed follow.
 setAfterTodoWriteHook((filePath, beforeText, afterText, questsRoot) => {
     if (isArchivedOrDeletedTodoFile(path.basename(filePath))) { return; }
-    const rel = path.relative(questsRoot, filePath).split(path.sep);
-    if (rel.length !== 2 || rel[0].startsWith('..')) { return; }
+    const rel = relativeInside(filePath, questsRoot);
+    if (!rel || rel.length !== 2) { return; }
     const crossings = crossingsOfWrite(rel[0], beforeText, afterText);
     if (crossings.length) { applyBlockingCascade(crossings, questsRoot); }
 });

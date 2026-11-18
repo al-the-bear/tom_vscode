@@ -44,7 +44,7 @@ describe('multi-root window: the workspace folder is the first folder', () => {
         installVscodeStub({ workspaceFolders: [first, second] });
         layout.resetLayoutForTests();
         activeEditorInSecond();
-        assert.equal(shared.getWorkspaceRoot(), first);
+        assert.equal((shared as Record<string, unknown>).getWorkspaceRoot, undefined, 'removed: the layout answers the workspace folder');
         assert.equal(layout.layoutWorkspaceFolder(), first);
         assert.deepEqual(layout.layoutExtraRootFolders(), [second]);
     });

@@ -14,7 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { getWorkspaceRoot, loadSendToChatConfig } from '../handlers/handler_shared';
+import { loadSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { debugLog } from '../utils/debugLogger';
@@ -64,9 +64,9 @@ export function getWorkspaceName(): string {
 function detectQuestFromWorkspace(): string | null {
     const wsName = getWorkspaceName();
     if (wsName === 'default') { return null; }
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) { return null; }
-    const questFolder = WsPaths.ai('quests', wsName) || path.join(wsRoot, '_ai', 'quests', wsName);
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return null; }
+    const questFolder = WsPaths.ai('quests', wsName) || path.join(aiRoot, 'quests', wsName);
     if (fs.existsSync(questFolder)) { return wsName; }
     return null;
 }
@@ -77,20 +77,20 @@ function detectQuestFromWorkspace(): string | null {
  * generated, gitignored trail files; otherwise falls back to `_ai/trail`.
  */
 export function getTrailFolder(): string {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) { return ''; }
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return ''; }
     const questId = detectQuestFromWorkspace();
     if (questId) {
-        return questTrailFolder(WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId));
+        return questTrailFolder(WsPaths.ai('quests', questId) || path.join(aiRoot, 'quests', questId));
     }
-    return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
+    return WsPaths.ai('trail') || path.join(aiRoot, 'trail');
 }
 
 /** Folder for per-request individual raw trail files (always `_ai/trail`). */
 export function getIndividualTrailFolder(): string {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) { return ''; }
-    return WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return ''; }
+    return WsPaths.ai('trail') || path.join(aiRoot, 'trail');
 }
 
 /** Prefix used in Copilot summary trail file names — the quest id. */
@@ -102,10 +102,10 @@ export function getTrailFilePrefix(): string {
 export function getCopilotSummaryTrailPaths():
     | { questId: string; folder: string; promptsPath: string; answersPath: string }
     | null {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) { return null; }
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return null; }
     const questId = WsPaths.getWorkspaceQuestId();
-    const questFolder = WsPaths.ai('quests', questId) || path.join(wsRoot, '_ai', 'quests', questId);
+    const questFolder = WsPaths.ai('quests', questId) || path.join(aiRoot, 'quests', questId);
     const folder = questTrailFolder(questFolder);
     return {
         questId,

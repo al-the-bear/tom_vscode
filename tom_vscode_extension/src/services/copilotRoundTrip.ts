@@ -18,7 +18,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { copilotQueueWrapper } from '../utils/copilotTemplates';
-import { updateChatResponseValues, loadSendToChatConfig, getWorkspaceRoot } from '../handlers/handler_shared';
+import { updateChatResponseValues, loadSendToChatConfig } from '../handlers/handler_shared';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { expandTemplate } from '../handlers/promptTemplate';
 import { generateShortUUID, getCopilotAnswerFile } from '../utils/variableResolver';
 import { logPrompt, logResponse } from './trailLogging';
@@ -259,7 +260,7 @@ function liveSink(requestId: string): AnswerFileSink {
  * `{ok: false, error, …}` (a timeout: `timedOut: true`).
  */
 export async function askCopilotForScript(input: CopilotRoundTripInput): Promise<string> {
-    if (!getWorkspaceRoot()) {
+    if (!layoutWorkspaceFolder()) {
         return JSON.stringify({ ok: false, error: 'No workspace folder open.' });
     }
     const questId = WsPaths.getWorkspaceQuestId();

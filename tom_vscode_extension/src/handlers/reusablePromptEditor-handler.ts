@@ -15,7 +15,6 @@ import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getWorkspaceRoot } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { projectPromptScopes, scanPromptScopes } from '../utils/promptScopes';
@@ -169,9 +168,9 @@ export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext
 // ============================================================================
 
 function _getGlobalPromptsDir(): string | null {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return null;
-    return WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return null;
+    return WsPaths.ai('prompt') || path.join(aiRoot, 'prompt');
 }
 
 function _getActiveQuestId(): string {
@@ -194,16 +193,16 @@ function _getPreferredQuestId(): string {
 }
 
 function _getQuestPromptsDir(questId: string): string | null {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot || !questId) return null;
-    return WsPaths.ai('quests', questId, 'prompt') || path.join(wsRoot, '_ai', 'quests', questId, 'prompt');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot || !questId) return null;
+    return WsPaths.ai('quests', questId, 'prompt') || path.join(aiRoot, 'quests', questId, 'prompt');
 }
 
 function _getQuestPromptScopes(): ScopeItem[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return [];
 
-    const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
     if (!fs.existsSync(questsDir) || !fs.statSync(questsDir).isDirectory()) return [];
 
     return fs.readdirSync(questsDir, { withFileTypes: true })

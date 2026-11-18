@@ -17,7 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { getCopilotChatAnswerFolderAbsolute, getWorkspaceRoot, loadSendToChatConfig } from '../handlers/handler_shared';
+import { getCopilotChatAnswerFolderAbsolute, loadSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 
 /**
@@ -99,9 +99,8 @@ export function readAnswerFile(): CopilotAnswerPayload | undefined {
 /** Resolve the configured per-window markdown log folder root. */
 function getCopilotLogsRoot(): string {
     const config = loadSendToChatConfig();
-    const wsRoot = getWorkspaceRoot();
     const basePath = config?.copilot?.answerFolder || WsPaths.aiRelative('copilot');
-    const fullBase = wsRoot ? path.join(wsRoot, basePath) : WsPaths.home('copilotAnswers');
+    const fullBase = WsPaths.resolveWorkspaceRelative(basePath) ?? WsPaths.home('copilotAnswers');
     return path.join(fullBase, getWindowId());
 }
 

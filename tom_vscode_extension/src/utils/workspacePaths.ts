@@ -198,6 +198,24 @@ export class WsPaths {
     }
 
     /**
+     * A configured path relative to the workspace folder, absolute: one under
+     * `_ai/` (or `_ai` itself) goes to the `_ai` root, which may be the root's
+     * when the workspace folder has none; an absolute path stays as it is.
+     * Undefined without a workspace folder (or, for an `_ai` path, without an
+     * `_ai` root).
+     */
+    static resolveWorkspaceRelative(rel: string): string | undefined {
+        if (path.isAbsolute(rel)) return rel;
+        const parts = rel.split(/[\\/]+/).filter((p) => p && p !== '.');
+        if (parts[0] === this.aiFolder) {
+            const ai = this.aiRoot;
+            return ai ? path.join(ai, ...parts.slice(1)) : undefined;
+        }
+        const ws = this.wsRoot;
+        return ws ? path.join(ws, rel) : undefined;
+    }
+
+    /**
      * The AI folder as an absolute path (`TomLayout.aiRoot`): the workspace
      * folder's `_ai` when it exists, else the root's. It may not exist
      * (`getLayout().aiMissing`).

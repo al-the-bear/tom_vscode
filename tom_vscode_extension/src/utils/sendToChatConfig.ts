@@ -1043,9 +1043,5 @@ export function getCopilotChatAnswerFolder(): string {
  * Falls back to `~/.tom/copilot-chat-answers/` when no workspace is open.
  */
 export function getCopilotChatAnswerFolderAbsolute(): string {
-    const wsRoot = layoutWorkspaceFolder();
-    if (wsRoot) {
-        return path.join(wsRoot, getCopilotChatAnswerFolder());
-    }
-    return WsPaths.home('copilotChatAnswers');
+    return WsPaths.resolveWorkspaceRelative(getCopilotChatAnswerFolder()) ?? WsPaths.home('copilotChatAnswers');
 }

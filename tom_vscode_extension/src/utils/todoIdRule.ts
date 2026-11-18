@@ -13,8 +13,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** The schema file, relative to the workspace root. */
-export const TODO_SCHEMA_RELATIVE_PATH = path.join('_ai', 'schemas', 'yaml', 'todo.schema.json');
+/** The schema file, relative to the `_ai` root. */
+export const TODO_SCHEMA_AI_PATH = path.join('schemas', 'yaml', 'todo.schema.json');
+
+/** How refusals name the schema file. */
+const TODO_SCHEMA_SHOWN = '_ai/schemas/yaml/todo.schema.json';
 
 export interface TodoIdRule {
     /** The schema's id pattern, as written. */
@@ -26,10 +29,10 @@ export interface TodoIdRule {
 
 let cache: { file: string; mtimeMs: number; rule: TodoIdRule | undefined } | undefined;
 
-/** The id rule of the todo schema under `wsRoot`, or undefined when there is no schema (or it names no id pattern). */
-export function todoIdRule(wsRoot: string): TodoIdRule | undefined {
-    if (!wsRoot) { return undefined; }
-    const file = path.join(wsRoot, TODO_SCHEMA_RELATIVE_PATH);
+/** The id rule of the todo schema under the `_ai` root `aiRoot`, or undefined when there is no schema (or it names no id pattern). */
+export function todoIdRule(aiRoot: string): TodoIdRule | undefined {
+    if (!aiRoot) { return undefined; }
+    const file = path.join(aiRoot, TODO_SCHEMA_AI_PATH);
     let mtimeMs: number;
     try { mtimeMs = fs.statSync(file).mtimeMs; } catch { return undefined; }
     if (cache && cache.file === file && cache.mtimeMs === mtimeMs) { return cache.rule; }
@@ -50,17 +53,17 @@ export function todoIdRule(wsRoot: string): TodoIdRule | undefined {
     return rule;
 }
 
-/** Why `id` is no todo id by the schema under `wsRoot`, naming the rule; undefined when it is (or no schema is there). */
-export function todoIdRuleError(id: string, wsRoot: string): string | undefined {
-    const rule = todoIdRule(wsRoot);
+/** Why `id` is no todo id by the schema under the `_ai` root `aiRoot`, naming the rule; undefined when it is (or no schema is there). */
+export function todoIdRuleError(id: string, aiRoot: string): string | undefined {
+    const rule = todoIdRule(aiRoot);
     if (!rule || rule.regex.test(id)) { return undefined; }
-    return `"${id}" is no todo id: the todo schema (${TODO_SCHEMA_RELATIVE_PATH.split(path.sep).join('/')}) requires ${rule.words} — pattern ${rule.pattern}.`;
+    return `"${id}" is no todo id: the todo schema (${TODO_SCHEMA_SHOWN}) requires ${rule.words} — pattern ${rule.pattern}.`;
 }
 
 /** The first refusal among `ids` (each named), or undefined when the schema accepts them all. */
-export function todoIdsRuleError(ids: Iterable<string>, wsRoot: string): string | undefined {
-    const bad = [...ids].filter((id) => todoIdRuleError(id, wsRoot));
+export function todoIdsRuleError(ids: Iterable<string>, aiRoot: string): string | undefined {
+    const bad = [...ids].filter((id) => todoIdRuleError(id, aiRoot));
     if (!bad.length) { return undefined; }
-    const first = todoIdRuleError(bad[0], wsRoot)!;
+    const first = todoIdRuleError(bad[0], aiRoot)!;
     return bad.length === 1 ? first : `${first} Also refused: ${bad.slice(1).join(', ')}.`;
 }

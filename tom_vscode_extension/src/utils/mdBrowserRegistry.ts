@@ -17,6 +17,7 @@
  */
 
 import * as path from 'path';
+import { samePath } from './pathCompare';
 
 export interface MdBrowserPanelState {
     filePath: string;
@@ -137,7 +138,7 @@ export class MdBrowserRegistry {
         const name = path.basename(entry.filePath);
         const prefix = entry.liveMode ? 'MD (live): ' : 'MD: ';
         const clash = this.entries().some((e) =>
-            e.panelId !== panelId && e.filePath !== '' && path.basename(e.filePath) === name && path.resolve(e.filePath) !== path.resolve(entry.filePath));
+            e.panelId !== panelId && e.filePath !== '' && path.basename(e.filePath) === name && !samePath(e.filePath, entry.filePath));
         return clash ? `${prefix}${name} (${path.basename(path.dirname(entry.filePath))})` : `${prefix}${name}`;
     }
 

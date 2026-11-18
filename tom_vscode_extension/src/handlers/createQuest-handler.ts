@@ -11,7 +11,6 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getWorkspaceRoot } from './handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { createQuestScaffold, defaultQuestName, questIdProblem, type QuestScaffoldResult } from '../utils/questScaffold';
 import { CREATE_QUEST_COMMAND } from '../utils/setupCommandIds';
@@ -34,15 +33,14 @@ export type CreateQuestOutcome =
 
 /** The folder quests live in. */
 function questsDir(): string | undefined {
-    const root = getWorkspaceRoot();
-    if (!root) { return undefined; }
-    return WsPaths.ai('quests') ?? path.join(root, '_ai', 'quests');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return undefined; }
+    return WsPaths.ai('quests') ?? path.join(aiRoot, 'quests');
 }
 
 export async function createQuest(args: CreateQuestArgs = {}): Promise<CreateQuestOutcome> {
-    const root = getWorkspaceRoot();
     const dir = questsDir();
-    if (!root || !dir) {
+    if (!dir) {
         const error = 'Open a workspace folder first: a quest lives in its _ai/quests/ folder.';
         void vscode.window.showErrorMessage(error);
         return { ok: false, error };

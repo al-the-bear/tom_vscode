@@ -10,7 +10,6 @@ export {
     bridgeLog,
     handleError,
     reportException,
-    getWorkspaceRoot,
     getConfigPath,
     getWorkspaceStructure,
     ensureBridgeRunning,

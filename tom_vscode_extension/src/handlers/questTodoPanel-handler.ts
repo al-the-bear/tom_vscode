@@ -26,6 +26,7 @@ import * as vscode from 'vscode';
 import { questShortDescription, windowWorkspaceQuests, workspaceQuestChoices } from '../services/aiWorkspaceLive';
 import * as fs from 'fs';
 import * as path from 'path';
+import { realPathOf, relativeInside } from '../utils/pathCompare';
 import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem, withTodoGroups, type TodoListItem } from '../utils/todoListItem';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
@@ -871,14 +872,10 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             if (!activeQuest && wsRoot) {
                 const activeFile = vscode.window.activeTextEditor?.document.uri.fsPath;
                 if (activeFile) {
-                    const questsPrefix = (WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests')) + path.sep;
-                    if (activeFile.startsWith(questsPrefix)) {
-                        const remainder = activeFile.substring(questsPrefix.length);
-                        const slashIdx = remainder.indexOf(path.sep);
-                        const inferred = slashIdx > 0 ? remainder.substring(0, slashIdx) : remainder;
-                        if (inferred && quests.indexOf(inferred) >= 0) {
-                            activeQuest = inferred;
-                        }
+                    const questsDir = WsPaths.ai('quests');
+                    const inferred = questsDir ? relativeInside(activeFile, questsDir)?.[0] : undefined;
+                    if (inferred && quests.indexOf(inferred) >= 0) {
+                        activeQuest = inferred;
                     }
                 }
             }
@@ -2232,9 +2229,11 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
 
 /** Set up a file watcher that calls refreshFn when quest YAML files change. */
 export function setupQuestTodoWatcher(refreshFn: () => void): vscode.Disposable | undefined {
-    const wsRoot = layoutWorkspaceFolder();
-    if (!wsRoot) { return undefined; }
-    const pattern = new vscode.RelativePattern(wsRoot, WsPaths.questTodoGlob);
+    // Watched at the real path of the `_ai` root: the workspace folder's `_ai` may be a link onto the root's
+    // (the native watcher does not follow it), or there is only the root's; one watcher, each change once.
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return undefined; }
+    const pattern = new vscode.RelativePattern(realPathOf(aiRoot), 'quests/**/*.todo.yaml');
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
     watcher.onDidChange(refreshFn);
     watcher.onDidCreate(refreshFn);

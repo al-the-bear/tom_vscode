@@ -10,6 +10,7 @@
  */
 
 import * as path from 'path';
+import { isInside, samePath } from '../utils/pathCompare';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
 import type { TabSnapshot } from './editor-context-tools';
@@ -125,7 +126,7 @@ export async function openInMdBrowserImpl(deps: MdBrowserController, input: Open
     const show = { viewColumn: input.viewColumn, preserveFocus: input.preserveFocus };
 
     if (input.reuse !== false) {
-        const onFile = deps.registry.entries().filter((e) => e.filePath !== '' && path.resolve(e.filePath) === abs);
+        const onFile = deps.registry.entries().filter((e) => e.filePath !== '' && samePath(e.filePath, abs));
         const running = onFile.filter((e) => !e.dormant);
         const match = running.find((e) => e.liveMode === live) ?? (live ? undefined : running[0]);
         if (match && deps.reveal(match.panelId, show)) {
@@ -195,7 +196,7 @@ export async function closeMdBrowserImpl(deps: MdBrowserController, input: Close
     } else if (input.filePath) {
         const r = resolveInWorkspace(input.filePath, deps.workspaceRoot);
         if ('error' in r) { return JSON.stringify({ error: r.error }); }
-        chosen = entries.filter((e) => e.filePath !== '' && path.resolve(e.filePath) === r.abs);
+        chosen = entries.filter((e) => e.filePath !== '' && samePath(e.filePath, r.abs));
     } else {
         const r = resolveInWorkspace(input.under!, deps.workspaceRoot);
         if ('error' in r) { return JSON.stringify({ error: r.error }); }
@@ -207,8 +208,7 @@ export async function closeMdBrowserImpl(deps: MdBrowserController, input: Close
         }
         chosen = entries.filter((e) => {
             if (e.filePath === '') { return false; }
-            const f = path.resolve(e.filePath);
-            return f.startsWith(r.abs + path.sep) && f !== except;
+            return isInside(e.filePath, r.abs) && !samePath(e.filePath, r.abs) && !(except && samePath(e.filePath, except));
         });
     }
     const closed: Array<{ panelId: string; file: string | null }> = [];

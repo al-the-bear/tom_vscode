@@ -21,11 +21,6 @@ const originalConsole = {
     debug: (console.debug ? console.debug.bind(console) : console.log.bind(console)),
 };
 
-/** The workspace folder (the layout's): the debug log goes to its `ztmp/`. */
-function getWorkspaceRoot(): string | undefined {
-    return layoutWorkspaceFolder();
-}
-
 /**
  * The window's quest: the open `.code-workspace` file's name, `default`
  * without one. Kept local (not WsPaths) because the logger loads first.
@@ -47,7 +42,8 @@ function windowQuestId(): string {
 let debugFilePath: string | null | undefined;
 function getDebugFilePath(): string | undefined {
     if (debugFilePath === undefined) {
-        const wsRoot = getWorkspaceRoot();
+        // The workspace folder (the layout's): the debug log goes to its `ztmp/`.
+        const wsRoot = layoutWorkspaceFolder();
         debugFilePath = wsRoot ? debugLogFilePath(wsRoot, windowQuestId()) : null;
     }
     return debugFilePath ?? undefined;

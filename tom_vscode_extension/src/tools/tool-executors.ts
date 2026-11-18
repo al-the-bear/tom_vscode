@@ -65,7 +65,11 @@ import {
 
 // The file tools resolve a relative path against the workspace folder and
 // accept an absolute path in any root folder of the window (DP-part-extension-1).
-setExtraWorkspaceRootsProvider(layoutExtraRootFolders);
+// The window's other root folders and the `_ai` root (the root's when the workspace folder links to it or has none).
+setExtraWorkspaceRootsProvider(() => {
+    const ai = WsPaths.aiRoot;
+    return ai ? [...layoutExtraRootFolders(), ai] : layoutExtraRootFolders();
+});
 
 export type { ReadFileInput, ListDirectoryInput, FindFilesInput, FindTextInFilesInput };
 

@@ -93,7 +93,7 @@ describe('the listing for the extension\'s callers', () => {
         assert.ok(!fs.existsSync(path.join(EXT, 'src', 'config', 'project_types.json')));
         assert.doesNotMatch(read('package.json'), /tomAi\.projectDetection/);
         const callers: Array<[string[], RegExp]> = [
-            [['src', 'managers', 'questTodoManager.ts'], /export async function scanWorkspaceProjects\(\): Promise<ScannedProject\[\]> \{\s*const projects = await listedProjects\(getWorkspaceRoot\(\)\);/],
+            [['src', 'managers', 'questTodoManager.ts'], /export async function scanWorkspaceProjects\(\): Promise<ScannedProject\[\]> \{\s*const projects = await listedProjects\(workspaceFolder\(\)\);/],
             [['src', 'handlers', 'questTodoPanel-handler.ts'], /const projs = await scanWorkspaceProjects\(\);/],
             [['src', 'handlers', 'chatVariablesEditor-handler.ts'], /const projects = \(await scanWorkspaceProjects\(\)\)\.map/],
             [['src', 'utils', 'promptScopes.ts'], /const defaultProjectLister: ProjectLister = \(wsRoot, fresh\) => listedProjects\(wsRoot, \{ fresh \}\);/],

@@ -18,9 +18,10 @@ import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getWorkspaceRoot, reportException } from './handler_shared.js';
+import { reportException } from './handler_shared.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { WsPaths } from '../utils/workspacePaths.js';
+import { layoutWorkspaceFolder } from '../utils/workspaceLayout.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { isWindowAlive, serverSummary, withHeartbeat, type WindowHeartbeat } from '../utils/windowHeartbeat';
@@ -274,11 +275,11 @@ export function getLocalFolder(): string | undefined {
         const config = loadSendToChatConfig();
         const configuredPath = config?.windowStatus?.localFolder;
         if (configuredPath) {
-            const wsRoot = getWorkspaceRoot();
-            if (wsRoot) {
-                // Resolve ${ai} token
-                const aiFolder = WsPaths.aiFolder;
-                const resolved = configuredPath.replace(/\$\{ai\}/g, path.join(wsRoot, aiFolder));
+            const wsRoot = layoutWorkspaceFolder();
+            const aiRoot = WsPaths.aiRoot;
+            if (wsRoot && aiRoot) {
+                // ${ai} is the _ai root (the layout's); other relative paths are relative to the workspace folder.
+                const resolved = configuredPath.replace(/\$\{ai\}/g, aiRoot);
                 folder = path.isAbsolute(resolved) ? resolved : path.join(wsRoot, resolved);
             }
         }

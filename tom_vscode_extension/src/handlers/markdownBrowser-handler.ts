@@ -29,6 +29,7 @@ import { roundTeamFor } from '../services/review-team';
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { samePath } from '../utils/pathCompare.js';
 import {
     getDocumentPickerHtml,
     getDocumentPickerCss,
@@ -244,7 +245,7 @@ class MdBrowserPanel {
         if (!this._webviewReady) { return; }
         const view = assistProgress.shown();
         const current = this._history.current?.filePath;
-        const mine = view && current && path.resolve(view.filePath) === path.resolve(current) ? view : null;
+        const mine = view && current && samePath(view.filePath, current) ? view : null;
         void this._panel.webview.postMessage({ type: 'assistOverlay', view: mine });
     }
 
@@ -381,7 +382,7 @@ class MdBrowserPanel {
         if (!current || !fs.existsSync(current.filePath) || filePath !== current.filePath) {
             return { error: 'The document shown here is no longer the current file. Reload it.' };
         }
-        const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(current.filePath));
+        const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && samePath(d.uri.fsPath, current.filePath));
         if (open?.isDirty) {
             return { error: `${path.basename(current.filePath)} has unsaved changes in an editor. Save or revert them first.` };
         }
@@ -1203,7 +1204,7 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     openWithBar(absPath, bar) {
         if (!mdBrowserContext) { return undefined; }
         const onFile = mdBrowserRegistry.entries()
-            .filter((e) => !e.dormant && !e.liveMode && e.filePath !== '' && path.resolve(e.filePath) === absPath)
+            .filter((e) => !e.dormant && !e.liveMode && e.filePath !== '' && samePath(e.filePath, absPath))
             .map((e) => panelById(e.panelId))
             // A panel already holding another run's open ask keeps it: this ask gets a panel of its own (vscimpb81).
             .find((p): p is MdBrowserPanel => p !== undefined && !mdBrowserAskSlot.hasPanel(p.panelId));

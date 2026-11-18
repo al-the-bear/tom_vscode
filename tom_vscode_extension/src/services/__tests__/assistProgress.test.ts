@@ -223,7 +223,7 @@ describe('the Grill me thinking overlay', () => {
         }
         const src = (...p: string[]): string => fs.readFileSync(path.join(EXT, 'src', ...p), 'utf8');
         const md = src('handlers', 'markdownBrowser-handler.ts');
-        assert.match(md, /const mine = view && current && path\.resolve\(view\.filePath\) === path\.resolve\(current\) \? view : null;/, 'only a panel on the run\'s document');
+        assert.match(md, /const mine = view && current && samePath\(view\.filePath, current\) \? view : null;/, 'only a panel on the run\'s document');
         assert.match(md, /case 'assistCancel':\s*\/\/[^\n]*\n\s*assistProgress\.cancel\(String\(msg\.id \|\| ''\)\);/);
         assert.match(md, /progress: liveAssistProgress\(\),/);
         const chat = src('handlers', 'chatPanel-handler.ts');

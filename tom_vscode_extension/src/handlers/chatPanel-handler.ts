@@ -26,7 +26,7 @@ import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, getWorkspaceRoot, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
@@ -1115,11 +1115,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getGlobalPromptsDir(): string | null {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) {
+        const aiRoot = WsPaths.aiRoot;
+        if (!aiRoot) {
             return null;
         }
-        return WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
+        return WsPaths.ai('prompt') || path.join(aiRoot, 'prompt');
     }
 
     private _getActiveQuestId(): string {
@@ -1147,19 +1147,19 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getQuestPromptsDir(questId: string): string | null {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot || !questId) {
+        const aiRoot = WsPaths.aiRoot;
+        if (!aiRoot || !questId) {
             return null;
         }
-        return WsPaths.ai('quests', questId, 'prompt') || path.join(wsRoot, '_ai', 'quests', questId, 'prompt');
+        return WsPaths.ai('quests', questId, 'prompt') || path.join(aiRoot, 'quests', questId, 'prompt');
     }
 
     private _getQuestPromptScopes(): { id: string; label: string; dir: string }[] {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot) {
+        const aiRoot = WsPaths.aiRoot;
+        if (!aiRoot) {
             return [];
         }
-        const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+        const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
         if (!fs.existsSync(questsDir) || !fs.statSync(questsDir).isDirectory()) {
             return [];
         }
@@ -1184,8 +1184,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _parseReusablePromptId(reusableId: string): { filePath: string; fileName: string } | null {
-        const wsRoot = getWorkspaceRoot();
-        if (!wsRoot || !reusableId) {
+        if (!layoutWorkspaceFolder() || !reusableId) {
             return null;
         }
 

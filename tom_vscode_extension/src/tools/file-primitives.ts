@@ -32,6 +32,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { isInside as isInsideByRealPath } from '../utils/pathCompare';
 import ignore, { type Ignore } from 'ignore';
 import { SharedToolDefinition, type RichToolResult, type ToolDocumentBlock, type ToolImageBlock } from './shared-tool-registry';
 
@@ -99,7 +100,9 @@ export function setExtraWorkspaceRootsProvider(provider: () => readonly string[]
 
 function isAtOrBelow(resolved: string, root: string): boolean {
     const rel = path.relative(root, resolved);
-    return !rel.startsWith('..') && !path.isAbsolute(rel);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) { return true; }
+    // Spelled differently (a link, the case on Windows): the real paths decide.
+    return isInsideByRealPath(resolved, root);
 }
 
 /**

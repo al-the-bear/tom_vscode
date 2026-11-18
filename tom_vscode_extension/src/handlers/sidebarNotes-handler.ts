@@ -222,7 +222,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
         }
         // Fallback: try to find notes.md in workspace root if nothing stored
         if (!this._storage) {
-            const wsRoot = this._getWorkspaceRoot();
+            const wsRoot = layoutWorkspaceFolder();
             if (wsRoot) {
                 const defaultPath = path.join(wsRoot, 'notes.md');
                 if (fs.existsSync(defaultPath)) {
@@ -255,12 +255,6 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
         }
         const folder = vscode.workspace.workspaceFolders?.[0];
         return folder ? path.basename(folder.uri.fsPath) : 'Workspace';
-    }
-
-    /** Get the first workspace folder root path. */
-    /** The workspace folder (the layout's), where `notes.md` is looked for. */
-    private _getWorkspaceRoot(): string | undefined {
-        return layoutWorkspaceFolder();
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -325,7 +319,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
 
     /** Prompt user to create a new notes file via save dialog. */
     private async _createNotesFile(): Promise<void> {
-        const wsRoot = this._getWorkspaceRoot();
+        const wsRoot = layoutWorkspaceFolder();
         const wsName = this._getWorkspaceName();
         const defaultUri = wsRoot ? vscode.Uri.file(path.join(wsRoot, 'notes.md')) : undefined;
         const uri = await vscode.window.showSaveDialog({
@@ -344,7 +338,7 @@ class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
 
     /** Prompt user to pick a different notes file. */
     private async _changeFile(): Promise<void> {
-        const wsRoot = this._getWorkspaceRoot();
+        const wsRoot = layoutWorkspaceFolder();
         const defaultUri = wsRoot ? vscode.Uri.file(wsRoot) : undefined;
         const uris = await vscode.window.showOpenDialog({
             defaultUri,

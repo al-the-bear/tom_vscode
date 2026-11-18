@@ -215,22 +215,27 @@ export interface QuestTodoFile {
 // ============================================================================
 
 /**
- * The workspace folder (the layout's), '' without one. Used for the
- * workspace-level todo files and walks; the `_ai` sites among its callers
- * (quests folder fallbacks, the todo schema) move to `aiRoot` with 02_wslayout-3.
+ * The workspace folder (the layout's), '' without one: the workspace-level
+ * todo files and walks, and the projects. Quest data is read under the `_ai`
+ * root ({@link aiRootOrEmpty}).
  */
-function getWorkspaceRoot(): string {
+function workspaceFolder(): string {
     return layoutWorkspaceFolder() ?? '';
+}
+
+/** The `_ai` root (the layout's, as opened), '' without one. */
+function aiRootOrEmpty(): string {
+    return WsPaths.aiRoot ?? '';
 }
 
 /** Why `id` is no todo id by the workspace's todo schema (utils/todoIdRule), or undefined. */
 export function todoIdRefusal(id: string): string | undefined {
-    return todoIdRuleError(id, getWorkspaceRoot());
+    return todoIdRuleError(id, aiRootOrEmpty());
 }
 
 /** {@link todoIdRefusal} for several ids, each refused one named. */
 export function todoIdsRefusal(ids: Iterable<string>): string | undefined {
-    return todoIdsRuleError(ids, getWorkspaceRoot());
+    return todoIdsRuleError(ids, aiRootOrEmpty());
 }
 
 /**
@@ -274,7 +279,7 @@ function renameNeedsStub(oldId: string, committed: ReadonlySet<string> | undefin
 }
 
 function questFolder(questId: string): string {
-    return WsPaths.ai('quests', questId) || path.join(getWorkspaceRoot(), '_ai', 'quests', questId);
+    return WsPaths.ai('quests', questId) || path.join(aiRootOrEmpty(), 'quests', questId);
 }
 
 /**
@@ -307,7 +312,7 @@ export function persistentTodoPath(questId: string): string {
 export function questTodoFilePath(questId: string, file?: string): string {
     if (!file) { return persistentTodoPath(questId); }
     if (path.isAbsolute(file)) { return file; }
-    return file.includes('/') ? path.join(getWorkspaceRoot(), file) : path.join(questFolder(questId), file);
+    return file.includes('/') ? path.join(workspaceFolder(), file) : path.join(questFolder(questId), file);
 }
 
 /**
@@ -316,8 +321,8 @@ export function questTodoFilePath(questId: string, file?: string): string {
  * answers); none is `<workspace root>/workspace.todo.yaml`.
  */
 export function workspaceTodoFilePath(file?: string): string {
-    if (!file) { return path.join(getWorkspaceRoot(), 'workspace.todo.yaml'); }
-    return path.isAbsolute(file) ? file : path.join(getWorkspaceRoot(), file);
+    if (!file) { return path.join(workspaceFolder(), 'workspace.todo.yaml'); }
+    return path.isAbsolute(file) ? file : path.join(workspaceFolder(), file);
 }
 
 /**
@@ -363,7 +368,7 @@ function saveDocument(filePath: string, doc: Document): void {
  * for the todos the write can have changed.
  */
 function configureBlockingSync(): void {
-    setTodoQuestsRoot(WsPaths.ai('quests') || path.join(getWorkspaceRoot(), '_ai', 'quests'));
+    setTodoQuestsRoot(WsPaths.ai('quests') || path.join(aiRootOrEmpty(), 'quests'));
 }
 
 /**
@@ -582,9 +587,9 @@ function describe(value: unknown): string {
  * The relative schema path depends on where the file is located.
  */
 function schemaComment(filePath: string): string {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) { return ''; }
-    const schemaAbs = path.join(wsRoot, '_ai', 'schemas', 'yaml', 'todo.schema.json');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return ''; }
+    const schemaAbs = path.join(aiRoot, 'schemas', 'yaml', 'todo.schema.json');
     const rel = path.relative(path.dirname(filePath), schemaAbs);
     return `# yaml-language-server: $schema=${rel}\n`;
 }
@@ -1194,9 +1199,9 @@ export function readAllTodos(questId: string, scope?: TodoFileScope): QuestTodoI
  * Each item's _sourceFile is prefixed with `questId/filename`.
  */
 export function readAllQuestsTodos(): QuestTodoItem[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
-    const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return [];
+    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
     if (!fs.existsSync(questsDir)) return [];
     const all: QuestTodoItem[] = [];
     const questDirs = fs.readdirSync(questsDir, { withFileTypes: true })
@@ -1217,9 +1222,9 @@ export function readAllQuestsTodos(): QuestTodoItem[] {
  * List all quest directory names.
  */
 export function listQuestIds(): string[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
-    const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return [];
+    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
     if (!fs.existsSync(questsDir)) return [];
     return fs.readdirSync(questsDir, { withFileTypes: true })
         .filter(d => d.isDirectory()).map(d => d.name).sort();
@@ -1230,7 +1235,7 @@ export function listQuestIds(): string[] {
  * Returns items with _sourceFile set to workspace-relative path.
  */
 export function readWorkspaceTodos(): QuestTodoItem[] {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = workspaceFolder();
     if (!wsRoot) return [];
     const all: QuestTodoItem[] = [];
     function walk(dir: string): void {
@@ -1258,7 +1263,7 @@ export function readWorkspaceTodos(): QuestTodoItem[] {
  * List all *.todo.yaml files across the workspace as relative paths.
  */
 export function listWorkspaceTodoFiles(): string[] {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = workspaceFolder();
     if (!wsRoot) return [];
     const files: string[] = [];
     function walk(dir: string): void {
@@ -1543,7 +1548,7 @@ export function deleteTodo(
     todoId: string,
     sourceFile?: string,
 ): boolean {
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = workspaceFolder();
     if (!wsRoot) return false;
 
     const deleteFromFile = (filePath: string): boolean => {
@@ -1568,7 +1573,7 @@ export function deleteTodo(
             candidates.add(sourceFile);
         } else {
             if (sourceFile.startsWith('_ai/')) {
-                candidates.add(path.join(wsRoot, sourceFile));
+                candidates.add(path.join(aiRootOrEmpty() || path.join(wsRoot, '_ai'), sourceFile.slice('_ai/'.length)));
             }
             if (sourceFile.includes('/')) {
                 const parts = sourceFile.split('/');
@@ -1684,7 +1689,7 @@ export type TodoTransferResult =
 /** The file a destination writes to: `todos.<quest>.todo.yaml`, or `<wsRoot>/workspace.todo.yaml`. */
 export function todoDestinationPath(dest: TodoMoveDestination): string | undefined {
     if (dest.kind === 'quest') { return persistentTodoPath(dest.questId); }
-    const wsRoot = getWorkspaceRoot();
+    const wsRoot = workspaceFolder();
     return wsRoot ? path.join(wsRoot, 'workspace.todo.yaml') : undefined;
 }
 
@@ -2102,9 +2107,9 @@ export function renameTodoPrefix(questId: string, from: string, to: string, opts
  * Collect all unique tags from all todo files across all quests.
  */
 export function collectAllTags(questId?: string): string[] {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return [];
-    const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return [];
+    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
     if (!fs.existsSync(questsDir)) return [];
     const tagSet = new Set<string>();
     const questDirs = questId
@@ -2140,7 +2145,7 @@ export interface ScannedProject {
  * found).
  */
 export async function scanWorkspaceProjects(): Promise<ScannedProject[]> {
-    const projects = await listedProjects(getWorkspaceRoot());
+    const projects = await listedProjects(workspaceFolder());
     return projects
         .map((project) => ({
             name: project.name,
@@ -2154,9 +2159,9 @@ export async function scanWorkspaceProjects(): Promise<ScannedProject[]> {
  * Collect unique project/module/area values from all existing todos.
  */
 export function collectScopeValues(): { projects: string[], modules: string[], areas: string[] } {
-    const wsRoot = getWorkspaceRoot();
-    if (!wsRoot) return { projects: [], modules: [], areas: [] };
-    const questsDir = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) return { projects: [], modules: [], areas: [] };
+    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
     if (!fs.existsSync(questsDir)) return { projects: [], modules: [], areas: [] };
     const projects = new Set<string>();
     const modules = new Set<string>();

@@ -18,6 +18,8 @@
  * vscode-free.
  */
 
+import { relativeInside } from './pathCompare';
+
 /** A todo as the sync sees it: where it lives, and both ends of the relation. */
 export interface TodoRelationRecord {
     /** `quest:<quest>` or `file:<absolute path>`. */
@@ -48,17 +50,16 @@ export function addressKey(address: TodoAddress): string {
 /**
  * The scope of the todo file at `filePath`: its quest when it lies directly in
  * `<questsRoot>/<quest>/`, else the file itself. Paths use `/` or the
- * platform's separator.
+ * platform's separator; both are compared by their real paths (pathCompare),
+ * so a file reached through the workspace folder's `_ai` link and through the
+ * root are in the same quest.
  */
 export function todoScopeOf(filePath: string, questsRoot: string): TodoScope {
     const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
     const file = norm(filePath);
-    const root = norm(questsRoot);
-    if (root && file.startsWith(root + '/')) {
-        const rest = file.slice(root.length + 1).split('/');
-        if (rest.length === 2 && rest[0]) {
-            return { scopeKey: `quest:${rest[0]}`, quest: rest[0] };
-        }
+    const rest = questsRoot ? relativeInside(filePath, questsRoot) : undefined;
+    if (rest && rest.length === 2 && rest[0]) {
+        return { scopeKey: `quest:${rest[0]}`, quest: rest[0] };
     }
     return { scopeKey: `file:${file}` };
 }
