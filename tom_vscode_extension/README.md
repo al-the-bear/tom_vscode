@@ -451,7 +451,14 @@ needed.
 In a folder without `.tom/`, the extension's panels offer **Setup new
 workspace folder** (also `@T: Setup New Workspace Folder` and the top of the
 Status Page, beside **Create new quest**): it unpacks the workspace template the VSIX carries
-(`resources/workspace_template.zip`) into a folder you pick or create.
+(`resources/workspace_template.zip`) into a folder you pick or create, as one of three setups:
+
+- **A new root with a first workspace folder**: the root (`.tom/tom_root.yaml`, the shared guidelines,
+  `_ai`) in the folder you pick, the workspace folder in a subfolder you name, its `_ai` a link to the
+  root's; the introduction quest opens through the workspace folder.
+- **A workspace folder in an existing root**: the folder must lie inside a root (else the setup refuses);
+  its `_ai` is linked to the root's.
+- **A standalone workspace folder**: root and workspace folder in one, without `tom_root.yaml`.
 
 - **A folder that is not empty** shows what is in it first; **Set up anyway**
   goes on.

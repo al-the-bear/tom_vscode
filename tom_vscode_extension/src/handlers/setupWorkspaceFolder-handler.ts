@@ -4,6 +4,20 @@
  * scripts/build-workspace-template.cjs) into a folder the user picks, then say
  * what in the configuration to adapt and offer what to open.
  *
+ * The template has two parts, `root/` and `workspace/` (02_wslayout-9); the
+ * user chooses one of three setups (02_wslayout-10):
+ * - **a new root with a first workspace folder**: `root/` into the picked
+ *   folder, `workspace/` into a subfolder named by the user, its `_ai` a link
+ *   to the root's; the introduction quest's `.code-workspace` written, opened
+ *   through the workspace folder's `_ai`;
+ * - **a workspace folder in an existing root**: refused unless a folder above
+ *   the picked one has `.tom/tom_root.yaml` (and an `_ai`); `workspace/` into
+ *   the picked folder, its `_ai` linked to the root's;
+ * - **a standalone workspace folder**: both parts into the picked folder
+ *   (utils/workspaceSetup.ts standaloneEntries).
+ * The workspace part's root token is written as the path from the workspace
+ * folder to its root. A template of one part is unpacked as it is.
+ *
  * The flow (`runSetupWorkspaceFolder`) talks to the user only through a
  * {@link SetupUi}; `vscodeSetupUi` is the one with VS Code's dialogs. Opening a
  * window is the flow's own step, so it is the same for every UI.
@@ -16,7 +30,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { readZip, type ZipEntry } from '../utils/zipArchive';
-import { folderEntries, standaloneEntries, unpackReport, unpackSummary, unpackTemplate, type ExistingFileChoice, type UnpackResult } from '../utils/workspaceSetup';
+import {
+    findRootAbove, folderEntries, isTwoPartTemplate, linkAi, partEntries, questCodeWorkspaceText, rootTokenFor, standaloneEntries, unpackReport, unpackSummary, unpackTemplate,
+    workspaceNameProblem, type AiLinkResult, type ExistingFileChoice, type SetupKind, type UnpackResult,
+} from '../utils/workspaceSetup';
 import { SETUP_WORKSPACE_COMMAND } from '../utils/setupCommandIds';
 import { aiMergeDriverSummary, checkAiMergeDrivers, setUpAiMergeDrivers, type AiMergeDriverReport } from '../utils/aiMergeDriverSetup';
 
@@ -34,6 +51,13 @@ export type OpenChoice = 'intro' | 'folder' | 'stay';
 
 /** The user-facing steps of the setup. */
 export interface SetupUi {
+    /**
+     * Which of the three setups (a two-part template only); undefined when the
+     * user closed the choice. A UI without it makes the standalone setup.
+     */
+    askSetupKind?(): Promise<SetupKind | undefined>;
+    /** The first workspace folder's name below the new root; undefined when the user closed the box. */
+    askWorkspaceName?(root: string): Promise<string | undefined>;
     /** The folder to set up; undefined when the user closed the dialog. */
     pickFolder(): Promise<string | undefined>;
     /** The folder is not empty: set up anyway? */
@@ -58,9 +82,10 @@ export interface SetupUi {
 export type SetupOutcome =
     | { status: 'missingTemplate' | 'badTemplate'; error: string }
     | { status: 'noFolder' }
+    | { status: 'noRoot'; folder: string; error: string }
     | { status: 'declined'; folder: string }
     | { status: 'cancelled'; folder: string; result: UnpackResult }
-    | { status: 'done'; folder: string; result: UnpackResult; opened: OpenChoice };
+    | { status: 'done'; folder: string; result: UnpackResult; opened: OpenChoice; kind?: SetupKind; workspaceFolder?: string; aiLink?: AiLinkResult };
 
 /** The setup, start to end. */
 export async function runSetupWorkspaceFolder(extensionPath: string, ui: SetupUi = vscodeSetupUi()): Promise<SetupOutcome> {
@@ -71,32 +96,99 @@ export async function runSetupWorkspaceFolder(extensionPath: string, ui: SetupUi
         await ui.showError(error);
         return { status: 'missingTemplate', error };
     }
-    let entries: ZipEntry[];
+    let all: ZipEntry[];
     try {
-        // The two-part template (root/, workspace/) is unpacked as one standalone folder until Setup offers the three setups (02_wslayout-10).
-        entries = standaloneEntries(readZip(fs.readFileSync(zipFile)));
+        all = readZip(fs.readFileSync(zipFile));
     } catch (e) {
         const error = `The workspace template ${zipFile} cannot be read: ${e instanceof Error ? e.message : String(e)}`;
         await ui.showError(error);
         return { status: 'badTemplate', error };
     }
+    const twoParts = isTwoPartTemplate(all);
+    let kind: SetupKind | undefined;
+    if (twoParts) {
+        kind = ui.askSetupKind ? await ui.askSetupKind() : 'standalone';
+        if (!kind) { return { status: 'noFolder' }; }
+    }
 
     const folder = await ui.pickFolder();
     if (!folder) { return { status: 'noFolder' }; }
+    // A workspace folder in an existing root: refused outside one, before anything is written.
+    let root = folder;
+    if (kind === 'workspace') {
+        const above = findRootAbove(folder);
+        if (!above || !fs.existsSync(path.join(above, '_ai'))) {
+            const error = above
+                ? `${above} is a root (.tom/tom_root.yaml) without an _ai folder to link to: set the root up first (a new root with a first workspace folder).`
+                : `${folder} is not inside a root: no folder above it has .tom/tom_root.yaml. Pick a folder inside a root, or set up a new root or a standalone workspace folder.`;
+            await ui.showError(error);
+            return { status: 'noRoot', folder, error };
+        }
+        root = above;
+    }
     const existing = folderEntries(folder);
     if (existing.length > 0 && !await ui.confirmNonEmpty(folder, existing)) {
         return { status: 'declined', folder };
     }
+    // A new root: the first workspace folder's name.
+    let wsFolder = folder;
+    if (kind === 'root') {
+        const name = ui.askWorkspaceName ? await ui.askWorkspaceName(folder) : 'workspace';
+        if (name === undefined || workspaceNameProblem(name)) { return { status: 'declined', folder }; }
+        wsFolder = path.join(folder, name.trim());
+    }
 
-    const result = await unpackTemplate(entries, folder, (p) => ui.askExisting(p));
+    // What goes where.
+    const plan: Array<{ entries: ZipEntry[]; dir: string }> = !twoParts
+        ? [{ entries: all, dir: folder }]
+        : kind === 'root'
+            ? [{ entries: partEntries(all, 'root'), dir: folder }, { entries: partEntries(all, 'workspace', rootTokenFor(wsFolder, folder)), dir: wsFolder }]
+            : kind === 'workspace'
+                ? [{ entries: partEntries(all, 'workspace', rootTokenFor(folder, root)), dir: folder }]
+                : [{ entries: standaloneEntries(all), dir: folder }];
+    let result: UnpackResult = { written: [], overwritten: [], skipped: [], cancelled: false };
+    let forAll: ExistingFileChoice | undefined;
+    for (const step of plan) {
+        const prefix = step.dir === folder ? '' : `${path.relative(folder, step.dir).split(path.sep).join('/')}/`;
+        const r = await unpackTemplate(step.entries, step.dir, async (p) => {
+            if (forAll) { return forAll; }
+            const choice = await ui.askExisting(`${prefix}${p}`);
+            if (choice === 'overwriteAll' || choice === 'skipAll') { forAll = choice; }
+            return choice;
+        });
+        result = {
+            written: [...result.written, ...r.written.map((p) => `${prefix}${p}`)],
+            overwritten: [...result.overwritten, ...r.overwritten.map((p) => `${prefix}${p}`)],
+            skipped: [...result.skipped, ...r.skipped.map((p) => `${prefix}${p}`)],
+            cancelled: r.cancelled,
+        };
+        if (r.cancelled) { break; }
+    }
     await ui.showReport(result, folder);
     if (result.cancelled) { return { status: 'cancelled', folder, result }; }
 
-    const config = path.join(folder, TEMPLATE_CONFIG);
-    if (fs.existsSync(config)) { await ui.showConfigNote(config); }
+    // The workspace folder's _ai: a link to the root's.
+    let aiLink: AiLinkResult | undefined;
+    if (kind === 'root' || kind === 'workspace') {
+        try {
+            aiLink = linkAi(wsFolder, root);
+        } catch (e) {
+            await ui.showError(`The workspace folder's _ai could not be linked to ${path.join(root, '_ai')}: ${(e as Error).message}`);
+        }
+    }
+    // A new root: the introduction quest's workspace (the first quest), opened through the workspace folder's _ai.
+    if (kind === 'root') {
+        const questFolder = path.join(folder, path.dirname(INTRO_WORKSPACE));
+        if (fs.existsSync(questFolder) && !fs.existsSync(path.join(folder, INTRO_WORKSPACE))) {
+            fs.writeFileSync(path.join(folder, INTRO_WORKSPACE), questCodeWorkspaceText());
+        }
+    }
+
+    const config = path.join(root, TEMPLATE_CONFIG);
+    if (fs.existsSync(config) && kind !== 'workspace') { await ui.showConfigNote(config); }
 
     // The _ai merge drivers (vscimpb142c): registered in git and bound in _ai/.gitattributes, if wanted.
-    const aiRoot = path.join(folder, '_ai');
+    const aiRoot = path.join(root, '_ai');
     if (ui.askMergeDrivers && fs.existsSync(aiRoot)) {
         try {
             const report = checkAiMergeDrivers(aiRoot);
@@ -109,14 +201,15 @@ export async function runSetupWorkspaceFolder(extensionPath: string, ui: SetupUi
         }
     }
 
-    const intro = path.join(folder, INTRO_WORKSPACE);
+    // The introduction quest is opened through the workspace folder (its _ai), so its window's folder is the workspace folder.
+    const intro = path.join(wsFolder, INTRO_WORKSPACE);
     const introAvailable = fs.existsSync(intro);
     let opened = await ui.askWhatToOpen(introAvailable);
     if (opened === 'intro' && !introAvailable) { opened = 'stay'; }
     if (opened !== 'stay') {
-        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(opened === 'intro' ? intro : folder), { forceNewWindow: true });
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(opened === 'intro' ? intro : wsFolder), { forceNewWindow: true });
     }
-    return { status: 'done', folder, result, opened };
+    return { status: 'done', folder, result, opened, ...(kind ? { kind } : {}), ...(wsFolder !== folder ? { workspaceFolder: wsFolder } : {}), ...(aiLink ? { aiLink } : {}) };
 }
 
 // ── The VS Code dialogs ─────────────────────────────────────────────────────────
@@ -135,6 +228,12 @@ export const OPEN_BUTTONS: Record<OpenChoice, string> = {
     folder: 'Open the folder',
     stay: 'Stay here',
 };
+export const SETUP_KIND_ITEMS: Array<{ kind: SetupKind; label: string; detail: string }> = [
+    { kind: 'root', label: 'A new root with a first workspace folder', detail: 'The root (.tom with tom_root.yaml, the shared guidelines, _ai) in the folder you pick, the workspace folder in a subfolder, its _ai linked to the root\'s' },
+    { kind: 'workspace', label: 'A workspace folder in an existing root', detail: 'The folder you pick must lie inside a root (a folder above it with .tom/tom_root.yaml); its _ai is linked to the root\'s' },
+    { kind: 'standalone', label: 'A standalone workspace folder', detail: 'Root and workspace folder in one: no tom_root.yaml, its own _ai and guidelines' },
+];
+
 /** Most names a dialog lists before "and N more". */
 const LIST_LIMIT = 20;
 
@@ -147,6 +246,22 @@ function shortList(names: string[]): string {
 /** The setup's steps as VS Code dialogs. A modal's own Cancel (or Escape) is the "Cancel" answer. */
 export function vscodeSetupUi(): SetupUi {
     return {
+        async askSetupKind() {
+            const picked = await vscode.window.showQuickPick(
+                SETUP_KIND_ITEMS.map((i) => ({ label: i.label, detail: i.detail, setup: i.kind })),
+                { title: 'Setup New Workspace Folder: what to set up', placeHolder: 'Choose the setup', ignoreFocusOut: true },
+            );
+            return picked?.setup;
+        },
+        async askWorkspaceName(root) {
+            return vscode.window.showInputBox({
+                title: 'Setup New Workspace Folder: the first workspace folder',
+                prompt: `The workspace folder's name: a subfolder of ${root}`,
+                value: 'workspace',
+                validateInput: (v) => workspaceNameProblem(v) ?? null,
+                ignoreFocusOut: true,
+            });
+        },
         async pickFolder() {
             const picked = await vscode.window.showOpenDialog({
                 canSelectFolders: true,

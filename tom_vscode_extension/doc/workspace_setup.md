@@ -33,28 +33,54 @@ workspace folder to its root there. The schemas of the files the extension
 writes are not in the template; the extension writes them into the root's
 `.tom` when it starts.
 
-**@T: Setup New Workspace Folder** unpacks it into a folder. It is in the
-command palette, on the TOM AI panels of a folder without `.tom/` (**Setup new
-workspace folder**) and at the top of the Status Page. It unpacks both parts
-into the one folder you pick, a standalone workspace folder: the workspace
-part's `CLAUDE.md` and `AGENTS.md`, no `tom_root.yaml`, and the root token
-written as `.`, so `CLAUDE.md` imports `./_agent_guidelines/workspace_agents.md`.
+**@T: Setup New Workspace Folder** asks first which of three setups to make:
 
-1. **Pick the folder.** The dialog can also create a new one.
-2. **A folder that is not empty** shows what is in it; **Set up anyway** goes
+- **A new root with a first workspace folder.** The root part goes into the
+  folder you pick, the workspace part into a subfolder whose name you give
+  (default `workspace`). The workspace folder's `_ai` is a link to the root's
+  (a relative symbolic link; on Windows a junction when a symbolic link may
+  not be made). The introduction quest's
+  `_ai/quests/tomai_introduction/tomai_introduction.code-workspace` is written
+  when it is missing; **Open the introduction quest** opens it through the
+  workspace folder's `_ai`, so its window's folder is the workspace folder.
+- **A workspace folder in an existing root.** The folder you pick must lie
+  inside a root: a folder above it with `.tom/tom_root.yaml` (and an `_ai`);
+  otherwise the setup says so and writes nothing. The workspace part goes
+  into the folder, and its `_ai` is linked to the root's.
+- **A standalone workspace folder.** Both parts go into the one folder you
+  pick: the workspace part's `CLAUDE.md` and `AGENTS.md`, no `tom_root.yaml`,
+  its own `_ai`, so `CLAUDE.md` imports `./_agent_guidelines/workspace_agents.md`.
+
+In each, the workspace part's root token is written as the path from the
+workspace folder to its root (`..` for the first workspace folder of a new
+root). Every `.code-workspace` the extension writes — the introduction
+quest's and each new quest's (**Create new quest**) — sets
+`"chat.useAgentsMdFile": true`, so Copilot reads `AGENTS.md`.
+
+The command is in the command palette, on the TOM AI panels of a folder
+without `.tom/` (**Setup new workspace folder**) and at the top of the
+Status Page.
+
+1. **Choose the setup.**
+2. **Pick the folder.** The dialog can also create a new one. For a new root,
+   give the first workspace folder's name.
+3. **A folder that is not empty** shows what is in it; **Set up anyway** goes
    on, **Cancel** stops.
-3. **The template is unpacked.** For each file that already exists you choose
-   **Overwrite**, **Skip**, **Overwrite All** or **Skip All** (for every later
-   file that exists), or **Cancel** (stops; the files written so far stay). At
-   the end you see how many files were written, overwritten and skipped;
+4. **The template is unpacked.** For each file that already exists (named by
+   its path from the folder you picked) you choose **Overwrite**, **Skip**,
+   **Overwrite All** or **Skip All** (for every later file that exists, in
+   both parts), or **Cancel** (stops; the files written so far stay). At the
+   end you see how many files were written, overwritten and skipped;
    **Show the file list** lists them.
-4. **Adapt the configuration.** `.tom/tom_vscode_extension.json` carries the
-   settings and paths of the machine the extension was built on: the bridge
-   profiles' paths (`bridge.profiles`), the Dart binaries
-   (`bridge.executables`), the Local LLM endpoint and the environment variable
-   holding your Anthropic API key. **Open the configuration** opens it.
-5. **Open it.** **Open the introduction quest** (when the template has it) or
-   **Open the folder** opens a new window; **Stay here** keeps this one.
+5. **Adapt the configuration** (a new root or a standalone folder).
+   `.tom/tom_vscode_extension.json` carries the settings and paths of the
+   machine the extension was built on: the bridge profiles' paths
+   (`bridge.profiles`), the Dart binaries (`bridge.executables`), the Local
+   LLM endpoint and the environment variable holding your Anthropic API key.
+   **Open the configuration** opens it.
+6. **Open it.** **Open the introduction quest** (when the template has it) or
+   **Open the folder** (the workspace folder) opens a new window; **Stay
+   here** keeps this one.
 
 ## Your First Quest
 

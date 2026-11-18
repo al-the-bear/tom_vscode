@@ -21,9 +21,14 @@ Both subpanels are queue-compatible.
 
 - **Setup New Workspace Folder** (`@T: Setup New Workspace Folder`; also the
   button on the panels of a folder without `.tom/` and at the top of the Status
-  Page, beside **Create new quest**) unpacks the workspace template the VSIX carries — the configuration, the
-  guidelines, CLAUDE.md, the `_ai` roles, processes, schemas and prompts, and
-  the starting quest `tomai_introduction` — into a folder you pick or create. A
+  Page, beside **Create new quest**) unpacks the workspace template the VSIX carries — a root part (the
+  configuration, the root guidelines with the shared `workspace_agents.md`, CLAUDE.md, AGENTS.md, the `_ai`
+  roles, processes, schemas and prompts, the starting quest `tomai_introduction`) and a workspace part (its
+  `.tom`, AGENTS.md, CLAUDE.md, guidelines) — as one of three setups: **a new root with a first workspace
+  folder** (the root in the folder you pick, the workspace folder in a named subfolder, its `_ai` linked to the
+  root's), **a workspace folder in an existing root** (refused unless a folder above has `.tom/tom_root.yaml`;
+  its `_ai` linked to the root's) or **a standalone workspace folder** (both in one folder, no
+  `tom_root.yaml`). Every `.code-workspace` it and **Create new quest** write sets `chat.useAgentsMdFile`. A
   folder that is not empty shows what is in it first (**Set up anyway** goes
   on). For each file that already exists you choose **Overwrite**, **Skip**,
   **Overwrite All**, **Skip All** or **Cancel** (what was written stays); the

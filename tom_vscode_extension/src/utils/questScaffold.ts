@@ -10,6 +10,7 @@ import * as path from 'path';
 import { buildIdPrefix } from '../tools/id-prefix-tools';
 import { decisionsJournalHeader } from './decisionsJournalFormat';
 import { questionsLogHeader } from './questionsLogFormat';
+import { questCodeWorkspaceText } from './workspaceSetup';
 
 /** Letters, digits and `_`. */
 export const QUEST_ID_PATTERN = /^[A-Za-z0-9_]+$/;
@@ -77,7 +78,7 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
     return [
         {
             name: `${id}.code-workspace`,
-            content: `${JSON.stringify({ folders: [{ path: '../../..' }], settings: { 'chat.useAgentsMdFile': true } }, null, '\t')}\n`,
+            content: questCodeWorkspaceText(),
         },
         {
             name: `overview.${id}.md`,
