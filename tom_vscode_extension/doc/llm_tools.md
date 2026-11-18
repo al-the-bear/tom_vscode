@@ -327,8 +327,8 @@ which keeps the code exactly four characters and safe to index positionally.
 
 Implementation: `src/tools/id-prefix-tools.ts` (pure `buildIdPrefix` /
 `describeIdPrefixParts` encoder plus the tool wrapper). The workspace-wide rule
-that this tool must be called before inventing **any** id lives in `CLAUDE.md` /
-`.github/copilot-instructions.md`.
+that this tool must be called before inventing **any** id lives in the shared
+`workspace_agents.md`, which every workspace folder's `CLAUDE.md` imports.
 
 The tool is reachable under both profile shapes: it is in `ALL_SHARED_TOOLS`
 (so `toolsEnabled: true` profiles get it) and in `AVAILABLE_LLM_TOOLS` under the

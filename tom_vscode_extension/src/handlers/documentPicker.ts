@@ -49,6 +49,8 @@ export const DOC_GROUP_IDS = {
     PROJECT_GUIDELINES: 'project',
     ROLES: 'roles',
     COPILOT_INSTRUCTIONS: 'copilot-instructions',
+    /** `agents-md:root` / `agents-md:workspace`: a level's AGENTS.md (utils/agentInstructions.ts). */
+    AGENTS_MD_PREFIX: 'agents-md:',
     WORKSPACE_DOCS: 'workspace',
     PROJECT_DOCS: 'project',
     NOTES: 'notes',

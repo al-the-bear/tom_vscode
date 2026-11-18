@@ -84,6 +84,7 @@ import { liveAssistDeps, liveAssistProgress } from '../services/assistLiveDeps.j
 import { appendQuestionLogEntry } from '../services/questionsLog.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
+import { AGENTS_MD, AGENTS_MD_GROUP_PREFIX, agentsMdGroupDir, agentsMdGroups } from '../utils/agentInstructions.js';
 
 // ============================================================================
 // Constants
@@ -578,6 +579,7 @@ class MdBrowserPanel {
                 quests.sort((a, b) => a.label.localeCompare(b.label));
             }
 
+            for (const g of agentsMdGroups(WsPaths.tomRoot, wsRoot)) { groups.push({ id: g.id, label: g.label }); }
             const copilotInstr = WsPaths.github('copilot-instructions.md');
             if (copilotInstr && fs.existsSync(copilotInstr)) {
                 groups.push({ id: 'copilot-instructions', label: 'Copilot Instructions' });
@@ -618,7 +620,9 @@ class MdBrowserPanel {
                 return;
             }
 
-            const files = listMdFiles(dir);
+            const files = group.startsWith(AGENTS_MD_GROUP_PREFIX)
+                ? [AGENTS_MD].filter((f) => fs.existsSync(path.join(dir, f)))
+                : listMdFiles(dir);
             this._panel.webview.postMessage({
                 type: PICKER_PREFIX + 'Files',
                 files,
@@ -1454,6 +1458,7 @@ function resolveGroupDir(group: string): string | undefined {
     if (group === 'roles') return WsPaths.ai('roles');
     if (group === 'quests') return WsPaths.ai('quests');
     if (group === 'copilot-instructions') return WsPaths.github();
+    if (group.startsWith(AGENTS_MD_GROUP_PREFIX)) return agentsMdGroupDir(group, WsPaths.tomRoot, wsRoot);
     if (group === 'notes') return WsPaths.ai('notes');
     if (group === 'workspace') {
         return resolveWorkspaceDocsDir(wsRoot, workspaceDocsProbe()) ?? undefined;

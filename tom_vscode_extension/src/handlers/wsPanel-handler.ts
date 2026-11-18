@@ -59,6 +59,7 @@ import {
 import { readMediaText } from '../utils/webviewLoader.js';
 import { wireCompletionMessages } from '../utils/completionWiring.js';
 import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
+import { AGENTS_MD, AGENTS_MD_GROUP_PREFIX, agentsMdGroupDir, agentsMdGroups } from '../utils/agentInstructions';
 
 const VIEW_ID = 'tomAi.wsPanel';
 
@@ -406,6 +407,8 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         if (group === 'copilot-instructions') {
             return WsPaths.github() || path.join(wsRoot, '.github');
         }
+        const agentsDir = agentsMdGroupDir(group, WsPaths.tomRoot, wsRoot);
+        if (agentsDir) { return agentsDir; }
         if (group === 'roles') {
             return WsPaths.ai('roles') || path.join(wsRoot, '_ai', 'roles');
         }
@@ -495,6 +498,9 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             groups.push({ id: 'roles', label: 'Roles' });
         }
 
+        // The agent instructions: the root's and the workspace folder's AGENTS.md (utils/agentInstructions.ts).
+        for (const g of agentsMdGroups(WsPaths.tomRoot, wsRoot)) { groups.push({ id: g.id, label: g.label }); }
+        // The Copilot file only while one is still there.
         const githubDir = WsPaths.github() || path.join(wsRoot, '.github');
         if (fs.existsSync(githubDir) && fs.existsSync(path.join(githubDir, 'copilot-instructions.md'))) {
             groups.push({ id: 'copilot-instructions', label: 'Copilot Instructions' });
@@ -509,7 +515,10 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'guidelinesFiles', files: [] });
             return;
         }
-        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort();
+        // An AGENTS.md group lists that one file, not every Markdown file of its folder.
+        const files = group?.startsWith(AGENTS_MD_GROUP_PREFIX)
+            ? [AGENTS_MD].filter((f) => fs.existsSync(path.join(dir, f)))
+            : fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort();
         this._view?.webview.postMessage({ type: 'guidelinesFiles', files });
     }
 

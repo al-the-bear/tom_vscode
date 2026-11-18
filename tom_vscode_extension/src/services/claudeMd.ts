@@ -136,6 +136,30 @@ export function collectClaudeMd(opts: CollectClaudeMdOptions): ClaudeMdSource[] 
     return sources;
 }
 
+/**
+ * One CLAUDE.md with the files it imports, as Claude Code expands them (the
+ * same import rules as {@link collectClaudeMd}), without the user-level file
+ * and the folder chain: `${agent-instructions}` (variableResolver) — the
+ * window's own instructions, e.g. a workspace folder's CLAUDE.md with the
+ * shared `workspace_agents.md` and its `AGENTS.md`.
+ */
+export function collectWithImports(file: string, homeDir: string): ClaudeMdSource[] {
+    const sources: ClaudeMdSource[] = [];
+    const seen = new Set<string>();
+    const add = (f: string, kind: ClaudeMdKind, depth: number, importedBy?: string): void => {
+        const real = realOf(f);
+        if (seen.has(real)) { return; }
+        const content = readFile(f);
+        if (content === undefined) { return; }
+        seen.add(real);
+        sources.push({ path: f, kind, content, ...(importedBy ? { importedBy } : {}) });
+        if (depth >= MAX_IMPORT_DEPTH) { return; }
+        for (const target of importTargets(content, path.dirname(f), homeDir)) { add(target, 'import', depth + 1, f); }
+    };
+    add(path.resolve(file), 'project', 0);
+    return sources;
+}
+
 const KIND_LABEL: Record<Exclude<ClaudeMdKind, 'import'>, string> = {
     user: 'user instructions',
     project: 'project instructions',

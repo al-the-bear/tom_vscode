@@ -27,7 +27,7 @@ l) Add a dropdown to the guidelines panel, which allows to switch between guidel
 - global: in _copilot_guidelines in workspace root
 - projects: in _copilot_guidelines in the project folders. When I choose this another dropdown to pick the project appear before showing me files.
 - roles: in _ai/roles
-- copilot-instructions: the file in .github
+- agent instructions: the root's and the workspace folder's `AGENTS.md` (the Copilot file in .github only while one is still there)
 
 m) the "Move to workspace" button should show always. the workspace.todo.yaml must be created if it doesn't exist yet.# MarkText Integration for VS Code
 

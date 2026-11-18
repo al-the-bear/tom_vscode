@@ -990,6 +990,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'removeStaleSchemaCopies':
             await removeStaleSchemaCopiesConfirmed();
             break;
+        // The open .code-workspace lacks chat.useAgentsMdFile: true (02_wslayout-12).
+        case 'addUseAgentsMdFile':
+            await addUseAgentsMdFile();
+            break;
         case 'reloadWindow':
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
             break;
@@ -1823,6 +1827,8 @@ export interface StatusData {
     configErrors: string[];
     /** Stale generated schema copies below the root: Configuration Errors offers removing them. */
     staleSchemaCopies?: boolean;
+    /** The open `.code-workspace` lacks `chat.useAgentsMdFile: true`: Configuration Errors offers adding it. */
+    missingUseAgentsMdFile?: boolean;
     /** The extension build this window runs and the one installed (undefined before activation). */
     build?: BuildStatus;
     /** Which Dart-built binaries (tom_bs, tomspecs) this platform has. */
@@ -1972,6 +1978,7 @@ export async function gatherStatusData(): Promise<StatusData> {
     const config = loadConfig();
     const sendToChatConfig = loadSendToChatConfig();
     const strictErrors = validateStrictAiConfiguration(sendToChatConfig);
+    const agentsMdProblem = useAgentsMdFileProblem();
     if (strictErrors.length > 0) {
         const msg = `[Status Page] Invalid strict AI configuration:\n- ${strictErrors.join('\n- ')}`;
         console.error(msg);
@@ -2143,8 +2150,9 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
         })),
-        configErrors: [...layoutConfigErrors(), ...generatedSchemaErrors(), ...strictErrors],
+        configErrors: [...layoutConfigErrors(), ...generatedSchemaErrors(), ...(agentsMdProblem ? [agentsMdProblem] : []), ...strictErrors],
         staleSchemaCopies: hasStaleSchemaCopies(),
+        missingUseAgentsMdFile: !!agentsMdProblem,
         build: checkBuildStatus(),
         dartBinaries: currentDartBinariesStatus(),
         usage: usageSummary(),
@@ -2515,6 +2523,7 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
             <div class="sp-section-header"><span class="sp-section-title">⚠️ Configuration Errors</span></div>
             <div style="font-size:12px;line-height:1.4;white-space:pre-wrap;">${status.configErrors.map(e => `• ${escapeHtmlContent(e)}`).join('<br>')}</div>
             ${status.staleSchemaCopies ? '<div class="sp-controls"><button class="sp-btn" data-status-action="removeStaleSchemaCopies" title="Asks first, with the list of folders">Remove stale schema copies…</button></div>' : ''}
+            ${status.missingUseAgentsMdFile ? '<div class="sp-controls"><button class="sp-btn" data-status-action="addUseAgentsMdFile" title="Writes chat.useAgentsMdFile: true into the open .code-workspace">Add chat.useAgentsMdFile</button></div>' : ''}
         </div>`
         : '';
 
@@ -3251,6 +3260,7 @@ import { getEmbeddedStatusStyles } from './statusPage/statusPageStyles';
 import { configuredToolResultRetention } from '../services/tool-result-store';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 import { generatedSchemaErrors, hasStaleSchemaCopies, removeStaleSchemaCopiesConfirmed } from '../services/generatedSchemasService';
+import { addUseAgentsMdFile, useAgentsMdFileProblem } from '../services/agentsMdSetting';
 export { getEmbeddedStatusStyles };
 
 

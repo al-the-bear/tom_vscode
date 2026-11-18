@@ -332,6 +332,7 @@ import { perPromptUsage, snapshotOf } from '../utils/agentSdkUsage';
 import { agentSdkUsageSnapshot, recordAgentSdkUsageSnapshot } from '../services/agentSdkUsageSnapshots';
 import { currentQueueItemId } from '../services/userWaits';
 import { stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
+import { workspaceInstructions } from '../utils/agentInstructions';
 
 /** A CLI background task as the background wait names it. */
 function taskWorkItem(t: BackgroundTaskInfo): BackgroundWorkItem {
@@ -1137,34 +1138,16 @@ async function runAgentSdkAttempt(
     let settingSources: SettingSource[] = effectiveSettingSources(params.settingSources, configuration.agentSdk?.settingSources);
     let effectiveSystemPrompt = systemPrompt;
     // Auto-load workspace instructions when the handler asks for it
-    // (SDK-managed mode). Priority:
-    //   1. CLAUDE.md at workspace root  → include 'project' in settingSources;
-    //      the SDK picks up CLAUDE.md + .claude/settings.json natively.
-    //   2. else .github/copilot-instructions.md → inject its contents into
-    //      the system prompt; the SDK has no native loader for that file.
-    //   3. else no-op.
+    // (SDK-managed mode; utils/agentInstructions.ts):
+    //   1. CLAUDE.md in the workspace folder → include 'project' in settingSources;
+    //      the SDK loads CLAUDE.md (and the files it imports) + .claude/settings.json.
+    //   2. else AGENTS.md → its contents go into the system prompt.
+    //   3. else nothing.
     if (params.autoLoadProjectSettings === true) {
         try {
-            const wsRoot = layoutWorkspaceFolder();
-            if (wsRoot) {
-                const fsMod = require('fs') as typeof import('fs');
-                const pathMod = require('path') as typeof import('path');
-                const claudeMdPath = pathMod.join(wsRoot, 'CLAUDE.md');
-                const copilotPath = pathMod.join(wsRoot, '.github', 'copilot-instructions.md');
-                if (fsMod.existsSync(claudeMdPath)) {
-                    if (!settingSources.includes('project')) {
-                        settingSources = [...settingSources, 'project'];
-                    }
-                } else if (fsMod.existsSync(copilotPath)) {
-                    const body = fsMod.readFileSync(copilotPath, 'utf-8');
-                    if (body && body.trim().length > 0) {
-                        const block = `## Workspace instructions (from .github/copilot-instructions.md)\n\n${body}`;
-                        effectiveSystemPrompt = effectiveSystemPrompt
-                            ? `${effectiveSystemPrompt}\n\n${block}`
-                            : block;
-                    }
-                }
-            }
+            const applied = applyWorkspaceInstructions(layoutWorkspaceFolder() ?? '', settingSources, effectiveSystemPrompt);
+            settingSources = applied.settingSources;
+            effectiveSystemPrompt = applied.systemPrompt as typeof effectiveSystemPrompt;
         } catch { /* leave systemPrompt + settingSources as configured */ }
     }
 
@@ -1640,4 +1623,22 @@ function countToolUses(msg: SDKAssistantMessage): number {
 
 function summarizeInput(input: Record<string, unknown>): string {
     return summarizeToolInput(undefined, input);
+}
+
+/**
+ * The workspace instructions an Agent SDK send that loads the project's
+ * settings gets (utils/agentInstructions.ts): the `project` setting source
+ * with a CLAUDE.md, else AGENTS.md in the system prompt, else nothing.
+ */
+export function applyWorkspaceInstructions<S extends string, P extends string | undefined>(
+    wsRoot: string, settingSources: S[], systemPrompt: P,
+): { settingSources: S[]; systemPrompt: P | string } {
+    const found = workspaceInstructions(wsRoot);
+    if (found.kind === 'project') {
+        return { settingSources: settingSources.includes('project' as S) ? settingSources : [...settingSources, 'project' as S], systemPrompt };
+    }
+    if (found.kind === 'inject') {
+        return { settingSources, systemPrompt: systemPrompt ? `${systemPrompt}\n\n${found.block}` : found.block };
+    }
+    return { settingSources, systemPrompt };
 }

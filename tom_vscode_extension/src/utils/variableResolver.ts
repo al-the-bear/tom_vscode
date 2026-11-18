@@ -41,7 +41,8 @@ import { PROCESS_VARIABLE_KEYS } from './processDefinition';
 import { logConfigAccess } from './toolLog';
 import { osLoginName } from './osUserName';
 import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
-import { collectClaudeMd, renderClaudeMd } from '../services/claudeMd';
+import { collectClaudeMd, collectWithImports, renderClaudeMd } from '../services/claudeMd';
+import { AGENTS_MD, CLAUDE_MD } from './agentInstructions';
 
 // ============================================================================
 // Public types
@@ -733,7 +734,7 @@ export function generateShortUUID(): string {
 /**
  * Resolve a variable key that wasn't found in the static values map.
  * Handles dynamic namespaces: env.*, config.*, git.*, vscode.*, date.FORMAT, time.FORMAT,
- * plus file-injection placeholders (claude.md, copilot-instructions, instructions,
+ * plus file-injection placeholders (claude.md, agents.md, instructions, agent-instructions,
  * guidelines-*, role-*, quest-*, file-*).
  *
  * Exported so the older `promptTemplate.resolvePass()` can share the same
@@ -798,8 +799,13 @@ export function resolveDynamicKey(key: string, values: Record<string, string>, n
  * Dynamic file-injection placeholders.
  *
  *   ${claude.md}              → <workspace>/CLAUDE.md
- *   ${copilot-instructions}   → <workspace>/.github/copilot-instructions.md
- *   ${instructions}           → CLAUDE.md if present, else .github/copilot-instructions.md
+ *   ${agents.md}              → <workspace>/AGENTS.md
+ *   ${instructions}           → CLAUDE.md if present, else AGENTS.md
+ *   ${agent-instructions}     → the workspace folder's CLAUDE.md with the files
+ *                                it imports (`@…`), as Claude Code expands them
+ *                                (services/claudeMd.ts collectWithImports);
+ *                                AGENTS.md when there is no CLAUDE.md
+ *   ${copilot-instructions}   → deprecated alias of ${agent-instructions}
  *   ${claudeMd}               → every CLAUDE.md as Claude Code loads it — the
  *                                user-level file, the folder chain with the
  *                                CLAUDE.local.md files, the @imports
@@ -829,16 +835,23 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
     if (key === 'claude.md') {
         return safeReadFileSync(path.join(wsRoot, 'CLAUDE.md'));
     }
-    if (key === 'copilot-instructions' || key === 'copilot-instructions.md') {
-        return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
+    if (key === 'agents.md') {
+        return safeReadFileSync(path.join(wsRoot, AGENTS_MD));
+    }
+    // `${copilot-instructions}` is a deprecated alias (removed with 06a_wslayout-8); the Copilot file is not read.
+    if (key === 'agent-instructions' || key === 'copilot-instructions' || key === 'copilot-instructions.md') {
+        if (!wsRoot) { return ''; }
+        const claude = path.join(wsRoot, CLAUDE_MD);
+        if (fs.existsSync(claude)) { return renderClaudeMd(collectWithImports(claude, os.homedir())); }
+        return safeReadFileSync(path.join(wsRoot, AGENTS_MD));
     }
     if (key === 'claudeMd') {
         return wsRoot ? renderClaudeMd(collectClaudeMd({ wsRoot, homeDir: os.homedir() })) : '';
     }
     if (key === 'instructions') {
-        const claude = safeReadFileSync(path.join(wsRoot, 'CLAUDE.md'));
+        const claude = safeReadFileSync(path.join(wsRoot, CLAUDE_MD));
         if (claude) { return claude; }
-        return safeReadFileSync(path.join(wsRoot, '.github', 'copilot-instructions.md'));
+        return safeReadFileSync(path.join(wsRoot, AGENTS_MD));
     }
 
     // The guideline indexes: both levels concatenated, or one level's.
@@ -1311,8 +1324,10 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${process}</code>, <code>\${phase}</code>, <code>\${step}</code>, <code>\${substep}</code>, <code>\${phase-iteration}</code>, <code>\${step-iteration}</code>, <code>\${substep-iteration}</code> – the quest's process state (<code>_ai/quests/\${quest}/process-state.\${quest}.yaml</code>)<br>
 <code>\${process-description}</code> – <code>_ai/processes/\${process}/\${process}.md</code>; <code>\${phase-description}</code>, <code>\${step-description}</code>, <code>\${substep-description}</code> – from its <code>.process.yaml</code>; <code>\${phase-prompt}</code>, <code>\${step-prompt}</code>, <code>\${substep-prompt}</code> – their <code>prompt</code> fields; <code>\${session}</code> – the Agent SDK session the step runs in<br>
 <code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
-<code>\${copilot-instructions}</code> – <code>.github/copilot-instructions.md</code><br>
-<code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>.github/copilot-instructions.md</code><br>
+<code>\${agents.md}</code> – <code>AGENTS.md</code><br>
+<code>\${instructions}</code> – <code>CLAUDE.md</code> if present, else <code>AGENTS.md</code><br>
+<code>\${agent-instructions}</code> – <code>CLAUDE.md</code> with the files it imports (else <code>AGENTS.md</code>)<br>
+<code>\${copilot-instructions}</code> – deprecated: the same as <code>\${agent-instructions}</code><br>
 <code>\${claudeMd}</code> – Every <code>CLAUDE.md</code> as Claude Code loads it: <code>~/.claude/CLAUDE.md</code>, the folder chain with <code>CLAUDE.local.md</code>, the <code>@imports</code> (for direct, Local LLM and VS Code LM profiles; the Agent SDK loads them itself)<br>
 <code>\${guidelines-NAME}</code> – <code>NAME.md</code> of the guidelines: the workspace folder's, else the root's (<code>_agent_guidelines/</code> or <code>_copilot_guidelines/</code>; fallback: <code>_guidelines/NAME.md</code>). Omit or include <code>.md</code>. Example: <code>\${guidelines-project_guidelines}</code>.<br>
 <code>\${guidelines-index}</code> – Both levels' guideline indexes, the root's first (<code>index_root.md</code>, <code>index_workspace.md</code>, each else its level's <code>index.md</code>); <code>\${root-guidelines-index}</code>, <code>\${workspace-guidelines-index}</code> – one level's<br>
