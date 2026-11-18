@@ -19,7 +19,9 @@ export type TodoMoveChoice =
     | { kind: 'workspace' }
     | { kind: 'pickQuest' }
     /** Another id group of the todos' own quest (a second picker names it). */
-    | { kind: 'pickGroup'; questId: string };
+    | { kind: 'pickGroup'; questId: string }
+    /** A group todo of the todos' own quest (status `group`; a second picker names it): they become its members. */
+    | { kind: 'pickGroupTodo'; questId: string };
 
 export interface TodoMoveOption {
     label: string;
@@ -36,10 +38,12 @@ export function todoMovePickerTitle(count: number): string {
  * The destinations for these todos, in order:
  *   - their quest's todos, when they all belong to one quest and not all are in its own file already;
  *   - another id group of their quest, when they all belong to one quest (a second picker names it);
+ *   - a group todo of their quest (`groupTodos`: the quest has some and none of the todos is one itself; a second
+ *     picker names it);
  *   - the workspace todos, unless all are there already;
  *   - another quest, always (a second picker names it).
  */
-export function todoMoveOptions(origins: readonly TodoMoveOrigin[]): TodoMoveOption[] {
+export function todoMoveOptions(origins: readonly TodoMoveOrigin[], opts: { groupTodos?: boolean } = {}): TodoMoveOption[] {
     const options: TodoMoveOption[] = [];
     const quests = new Set(origins.map((o) => o.questId));
     const [onlyQuest] = [...quests];
@@ -55,6 +59,13 @@ export function todoMoveOptions(origins: readonly TodoMoveOrigin[]): TodoMoveOpt
             label: '$(symbol-number) Move to another group…',
             description: `renumbered at the end of a group of ${onlyQuest}, before its finalizers (999)`,
             choice: { kind: 'pickGroup', questId: onlyQuest },
+        });
+    }
+    if (quests.size === 1 && onlyQuest && opts.groupTodos) {
+        options.push({
+            label: '$(folder-library) Move to a group todo…',
+            description: `becomes a member of a group todo of ${onlyQuest} (and leaves the group todos it is in)`,
+            choice: { kind: 'pickGroupTodo', questId: onlyQuest },
         });
     }
     if (!origins.every((o) => o.inWorkspaceFile)) {

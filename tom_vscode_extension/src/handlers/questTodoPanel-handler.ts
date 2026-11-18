@@ -697,6 +697,7 @@ import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { latestTodoAnswer } from '../utils/todoAgentAnswer';
 import { todayLocalDate } from '../utils/todoDates';
 import { appendTodoNote, guideMeClosingAsk, interpretGuideMeReply } from '../utils/guideMeClosing';
+import { GROUP_STATUS, moveIntoGroupTodo } from '../utils/todoGroups';
 export { getQuestTodoCss, getQuestTodoHtmlFragment };
 
 
@@ -1624,7 +1625,14 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 return true;
             }
             const title = todoMovePickerTitle(found.length);
-            const options = todoMoveOptions(found.map(s => s.origin));
+            // "Move to a group todo…": when the todos' quest has group todos and none of the moved ones is one itself.
+            const moveQuests = new Set(found.map(s => s.origin.questId));
+            const moveQuest = moveQuests.size === 1 ? [...moveQuests][0] : undefined;
+            const questTodosNow = moveQuest ? questTodo.readAllTodos(moveQuest) : [];
+            const movingSet = new Set(found.map(s => s.todoId));
+            const groupTodos = questTodosNow.some(t => t.status === GROUP_STATUS && !movingSet.has(t.id))
+                && !questTodosNow.some(t => movingSet.has(t.id) && t.status === GROUP_STATUS);
+            const options = todoMoveOptions(found.map(s => s.origin), { groupTodos });
             const picked = await vscode.window.showQuickPick(
                 options.map(o => ({ label: o.label, description: o.description, choice: o.choice })),
                 { title, placeHolder: 'Where should the todos go?' },
@@ -1632,6 +1640,11 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             if (!picked) return true;
             if (picked.choice.kind === 'pickGroup') {
                 await _moveTodosToGroup(picked.choice.questId, found, lost);
+                post({ type: 'qtArchiveResult', success: true, moved: [] });
+                return true;
+            }
+            if (picked.choice.kind === 'pickGroupTodo') {
+                await _moveTodosToGroupTodo(picked.choice.questId, found.map(s => s.todoId));
                 post({ type: 'qtArchiveResult', success: true, moved: [] });
                 return true;
             }
@@ -2830,6 +2843,36 @@ function renamePreview(renames: ReadonlyArray<{ from: string; to: string }>): st
  * them — in the file that holds the group's last todo — and every reference to
  * it in the quest following (questTodoManager.renameQuestTodo).
  */
+/**
+ * The row's move button, "Move to a group todo…": pick one of the quest's group todos; the todos become its
+ * members (at the end) and leave the other group todos of the quest they were in. The todos themselves stay
+ * where they are (file, id, prefix group).
+ */
+async function _moveTodosToGroupTodo(questId: string, ids: readonly string[]): Promise<void> {
+    const groups = questTodo.readAllTodos(questId).filter((t) => t.status === GROUP_STATUS && !ids.includes(t.id));
+    const count = ids.length === 1 ? `todo ${ids[0]}` : `the ${ids.length} todos`;
+    const pick = await vscode.window.showQuickPick(
+        groups.sort((a, b) => String(a.title || a.id).localeCompare(String(b.title || b.id))).map((g) => ({
+            label: `$(folder-library) ${g.title || g.id}`,
+            description: `${g.id} · ${(g.comprised_of ?? []).length} member${(g.comprised_of ?? []).length === 1 ? '' : 's'}`,
+            groupId: g.id,
+        })),
+        { title: `Move ${count} to a group todo of ${questId}`, placeHolder: 'The group todo it becomes a member of' },
+    );
+    if (!pick) { return; }
+    const changes = moveIntoGroupTodo(groups.map((g) => ({ id: g.id, comprisedOf: g.comprised_of ?? [] })), pick.groupId, ids, questId);
+    const failed: string[] = [];
+    for (const c of changes) {
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+        try { if (!questTodo.updateTodo(questId, c.id, { comprised_of: c.comprisedOf } as never)) { failed.push(c.id); } } catch (e) { failed.push(`${c.id}: ${(e as Error).message}`); }
+    }
+    if (failed.length) { vscode.window.showWarningMessage(`Could not update the group todo${failed.length === 1 ? '' : 's'} ${failed.join(', ')}.`); return; }
+    const left = changes.filter((c) => c.id !== pick.groupId).map((c) => c.id);
+    vscode.window.showInformationMessage(changes.length
+        ? `Moved ${count} to the group todo ${pick.groupId}${left.length ? ` (out of ${left.join(', ')})` : ''}.`
+        : `${ids.length === 1 ? `Todo ${ids[0]} is` : 'The todos are'} already in the group todo ${pick.groupId}.`);
+}
+
 async function _moveTodosToGroup(questId: string, found: readonly MoveSource[], lost: readonly string[]): Promise<void> {
     const movingIds = found.map((s) => s.todoId);
     const all = questTodo.readAllTodos(questId, questTodo.ALL_TODO_FILES);

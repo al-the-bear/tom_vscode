@@ -30,6 +30,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { moveIntoGroupTodo } from '../todoGroups.js';
 import { groupInsertIndex, renamesReachFinalizer, todoIdInputError, todoIdPrefix, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoMoveNeedsIdChoice, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix } from '../todoDestinationPicker.js';
 
 const kinds = (origins: Parameters<typeof todoMoveOptions>[0]): string[] =>
@@ -174,4 +175,20 @@ describe('todo destination picker', () => {
         assert.deepEqual(options.slice(-2).map((o) => o.kind), ['custom', 'keep'], 'typing a group by hand stays');
         assert.deepEqual(todoPrefixChoices(['old5_d'], []).map((o) => o.kind), ['custom', 'keep'], 'a quest whose groups are all archived offers none');
     });
+
+describe('move to a group todo', () => {
+    test('DP-G1: offered only when the quest has group todos', () => {
+        const o = [{ questId: 'q', inQuestMainFile: true, inWorkspaceFile: false }];
+        assert.ok(!todoMoveOptions(o).some((x) => x.choice.kind === 'pickGroupTodo'));
+        const with_ = todoMoveOptions(o, { groupTodos: true }).map((x) => x.choice.kind);
+        assert.deepEqual(with_, ['pickGroup', 'pickGroupTodo', 'workspace', 'pickQuest']);
+        assert.ok(!todoMoveOptions([...o, { questId: 'r', inQuestMainFile: true, inWorkspaceFile: false }], { groupTodos: true }).some((x) => x.choice.kind === 'pickGroupTodo'), 'one quest only');
+    });
+
+    test('DP-G2: the membership change', () => {
+        const groups = [{ id: 'g1', comprisedOf: ['a', 'q/b', 'c'] }, { id: 'g2', comprisedOf: ['d'] }, { id: 'g3', comprisedOf: ['x'] }];
+        assert.deepEqual(moveIntoGroupTodo(groups, 'g2', ['a', 'b', 'd'], 'q'), [{ id: 'g1', comprisedOf: ['c'] }, { id: 'g2', comprisedOf: ['d', 'a', 'b'] }]);
+        assert.deepEqual(moveIntoGroupTodo(groups, 'g2', ['d'], 'q'), [], 'already there: nothing changes');
+    });
+});
 });

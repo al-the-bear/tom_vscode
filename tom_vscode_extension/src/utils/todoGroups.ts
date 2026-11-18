@@ -108,3 +108,33 @@ export function groupDecisions(
     }
     return out;
 }
+
+/** A group todo's members, for {@link moveIntoGroupTodo}. */
+export interface GroupMembers {
+    id: string;
+    comprisedOf: readonly string[];
+}
+
+/**
+ * Move todos `ids` of quest `quest` into the group todo `targetId`: they are
+ * added at the end of its members (once, in the order given) and leave every
+ * other group todo of the quest that names them (bare or as `<quest>/<id>`).
+ * Answers the new member list of each group that changes, in the order given.
+ */
+export function moveIntoGroupTodo(groups: readonly GroupMembers[], targetId: string, ids: readonly string[], quest: string): Array<{ id: string; comprisedOf: string[] }> {
+    const names = (id: string): string[] => [id, `${quest}/${id}`];
+    const moving = new Set(ids.flatMap(names));
+    const out: Array<{ id: string; comprisedOf: string[] }> = [];
+    for (const g of groups) {
+        const before = [...g.comprisedOf];
+        let after: string[];
+        if (g.id === targetId) {
+            const has = new Set(before);
+            after = [...before, ...ids.filter((id) => id !== targetId && !names(id).some((n) => has.has(n)))];
+        } else {
+            after = before.filter((m) => !moving.has(m));
+        }
+        if (after.length !== before.length || after.some((m, i) => m !== before[i])) { out.push({ id: g.id, comprisedOf: after }); }
+    }
+    return out;
+}

@@ -393,7 +393,7 @@ In the list, each group todo heads its own section above the prefix groups, sort
 
 The group's header and its detail view have a queue button (⏵): it queues the group as a GROUP item (see *TODO and GROUP items* under the Prompt Queue) where you pick (see *Where a todo is queued and sent* below); the ⏩ **Queue as todo item** button on a tile does the same for any todo (a TODO item; a GROUP item for a group).
 
-The detail view of a group shows its **Members** with their progress: each member a badge with its status, ◀ ▶ to change the order, × to remove it, ➕ to add members from this quest, another quest or the workspace. Set a todo's status to `group` to give it the Members row. A todo that belongs to groups shows them as 🗂️ chips on its row and under **Part of** in its details (read-only — edit Members on the group); a click on a chip goes to the group.
+The detail view of a group shows its **Members** with their progress: each member a badge with its status, ◀ ▶ to change the order, × to remove it, ➕ to add members from this quest, another quest or the workspace. Set a todo's status to `group` to give it the Members row. A todo that belongs to groups shows them as 🗂️ chips on its row and under **Part of** in its details (read-only — edit Members on the group); a click on a chip goes to the group. The move button on a todo's row (not on a group todo) offers **Move to a group todo…** while the quest has group todos: pick one, and the todo (or every stacked todo) becomes its member, at the end, and leaves the group todos it was in. The todo itself stays where it is: its file, its id and its prefix group.
 
 #### Your own todos (👤)
 
