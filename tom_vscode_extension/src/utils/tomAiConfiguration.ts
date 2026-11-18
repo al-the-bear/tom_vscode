@@ -4,7 +4,8 @@ import { applyMergePatch, deepMerge, mergePatch, readConfigLayers } from './conf
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
-import { parseDocument } from 'yaml';
+import { parseDocument, stringify as stringifyYaml } from 'yaml';
+import { CONFIG_PARSE_RETRY_MS, updateConfigFileLocked, type ConfigFileFormat } from './lockedConfigWrite';
 import { FsUtils } from './fsUtils';
 import { WsPaths } from './workspacePaths';
 import { logConfigAccess } from './toolLog';
@@ -256,21 +257,21 @@ export class TomAiConfiguration {
 
     /**
      * Save one section: only what differs from the merged view goes into the
-     * target file (a merge patch of `key`), applied to the file as it is on
-     * disk. Keys that come only from another layer or the defaults are never
-     * written into it; an unchanged section writes nothing.
+     * target file (a merge patch of `key`), applied under the file's lock to
+     * the file as it is on disk then (another window's save or a hand edit of
+     * another key in between is kept). Keys that come only from another layer
+     * or the defaults are never written into it; an unchanged section writes
+     * nothing. A failed save is shown to the user and rejects.
      */
     async updateSection(key: string, value: unknown): Promise<void> {
         // Why: a hand edit not read yet would otherwise be overwritten with the copy from before it.
         this.refreshIfChanged();
         if (this.targetUnreadable) {
-            throw new Error(`Not saved: ${this.configPath} does not parse; fix the file first, then save again.`);
+            throw this.reportSaveFailure(new Error(`Not saved: ${this.configPath} does not parse; fix the file first, then save again.`));
         }
         const patch = mergePatch(this.config[key], value);
         if (patch === undefined) { return; }
-        this.target = applyMergePatch(this.target, { [key]: patch }) as Record<string, unknown>;
-        this.config = this.mergeConfig(this.target);
-        await this.persistConfig();
+        this.writePatch({ [key]: patch });
     }
 
     /**
@@ -292,9 +293,7 @@ export class TomAiConfiguration {
         if (this.targetUnreadable) { return false; }
         const patch = mergePatch(base, next);
         if (patch === undefined) { return true; }
-        this.target = applyMergePatch(this.target, patch) as Record<string, unknown>;
-        this.config = this.mergeConfig(this.target);
-        this.writeTarget();
+        try { this.writePatch(patch as Record<string, unknown>); } catch { return false; }
         return true;
     }
 
@@ -307,7 +306,14 @@ export class TomAiConfiguration {
         this.upperLayers = [];
 
         const filePath = this.configPath;
-        const [targetLayer, ...upper] = readConfigLayers(this.layerPaths(), (raw, p) => this.parseConfig(raw, p), undefined, (p) => FsUtils.safeReadFile(p));
+        const readLayers = () => readConfigLayers(this.layerPaths(), (raw, p) => this.parseConfig(raw, p), undefined, (p) => FsUtils.safeReadFile(p));
+        let layers = readLayers();
+        if (layers[0]?.unreadable) {
+            // A hand edit may be in progress (saves are atomic, so it is no torn write): read once more.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, CONFIG_PARSE_RETRY_MS);
+            layers = readLayers();
+        }
+        const [targetLayer, ...upper] = layers;
         for (const layer of upper) {
             if (layer.unreadable) {
                 logConfigAccess('TomAiConfiguration.reload', layer.path, {
@@ -380,10 +386,9 @@ export class TomAiConfiguration {
     }
 
     async createDefaultConfig(): Promise<void> {
-        this.target = { ...TomAiConfiguration.defaults };
+        const defaults = { ...TomAiConfiguration.defaults } as Record<string, unknown>;
+        this.writeContent(() => defaults);
         this.targetUnreadable = false;
-        this.config = this.mergeConfig(this.target);
-        await this.persistConfig();
     }
 
     private parseConfig(raw: string, filePath: string): Record<string, unknown> | undefined {
@@ -403,22 +408,52 @@ export class TomAiConfiguration {
         }
     }
 
-    private async persistConfig(): Promise<void> {
-        this.writeTarget();
+    /** Apply the merge patch `patch` to the target file under its lock (see {@link writeContent}). */
+    private writePatch(patch: Record<string, unknown>): void {
+        this.writeContent((current) => applyMergePatch(current, patch) as Record<string, unknown>);
     }
 
-    /** Write `target` to the target file (synchronously). */
-    private writeTarget(): void {
+    /**
+     * Change the target file (lib: utils/lockedConfigWrite.ts): through its
+     * real path (a workspace folder's link onto the root's file stays a link),
+     * under its lock, re-read there and `apply`'d to what it holds then,
+     * written atomically. `target` and `config` are rebuilt from what was
+     * written. A failure is shown to the user and thrown.
+     */
+    private writeContent(apply: (current: Record<string, unknown>) => Record<string, unknown>): void {
         const filePath = this.configPath;
-        FsUtils.ensureDir(path.dirname(filePath));
-
-        if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
-            FsUtils.safeWriteYaml(filePath, this.target);
-        } else {
-            FsUtils.safeWriteJson(filePath, this.target, 2);
+        let result: { content: Record<string, unknown> };
+        try {
+            result = updateConfigFileLocked(filePath, apply, this.formatOf(filePath));
+        } catch (err) {
+            throw this.reportSaveFailure(err, filePath);
         }
-        // The file now holds `target` and `config` is built from it: no need to parse it back.
-        this.stamp = this.filesStamp();
+        this.target = result.content;
+        this.targetUnreadable = false;
+        this.config = this.mergeConfig(this.target);
+        // Only the target's part of the stamp is renewed: a change of another layer still reloads at the next read.
+        const previous = (this.stamp ?? '').split('|');
+        const now = this.filesStamp().split('|');
+        previous[0] = now[0];
+        this.stamp = previous.length === now.length ? previous.join('|') : now.join('|');
+    }
+
+    /** How the target file is read and written: YAML by its extension, else JSON (two-space indent). */
+    private formatOf(filePath: string): ConfigFileFormat {
+        const yaml = /\.ya?ml$/i.test(filePath);
+        return {
+            parse: (raw) => this.parseConfig(raw, filePath),
+            stringify: (content) => yaml ? stringifyYaml(content) : JSON.stringify(content, null, 2),
+        };
+    }
+
+    /** Show a failed save (the file and the reason) and answer the error to throw. */
+    private reportSaveFailure(err: unknown, filePath = this.configPath): Error {
+        const reason = err instanceof Error ? err.message : String(err);
+        const error = reason.startsWith('Not saved:') ? new Error(reason) : new Error(`Not saved: ${filePath}: ${reason}`);
+        logConfigAccess('TomAiConfiguration.save', filePath, { action: 'save-failed', note: reason });
+        try { void vscode.window.showErrorMessage(`Tom AI: the configuration was not saved. ${error.message}`); } catch { /* no window */ }
+        return error;
     }
 
     private resolveConfiguredPath(configuredPath: string): string {
