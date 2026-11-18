@@ -5,7 +5,9 @@
  * quests for a choice.
  */
 
-import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
+import { readQuestSection, writeQuestSection } from '../managers/extensionConfigStore';
+import { recordedQuestsOf, recordQuestWorkspaceFolder, relativeWorkspaceFolder } from '../utils/workspaceRegistry';
 import * as path from 'path';
 
 import { listQuestIds } from '../managers/questTodoManager';
@@ -18,12 +20,41 @@ export function windowAiWorkspaceName(): string | undefined {
     return root ? aiWorkspaceName(root) : undefined;
 }
 
-/** The window's workspace quests (the list, the recorded ones, else every quest); undefined without `_ai` or a folder. */
+/** The window's workspace folder relative to the root (posix form, `.` standalone); undefined without a layout. */
+export function windowRelativeWorkspaceFolder(): string | undefined {
+    const layout = getLayout();
+    return layout ? relativeWorkspaceFolder(layout.root, layout.workspaceFolder) : undefined;
+}
+
+/**
+ * The window's workspace quests: the list (`_ai/workspaces/<workspace>.yaml`), else the quests whose recorded
+ * workspace folder is this window's (02_wslayout-11), else every quest; undefined without `_ai` or a folder.
+ */
 export function windowWorkspaceQuests(): WorkspaceQuests | undefined {
     const aiRoot = WsPaths.aiRoot;
     const name = windowAiWorkspaceName();
     if (!aiRoot || !name) { return undefined; }
-    return resolveWorkspaceQuests(aiRoot, name, listQuestIds());
+    const rel = windowRelativeWorkspaceFolder();
+    const recorded = rel ? recordedQuestsOf(path.join(aiRoot, 'quests'), rel) : [];
+    return resolveWorkspaceQuests(aiRoot, name, listQuestIds(), recorded);
+}
+
+/**
+ * Record the window's quest's workspace folder in its `extension_config.<quest>.yaml` (02_wslayout-11), only when
+ * it changed; nothing for `default`. Answers whether it wrote.
+ */
+export function recordWindowQuestWorkspaceFolder(): boolean {
+    const layout = getLayout();
+    if (!layout || !layout.questId || layout.questId === 'default') { return false; }
+    try {
+        return recordQuestWorkspaceFolder(
+            { read: (key, quest) => readQuestSection(key, quest), write: (key, value, quest) => writeQuestSection(key, value, quest) },
+            layout.questId,
+            relativeWorkspaceFolder(layout.root, layout.workspaceFolder),
+        );
+    } catch {
+        return false;
+    }
 }
 
 /** The quests a choice offers first: the workspace's (always with `alsoQuest`, e.g. the window's own), else every quest. */

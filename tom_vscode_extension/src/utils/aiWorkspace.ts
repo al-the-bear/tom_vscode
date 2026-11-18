@@ -126,3 +126,17 @@ export function readQuestShortDescription(questsRoot: string, quest: string): st
     const body = (lines[0]?.startsWith('# ') ? lines.slice(1) : lines).join('\n').trim();
     return body || undefined;
 }
+
+/** Each quest named by a workspace list `_ai/workspaces/<workspace>.yaml`, with the workspaces listing it (sorted). */
+export function workspacesListingQuests(aiRoot: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    let files: string[] = [];
+    try { files = fs.readdirSync(path.join(aiRoot, AI_WORKSPACES_FOLDER)).filter((f) => f.endsWith('.yaml')).sort(); } catch { return out; }
+    for (const f of files) {
+        const workspace = f.slice(0, -'.yaml'.length);
+        for (const quest of readAiWorkspaceQuestList(path.join(aiRoot, AI_WORKSPACES_FOLDER, f)).quests ?? []) {
+            out.set(quest, [...(out.get(quest) ?? []), workspace]);
+        }
+    }
+    return out;
+}

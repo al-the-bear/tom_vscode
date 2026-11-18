@@ -58,9 +58,13 @@ Both subpanels are queue-compatible.
   digits and `_`, not taken), a name and — optional — what the quest is for in
   a sentence or two, creates `_ai/quests/<id>/` with the quest's files (empty
   but for their headings; `short_description.<id>.md` holds its title, that
-  purpose or a pointer to the setup todo, and a `**State:**` line), adds the
-  quest to the Active Quests table of `_copilot_guidelines/quests_and_processes.md`,
-  and offers to open the quest's workspace. Its one todo,
+  purpose or a pointer to the setup todo, and a `**State:**` line) and offers
+  to open the quest's workspace. No table lists the quests: when a window opens
+  a quest it records the quest's workspace folder (relative to the root) in the
+  quest's `extension_config.<quest>.yaml` (`workspaceFolder`), and a
+  workspace's quests are its list in `_ai/workspaces/<workspace>.yaml`, else
+  the quests recorded for its workspace folder, else every quest
+  (`${workspaceQuests}`, `tomAi_getWorkspaceInfo` with `include`). Its one todo,
   `questsetup1_<code>-define-the-quest`, defines the quest with you in question
   rounds when you run it in the queue or the chat, and fills in the short
   description; the quest refresh keeps it current. The quest lists show it

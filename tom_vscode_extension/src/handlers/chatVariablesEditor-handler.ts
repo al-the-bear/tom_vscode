@@ -190,9 +190,22 @@ function sendState(panel: vscode.WebviewPanel): void {
         todoFile: store.todoFile,
         custom: store.withRun(run, () => ({ ...store.custom })),
         changeLog: store.changeLog,
+        // The window's workspace quests (derived, read-only here; 02_wslayout-11).
+        workspaceQuests: workspaceQuestsForEditor(),
         // The run's process variables (derived, read-only here).
         process: run === windowRun ? store.derivedValues() : processVariablesOfRun(run),
     });
+}
+
+/** `${workspaceQuests}` as the editor shows it (02_wslayout-11). */
+function workspaceQuestsForEditor(): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const live = require('../services/aiWorkspaceLive.js') as typeof import('../services/aiWorkspaceLive');
+        return [...(live.windowWorkspaceQuests()?.quests ?? [])].sort().join(', ');
+    } catch {
+        return '';
+    }
 }
 
 /** The process chat variables of another run than the window's, read from its state file. */

@@ -6,7 +6,7 @@
  *   CQ-1 the scaffold: the fourteen files, empty but for their headings (the short description: its title, the purpose
  *        or a pointer to the setup todo, a State line; vscimpb145); the workspace's folder `../../..`; the
  *        one todo (id `questsetup1_<code>-define-the-quest`, the interview it asks for) valid against the todo
- *        schema and read by the todo reader; the row in the Active Quests table, once
+ *        schema and read by the todo reader; no Active Quests table is written (02_wslayout-11)
  *   CQ-2 an id that is taken, malformed, `default` or empty is refused, and nothing is written
  *   CQ-3 the command: the input boxes (the id box refuses a taken id), the quest created, the workspace offered
  *        and opened in a new window; with arguments no box opens and `offerOpen: false` offers nothing; a taken
@@ -56,7 +56,7 @@ stubWindow.showInputBox = async (options: Record<string, unknown>) => { inputBox
 const stubWorkspace = stubbed.stub.workspace as Record<string, unknown>;
 
 // Safe to import after the stub is wired into the resolver.
-import { ACTIVE_QUESTS_FILE, createQuestScaffold, questIdProblem, questScaffoldFiles, registerActiveQuest } from '../../utils/questScaffold.js';
+import { createQuestScaffold, questIdProblem, questScaffoldFiles } from '../../utils/questScaffold.js';
 import { CREATE_QUEST_COMMAND, OPEN_QUEST_WORKSPACE, createQuest, registerCreateQuestCommand } from '../createQuest-handler.js';
 import { QUEST_HINT_TEXT, handleQuestHintMessage, questHintMessage, wireQuestHintMessages } from '../questHint-handler.js';
 import { SETUP_WORKSPACE_COMMAND } from '../setupWorkspaceFolder-handler.js';
@@ -69,6 +69,8 @@ const FILES = (id: string): string[] => [
     `progress.${id}.md`, `decisions.${id}.md`, `questions.${id}.md`, `open_topics.${id}.md`, `references.${id}.md`,
     `quest_refresh.${id}.md`, `quest_documentation_update.${id}.md`, `extension_config.${id}.yaml`,
 ];
+/** A guideline with the old Active Quests table: the scaffold leaves it alone (02_wslayout-11). */
+const ACTIVE_QUESTS_FILE = path.join('_copilot_guidelines', 'quests_and_processes.md');
 const TABLE = '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| taken | Taken | x | `_ai/quests/taken/` |\n\nAfter the table.\n';
 let counter = 0;
 function workspace(withTable = true): string {
@@ -87,7 +89,7 @@ describe('Create New Quest', () => {
     test('CQ-1: the scaffold', () => {
         const ws = workspace();
         const date = new Date(2026, 10, 8, 14, 5);
-        const r = createQuestScaffold(ws, path.join(ws, '_ai', 'quests'), 'my_quest', 'My Quest', date);
+        const r = createQuestScaffold(path.join(ws, '_ai', 'quests'), 'my_quest', 'My Quest', date);
         const folder = path.join(ws, '_ai', 'quests', 'my_quest');
         assert.equal(r.folder, folder);
         assert.deepEqual(r.files, FILES('my_quest'));
@@ -105,7 +107,7 @@ describe('Create New Quest', () => {
         assert.equal(fs.readFileSync(path.join(folder, 'short_description.my_quest.md'), 'utf8'),
             '# My Quest (`my_quest`)\n\nBeing defined with the user by its first todo (`questsetup1`).\n\n**State:** New: its first todo defines it with the user.\n');
         const ws2 = workspace(false);
-        const withPurpose = createQuestScaffold(ws2, path.join(ws2, '_ai', 'quests'), 'purposeful', 'Purposeful', date, 'The order front end.');
+        const withPurpose = createQuestScaffold(path.join(ws2, '_ai', 'quests'), 'purposeful', 'Purposeful', date, 'The order front end.');
         assert.equal(fs.readFileSync(path.join(withPurpose.folder, 'short_description.purposeful.md'), 'utf8').split('\n')[2], 'The order front end.');
         assert.match(fs.readFileSync(path.join(folder, 'decisions.my_quest.md'), 'utf8'), /^# Decisions — my_quest\n/);
         assert.match(fs.readFileSync(path.join(folder, 'questions.my_quest.md'), 'utf8'), /^# Questions — my_quest\n/);
@@ -128,14 +130,11 @@ describe('Create New Quest', () => {
             assert.ok(validate(doc), JSON.stringify(validate.errors));
         }
         assert.deepEqual(readTodoFile(todoFile).map((t) => t.id), [r.todoId], 'the todo reader takes it');
-        // The registration.
-        assert.equal(r.registration, 'added');
-        const table = fs.readFileSync(path.join(ws, ACTIVE_QUESTS_FILE), 'utf8');
-        assert.match(table, /\| taken \| Taken \| x \| `_ai\/quests\/taken\/` \|\n\| my_quest \| My Quest \| .* \| `_ai\/quests\/my_quest\/` \|\n\nAfter the table\./);
-        assert.equal(registerActiveQuest(path.join(ws, ACTIVE_QUESTS_FILE), 'my_quest', 'My Quest'), 'present');
-        assert.equal(registerActiveQuest(path.join(ws, 'missing.md'), 'x', 'X'), 'noFile');
-        const noTable = createQuestScaffold(workspace(false), path.join(SANDBOX, `w${counter}`, '_ai', 'quests'), 'other', 'Other', date);
-        assert.equal(noTable.registration, 'noFile');
+        // No table is kept any more (02_wslayout-11): the guideline is not touched, the setup todo does not ask for it.
+        assert.equal(fs.readFileSync(path.join(ws, ACTIVE_QUESTS_FILE), 'utf8'), TABLE, 'quests_and_processes.md untouched');
+        assert.equal('registration' in r, false);
+        assert.ok(!todo.description.includes('Active Quests'), 'the setup todo asks for no table row');
+        createQuestScaffold(path.join(workspace(false), '_ai', 'quests'), 'other', 'Other', date);
         assert.equal(questScaffoldFiles('q', 'Q', date).length, 14);
     });
 
@@ -148,7 +147,7 @@ describe('Create New Quest', () => {
         assert.match(questIdProblem('default', dir)!, /no-quest workspace/);
         assert.match(questIdProblem('', dir)!, /Enter a quest id/);
         assert.equal(questIdProblem('new_1', dir), undefined);
-        assert.throws(() => createQuestScaffold(ws, dir, 'taken', 'Taken'), /exists already/);
+        assert.throws(() => createQuestScaffold(dir, 'taken', 'Taken'), /exists already/);
         assert.deepEqual(fs.readdirSync(path.join(dir, 'taken')), [], 'nothing written into the existing folder');
         assert.equal(fs.readFileSync(path.join(ws, ACTIVE_QUESTS_FILE), 'utf8'), TABLE);
     });

@@ -37,7 +37,8 @@ import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
 import { getWorkspaceName } from './services/copilotTrailService';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
-import { getLayout, registerLayoutTracking, layoutWorkspaceFolder } from './utils/workspaceLayout';
+import { getLayout, registerLayoutTracking, layoutWorkspaceFolder, onDidChangeLayout } from './utils/workspaceLayout';
+import { recordWindowQuestWorkspaceFolder } from './services/aiWorkspaceLive';
 import { registerSetupWorkspaceFolderCommand } from './handlers/setupWorkspaceFolder-handler';
 import { registerCreateQuestCommand } from './handlers/createQuest-handler';
 import { openQuestOverviewOnce } from './handlers/questOverviewOnOpen-handler';
@@ -702,6 +703,10 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (e: any) {
             bridgeLog(`Extension-config migration failed: ${e?.message ?? e}`, 'ERROR');
         }
+        // The quest's workspace folder, recorded in its extension_config.<quest>.yaml (02_wslayout-11): the
+        // workspace quests and tomAi_getWorkspaceInfo read it. Again when the layout changes.
+        recordWindowQuestWorkspaceFolder();
+        context.subscriptions.push(onDidChangeLayout(() => recordWindowQuestWorkspaceFolder()));
         if (getCliServerAutostart() && !isDartScriptAvailable()) {
             // No tom_bs on this platform: nothing to start, and no error at start
             // (the Dart binaries page and its status-bar hint are the notice).

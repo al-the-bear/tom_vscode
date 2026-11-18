@@ -21,7 +21,7 @@
  *        unbalanced markers refuse the build
  *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
  *        them are dropped
- *   WT-10 the Active Quests table keeps its header and the rows of the quests the template carries
+ *   WT-10 the template packs quests_and_processes.md as it is (no Active Quests table to cut)
  *   WT-11 built from this workspace, no relative link in the packed Markdown points outside the template
  *   WT-12 the console Markdown guideline is packed for any Dart workspace: it points at the public package's page
  *        (pub.dev, MIT) and names none of this workspace's packages (`tom_basics_console` stays workspace-specific)
@@ -53,7 +53,6 @@ const tpl = require(SCRIPT) as {
     EXCLUDED_PATHS: Set<string>; // eslint-disable-line @typescript-eslint/naming-convention -- the script's constant
     stripWorkspaceSpecific(text: string, file: string): string;
     dropLinksTo(text: string, file: string, excluded: Set<string>): string;
-    activeQuestsFor(text: string, carried: string[]): string;
     templateFileData(file: string, data: Buffer): Buffer;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -294,20 +293,10 @@ describe('the workspace template', () => {
         assert.ok(names.includes('_ai/prompt/p.md'), 'other prompts packed');
     });
 
-    test('WT-10: the Active Quests table keeps the carried quests', () => {
-        const text = '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| mine | Mine | x | `_ai/quests/mine/` |\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n| other | Other | z | `_ai/quests/other/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n';
-        assert.equal(tpl.activeQuestsFor(text, ['tomai_introduction']), '# Quests\n\n## Active Quests\n\n| ID | Name | Description | Path |\n|----|------|-------------|------|\n| tomai_introduction | Intro | y | `_ai/quests/tomai_introduction/` |\n\n## Next\n\n| a | b |\n|---|---|\n| keep | me |\n');
-        assert.equal(tpl.activeQuestsFor('# No table\n', ['x']), '# No table\n');
-        const liveSource = present ? fs.readFileSync(path.join(WS, '_copilot_guidelines/quests_and_processes.md'), 'utf8') : '';
-        // The live guideline may hold no Active Quests table (the workspace layout removed it); then there is nothing to keep.
-        if (present && liveSource.includes('## Active Quests')) {
-            const live = tpl.templateFileData('_copilot_guidelines/quests_and_processes.md', Buffer.from(liveSource)).toString('utf8');
-            const after = live.slice(live.indexOf('## Active Quests')).split('\n').slice(1);
-            const start = after.findIndex((l) => l.startsWith('|'));
-            const end = after.findIndex((l, k) => k > start && !l.startsWith('|'));
-            const rows = after.slice(start + 2, end);
-            assert.deepEqual(rows.map((l) => l.split('|')[1].trim()), ['tomai_introduction']);
-        }
+    test('WT-10: no Active Quests table is cut any more (02_wslayout-11)', () => {
+        assert.equal('activeQuestsFor' in tpl, false);
+        const text = '# Quests\n\n## Active Quests\n\n| ID | Name |\n|----|------|\n| mine | Mine |\n';
+        assert.equal(tpl.templateFileData('_copilot_guidelines/quests_and_processes.md', Buffer.from(text)).toString('utf8'), text, 'packed as it is');
     });
     test('WT-11: no relative link in the packed Markdown leaves the template', { skip: present ? false : 'no workspace around this checkout' }, () => {
         const entries = readZip((tpl.buildTemplate(WS) as { zip: Buffer }).zip);

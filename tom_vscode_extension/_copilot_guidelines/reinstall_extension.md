@@ -165,8 +165,7 @@ files, and literal secrets, make it refuse and write nothing. The result is
 Folder unpacks it. Markdown is packed without its `<!-- workspace-specific -->`
 blocks (CLAUDE.md and its mirror end with the workspace's own part, which the
 template leaves out) and without list items or table rows linking to a
-left-out file, and the Active Quests table keeps only `tomai_introduction`
-(`templateFileData`, `EXCLUDED_PATHS`).
+left-out file (`templateFileData`, `EXCLUDED_PATHS`).
 
 **Packaging without installing** (private distribution): `create_vsix.sh` /
 `.ps1` build from source with the Dart binaries for this platform,

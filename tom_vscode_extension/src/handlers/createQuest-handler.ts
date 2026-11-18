@@ -1,8 +1,7 @@
 /**
  * "@T: Create New Quest" (`tomAi.createQuest`): asks the quest id and name,
- * creates `_ai/quests/<id>/` with the quest's files (utils/questScaffold.ts),
- * registers it in the Active Quests table and offers to open the quest's
- * workspace. The quest's one todo defines the quest with the user.
+ * creates `_ai/quests/<id>/` with the quest's files (utils/questScaffold.ts)
+ * and offers to open the quest's workspace. The quest's one todo defines the quest with the user.
  *
  * An agent runs it with arguments (`tomAi_runVscodeCommandTyped`,
  * `tomAi.createQuest`, `[{ id, name, offerOpen: false }]`): then no input box
@@ -74,9 +73,8 @@ export async function createQuest(args: CreateQuestArgs = {}): Promise<CreateQue
         placeHolder: 'e.g. The web front end of the order system: its pages, forms and API client.',
     }) : undefined);
 
-    const result = createQuestScaffold(root, dir, questId, name.trim() || defaultQuestName(questId), new Date(), purpose);
-    const registered = result.registration === 'added' ? ' and registered it in the Active Quests table' : '';
-    const message = `Created the quest ${questId} (${result.files.length} files in ${result.folder})${registered}. `
+    const result = createQuestScaffold(dir, questId, name.trim() || defaultQuestName(questId), new Date(), purpose);
+    const message = `Created the quest ${questId} (${result.files.length} files in ${result.folder}). `
         + `Its todo ${result.todoId} defines the quest with you: run it in the queue or the chat from the quest's workspace.`;
     let opened = false;
     if (args.offerOpen === false) {

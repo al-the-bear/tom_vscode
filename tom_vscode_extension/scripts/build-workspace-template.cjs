@@ -17,8 +17,7 @@
  * Markdown is packed without its `<!-- workspace-specific -->` blocks (the
  * workspace's own part of CLAUDE.md and AGENTS.md, guideline passages about
  * this workspace) and without list items / table rows linking to a left-out
- * file; the Active Quests table keeps only the quests the template carries
- * (templateFileData).
+ * file (templateFileData).
  *   - _ai/quests/tomai_introduction/      the starting quest, without the files its
  *                                          use on this machine writes
  * plus `.tom/workspace_template.json`, which names the template's type (a
@@ -139,32 +138,10 @@ function dropLinksTo(text, file, excluded) {
         .join('\n');
 }
 
-/** The Active Quests table cut to its header and the rows of the quests the template carries. */
-function activeQuestsFor(text, carried) {
-    const lines = text.split('\n');
-    const heading = lines.findIndex((l) => l.trim() === '## Active Quests');
-    if (heading < 0) { return text; }
-    let i = heading + 1;
-    while (i < lines.length && !lines[i].startsWith('|') && !lines[i].startsWith('#')) { i++; }
-    if (i >= lines.length || !lines[i].startsWith('|')) { return text; }
-    const header = i;
-    const out = [];
-    for (let k = 0; k < lines.length; k++) {
-        const isRow = k > header + 1 && lines[k].startsWith('|') && lines.slice(header, k).every((l) => l.startsWith('|'));
-        if (isRow && !carried.some((q) => lines[k].includes(`_ai/quests/${q}/`))) { continue; }
-        out.push(lines[k]);
-    }
-    return out.join('\n');
-}
-
-/** The quests the template carries (from SOURCES). */
-const CARRIED_QUESTS = SOURCES.filter((s) => s.path.startsWith('_ai/quests/')).map((s) => s.path.split('/')[2]);
-
 /**
  * A source file as the template packs it: the config through genericConfig;
  * Markdown without its workspace-specific blocks and its links to left-out
- * files, the Active Quests table cut to the carried quests; everything else as
- * it is.
+ * files; everything else as it is.
  * @param {string} file workspace-relative posix path
  * @param {Buffer} data
  */
@@ -173,7 +150,6 @@ function templateFileData(file, data) {
     if (!file.endsWith('.md')) { return data; }
     let text = stripWorkspaceSpecific(data.toString('utf8'), file);
     text = dropLinksTo(text, file, EXCLUDED_PATHS);
-    if (file === QUEST_REGISTRY_PATH) { text = activeQuestsFor(text, CARRIED_QUESTS); }
     return Buffer.from(text, 'utf8');
 }
 
@@ -214,9 +190,6 @@ const EXCLUDED_PATHS = new Set([
 /** Markdown between these marker lines is this workspace's own: the template leaves it out (CLAUDE.md, AGENTS.md, guidelines). */
 const SPECIFIC_OPEN = /^\s*<!--\s*workspace-specific\s*-->\s*$/;
 const SPECIFIC_CLOSE = /^\s*<!--\s*\/workspace-specific\s*-->\s*$/;
-
-/** The guideline holding the Active Quests table. */
-const QUEST_REGISTRY_PATH = '_copilot_guidelines/quests_and_processes.md';
 
 /** Paths that are personal or bound to one machine. */
 const PERSONAL_PATH_RULES = [
@@ -438,7 +411,7 @@ function main() {
     return 0;
 }
 
-module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, genericConfig, stripWorkspaceSpecific, dropLinksTo, activeQuestsFor, templateFileData, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
+module.exports = { SOURCES, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, genericConfig, stripWorkspaceSpecific, dropLinksTo, templateFileData, TEMPLATE_INFO_PATH, TEMPLATE_TYPE, collectTemplateFiles, checkTemplate, isAllowed, writeZip, buildTemplate, crc32 };
 
 if (require.main === module) {
     process.exitCode = main();

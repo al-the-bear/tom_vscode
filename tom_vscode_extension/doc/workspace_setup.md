@@ -143,6 +143,16 @@ cases; paths are absolute or relative to the workspace folder:
 In configuration values, `${workspaceFolder}` is the workspace folder and
 `${tomRoot}` the root.
 
+When a window opens a quest, it records the quest's workspace folder (relative
+to the root, `.` standalone) as `workspaceFolder` in the quest's
+`extension_config.<quest>.yaml`. A workspace's quests are its list in
+`_ai/workspaces/<workspace>.yaml`, else the quests recorded for its workspace
+folder, else every quest: the prompt variable `${workspaceQuests}` names them,
+and `tomAi_getWorkspaceInfo` with `include: ["layout", "workspaceFolders",
+"quests"]` answers the layout, the root's workspace folders (found by a scan:
+folders with an `_ai` entry and a `.tom` or CLAUDE.md) and each quest's recorded
+folder.
+
 ---
 
 ## Optional Configuration

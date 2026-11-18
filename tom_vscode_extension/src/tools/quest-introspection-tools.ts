@@ -171,7 +171,8 @@ export const GET_ACTIVE_QUEST_DESCRIPTION =
     '`rawId` is the workspace-file basename verbatim (useful for diagnosing ' +
     '"why isn\'t my quest active"); `questFolder` is workspace-relative ' +
     '(`_ai/quests/<id>`). Use `tomAi_listQuests` to see what folders actually ' +
-    'exist.';
+    'exist, and `tomAi_getWorkspaceInfo` (`include: ["workspaceFolders", "quests"]`) for the workspace folders ' +
+    'and the folder each quest was opened in.';
 
 export const GET_ACTIVE_QUEST_TOOL: SharedToolDefinition<GetActiveQuestInput> = {
     name: 'tomAi_getActiveQuest',
@@ -227,11 +228,13 @@ export async function listQuestsImpl(quests: QuestSource, input: ListQuestsInput
 export const LIST_QUESTS_DESCRIPTION =
     'List the quests (folders under `_ai/quests/`), by default the window\'s workspace quests: the ' +
     '`quests` list of `_ai/workspaces/<workspace>.yaml` (`<workspace>` the window\'s root folder name; ' +
-    'edited in the AI Workspace Quests editor), else every quest. `all: true` (or `scope: "all"`) lists ' +
+    'edited in the AI Workspace Quests editor), else the quests whose recorded workspace folder is this window\'s, ' +
+    'else every quest. `all: true` (or `scope: "all"`) lists ' +
     'every quest. Answers `{ok, scope, workspace, workspaceFile, workspaceSource (list | recorded | all), ' +
     'listApplied, unknownQuests (listed but missing), allCount, count, quests: [{id, shortDescription}]}` ' +
     '— `shortDescription` the text of `short_description.<quest>.md`; `includeOverview: true` adds ' +
-    '`overviewFile` (`overview.<id>.md` or null) and `todoFileCount`. Alphabetical, or the list\'s order.';
+    '`overviewFile` (`overview.<id>.md` or null) and `todoFileCount`. Alphabetical, or the list\'s order. ' +
+    'The workspace folders and each quest\'s recorded folder: `tomAi_getWorkspaceInfo` with `include`.';
 
 export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
     name: 'tomAi_listQuests',

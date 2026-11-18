@@ -355,6 +355,9 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
     // Tier 1b — Workspace folder names & paths (from WsPaths registry)
     Object.assign(values, WsPaths.getResolverVariables());
 
+    // The window's workspace quests (02_wslayout-11): the list, else the recorded ones, else every quest.
+    if (!('workspaceQuests' in values)) { defineLazyValue(values, 'workspaceQuests', workspaceQuestsValue); }
+
     // Tier 4c — File-injection placeholders (role/quest descriptions) and
     // the universal ${userMessage} default. Runs after Tier 4 so chat
     // values are populated, and after WsPaths so rolesPath/questsPath exist.
@@ -1233,6 +1236,7 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${aiPath}</code> – AI folder absolute path (the workspace folder's _ai, else the root's)<br>
 <code>\${guidelinesPath}</code> – The workspace folder's guidelines folder, absolute (else the root's)<br>
 <code>\${questsPath}</code> – Quests folder absolute path<br>
+<code>\${workspaceQuests}</code> – The window's workspace quests, sorted, comma-separated: the list in _ai/workspaces/&lt;workspace&gt;.yaml, else the quests whose recorded workspace folder is this window's, else every quest<br>
 <code>\${rolesPath}</code> – Roles folder absolute path<br>
 <code>\${wsConfigPath}</code> – Config folder absolute path (the root's .tom)<br>
 <br>
@@ -1363,3 +1367,14 @@ A value is set when it is non-empty text, <code>true</code> or a non-zero number
 <em>Recursive resolution:</em> placeholders inside file-injection results are resolved on the next pass (max 10). A role.md file that contains <code>\${guidelines-coding_guidelines}</code> will have the guidelines text inlined automatically.<br>
 <br>
 `;
+
+/** `${workspaceQuests}`: the window's workspace quests, sorted, comma-separated; empty without `_ai` (02_wslayout-11). */
+function workspaceQuestsValue(): string {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const live = require('../services/aiWorkspaceLive') as typeof import('../services/aiWorkspaceLive');
+        return [...(live.windowWorkspaceQuests()?.quests ?? [])].sort().join(', ');
+    } catch {
+        return '';
+    }
+}

@@ -40,6 +40,8 @@ function renderTable(s) {
         '<td class="var-actions"><button class="select-btn" id="btn-pick-projects" title="Select projects">Select…</button></td></tr>';
     rows += varRow('todo', s.todo || '', false);
     rows += varRow('todoFile', s.todoFile || '', false);
+    // The window's workspace quests (read-only: the _ai/workspaces list, else the recorded quests, else every quest).
+    rows += readonlyRow('workspaceQuests', s.workspaceQuests || '');
 
     // Custom variables
     var custom = s.custom || {};

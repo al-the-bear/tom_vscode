@@ -421,6 +421,9 @@ import {
 import { mdBrowserAskDeps, mdBrowserController } from '../handlers/markdownBrowser-handler';
 import { ASK_IN_MD_BROWSER_TOOL, askInMdBrowserImpl, type AskInMdBrowserInput } from './ask-in-md-browser-tool';
 import { recordingAsk, setOpenAskRunner, type OpenAskTool } from '../services/openAskRecord';
+import { getLayout as getWindowLayout } from '../utils/workspaceLayout';
+import { questsWithWorkspaceFolders, scanWorkspaceFolders } from '../utils/workspaceRegistry';
+import { workspacesListingQuests } from '../utils/aiWorkspace';
 import { ASK_USER_PICKER_TOOL as ASK_USER_PICKER_RESTORE_TOOL } from './user-interaction-tools';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry';
 import { execFile } from 'child_process';
@@ -592,7 +595,7 @@ function describeTab(input: unknown): { file: boolean; absolutePath: string | nu
 
 // Install live executors on the three imported defs.
 (GET_WORKSPACE_INFO_DEF as { execute: (input: GetWorkspaceInfoInput) => Promise<string> }).execute =
-    (input) => getWorkspaceInfoImpl({ source: { snapshot: (o) => buildLiveWorkspaceInfoSnapshot(o) } }, input);
+    (input) => getWorkspaceInfoImpl({ source: { snapshot: (o) => buildLiveWorkspaceInfoSnapshot(o) }, extras: liveWorkspaceInfoExtras }, input);
 (GET_ACTIVE_EDITOR_DEF as { execute: (input: GetActiveEditorInput) => Promise<string> }).execute =
     (input) => getActiveEditorImpl({ source: { snapshot: liveActiveEditorSnapshot } }, input);
 (GET_OPEN_EDITORS_DEF as { execute: (input: GetOpenEditorsInput) => Promise<string> }).execute =
@@ -1345,3 +1348,23 @@ setOpenAskRunner((tool: OpenAskTool, input: Record<string, unknown>): Promise<st
             : ASK_IN_MD_BROWSER_TOOL;
     return (def as { execute: (input: never) => Promise<string> }).execute(input as never);
 });
+
+// tomAi_getWorkspaceInfo's `include` parts (02_wslayout-11): the layout, the root's workspace folders, the quests.
+let workspaceFolderScanCache: { root: string; folders: string[] } | undefined;
+const liveWorkspaceInfoExtras = {
+    layout: (): unknown => getWindowLayout() ?? null,
+    workspaceFolders: (refresh: boolean): { root: string; folders: string[] } | null => {
+        const root = getWindowLayout()?.root;
+        if (!root) { return null; }
+        if (refresh || !workspaceFolderScanCache || workspaceFolderScanCache.root !== root) {
+            workspaceFolderScanCache = { root, folders: scanWorkspaceFolders(root) };
+        }
+        return workspaceFolderScanCache;
+    },
+    quests: (): Array<{ quest: string; workspaceFolder?: string; listedBy?: string[] }> => {
+        const aiRoot = getWindowLayout()?.aiRoot;
+        if (!aiRoot) { return []; }
+        const listed = workspacesListingQuests(aiRoot);
+        return questsWithWorkspaceFolders(path.join(aiRoot, 'quests')).map((q) => ({ ...q, ...(listed.get(q.quest) ? { listedBy: listed.get(q.quest) } : {}) }));
+    },
+};

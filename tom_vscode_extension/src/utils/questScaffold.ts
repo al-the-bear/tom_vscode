@@ -5,7 +5,6 @@
  * user and writes the overview and the first todos. No vscode here.
  */
 
-import { LEGACY_GUIDELINE_FOLDER } from './guidelineFolders';
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildIdPrefix } from '../tools/id-prefix-tools';
@@ -16,10 +15,6 @@ import { questionsLogHeader } from './questionsLogFormat';
 export const QUEST_ID_PATTERN = /^[A-Za-z0-9_]+$/;
 /** The no-quest workspace's folder name, never a quest. */
 export const RESERVED_QUEST_IDS = ['default'];
-/** Where the Active Quests table lives, relative to the workspace root. */
-// The container's transition copy (legacy folder name); 02_wslayout-11 removes the registration.
-export const ACTIVE_QUESTS_FILE = path.join(LEGACY_GUIDELINE_FOLDER, 'quests_and_processes.md');
-const ACTIVE_QUESTS_HEADING = '## Active Quests';
 
 /** Why `id` cannot be a new quest under `questsDir`, or undefined when it can. */
 export function questIdProblem(id: string, questsDir: string): string | undefined {
@@ -54,7 +49,7 @@ export function questSetupTodoDescription(id: string): string {
         '3. Repositories and projects: the folders, repositories and packages it works on.',
         '4. Processes and roles: whether it follows a process from `_ai/processes/` (tomAi_listProcesses) and which roles (`_ai/roles/`) do its work.',
         '',
-        `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree. Fill in the description of the quest's row in the Active Quests table (\`${ACTIVE_QUESTS_FILE.split(path.sep).join('/')}\`).`,
+        `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree.`,
         '',
         `Last, bring \`short_description.${id}.md\` up to date: keep its title line, write 2–4 sentences on what the quest is for and what it covers (the repositories it works on included), and a \`**State:**\` line with where it stands now. It holds the current state only; the overview stays the long form.`,
     ].join('\n');
@@ -135,44 +130,20 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
     ];
 }
 
-export type ActiveQuestsRegistration = 'added' | 'present' | 'noTable' | 'noFile';
-
-/**
- * Add the quest's row to the Active Quests table of `file` (the first table
- * under `## Active Quests`), after its last row. `_bin/check_quest_registry.py`
- * holds that table to the quest folders.
- */
-export function registerActiveQuest(file: string, id: string, name: string): ActiveQuestsRegistration {
-    if (!fs.existsSync(file)) { return 'noFile'; }
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    const heading = lines.findIndex((l) => l.trim() === ACTIVE_QUESTS_HEADING);
-    if (heading < 0) { return 'noTable'; }
-    let start = heading + 1;
-    while (start < lines.length && !lines[start].startsWith('|') && !lines[start].startsWith('#')) { start++; }
-    if (start >= lines.length || !lines[start].startsWith('|')) { return 'noTable'; }
-    let end = start;
-    while (end + 1 < lines.length && lines[end + 1].startsWith('|')) { end++; }
-    const questPath = `\`_ai/quests/${id}/\``;
-    if (lines.slice(start, end + 1).some((l) => l.includes(questPath))) { return 'present'; }
-    lines.splice(end + 1, 0, `| ${id} | ${name} | (described by its first todo, ${'`'}questsetup1${'`'}) | ${questPath} |`);
-    fs.writeFileSync(file, lines.join('\n'));
-    return 'added';
-}
-
 export interface QuestScaffoldResult {
     folder: string;
     files: string[];
     workspaceFile: string;
     todoId: string;
-    registration: ActiveQuestsRegistration;
 }
 
 /**
- * Create `<questsDir>/<id>/` with the quest's files and register it in the
- * Active Quests table of the workspace at `workspaceRoot`. Throws when the id
- * cannot be a new quest (see {@link questIdProblem}).
+ * Create `<questsDir>/<id>/` with the quest's files. No table lists the quests:
+ * a workspace's quests are derived (its `_ai/workspaces/` list, the workspace
+ * folder recorded when a window opens the quest; 02_wslayout-11). Throws when
+ * the id cannot be a new quest (see {@link questIdProblem}).
  */
-export function createQuestScaffold(workspaceRoot: string, questsDir: string, id: string, name: string, date = new Date(), purpose?: string): QuestScaffoldResult {
+export function createQuestScaffold(questsDir: string, id: string, name: string, date = new Date(), purpose?: string): QuestScaffoldResult {
     const problem = questIdProblem(id, questsDir);
     if (problem) { throw new Error(problem); }
     const folder = path.join(questsDir, id);
@@ -184,6 +155,5 @@ export function createQuestScaffold(workspaceRoot: string, questsDir: string, id
         files: files.map((f) => f.name),
         workspaceFile: path.join(folder, `${id}.code-workspace`),
         todoId: questSetupTodoId(date),
-        registration: registerActiveQuest(path.join(workspaceRoot, ACTIVE_QUESTS_FILE), id, name),
     };
 }
