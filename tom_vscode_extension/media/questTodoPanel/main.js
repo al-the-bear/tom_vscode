@@ -629,7 +629,9 @@ function qtApplyScope(msg) {
     qtScopeOrder = (msg.scope && msg.scope.order) || 'combined';
     qtShowQuestPrefix = msg.prefix === true;
     if (box) box.style.display = '';
-    // The scope picker takes the quest select's place.
+    // The scope picker takes the quest select's place, and names the quest: the label behind the file picker goes.
+    var fixedLabel = document.getElementById('qt-fixed-file-label');
+    if (fixedLabel) { fixedLabel.style.display = 'none'; }
     var questSel = document.getElementById('qt-quest-select');
     if (questSel) { questSel.style.display = 'none'; if (questSel.previousElementSibling) questSel.previousElementSibling.style.display = 'none'; }
     var scopeBtn = document.getElementById('qt-scope-btn');

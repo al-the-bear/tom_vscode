@@ -11,6 +11,9 @@
  *        (qtTemplatePicked) sets it as the select did — the template the queue and send buttons use — and the
  *        button shows it; a template list refresh keeps a pick still offered
  *   TB-4 Open Trail is gone (qt-btn-open-trail, qtOpenTrailFiles)
+ *   TB-5 one row of elements: the send group is no box of its own pushed to the right (`display: contents`, no
+ *        auto margin, the spacer takes no room); with the quest scope picker shown, the quest label behind the file
+ *        picker is hidden (the picker names the quest); a view without the picker keeps its label
  */
 
 import test, { describe } from 'node:test';
@@ -116,5 +119,25 @@ describe('todo panel top bar', () => {
         const host = readFileSync(join(ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         assert.ok(!host.includes('qtOpenTrailFiles'), 'its host handler too');
         assert.match(host, /case 'qtPickTemplate':[\s\S]{0,700}showQuickPick[\s\S]{0,200}qtTemplatePicked/);
+    });
+
+    test('TB-5: one row; the scope picker replaces the quest label', (t) => {
+        const css = media('questTodoPanel', 'style.css');
+        assert.match(css, /\.qt-top-chat-group \{ display: contents; \}/);
+        assert.match(css, /\.qt-spacer \{ display: none; \}/);
+        assert.ok(!/\.qt-top-chat-group[^}]*margin-left: auto/.test(css), 'not pushed to the right');
+        const dom = new JSDOM(`<body>${media('questTodoPanel', 'fragment.html')}</body>`, { runScripts: 'outside-only' });
+        const w = dom.window as Win;
+        t.after(() => w.close());
+        w.vscode = { postMessage: () => undefined, getState: () => undefined, setState: () => undefined };
+        w.eval('var qtViewConfig = { fixedFileLabel: "q1", hideQuestSelect: true };\n' + media('shared', 'mdOverlay.js') + media('questTodoPanel', 'grouping.js') + media('questTodoPanel', 'main.js'));
+        const label = w.document.getElementById('qt-fixed-file-label');
+        assert.equal(label.textContent, 'q1');
+        assert.notEqual(label.style.display, 'none', 'shown while no scope picker is');
+        w.qtHandleMessage({ type: 'qtScope', available: false });
+        assert.notEqual(label.style.display, 'none', 'a view without the picker keeps it');
+        w.qtHandleMessage({ type: 'qtScope', available: true, plain: true, quests: ['q1'], prefix: false, scope: { kind: 'one', quest: 'q1', files: { live: true, archived: false, deleted: false }, order: 'combined' }, buttonText: 'q1' });
+        assert.equal(label.style.display, 'none', 'the picker names the quest');
+        assert.equal(w.document.querySelector('#qt-scope-btn .qt-scope-name').textContent, 'q1');
     });
 });

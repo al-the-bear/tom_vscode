@@ -8,8 +8,9 @@
 .qt-top-bar { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); flex-wrap: wrap; }
 .qt-top-bar label { font-size: 11px; font-weight: 600; }
 .qt-top-bar select { background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border); color: var(--vscode-dropdown-foreground); border-radius: 3px; font-size: 12px; padding: 2px 4px; max-width: 160px; }
-.qt-spacer { flex: 1; }
-.qt-top-chat-group { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+/* One row of elements, wrapping as one flow: the send group's buttons follow the others (no left and right part). */
+.qt-spacer { display: none; }
+.qt-top-chat-group { display: contents; }
 .qt-split { display: flex; flex: 1; overflow: hidden; min-height: 200px; }
 .qt-list-pane { width: 38%; flex: 0 0 38%; min-width: 180px; overflow-y: auto; border-right: 1px solid var(--vscode-panel-border); }
 .qt-splitter { width: 4px; cursor: col-resize; background: var(--vscode-panel-border); flex-shrink: 0; }
