@@ -54,6 +54,7 @@ const ITEM: Required<QueuedPrompt> = {
     backgroundWait: { since: AT, limitMinutes: 30, limitFrom: AT, unlimited: true, items: [{ id: 'b1', kind: 'bash', description: 'build', command: 'make', outputFile: '/tmp/o' }] } as never,
     answerBackgroundLeft: true,
     waitingFor: { reason: 'pub.dev', details: 'limit', since: AT, until: AT },
+    blockedOn: 'todo x2 waits for x1 (in-progress)',
     waitMessages: [{ at: AT, into: 'waitFor', text: 'still there?', answer: 'yes', resumed: true }, { at: AT, into: 'background', text: 'status?' }],
     softInterrupt: { requestedAt: Date.parse(AT), heldAt: Date.parse(AT), kind: 'tool', tool: 'Bash', heldResult: 'ok' },
     turnSessionId: 'sid-1', interruptNote: true, heldConversationFile: '/q/held/item-1.conversation.json',
@@ -141,7 +142,7 @@ describe('the queue entry schema knows every key the queue writes', () => {
         // A status added to the type and not to this record does not compile (the record must name each one).
         const all: Record<QueuedPromptStatus, true> = {
             staged: true, pending: true, sending: true, sent: true, error: true, waiting: true, retry: true,
-            'decision-needed': true, interrupted: true, chat: true, 'chat-sent': true,
+            'decision-needed': true, 'todo-blocked': true, interrupted: true, chat: true, 'chat-sent': true,
         };
         for (const status of Object.keys(all) as QueuedPromptStatus[]) {
             assert.deepEqual(check(written({ ...ITEM, status })), [], status);

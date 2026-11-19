@@ -14,9 +14,15 @@
  * a todo that exists — live or archived / deleted, in its quest — and is
  * completed or cancelled (an unknown id, or a bare quest name, is not met); a
  * `blocked_until` condition `<package> >= <x.y.z>` (or `>`) is met when
- * pub.dev's latest version satisfies it (not reachable: not met). The met entry
- * stays in `blocked_by`, so the reverse direction still works. Each change adds
- * a dated line to the dependent's notes.
+ * pub.dev's latest version satisfies it (not reachable: not met). Each change
+ * adds a dated line to the dependent's notes.
+ *
+ * **A blocker that is done leaves the `blocked_by` lists.** When a todo goes to
+ * completed (or cancelled), every live todo of every quest that names it in
+ * `blocked_by` loses that entry, whatever its own status ({@link
+ * blockerRemovals}); the notes line names what was removed. So `blocked_by`
+ * holds only what still blocks, and a todo reopened later blocks only the
+ * dependents that still name it.
  *
  * Only a crossing triggers it, so the dependents' own changes (blocked ↔
  * not-started) start no further cascade. The hook runs after every write of a
@@ -193,6 +199,33 @@ export function cascadeDecisions(
     return { decisions, pendingVersions: [...pending].sort() };
 }
 
+/** The `blocked_by` entries a done blocker leaves. */
+export interface BlockerRemoval {
+    quest: string;
+    id: string;
+    /** The entries to remove, as written. */
+    entries: string[];
+}
+
+/**
+ * The `blocked_by` entries to remove after `crossings` (pure): for every
+ * crossing into done (completed or cancelled), the entry naming it in each
+ * dependent, whatever the dependent's status.
+ */
+export function blockerRemovals(crossings: readonly StatusCrossing[], dependents: readonly DependentTodo[], quests: ReadonlySet<string>): BlockerRemoval[] {
+    const done = crossings.filter((c) => isDone(c.status));
+    if (!done.length) { return []; }
+    const out: BlockerRemoval[] = [];
+    for (const dep of dependents) {
+        const entries = dep.blockedBy.filter((b) => {
+            const t = blockerOf(b, dep.quest, quests);
+            return !!t && done.some((c) => c.quest === t.quest && c.id === t.id);
+        });
+        if (entries.length) { out.push({ quest: dep.quest, id: dep.id, entries }); }
+    }
+    return out;
+}
+
 /** The todos whose status crossed between done and not done in one file write (pure). */
 export function crossingsOfWrite(quest: string, beforeText: string | undefined, afterText: string | undefined): StatusCrossing[] {
     const statuses = (text: string | undefined): Map<string, string> => {
@@ -325,8 +358,8 @@ let lastRun: Promise<void> = Promise.resolve();
 /** Resolves once the version fetches started by earlier writes have been applied (for tests). */
 export function blockingCascadeSettled(): Promise<void> { return lastRun; }
 
-/** A status change the cascade writes into a live todo file. */
-interface StatusWrite { quest: string; id: string; from: string; to: string; note: string }
+/** A status change the cascade writes into a live todo file; `removeBlockedBy`: entries taken out of its `blocked_by` (alone when `to` is `from`). */
+interface StatusWrite { quest: string; id: string; from: string; to: string; note: string; removeBlockedBy?: string[] }
 
 /** The live todos naming another in `comprised_of` (any status), with their files. */
 function liveGroups(questsRoot: string): Array<{ file: string; group: GroupRecord }> {
@@ -422,7 +455,11 @@ function writeStatusChanges(changes: readonly StatusWrite[], fileOf: ReadonlyMap
                 const map = node as YAMLMap;
                 const d = list.find((x) => x.id === map.get('id'));
                 if (!d) { continue; }
-                map.set('status', d.to);
+                if (d.removeBlockedBy?.length) {
+                    const kept = strings((map.toJSON() as Record<string, unknown>).blocked_by).filter((e) => !d.removeBlockedBy!.includes(e));
+                    if (kept.length) { map.set('blocked_by', doc.createNode(kept)); } else { map.delete('blocked_by'); }
+                }
+                if (d.to !== d.from) { map.set('status', d.to); }
                 if (d.to === 'completed') { map.set('completed_date', today); }
                 if (d.from === 'completed' && d.to !== 'completed') { map.delete('completed_date'); map.delete('completed_by'); }
                 const notes = map.get('notes');
@@ -488,14 +525,39 @@ export function applyBlockingCascade(crossings: readonly StatusCrossing[], quest
             applyBlockingCascade(all, questsRoot, today);
         }).catch(() => undefined);
     }
-    if (!decisions.length) { return []; }
-    writeStatusChanges(decisions, new Map(loaded.map((l) => [`${l.dependent.quest}/${l.dependent.id}`, l.file])), today);
-    // @TOM INFO › NOTIFICATIONS (vscimpb124): the dependents' status changes, done by the extension.
-    emitNotifications(decisions.map((d) => ({
-        type: 'todoChanged' as const,
-        todo: { id: d.id, quest: d.quest, fields: [{ field: 'status', old: d.from, new: d.to }] },
-        who: { kind: 'extension' as const, label: 'blocked todos follow their blockers' },
-    })));
+    // 3. A blocker that is done leaves the `blocked_by` lists (with the status change of the same todo, in one write).
+    // A blocked dependent whose release still waits for a version keeps its entries until that is known: the
+    // run after the fetch judges it by them (and removes them then).
+    const settled = loaded.map((l) => l.dependent).filter((d) =>
+        !(d.status.trim().toLowerCase() === 'blocked' && allConditionsMet(d, statusOf, cachedVersion, quests) === 'unknown'));
+    const removals = blockerRemovals(all, settled, quests);
+    const writes: StatusWrite[] = decisions.map((d) => ({ ...d }));
+    for (const r of removals) {
+        const status = loaded.find((l) => l.dependent.quest === r.quest && l.dependent.id === r.id)!.dependent.status;
+        const same = writes.find((w) => w.quest === r.quest && w.id === r.id);
+        if (same) {
+            same.removeBlockedBy = r.entries;
+        } else {
+            writes.push({ quest: r.quest, id: r.id, from: status, to: status, note: `no longer blocked by ${r.entries.join(', ')} (done)`, removeBlockedBy: r.entries });
+        }
+    }
+    if (!writes.length) { return []; }
+    writeStatusChanges(writes, new Map(loaded.map((l) => [`${l.dependent.quest}/${l.dependent.id}`, l.file])), today);
+    // @TOM INFO › NOTIFICATIONS (vscimpb124): the dependents' status changes, done by the extension; then the entries removed.
+    if (decisions.length) {
+        emitNotifications(decisions.map((d) => ({
+            type: 'todoChanged' as const,
+            todo: { id: d.id, quest: d.quest, fields: [{ field: 'status', old: d.from, new: d.to }] },
+            who: { kind: 'extension' as const, label: 'blocked todos follow their blockers' },
+        })));
+    }
+    if (removals.length) {
+        emitNotifications(removals.map((r) => ({
+            type: 'todoUpdated' as const,
+            todo: { id: r.id, quest: r.quest, fields: [{ field: 'blocked_by', old: r.entries.join(', '), new: '(removed: done)' }] },
+            who: { kind: 'extension' as const, label: 'a done blocker leaves blocked_by' },
+        })));
+    }
     return decisions;
 }
 

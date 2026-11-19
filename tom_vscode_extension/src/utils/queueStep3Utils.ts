@@ -230,6 +230,11 @@ export interface TodoIterationSource {
     forced?: boolean;
     /** A GROUP item's selection: unchecked by the user, or already sent by the item — never sent. */
     excluded?: boolean;
+    /**
+     * Why the todo may not run now (utils/todoBlockState.ts): an unmet `blocked_by` entry, or a `blocked` status
+     * nothing releases. Set by the caller, which reads the blockers; absent: not blocked. The walk holds at it.
+     */
+    blockedReason?: string;
 }
 
 /** A quest todo that matched a `prefix*` pattern, with its parsed number. */
@@ -250,6 +255,8 @@ export interface TodoIterationEntry {
     forced?: true;
     /** Unchecked in a GROUP item's selection, or sent already: never sent. */
     excluded?: true;
+    /** Why the todo may not run now; absent: not blocked. */
+    blockedReason?: string;
 }
 
 /** The one status that makes a todo eligible for dispatch. */
@@ -330,6 +337,7 @@ export function collectWalkTodos(walk: TodoWalk, todos: readonly TodoIterationSo
         ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
         ...(todo.forced === true ? { forced: true as const } : {}),
         ...(todo.excluded === true ? { excluded: true as const } : {}),
+        ...(todo.blockedReason ? { blockedReason: todo.blockedReason } : {}),
     });
     const byId = new Map(todos.filter((t) => typeof t?.id === 'string').map((t) => [t.id, t]));
     if (walk.kind === 'todo') {
@@ -405,6 +413,7 @@ export function collectPrefixTodos(
             status: normaliseStatus(todo.status),
             ...(todo.userAction === true ? { userAction: true as const } : {}),
             ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
+            ...(todo.blockedReason ? { blockedReason: todo.blockedReason } : {}),
         });
     }
     entries.sort((a, b) => (a.index - b.index) || a.id.localeCompare(b.id));
@@ -446,7 +455,18 @@ export function pickNextTodoForIteration(
 function isWalkable(e: TodoIterationEntry): boolean {
     if (e.excluded) { return false; }
     if (e.forced) { return true; }
-    return walkRuleSends(e);
+    return walkRuleSends(e) && !e.blockedReason;
+}
+
+/**
+ * A todo the walk holds at because it is blocked: its blockers are not done
+ * (`blockedReason`, read by the caller), and it is otherwise the walk's to run
+ * — open (not-started, or still marked `blocked`), not the user's, not taken
+ * out of a GROUP item's selection. A checked member is sent whatever blocks it.
+ */
+function isBlockedStop(e: TodoIterationEntry): boolean {
+    if (e.excluded || e.forced || !e.blockedReason || e.userAction) { return false; }
+    return e.status === NOT_STARTED || e.status === 'blocked';
 }
 
 /** What the walk's usual rules send: `not-started` (or a manual repeated todo it has not run), not the user's own. */
@@ -512,7 +532,8 @@ export function emptyTodoIterationReason(
         const prefix = walk.kind === 'prefix' ? walk.prefix : '';
         return `${EMPTY_TODO_ITERATION_ERROR}: no todo of quest "${questId}" has an id starting with "${prefix}" followed by a number.`;
     }
-    const workable = series.some((e) => isWalkable(e) || e.status === 'blocked' || e.status === DECISION_NEEDED);
+    // A todo whose blocker is not done counts too: the walk holds at it and runs it once it is released.
+    const workable = series.some((e) => isWalkable(e) || isBlockedStop(e) || e.status === 'blocked' || e.status === DECISION_NEEDED);
     if (workable) { return undefined; }
     const counts = new Map<string, number>();
     for (const e of series) {
@@ -573,8 +594,26 @@ export function decisionHoldingWalk(
     if (walk === undefined) {
         return [];
     }
-    const next = collectWalkTodos(walk, todos).find(e => (e.status === DECISION_NEEDED && !e.excluded && !e.forced) || isWalkable(e));
+    const next = collectWalkTodos(walk, todos).find(e => (e.status === DECISION_NEEDED && !e.excluded && !e.forced) || isBlockedStop(e) || isWalkable(e));
     return next && next.status === DECISION_NEEDED ? [next] : [];
+}
+
+/**
+ * The blocked todo that holds a walk, as a one-element list, or `[]`: the
+ * todo the walk would take next (series order) is blocked — a blocker of it
+ * is not completed. Like an unmade decision it holds the walk only when the
+ * walk reaches it: the todos before it run.
+ */
+export function blockHoldingWalk(
+    value: unknown,
+    todos: readonly TodoIterationSource[],
+): TodoIterationEntry[] {
+    const walk = parseTodoWalk(value);
+    if (walk === undefined) {
+        return [];
+    }
+    const next = collectWalkTodos(walk, todos).find(e => (e.status === DECISION_NEEDED && !e.excluded && !e.forced) || isBlockedStop(e) || isWalkable(e));
+    return next && next.status !== DECISION_NEEDED && isBlockedStop(next) ? [next] : [];
 }
 
 /** A todo as the unblock check needs it: its id, status and machine-readable block conditions. */
@@ -683,6 +722,7 @@ export type MainStageDispatchPlan =
     | { mode: 'counter'; repeatIndex: number }
     | { mode: 'todo'; todo: TodoIterationEntry; waitingForUser?: TodoIterationEntry[] }
     | { mode: 'decision-needed'; todos: TodoIterationEntry[] }
+    | { mode: 'todo-blocked'; todos: TodoIterationEntry[] }
     | { mode: 'exhausted'; waitingForUser?: TodoIterationEntry[] };
 
 /**
@@ -711,6 +751,11 @@ export type MainStageDispatchPlan =
  * down the series does not hold the todos before it — they run, and the walk
  * holds when it reaches the open decision.
  *
+ * **A blocked todo holds the walk when it is next**, the same way: the plan
+ * reports `todo-blocked` with it ({@link blockHoldingWalk}; the caller has
+ * released the todos whose blockers are done before it asks). A todo blocked
+ * further down holds nothing yet.
+ *
  * **User-action todos are passed**, not held on: the walk takes the next todo
  * and the plan names the passed ones in `waitingForUser` (present only when
  * there are some), so the caller can say they are left for the user.
@@ -725,6 +770,10 @@ export function planMainStageDispatch(
         const waiting = decisionHoldingWalk(repeatCountRaw, todos);
         if (waiting.length > 0) {
             return { mode: 'decision-needed', todos: waiting };
+        }
+        const blocked = blockHoldingWalk(repeatCountRaw, todos);
+        if (blocked.length > 0) {
+            return { mode: 'todo-blocked', todos: blocked };
         }
         const todo = pickNextTodoForIteration(repeatCountRaw, todos);
         const forUser = collectUserActionTodos(repeatCountRaw, todos);

@@ -39,6 +39,8 @@ export interface RunActivityItem {
     /** A process-move marker: never sent, not counted as pending work. */
     processMove?: unknown;
     originalText?: string;
+    /** A `todo-blocked` item: the todo it is held at and what that waits for. */
+    blockedOn?: string;
     /** Its turn waits in tomAi_waitFor. */
     waitingFor?: { reason: string; until: string };
     /** Its turn waits for its own background work. */
@@ -110,7 +112,11 @@ export function runActivity(
     const active = own.filter((i) => ACTIVE.has(i.status));
 
     const asks = interactions.filter((i) => normalizeRun(i.run) === name).map((i) => i.title || 'a question');
-    const decisions = own.filter((i) => i.status === 'decision-needed').map((i) => `todo decisions: ${oneLine(i.originalText ?? i.id, 50)}`);
+    const decisions = [
+        ...own.filter((i) => i.status === 'decision-needed').map((i) => `todo decisions: ${oneLine(i.originalText ?? i.id, 50)}`),
+        // Held because its todo waits for one that is not completed.
+        ...own.filter((i) => i.status === 'todo-blocked').map((i) => `blocked: ${oneLine(i.blockedOn ?? i.originalText ?? i.id, 80)}`),
+    ];
     if (asks.length || decisions.length) { return { state: 'waiting for user', detail: listOf([...asks, ...decisions]), pending }; }
 
     const event = active.find((i) => i.waitingFor);

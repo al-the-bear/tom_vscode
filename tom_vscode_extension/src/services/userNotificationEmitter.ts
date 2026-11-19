@@ -158,12 +158,15 @@ export interface HoldingItem {
     run: string;
     needsAttention?: string;
     error?: string;
+    /** A `todo-blocked` item: the todo it is held at and what that waits for. */
+    blockedOn?: string;
     preview: string;
 }
 
 /** What an item holds the queue for, or undefined. */
 export function holdingState(i: HoldingItem): string | undefined {
     if (i.status === 'decision-needed') { return 'decision-needed'; }
+    if (i.status === 'todo-blocked') { return 'item-blocked'; }
     if (i.status === 'error') { return 'error'; }
     if (i.needsAttention) { return 'needs attention'; }
     return undefined;
@@ -181,6 +184,7 @@ export function queueHoldingDraft(i: HoldingItem, state: string): NotificationDr
                 ...(state === 'error' && i.error ? [`Error: ${i.error}`] : []),
                 ...(state === 'needs attention' && i.needsAttention ? [i.needsAttention] : []),
                 ...(state === 'decision-needed' ? ['The item waits for the decisions of its todo.'] : []),
+                ...(state === 'item-blocked' ? [`The item is held: ${i.blockedOn ?? 'its todo is blocked'}.`, 'It goes back to pending once the blocker is completed; resume the run then.'] : []),
             ],
             queueItemId: i.id,
         },

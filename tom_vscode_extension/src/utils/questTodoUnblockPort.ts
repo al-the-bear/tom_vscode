@@ -11,6 +11,7 @@
 import type { BlockableTodo, TodoUnblockPort } from './queueStep3Utils';
 import { questStatusIndex } from './todoBlockingCascade';
 import { todoQuestsRoot } from './todoBlockingSync';
+import { WsPaths } from './workspacePaths';
 
 export function questTodoUnblockPort(writeStatus: TodoUnblockPort['writeStatus']): TodoUnblockPort {
     return {
@@ -34,7 +35,8 @@ export function questTodoUnblockPort(writeStatus: TodoUnblockPort['writeStatus']
         },
         writeStatus,
         archivedStatus(questId: string, todoId: string): string | undefined {
-            const root = todoQuestsRoot();
+            // The writers' quests folder, else the workspace's (nothing was written yet in this window).
+            const root = todoQuestsRoot() ?? WsPaths.ai('quests');
             return root ? questStatusIndex(root).statusOf(questId, todoId) : undefined;
         },
     };

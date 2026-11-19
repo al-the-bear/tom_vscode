@@ -214,6 +214,8 @@ export interface QueuePromptYaml {
     'walk-continuations'?: number;
     /** Why the item stopped as needs attention (a walk iteration still unfinished after its continuations). */
     'needs-attention'?: string;
+    /** While the item is `todo-blocked`: the todo it is held at and what that waits for. */
+    'blocked-on'?: string;
     /** The longest a turn of the item waits for its own background work, in minutes (0: no wait). */
     'background-wait-limit-minutes'?: number;
     /** While a turn waits for its background work: since, the limit and what still runs (utils/backgroundWait.ts). */
@@ -240,7 +242,7 @@ export interface QueueMetaYaml {
     'main-prompt'?: string;
     imports?: string[];
     quest?: string;
-    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
+    status?: 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'todo-blocked' | 'interrupted' | 'chat' | 'chat-sent';
     /** "Pause after this": hold the queue once this item has finished. */
     'pause-after'?: boolean;
     /** "Send between iterations": sent after the running loop's current iteration (queueSendBetween.ts). */

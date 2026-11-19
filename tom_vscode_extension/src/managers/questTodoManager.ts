@@ -189,7 +189,7 @@ export interface QuestTodoItem {
      * What happens when the todo is completed (utils/todoOnDone.ts): the
      * targets, the actions, instructions, notify prompt, report_to. Its
      * `unblock` targets carry this todo in their `blocked_by` while it is not
-     * cancelled; every write through {@link updateTodo} / {@link fileTodo}
+     * done (completed or cancelled); every write through {@link updateTodo} / {@link fileTodo}
      * keeps that in step.
      */
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key

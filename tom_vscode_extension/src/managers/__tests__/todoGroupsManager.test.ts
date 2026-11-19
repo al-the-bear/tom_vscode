@@ -66,10 +66,11 @@ describe('todo groups through the manager', () => {
         assert.equal(findTodoById('qa', 'g1')?.status, 'completed');
         assert.equal(findTodoById('qb', 'outer')?.status, 'completed', 'the group of groups completes with it');
         assert.equal(findTodoById('qb', 'after')?.status, 'not-started', 'released by the group');
+        assert.equal(findTodoById('qb', 'after')?.blocked_by, undefined, 'the completed group left its blocked_by');
         updateTodo('qa', 'm1', { status: 'not-started' });
         assert.equal(findTodoById('qa', 'g1')?.status, 'group');
         assert.equal(findTodoById('qb', 'outer')?.status, 'group');
-        assert.equal(findTodoById('qb', 'after')?.status, 'blocked');
+        assert.equal(findTodoById('qb', 'after')?.status, 'not-started', 'it no longer names the group, so the reopened group blocks it no more');
     });
 
     test('TGM-4: an archived member stays resolvable', () => {

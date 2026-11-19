@@ -19,7 +19,7 @@ import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
 import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
 import type { PromptQueueManager } from '../managers/promptQueueManager';
 import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
-import { queuedTodoPatterns, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
+import { queuedTodoPatterns, todoIdPatternMatches, todoIdPatternOf, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
@@ -30,7 +30,9 @@ import { realPathOf, relativeInside } from '../utils/pathCompare';
 import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem, withTodoGroups, type TodoListItem } from '../utils/todoListItem';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
-import { groupListInfo } from '../utils/todoBlockingCascade';
+import { groupListInfo, questStatusIndex } from '../utils/todoBlockingCascade';
+import { outsideBlockers, outsideBlockersQuestion, type OutsideBlocker } from '../utils/todoBlockState';
+import { collectPrefixTodos } from '../utils/queueStep3Utils';
 import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
@@ -492,7 +494,8 @@ interface TodoQueueEntry {
     template?: string;
     transport?: 'anthropic';
     repeatCount?: number | string;
-    todoIdPattern?: string;
+    /** The todos the item is about: every item queued from the todo panel names them (an id, ids, `<prefix>*`). */
+    todoIdPattern: string;
 }
 
 /**
@@ -3202,6 +3205,54 @@ async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undef
     }]);
 }
 
+/** The open members of a `<prefix>*` group of `quest`, as the walk reads them (lowest number first). */
+export function prefixGroupMembers(quest: string, prefix: string): questTodo.QuestTodoItem[] {
+    const todos = questTodo.readAllTodos(quest);
+    const ids = new Set(collectPrefixTodos(prefix, todos.map((t) => ({ id: t.id, status: t.status }))).map((e) => e.id));
+    return todos.filter((t) => ids.has(t.id));
+}
+
+/** A group todo's members of its own quest, in `comprised_of` order. */
+export function groupTodoMembers(quest: string, group: questTodo.QuestTodoItem | undefined): questTodo.QuestTodoItem[] {
+    const todos = new Map(questTodo.readAllTodos(quest).map((t) => [t.id, t]));
+    const out: questTodo.QuestTodoItem[] = [];
+    for (const ref of group?.comprised_of ?? []) {
+        const slash = ref.indexOf('/');
+        if (slash >= 0 && ref.slice(0, slash) !== quest) { continue; }
+        const member = todos.get(slash >= 0 ? ref.slice(slash + 1) : ref);
+        if (member && !out.includes(member)) { out.push(member); }
+    }
+    return out;
+}
+
+/**
+ * What the members of a group about to be queued wait for outside the group: unmet `blocked_by` entries
+ * naming a todo that is no member. A blocker of this window's quest that the prompt queue already holds is
+ * marked `queuedAhead`.
+ */
+export function groupOutsideBlockers(quest: string, members: readonly questTodo.QuestTodoItem[]): OutsideBlocker[] {
+    const root = todoQuestsRoot() ?? WsPaths.ai('quests');
+    if (!root || !members.length) { return []; }
+    const index = questStatusIndex(root);
+    const queued = (_queueItemsForMarks() ?? []).filter((i) => !['sent', 'chat', 'chat-sent'].includes(i.status)).map((i) => todoIdPatternOf(i)).filter((p): p is string => !!p);
+    const windowQuest = _windowQuest();
+    return outsideBlockers(members, quest, index.statusOf, index.quests, (blockerQuest, id) =>
+        blockerQuest === windowQuest && queued.some((p) => todoIdPatternMatches(p, { id, status: index.statusOf(blockerQuest, id) })));
+}
+
+/**
+ * Before a group is queued — a group todo's members, a `<prefix>*` group — its `blocked_by` dependencies are
+ * checked first: when members wait for todos outside the group (not completed, or already in the queue
+ * ahead), the user is asked whether to queue it all the same. Answers whether to go on.
+ */
+export async function confirmGroupBlockers(quest: string, members: readonly questTodo.QuestTodoItem[], what: string): Promise<boolean> {
+    const blockers = groupOutsideBlockers(quest, members);
+    if (!blockers.length) { return true; }
+    const q = outsideBlockersQuestion(what, blockers);
+    const picked = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Queue anyway');
+    return picked === 'Queue anyway';
+}
+
 /**
  * A todo view's queue or send action that repeats one accepted within 3 s
  * (a double click, a bouncing mouse, one message posted several times) is
@@ -3691,6 +3742,8 @@ async function queueTodoAsItem(questId: string, todoId: string, instance = 'pane
     const spec = todoQueueItemSpec(kind, todoQuest, todoId, todo);
     if (!spec.ok) { void vscode.window.showWarningMessage(spec.error); return; }
     if (_isRepeatedTodoAction(`${todoQuest}/${spec.id}`, `queue-${kind}-item`, undefined, `queued: ${kind} item ${spec.id}`)) { return; }
+    // A group: its members' blockers outside the group first, before anything else is asked.
+    if (kind === 'group' && !await confirmGroupBlockers(todoQuest, groupTodoMembers(todoQuest, todo), `The group ${spec.id}`)) { return; }
     let text: string;
     let template: string | undefined;
     if (kind === 'todo') {
@@ -3729,6 +3782,8 @@ async function queueGroupWalk(questId: string, prefix: string, instance = 'panel
     if (!prefix) { return; }
     const walkQuest = questId && !questId.startsWith('__') ? questId : _windowQuest();
     if (!walkQuest) { void vscode.window.showWarningMessage('A group walk needs its quest: open the quest, or show it by quest.'); return; }
+    // The group's blockers outside the group first, before anything else is asked.
+    if (!await confirmGroupBlockers(walkQuest, prefixGroupMembers(walkQuest, prefix), `The walk over ${prefix}*`)) { return; }
     const dirs = groupPromptDirs(walkQuest);
     const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], walkQuest);
     const picked = await pickGroupPrompt(prefix, choices);
@@ -3754,7 +3809,8 @@ async function queueGroupWalk(questId: string, prefix: string, instance = 'panel
         if (addition.trim()) { label = `${label} + typed addition`; }
     }
     await queueTodoEntriesWithFlow(instance, walkQuest, `a walk over ${prefix}* with "${label}"`, [{
-        todoId: `${prefix}*`, text, repeatCount: `${prefix}*`,
+        // The item names the todos it is about, as every item queued from the todo panel does.
+        todoId: `${prefix}*`, text, repeatCount: `${prefix}*`, todoIdPattern: `${prefix}*`,
     }], walkQuest);
 }
 

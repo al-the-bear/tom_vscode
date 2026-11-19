@@ -73,7 +73,8 @@ export function todoIdPatternMatches(pattern: string, todo: TodoForMarks): boole
  */
 export function statusSortRank(status: string): number {
     switch (status) {
-        case 'decision-needed': return 0;
+        case 'decision-needed':
+        case 'todo-blocked': return 0;
         case 'error': return 1;
         case 'retry': return 2;
         case 'waiting': return 3;

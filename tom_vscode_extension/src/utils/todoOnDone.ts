@@ -133,10 +133,11 @@ export interface TodoRef { quest: string; id: string }
 
 /**
  * The targets that must carry the todo's `blocked_by` entry: the `unblock`
- * targets of its `on_done`, none while the todo is cancelled.
+ * targets of its `on_done`, none once the todo is done (completed or
+ * cancelled) — a done blocker leaves the `blocked_by` lists.
  */
 export function unblockTargets(todo: { status?: string; on_done?: TodoOnDone } | undefined, ownQuest: string): TodoRef[] {
-    if (!todo?.on_done || todo.status === 'cancelled') { return []; }
+    if (!todo?.on_done || todo.status === 'cancelled' || todo.status === 'completed') { return []; }
     if (!(todo.on_done.action ?? []).includes('unblock')) { return []; }
     const quest = onDoneQuest(todo.on_done, ownQuest);
     return [...new Set(todo.on_done.todos ?? [])].map((id) => ({ quest, id }));

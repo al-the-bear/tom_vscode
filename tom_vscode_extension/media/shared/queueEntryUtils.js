@@ -53,7 +53,7 @@ function reminderTimeoutOptions(selectedMinutes) {
 // was updated. The normaliser then rewrote every blocked item to `staged`
 // before render, so the "Decision needed" count read 0 and the blocked item
 // sorted to the bottom of the list instead of the top.
-var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'interrupted', 'chat', 'chat-sent'];
+var QUEUE_STATUSES = ['staged', 'pending', 'sending', 'sent', 'error', 'waiting', 'retry', 'decision-needed', 'todo-blocked', 'interrupted', 'chat', 'chat-sent'];
 
 /**
  * How a session reads next to its name in the prompt queue: `info` is
@@ -124,7 +124,8 @@ function statusSortRank(status) {
   // cannot clear on its own — it waits on the user answering a todo. An
   // `interrupted` item (held for continuation) sits just above the live run:
   // it is the rep that resumes first when the queue is re-armed.
-  if (status === 'decision-needed') { return 0; }
+  // `todo-blocked` (its todo waits for one not completed) stands with it.
+  if (status === 'decision-needed' || status === 'todo-blocked') { return 0; }
   if (status === 'error') { return 1; }
   if (status === 'retry') { return 2; }
   if (status === 'waiting') { return 3; }

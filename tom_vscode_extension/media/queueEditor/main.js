@@ -512,6 +512,7 @@ function render() {
   const sending = runItems.filter(i => i.status === 'sending').length;
   const sent = runItems.filter(i => i.status === 'sent').length;
   const blocked = runItems.filter(i => i.status === 'decision-needed').length;
+  const todoBlocked = runItems.filter(i => i.status === 'todo-blocked').length;
   const interrupted = runItems.filter(i => i.status === 'interrupted').length;
   // A chat send shown in the queue while it runs (never sent by the queue).
   const chatRunning = runItems.filter(i => i.status === 'chat').length;
@@ -547,6 +548,7 @@ function render() {
     // Only shown when non-zero: a blocked queue looks idle otherwise, and the
     // count is the one number that explains why nothing is moving.
     + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
+    + (todoBlocked > 0 ? '  |  Blocked: ' + todoBlocked : '')
     + (interrupted > 0 ? '  |  Interrupted: ' + interrupted : '')
     + (chatRunning > 0 ? '  |  Chat: running' : '')
     + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';

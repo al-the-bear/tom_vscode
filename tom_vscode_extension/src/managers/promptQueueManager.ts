@@ -42,7 +42,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoWalk, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoWalk, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, blockHoldingWalk, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { todoForStage, todoYamlBlock, withTodoYaml, type IterationStage } from '../utils/todoIterationRecord';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
@@ -57,6 +57,9 @@ import { parseResetClause } from '../utils/queueResetClause';
 import { apiRateLimitClause, readRetryNotBefore } from '../utils/rateLimitHeaders';
 import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
+import { todoBlockState } from '../utils/todoBlockState';
+import { questStatusIndex } from '../utils/todoBlockingCascade';
+import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { queuedByFrom, queuedByToYaml, type QueuedBy } from '../utils/queuedBy';
 import { onDoneDueAtSettle } from '../utils/todoOnDoneRun';
 import { runTodoOnDone, takeDeferredTodoOnDone } from '../services/todoOnDoneRunner';
@@ -155,13 +158,20 @@ import { emitRunPaused, type HoldingItem } from '../services/userNotificationEmi
  * `releaseResolvedDecisionItems`); while the decisions are still open the item
  * stays held and the rest of the queue runs past it.
  *
+ * `'todo-blocked'` is the same hold for a blocked todo: the todo the item is
+ * about — the one its walk would take next, or the one a plain item names in
+ * `todoIdPattern` — waits for a todo that is not completed (`blockedOn` says
+ * which). Blockers completed in the meantime never hold it: the todo is
+ * released and runs. The item goes back to `'pending'` once its todo is no
+ * longer blocked.
+ *
  * `'interrupted'` is interrupt-for-continuation: the in-flight dispatch was
  * cancelled on purpose (the network is about to go away) and the item is
  * held at that exact rep with auto-send off. Re-arming auto-send replays the
  * rep — same expanded text — before anything else moves. See
  * `interruptActiveItemForContinuation` / `pickInterruptedResume`.
  */
-export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
+export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'todo-blocked' | 'interrupted' | 'chat' | 'chat-sent';
 export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
 
 /** The error a held process-move marker shows. */
@@ -412,6 +422,8 @@ export interface QueuedPrompt {
      * cleared when the item sends its next main prompt.
      */
     needsAttention?: string;
+    /** While the item is `todo-blocked`: the todo it is held at and what that waits for. Persisted as `blocked-on`. */
+    blockedOn?: string;
     /**
      * "Pause after this": when set, the queue stops once this item has
      * finished its **last** stage / repetition — the item itself always runs
@@ -2086,6 +2098,7 @@ export class PromptQueueManager {
             run: itemRun(i),
             ...(i.needsAttention ? { needsAttention: i.needsAttention } : {}),
             ...(i.error ? { error: i.error } : {}),
+            ...(i.blockedOn ? { blockedOn: i.blockedOn } : {}),
             preview: (i.originalText ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || i.id,
         }));
     }
@@ -2117,11 +2130,76 @@ export class PromptQueueManager {
      * back off, which is what made the play button look like a no-op.
      */
     private _releaseResolvedDecisionItems(): void {
+        this._releaseUnblockedItems();
         if (!this._items.some(i => i.status === 'decision-needed')) { return; }
         const questId = this.activeQuestId();
         const released = releaseResolvedDecisionItems(this._items, (item) => (questId ? walkEntriesOf(item, questId) : []));
         if (released.length === 0) { return; }
         logQueue(`Decisions answered — releasing ${released.map(i => i.id).join(', ')} back to pending`);
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * Put back to `pending` the `todo-blocked` items whose todo is no longer
+     * blocked: its blockers were completed (a todo still marked `blocked` whose
+     * blockers are all done is set back to `not-started` first).
+     */
+    private _releaseUnblockedItems(): void {
+        const held = this._items.filter(i => i.status === 'todo-blocked');
+        if (!held.length) { return; }
+        const questId = this.activeQuestId();
+        const released: string[] = [];
+        for (const item of held) {
+            if (questId && this._todoBlockOf(item, questId)) { continue; }
+            item.status = 'pending';
+            delete item.blockedOn;
+            released.push(item.id);
+        }
+        if (!released.length) { return; }
+        logQueue(`Blockers completed — releasing ${released.join(', ')} back to pending`);
+        this.persist();
+        this._onDidChange.fire();
+    }
+
+    /**
+     * What blocks the todo item `item` is about, or undefined when nothing
+     * does. A walk: the todo it would take next (the todos whose blockers are
+     * done are released first). A plain item naming todos in `todoIdPattern`:
+     * the first of them that is blocked. Blockers completed in the meantime
+     * never block: a todo still marked `blocked` is set back to `not-started`.
+     */
+    private _todoBlockOf(item: QueuedPrompt, questId: string): string | undefined {
+        if (parseTodoWalk(item.repeatCount) !== undefined) {
+            releaseUnblockedTodos(item.repeatCount, questId, QUEST_TODO_UNBLOCK_PORT);
+            const blocked = blockHoldingWalk(item.repeatCount, walkEntriesOf(item, questId));
+            return blocked.length ? `todo ${blocked[0].id} ${blocked[0].blockedReason}` : undefined;
+        }
+        const ids = (item.todoIdPattern ?? '').split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*'));
+        if (!ids.length) { return undefined; }
+        const states = questTodoBlockStates(questId, new Set(ids));
+        for (const id of ids) {
+            const state = states.get(id);
+            if (!state) { continue; }
+            if (state.releasable) {
+                logQueue(`Item ${item.id}: todo ${id} unblocked (blockers done: ${state.met.join(', ')})`);
+                // Through the unblock port, as the walk's release (the claim rules write no status back themselves).
+                QUEST_TODO_UNBLOCK_PORT.writeStatus(questId, id, 'not-started');
+                continue;
+            }
+            if (state.blocked) { return `todo ${id} ${state.reason}`; }
+        }
+        return undefined;
+    }
+
+    /** Hold `item` as `todo-blocked` (`why`: the todo and what it waits for) and pause its run, as an open decision does. */
+    private _holdTodoBlocked(item: QueuedPrompt, why: string): void {
+        logQueue(`Item ${item.id}: held, ${why}`);
+        item.status = 'todo-blocked';
+        item.blockedOn = why;
+        item.awaitingAnswer = false;
+        item.inFlightRepetition = undefined;
+        this._pauseRunOf(item, `item ${item.id} is blocked: ${why}`);
         this.persist();
         this._onDidChange.fire();
     }
@@ -6335,12 +6413,29 @@ export class PromptQueueManager {
                 logQueue(`MP dispatch: todo ${id} could be unblocked, but writing not-started failed — it stays blocked`);
             }
         }
+        // A plain item that names its todo (the todo panel's Queue button): a blocked todo holds it before its
+        // prompt goes out; blockers completed in the meantime never do.
+        if (!isTodoIteration && mainSentCount === 0) {
+            const plainQuest = this.activeQuestId();
+            const blockedOn = plainQuest ? this._todoBlockOf(item, plainQuest) : undefined;
+            if (blockedOn) {
+                this._holdTodoBlocked(item, blockedOn);
+                return 'paused';
+            }
+        }
         const plan = planMainStageDispatch(
             item.repeatCount,
             mainSentCount,
             mainRepeatCount,
             iterationQuestId ? walkEntriesOf(item, iterationQuestId) : [],
         );
+        if (plan.mode === 'todo-blocked') {
+            // The todo the walk would take next waits for a todo that is not completed: hold the item there
+            // (the todos before it have run), as at an open decision.
+            const t = plan.todos[0];
+            this._holdTodoBlocked(item, `todo ${t.id} ${t.blockedReason ?? 'is blocked'}`);
+            return 'paused';
+        }
         if (plan.mode === 'decision-needed') {
             // The todo the walk would take next is still waiting on the user:
             // hold the item there (the todos before it have run). Auto-send goes OFF so the queue
@@ -6902,7 +6997,7 @@ export class PromptQueueManager {
         if (this._releaseHeldItems(run)) { return; }
         if (this._resumeInterruptedItem(run)) { return; }
         this._resumePausedLanes(run);
-        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed');
+        const hasWork = this._items.some(i => i.status === 'pending' || i.status === 'decision-needed' || i.status === 'todo-blocked');
         if (hasWork && this._mayDrain()) { void this.sendNext(); }
     }
 
@@ -7505,6 +7600,7 @@ export class PromptQueueManager {
                 ...(main['answer-background-left'] === true ? { answerBackgroundLeft: true } : {}),
                 ...(validContinuations(main['walk-continuations']) !== undefined ? { walkContinuations: validContinuations(main['walk-continuations']) } : {}),
                 ...(typeof main['needs-attention'] === 'string' && main['needs-attention'] ? { needsAttention: main['needs-attention'] } : {}),
+                ...(typeof main['blocked-on'] === 'string' && main['blocked-on'] ? { blockedOn: main['blocked-on'] } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
             // What the item holds: stored, else derived (an item written before vscimpb127).
@@ -7673,6 +7769,7 @@ export class PromptQueueManager {
             ...(item.answerBackgroundLeft ? { 'answer-background-left': true } : {}),
             ...(item.walkContinuations !== undefined ? { 'walk-continuations': item.walkContinuations } : {}),
             ...(item.needsAttention ? { 'needs-attention': item.needsAttention } : {}),
+            ...(item.blockedOn ? { 'blocked-on': item.blockedOn } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
@@ -7924,7 +8021,34 @@ function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoI
  */
 function walkEntriesOf(item: QueuedPrompt, questId: string): TodoIterationSource[] {
     const ran = walkableRepeatIds(item);
-    return withSelectionFlags(readQuestTodoEntries(questId, ran), item.groupSelection, ran);
+    const entries = withSelectionFlags(readQuestTodoEntries(questId, ran), item.groupSelection, ran);
+    // What blocks each todo now (utils/todoBlockState.ts): the walk holds at a blocked one.
+    const states = questTodoBlockStates(questId);
+    return entries.map((e) => {
+        const state = states.get(e.id);
+        return state?.blocked ? { ...e, blockedReason: state.reason } : e;
+    });
+}
+
+/**
+ * The block state of the live todos of `questId` that carry a block (`blocked_by`, or status `blocked`);
+ * `only`: of these ids. Blockers are looked up in every quest, live and archived.
+ */
+function questTodoBlockStates(questId: string, only?: ReadonlySet<string>): Map<string, ReturnType<typeof todoBlockState>> {
+    const out = new Map<string, ReturnType<typeof todoBlockState>>();
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { readAllTodos } = require('../managers/questTodoManager');
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
+        const todos = (readAllTodos(questId) as Array<{ id: string; status?: string; blocked_by?: string[]; blocked_until?: string[] }>)
+            .filter((t) => (!only || only.has(t.id)) && ((t.blocked_by?.length ?? 0) > 0 || t.status === 'blocked'));
+        if (!todos.length) { return out; }
+        // The quests folder: the todo writers', else the workspace's (nothing was written yet in this window).
+        const root = todoQuestsRoot() ?? WsPaths.ai('quests');
+        const index = root ? questStatusIndex(root) : { statusOf: () => undefined, quests: new Set<string>() };
+        for (const t of todos) { out.set(t.id, todoBlockState(t, questId, index.statusOf, index.quests)); }
+    } catch { /* unreadable todos block nothing */ }
+    return out;
 }
 
 /** A todo's record as the block a todo iteration appends; undefined when it cannot be read. */

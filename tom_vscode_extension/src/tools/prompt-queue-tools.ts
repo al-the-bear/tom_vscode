@@ -65,7 +65,7 @@ import { parseSessionSpec } from '../utils/sessionSpecs';
 // Shared shapes
 // ===========================================================================
 
-export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'interrupted' | 'chat' | 'chat-sent';
+export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'todo-blocked' | 'interrupted' | 'chat' | 'chat-sent';
 export type QueueTransport = 'copilot' | 'anthropic';
 
 export interface PrePromptSpec {
@@ -935,9 +935,10 @@ export async function setQueueItemStatusImpl(access: PromptQueueAccess, input: S
 export const SET_QUEUE_ITEM_STATUS_DESCRIPTION =
     'Flip queue item status between `staged` (held back from the run loop) ' +
     'and `pending` (eligible for dispatch). Other statuses (`sending`, ' +
-    '`sent`, `error`, `decision-needed`, `interrupted`) are state-machine-managed and cannot ' +
+    '`sent`, `error`, `decision-needed`, `todo-blocked`, `interrupted`) are state-machine-managed and cannot ' +
     'be set manually — an item held on `decision-needed` is released by ' +
-    'answering the todo decisions and restarting the queue. ' +
+    'answering the todo decisions and restarting the queue, one held on `todo-blocked` once the todo that ' +
+    'blocks its todo is completed. ' +
     'Use this to temporarily unstage a pending item without removing it.';
 
 export const SET_QUEUE_ITEM_STATUS_TOOL: SharedToolDefinition<SetQueueItemStatusInput> = {

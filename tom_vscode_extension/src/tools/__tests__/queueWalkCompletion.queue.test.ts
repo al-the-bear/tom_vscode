@@ -219,8 +219,13 @@ describe('a walk iteration whose todo is not completed', () => {
             const texts = turns.map((t) => String(t.userText));
             assert.equal(texts.some((t) => t.startsWith('The todo ')), false, `${what}: no continuation`);
             assert.equal(live(item).needsAttention, undefined, `${what}: no needs attention`);
-            // A decision-needed todo holds the walk by the queue's own rule (the decision first); the others go on.
-            if (what !== 'question' && what !== 'decision-needed') {
+            // A decision-needed todo holds the walk by the queue's own rule (the decision first), and so does a todo
+            // the agent set to blocked (the item is held `todo-blocked`); the others go on.
+            if (what === 'blocked') {
+                assert.equal(live(item).status, 'todo-blocked', 'blocked: the walk is held at it');
+                assert.match(live(item).blockedOn ?? '', new RegExp(`^todo ${prefix}1_x is blocked`));
+            }
+            if (what !== 'question' && what !== 'decision-needed' && what !== 'blocked') {
                 assert.deepEqual(texts.map((t) => todoIdIn(t)), [`${prefix}1_x`, `${prefix}2_x`], `${what}: the walk went on`);
             }
         }

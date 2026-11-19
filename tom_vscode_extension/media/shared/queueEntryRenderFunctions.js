@@ -335,10 +335,14 @@ function renderEntry(item, idx) {
     : '';
   var userWaitBadge = pendingQuestionBadge ? pendingQuestionBadge : waitingForUser ? waitingForUserBadge(item, safeId) : '';
   // A walk iteration still unfinished after its continuations: the item stopped (auto-send off).
+  // Held because the todo it is about waits for one that is not completed (blockedOn names both).
+  var blockedBadge = item.status === 'todo-blocked'
+    ? '  <span class="todo-blocked-badge" title="' + escapeHtml('Held: ' + String(item.blockedOn || 'its todo is blocked') + '. It goes back to pending once the blocker is completed; resume the run then.') + '">[\u26d4 blocked: ' + escapeHtml(String(item.blockedOn || 'its todo is blocked')) + ']</span>'
+    : '';
   var attentionBadge = item.needsAttention
     ? '  <span class="needs-attention-badge" title="' + escapeHtml(String(item.needsAttention)) + '">[\u26a0 needs attention]</span>'
     : '';
-  var processBadge = userWaitBadge + attentionBadge + (item.sendBetween
+  var processBadge = userWaitBadge + blockedBadge + attentionBadge + (item.sendBetween
     ? '  <span class="send-between-badge" style="background:#b5179e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Sent after the running loop\'s current iteration, before its next one">[⇄ between iterations]</span>'
     : '')
     // "Let the next item go first" armed (vscimpb60e): shown until it yields.
