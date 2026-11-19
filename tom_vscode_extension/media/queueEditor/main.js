@@ -856,6 +856,8 @@ function stopRetrying(id) { vscode.postMessage({ type: 'stopRetrying', id }); }
 function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 /** The item headline's icon: open the live trail of the session the item runs in. */
 function openItemLiveTrail(id) { vscode.postMessage({ type: 'openItemLiveTrail', id: id }); }
+// eslint-disable-next-line no-unused-vars -- called by the speech bubble's message box (queueEntryRenderFunctions.js)
+function postRunningMessage(id, text) { vscode.postMessage({ type: 'messageRunningItem', id: id, text: String(text) }); }
 function setPauseAfter(id, pauseAfter) { vscode.postMessage({ type: 'setPauseAfter', id, pauseAfter }); }
 function updateDoneNotification(id, prompt) { vscode.postMessage({ type: 'updateDoneNotification', id, prompt: String(prompt || '') }); }
 function setDoneNotificationDisabled(id, disabled) { vscode.postMessage({ type: 'setDoneNotificationDisabled', id, disabled: !!disabled }); }

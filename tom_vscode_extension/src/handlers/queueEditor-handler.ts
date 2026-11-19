@@ -29,6 +29,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
+import { trackChatSend } from './chatQueueTracking';
 import { itemProfileView, profilePickEntries, QUEUE_DEFAULT_PICK, type ConfigurationLike, type ItemProfileView, type ProfileLike } from '../utils/queueItemProfile';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -733,6 +734,25 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'resendSendingStage':
           await resendRunningStage(qm, msg.id);
           break;
+        case 'messageRunningItem': {
+          // The speech bubble's message box: into the item's running Agent SDK prompt (a waiting turn takes it as the
+          // wait panel's Message does). Shown as a chat send of source `update` that ends with its answer.
+          const id = String(msg.id ?? '');
+          const text = String(msg.text ?? '');
+          if (qm.canMessageWaitingItem(id)) {
+              const w = qm.messageWaitingItem(id, text);
+              if (!w.ok) { vscode.window.showInformationMessage(`The message was not sent: ${w.reason}`); }
+          } else {
+              const r = qm.messageRunningItem(id, text);
+              if (!r.ok) {
+                  vscode.window.showInformationMessage(`The message was not sent: ${r.reason}`);
+              } else {
+                  void trackChatSend({ text: text.trim(), session: r.session, source: 'update' }, () => r.answer.then((answer) => ({ text: answer }))).catch(() => undefined);
+              }
+          }
+          sendState();
+          break;
+        }
         case 'messageWaitingItem': {
           // A wait panel's message box (vscimpb173): straight to the item's own waiting turn.
           const r = qm.messageWaitingItem(String(msg.id ?? ''), String(msg.text ?? ''));
@@ -1312,6 +1332,23 @@ export async function pickItemProfile(id: string): Promise<void> {
 }
 
 /** The transport of a sending item's stage. */
+/**
+ * The speech bubble of a sending item: whether a message can go into its running prompt (an Agent SDK query
+ * runs in its session, or its turn waits and takes one), else why not (the bubble's tooltip).
+ */
+function runningMessageOf(item: QueuedPrompt): { canMessageRunning: true } | { runningMessageUnavailable: string } | Record<string, never> {
+    if (item.status !== 'sending') { return {}; }
+    try {
+        const qm = PromptQueueManager.instance;
+        if (qm.canMessageRunningItem(item.id) || qm.canMessageWaitingItem(item.id)) { return { canMessageRunning: true }; }
+        return {
+            runningMessageUnavailable: stageTransportOf(item) === 'copilot'
+                ? 'it runs on Copilot, which takes no message while it runs'
+                : 'only an Agent SDK prompt takes a message while it runs, and none runs in its session now (another transport, or between two stages)',
+        };
+    } catch { return {}; }
+}
+
 function stageTransportOf(item: QueuedPrompt): string | undefined {
     try { return PromptQueueManager.instance.stageTransportOf(item.id); } catch { return item.lastDispatched?.transport ?? item.transport; }
 }
@@ -1656,7 +1693,10 @@ function buildState(): Record<string, unknown> {
                 // Its turn waits in tomAi_waitFor: the reason, until when, how long is left (vscimpb82).
                 ...(waitForViewOf(item) ? { waitForView: waitForViewOf(item) } : {}),
                 // What the user wrote to its waiting turn from the item, and whether a message can be written now (vscimpb173).
-                ...(item.status === 'sending' && item.waitMessages?.length ? { waitMessagesView: waitMessageViews(item.waitMessages) } : {}),
+                // Kept after the item ended too: the messages written into its running prompt stay listed with their answers.
+                ...(item.waitMessages?.length ? { waitMessagesView: waitMessageViews(item.waitMessages) } : {}),
+                // The speech bubble writes into its running prompt, or says why it cannot.
+                ...runningMessageOf(item),
                 ...(canMessageWaitOf(item) ? { canMessageWait: true } : {}),
                 // What its turn asks (questions, pickers, MD Browser asks): answered in the item's ask panel (vscimpb173).
                 ...(item.status === 'sending' && itemAskViews(item.id).length ? { askViews: itemAskViews(item.id) } : {}),

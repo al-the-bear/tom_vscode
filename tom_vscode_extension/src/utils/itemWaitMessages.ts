@@ -1,7 +1,8 @@
 /**
- * The messages the user wrote to a queue item's waiting turn from the item
- * itself (vscimpb173): into its tomAi_waitFor wait or its background-work
- * wait. Kept on the item (`wait-messages` in the queue file) so the editor
+ * The messages the user wrote to a queue item's turn from the item itself:
+ * into its tomAi_waitFor wait or its background-work wait (vscimpb173), or —
+ * the speech bubble of its header — into its running Agent SDK prompt as
+ * another user message of the conversation (`running`). Kept on the item (`wait-messages` in the queue file) so the editor
  * shows each under the wait's panel with what became of it: the agent's
  * answer where the transport knows it, and that the wait went on.
  *
@@ -17,8 +18,8 @@ export const MAX_WAIT_MESSAGE_ANSWER = 4000;
 export interface ItemWaitMessage {
     /** ISO time it was sent. */
     at: string;
-    /** The wait it went into. */
-    into: 'waitFor' | 'background';
+    /** Where it went: the tomAi_waitFor wait, the background-work wait, or the running prompt. */
+    into: 'waitFor' | 'background' | 'running';
     text: string;
     /** The agent's answer, when known. */
     answer?: string;
@@ -62,7 +63,7 @@ export function waitMessagesFromYaml(raw: unknown): ItemWaitMessage[] | undefine
         if (typeof r?.at !== 'string' || typeof r.text !== 'string') { continue; }
         out.push({
             at: r.at,
-            into: r.into === 'background' ? 'background' : 'waitFor',
+            into: r.into === 'background' ? 'background' : r.into === 'running' ? 'running' : 'waitFor',
             text: r.text,
             ...(typeof r.answer === 'string' ? { answer: r.answer } : {}),
             ...(r.resumed === true ? { resumed: true as const } : {}),

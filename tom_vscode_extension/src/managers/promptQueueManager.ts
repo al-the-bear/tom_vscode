@@ -6,6 +6,7 @@
  * and integration with the Reminder and Timer systems.
  */
 
+import { canUpdateRunningPrompt, sendUpdateToRunningPrompt } from '../services/agentSdkLiveInputs';
 import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
 import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, defaultSettingsDiff, questRunsInFile, readQuestRunQueueSettings, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
@@ -5658,6 +5659,61 @@ export class PromptQueueManager {
     }
 
     /** Whether a message can be written to item `id` now: its turn waits in tomAi_waitFor or for its background work. */
+    /** The session the sending item `id` runs its Anthropic prompt in; undefined on Copilot or when it does not run. */
+    runningSessionOf(id: string): string | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') { return undefined; }
+        return this.anthropicSessionOf(item);
+    }
+
+    /** Whether a message can go into the running prompt of item `id`: an Agent SDK query runs in its session. */
+    canMessageRunningItem(id: string): boolean {
+        const session = this.runningSessionOf(id);
+        return !!session && canUpdateRunningPrompt(session);
+    }
+
+    /**
+     * The user writes `text` into the running prompt of the sending item `id`, from the speech bubble of its
+     * header: another user message of the running Agent SDK conversation (services/agentSdkLiveInputs.ts), which
+     * the agent answers in the same turn. Kept on the item (`wait-messages`, `into: running`) with its answer.
+     * Answers the session and the answer to come (the caller shows it as a chat send of source `update`).
+     */
+    messageRunningItem(id: string, text: string): { ok: true; session: string; answer: Promise<string> } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') { return { ok: false, reason: 'The item is not running.' }; }
+        const problem = waitMessageProblem(text);
+        if (problem) { return { ok: false, reason: problem }; }
+        const session = this.anthropicSessionOf(item);
+        if (!session) { return { ok: false, reason: 'The item runs on Copilot, which takes no message while it runs.' }; }
+        const pushed = sendUpdateToRunningPrompt(session, text.trim());
+        if (!pushed) { return { ok: false, reason: `No Agent SDK prompt runs in session ${session} now: only an Agent SDK prompt takes a message while it runs.` }; }
+        const message: ItemWaitMessage = { at: new Date().toISOString(), into: 'running', text: text.trim() };
+        item.waitMessages = withWaitMessage(item.waitMessages, message);
+        pushed.answer.then((answer) => {
+            message.answer = keptAnswer(answer);
+            this.persist();
+            this._onDidChange.fire();
+        }).catch(() => undefined);
+        logQueue(`Item ${id}: the user wrote into its running prompt (session ${session}): ${message.text.split('\n')[0].slice(0, 80)}`);
+        const run = itemRun(item);
+        try {
+            const now = Date.now();
+            appendQuestionLogEntry({
+                tool: 'message to a running prompt',
+                title: `Written from queue item ${id} into session ${session}`,
+                questions: [],
+                answer: message.text,
+                source: 'queue item',
+                askedAt: now,
+                answeredAt: now,
+                run,
+            });
+        } catch { /* the journal is best effort */ }
+        this.persist();
+        this._onDidChange.fire();
+        return { ok: true, session, answer: pushed.answer };
+    }
+
     canMessageWaitingItem(id: string): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item || item.status !== 'sending') { return false; }

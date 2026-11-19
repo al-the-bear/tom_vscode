@@ -518,8 +518,14 @@ function renderEntry(item, idx) {
             ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'
             : '') +
           '#' + queuePos + '  ' + time + (sentTime ? ' \u2192 ' + sentTime : '') +
-          ' <button class="icon-btn queue-live-trail-btn" type="button" onclick="event.stopPropagation(); openItemLiveTrail(\'' + safeId + '\')"'
-            + ' title="' + escapeHtml('Open the live trail of session ' + chipSessionName + ' (the session this prompt runs in)') + '">'
+          // The speech bubble: on a running prompt that takes a message it opens the message box (with Open live
+          // trail in it); otherwise it opens the live trail of the item's session.
+          (item.canMessageRunning
+            ? ' <button class="icon-btn queue-live-trail-btn queue-message-btn" type="button" onclick="event.stopPropagation(); toggleRunningMessage(\'' + safeId + '\')"'
+              + ' title="' + escapeHtml('Write to the running prompt (session ' + chipSessionName + '): your message goes into the running conversation and the agent answers it in the same turn') + '">'
+            : ' <button class="icon-btn queue-live-trail-btn" type="button" onclick="event.stopPropagation(); openItemLiveTrail(\'' + safeId + '\')"'
+              + ' title="' + escapeHtml('Open the live trail of session ' + chipSessionName + ' (the session this prompt runs in)'
+                + (item.runningMessageUnavailable ? '. No message can go into this prompt: ' + item.runningMessageUnavailable + '.' : '')) + '">')
             + '<span class="codicon ' + typeIconClass + '" style="color:#000;"></span></button>' +
         '</span>' +
       '</div>' +
@@ -550,7 +556,9 @@ function renderEntry(item, idx) {
     // Waiting for its background work: always visible, with the ? list and the three choices.
     renderBackgroundWait(item, safeId) +
     renderWaitFor(item, safeId) +
-    // What the user wrote to the waiting turn, while it answers and no wait panel shows (vscimpb173).
+    // The speech bubble's message box: a message into the running prompt.
+    renderRunningMessageBox(item, safeId) +
+    // What the user wrote to the turn (a wait, the running prompt), with the answers, while no wait panel shows (vscimpb173).
     renderWaitMessagesAlone(item) +
     // What the turn asks, answered right here (vscimpb173).
     renderItemAsks(item, safeId) +
@@ -808,11 +816,65 @@ function renderWaitMessages(item) {
   }).join('') + '</div>';
 }
 
-/** The messages on their own, while the turn answers one and no wait panel shows. */
+/** The messages on their own, while no wait panel shows: also once the item has ended, with their answers. */
 function renderWaitMessagesAlone(item) {
-  if (item.status !== 'sending' || item.waitForView || item.backgroundWaitView) { return ''; }
+  if (item.waitForView || item.backgroundWaitView) { return ''; }
   var list = renderWaitMessages(item);
   return list ? '<div class="wait-msgs-alone" data-qid="' + escapeHtml(String(item.id)) + '">' + list + '</div>' : '';
+}
+
+/**
+ * The message box of the header's speech bubble (canMessageRunning): a text area, Send, Cancel and Open live
+ * trail, right under the header. The draft is kept over redraws.
+ */
+function renderRunningMessageBox(item, safeId) {
+  if (!item.canMessageRunning || waitUiState('__runMsgOpen')[item.id] !== true) { return ''; }
+  var draft = waitUiState('__runMsgDraft')[item.id] || '';
+  return '<div class="wait-msg-box run-msg-box" data-qid="' + escapeHtml(String(item.id)) + '" onclick="event.stopPropagation()">'
+    + '<textarea id="runMsg-' + escapeHtml(String(item.id)) + '" class="wait-msg-text keep-focus" rows="3" placeholder="Your message to the running prompt (Ctrl/Cmd+Enter sends)"'
+    + ' oninput="runningMessageDraft(\'' + safeId + '\', this.value)" onkeydown="runningMessageKey(event, \'' + safeId + '\')">' + escapeHtml(draft) + '</textarea>'
+    + '<div class="wait-msg-bar">'
+    + '<button type="button" class="wait-msg-btn primary" data-run-msg="send" onclick="event.stopPropagation();sendRunningMessage(\'' + safeId + '\')" title="Send into this item\'s running conversation; the agent answers it in the same turn">Send</button>'
+    + ' <button type="button" class="wait-msg-btn" data-run-msg="cancel" onclick="event.stopPropagation();cancelRunningMessage(\'' + safeId + '\')">Cancel</button>'
+    + ' <button type="button" class="wait-msg-btn" data-run-msg="trail" onclick="event.stopPropagation();openItemLiveTrail(\'' + safeId + '\')" title="Open the live trail of the session this prompt runs in">Open live trail</button>'
+    + '</div></div>';
+}
+
+// eslint-disable-next-line no-unused-vars -- called by the speech bubble's onclick
+function toggleRunningMessage(id) {
+  var open = waitUiState('__runMsgOpen');
+  open[id] = !open[id];
+  if (typeof render === 'function') { render(); }
+  if (open[id]) {
+    var ta = document.getElementById('runMsg-' + id);
+    if (ta && ta.focus) { ta.focus(); }
+  }
+}
+
+// eslint-disable-next-line no-unused-vars -- called by the message text area's oninput
+function runningMessageDraft(id, text) { waitUiState('__runMsgDraft')[id] = text; }
+
+// eslint-disable-next-line no-unused-vars -- called by the message text area's onkeydown
+function runningMessageKey(e, id) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendRunningMessage(id); }
+}
+
+/** Send the speech bubble's message box: the item id and the text; an empty text sends nothing. */
+function sendRunningMessage(id) {
+  var ta = document.getElementById('runMsg-' + id);
+  var text = ta ? ta.value : (waitUiState('__runMsgDraft')[id] || '');
+  if (!String(text).trim()) { return; }
+  waitUiState('__runMsgOpen')[id] = false;
+  waitUiState('__runMsgDraft')[id] = '';
+  if (typeof postRunningMessage === 'function') { postRunningMessage(id, text); }
+  if (typeof render === 'function') { render(); }
+}
+
+// eslint-disable-next-line no-unused-vars -- called by Cancel's onclick (renderRunningMessageBox)
+function cancelRunningMessage(id) {
+  waitUiState('__runMsgOpen')[id] = false;
+  waitUiState('__runMsgDraft')[id] = '';
+  if (typeof render === 'function') { render(); }
 }
 
 // eslint-disable-next-line no-unused-vars -- called by the Message button's onclick (renderWaitMessageBox)
