@@ -50,8 +50,9 @@ dependencies:
     path: ../tom_vscode_bridge
 ```
 
-It depends on `tom_vscode_scripting_api: ^1.1.0`, `tom_d4rt`, `tom_d4rt_dcli`,
-and `path`. Dart SDK `^3.10.4`.
+It depends on `tom_vscode_scripting_api: ^5.0.0`, `tom_todo_model: ^3.0.0` (todo
+groups), `tom_d4rt`, `tom_d4rt_dcli` (2.3.0 or later), `tom_dcli` and `path`.
+Dart SDK `^3.10.4`.
 
 > If you only need the **client** surface (typed Dart calls into a running
 > window), depend on the published

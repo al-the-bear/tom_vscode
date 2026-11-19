@@ -122,7 +122,7 @@ Settings (`compaction.*` with per-configuration overrides on every
 
 ### Server-side clearing (direct transport, thinking models)
 
-A conversation whose model thinks — Opus 5.5, Fable 5.1, any model that has
+A conversation whose model thinks — Opus 5.5, Fable 5.2, any model that has
 returned a thinking block — may not have its earlier rounds rewritten, so the
 client-side collapse above stops. On the direct transport the request then asks
 the API to clear old tool results itself: context editing, the edit

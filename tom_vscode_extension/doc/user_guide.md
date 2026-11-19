@@ -1136,8 +1136,12 @@ Most of the extension's configuration is in its config file (`@T: Open Config Fi
 
 | Setting | What it does |
 | --- | --- |
-| `tomAi.configPath` | The extension config file (`~` and `${workspaceFolder}` resolved) |
-| `tomAi.aiFolder` | The AI folder's name (default `_ai`) |
+| `tomAi.configPath` | The extension config file, for a layout without a root `.tom` (`~`, `${workspaceFolder}` and `${tomRoot}` resolved) |
+| `tomAi.layout.root` | The root of the Tom workspace, absolute or relative to the workspace folder (the window's first folder); empty: the nearest folder above with `.tom/tom_root.yaml` |
+| `tomAi.layout.aiFolder` | The `_ai` folder, absolute or relative to the workspace folder; empty: the workspace folder's `_ai`, else the root's |
+| `tomAi.layout.configFolder` | The workspace folder's configuration folder (default `.tom`) |
+| `tomAi.layout.guidelinesFolder` | The workspace folder's guidelines folder (default `_agent_guidelines`) |
+| `tomAi.aiFolder` | Deprecated alias of `tomAi.layout.aiFolder`: the AI folder's name under the workspace folder |
 | `tomAi.queueFolder` | The prompt queue's folder (default `${aiFolder}/queue`) |
 | `tomAi.panelStoragePath` | The folder of the panels' local state files (default `${aiFolder}/local`, absolute or workspace-relative): the timed requests (`<host>_<workspace>.timed.yaml`), the chat variables (`<workspace>.chatvars.yaml`) and the chat panels' drafts (`<workspace>.<section>.prompt-panel.yaml`). The window state files stay in `${aiFolder}/local` (the config file's `windowStatus.localFolder`) |
 | `tomAi.bridge.requestTimeout` | How long a Dart bridge request may take, ms (default 30 000, at least 1 000) |
