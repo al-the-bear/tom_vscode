@@ -34,6 +34,8 @@ import { groupListInfo, questStatusIndex } from '../utils/todoBlockingCascade';
 import { outsideBlockers, outsideBlockersQuestion, type OutsideBlocker } from '../utils/todoBlockState';
 import { collectPrefixTodos } from '../utils/queueStep3Utils';
 import { todoQuestsRoot } from '../utils/todoBlockingSync';
+import { runDependencyCleanup, type CleanupScope } from '../services/todoDependencyCleanup';
+import { cleanupSummaryText } from '../utils/todoDependencyCleanup';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
@@ -653,6 +655,47 @@ function _todoQuestOf(questId: string, sourceFile?: string, todoId?: string): st
         for (const qid of listQuestIds()) { if (questTodo.findTodoById(qid, todoId)) { return qid; } }
     }
     return _windowQuest();
+}
+
+/** Only one dependency cleanup at a time (it reads and writes every todo file). */
+let _dependencyCleanupRunning = false;
+
+/**
+ * The todo panel's dependency cleanup (utils/todoDependencyCleanup.ts): asks which todos — the ones the list
+ * shows (`visible`), the open windows' quests, or every quest — then runs the pass with "Checking todo
+ * dependencies n/m" in the status bar, and says what it changed.
+ */
+async function runTodoDependencyCleanup(visible: ReadonlyArray<{ quest: string; id: string }>): Promise<void> {
+    if (_dependencyCleanupRunning) { void vscode.window.showInformationMessage('A todo dependency cleanup is running already.'); return; }
+    const open = _openWindowQuests();
+    type Pick = vscode.QuickPickItem & { scope: CleanupScope };
+    const picks: Pick[] = [
+        { label: '$(list-filter) The todos shown in the list', description: `${visible.length} todo${visible.length === 1 ? '' : 's'}`, scope: { kind: 'todos', todos: visible } },
+        { label: "$(window) The open windows' quests", description: open.join(', ') || 'none open', scope: { kind: 'quests', quests: open } },
+        { label: '$(globe) All quests', description: 'every live todo of every quest', scope: { kind: 'all' } },
+    ];
+    const picked = await vscode.window.showQuickPick(picks, {
+        title: 'Todo dependency cleanup',
+        placeHolder: 'Which todos? Done or vanished blockers leave blocked_by, released todos are unblocked, blocking is set from the others\' blocked_by',
+        ignoreFocusOut: true,
+    });
+    if (!picked) { return; }
+    const questsRoot = todoQuestsRoot() ?? WsPaths.ai('quests');
+    if (!questsRoot) { void vscode.window.showWarningMessage('No quests folder: open a Tom workspace.'); return; }
+    _dependencyCleanupRunning = true;
+    const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    bar.text = '$(sync~spin) Checking todo dependencies…';
+    bar.tooltip = 'The todo panel\'s dependency cleanup';
+    bar.show();
+    try {
+        const { summary } = await runDependencyCleanup(questsRoot, picked.scope, (n, m) => { bar.text = `$(sync~spin) Checking todo dependencies ${n}/${m}`; });
+        void vscode.window.showInformationMessage(cleanupSummaryText(summary));
+    } catch (e) {
+        void vscode.window.showErrorMessage(`The todo dependency cleanup stopped: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+        bar.dispose();
+        _dependencyCleanupRunning = false;
+    }
 }
 
 /** Whether a todo done-notification template is set: without one the Done notification box is disabled. */
@@ -2154,6 +2197,15 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         case 'qtQueueTodoGroup': {
             // A todo group's queue button (its header and its detail view, vscimpb126): a GROUP item.
             await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, 'group', msg.sourceFile);
+            return true;
+        }
+        case 'qtDependencyCleanup': {
+            // The dependency cleanup button: which todos (the list shown, the open windows' quests, all), then the pass.
+            const visible = (Array.isArray(msg.visible) ? msg.visible : []) as Array<{ id?: string; sourceFile?: string }>;
+            const listQuest = String(msg.questId || '');
+            await runTodoDependencyCleanup(visible.filter((v) => typeof v.id === 'string' && v.id)
+                .map((v) => ({ quest: _todoQuestOf(listQuest, v.sourceFile, v.id), id: v.id as string })));
+            void post({ type: 'qtDependencyCleanupDone' });
             return true;
         }
         case 'qtQueueAsTodoItem': {

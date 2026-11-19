@@ -262,7 +262,7 @@ function strings(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim()) : [];
 }
 
-function hasOpenDecisions(value: unknown): boolean {
+export function hasOpenDecisions(value: unknown): boolean {
     return Array.isArray(value) && value.some((d) => {
         const dec = (d as { decision?: unknown } | null)?.decision;
         return !(typeof dec === 'string' && dec.trim());

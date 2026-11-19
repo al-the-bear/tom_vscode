@@ -24,6 +24,8 @@ var qtFormDecisions = [];
 var qtDecisionOpen = [];
 var qtTagPickerCallback = null;
 var qtFilterSearch = '';
+/** The todos the list shows after its filters (the dependency cleanup's "the todos shown"). */
+var qtVisibleTodos = [];
 /** A filter that keeps every todo. `userAction`: [] all, ['yes'] the user's own todos, ['no'] the others. */
 function qtEmptyFilterState() {
     return { status: [], priority: [], tags: [], userAction: [], blocking: [], overdue: [], createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '', completedFrom: '', completedTo: '' };
@@ -338,6 +340,11 @@ function qtNavPush(todoId) {
     if (btnFilter) btnFilter.addEventListener('click', function(e) { e.stopPropagation(); qtToggleFilterPicker(); });
     if (btnSort) btnSort.addEventListener('click', function(e) { e.stopPropagation(); qtToggleSortPicker(); });
     if (btnReload) btnReload.addEventListener('click', function() { qtReloadView(); });
+    // The dependency cleanup: the host asks which todos; "the ones shown" are the list's after its filters.
+    var btnDepCleanup = document.getElementById('qt-btn-dep-cleanup');
+    if (btnDepCleanup) btnDepCleanup.addEventListener('click', function() {
+        vscode.postMessage({ type: 'qtDependencyCleanup', questId: qtCurrentQuestId, visible: qtVisibleTodos.map(function(t) { return { id: t.id, sourceFile: t.sourceFile || t._sourceFile || undefined }; }) });
+    });
     if (btnDeleteAll) {
         if (qtViewConfig.mode === 'session') {
             btnDeleteAll.style.display = '';
@@ -1252,7 +1259,7 @@ function qtRenderList() {
     if (!qtTodos.length) { pane.innerHTML = '<div class="qt-empty-detail">No todos found</div>'; return; }
 
     // Apply filters
-    var filtered = qtTodos.filter(function(t) {
+    var filtered = qtVisibleTodos = qtTodos.filter(function(t) {
         if (qtFilterState.status.length && qtFilterState.status.indexOf(t.status || 'not-started') === -1) return false;
         if (qtFilterState.priority.length && qtFilterState.priority.indexOf(t.priority || '') === -1) return false;
         if (qtFilterState.tags.length) {
@@ -3569,6 +3576,10 @@ function qtHandleMessage(msg) {
                 // Explicitly set value after innerHTML rebuild to ensure selection sticks
                 if (curFile && curFile !== 'all') fsel.value = curFile;
             }
+            break;
+        case 'qtDependencyCleanupDone':
+            // The cleanup wrote the todo files: load the list shown again.
+            vscode.postMessage({ type: 'qtGetTodos', questId: qtCurrentQuestId, file: qtCurrentFile });
             break;
         case 'qtQueueChanged':
             // Queued todos changed: load the list shown again, with its marks.

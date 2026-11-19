@@ -438,6 +438,14 @@ A todo's **Blocked By** names the todos it waits for. The other end is kept for 
 
 **Blocked todos follow their blockers.** Complete or cancel a todo — in the todo panel, the editor, through a tool, by archiving or in a queue walk — and every `blocked` todo in any quest that was waiting for it, and has nothing else open, becomes **not-started** (or **decision-needed** when it still has open decisions). Its `blocked_until` versions count too: they have to be on pub.dev. Set the done todo back to another status and the not-started / decision-needed todos waiting for it become **blocked** again; ones already in progress, done or waiting for a repeat are left as they are. Each change writes a line into the todo's notes (*unblocked by …* / *blocked again: … is …*). **A done blocker leaves the Blocked By lists**: when a todo is completed or cancelled, its entry is removed from every todo of every quest that names it, whatever that todo's status (*no longer blocked by … (done)*), so Blocked By shows only what still blocks; a todo reopened later blocks only the todos that still name it.
 
+**Cleaning up the dependencies.** The toolbar's references button (**Clean up the todo dependencies**) checks the dependencies in one pass and puts them right. It asks first which todos: **the todos shown in the list** (after its filters and search), **the open windows' quests**, or **all quests**. For those todos:
+
+- a **Blocked By** entry naming a todo that is done (completed or cancelled), or one that is no longer a live todo (archived, deleted or gone), is removed: a todo that no longer exists counts as completed. An entry naming an open todo stays, and so does one that names no todo (text, a bare quest name);
+- a **blocked** todo whose Blocked By is emptied by this, and that waits for no package version (`blocked_until`), is no longer blocked: it becomes **not-started**, **group** for a group todo, or **decision-needed** when it holds an open decision. A blocked todo without any Blocked By is left as it is, since what it waits for is not written down where the cleanup can read it; the summary counts them;
+- each todo's **`blocking`** list is set to what the other todos' Blocked By say.
+
+Each todo whose Blocked By or status changed gets a line in its notes. While it runs the status bar shows **Checking todo dependencies n/m**; at the end a message says how many entries were removed, how many todos were unblocked and how many `blocking` lists were corrected, and the list loads again.
+
 #### After done and Filed by
 
 Todos hand work on to each other within this machine:
