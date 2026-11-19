@@ -14,7 +14,7 @@ import type { SpecQueryCursor } from 'tom_som_typescript_runtime';
 import { SomSearchCursors } from '../som-search-cursors.js';
 
 const fakeCursor = {} as SpecQueryCursor;
-const init = { filePath: '/x.docspecs.yaml', revision: 'r1', query: {}, cursor: fakeCursor, total: 3 };
+const init = { filePath: '/x.tomspecs.yaml', revision: 'r1', query: {}, cursor: fakeCursor, total: 3 };
 
 function clock(): { now: () => number; advance: (ms: number) => void } {
     let t = 1_000_000;

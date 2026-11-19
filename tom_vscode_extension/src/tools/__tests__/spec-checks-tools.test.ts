@@ -47,7 +47,7 @@ const EXT = path.join(__dirname, '..', '..', '..');
 setDartBinariesExtensionRoot(EXT);
 const WORKSPACE = path.resolve(EXT, '..', '..', '..');
 const AI_BUILD = path.resolve(EXT, '..', '..', 'ai_build');
-const MERIDIAN = path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml');
+const MERIDIAN = path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml');
 const ANSWER_FIXTURE = path.join(AI_BUILD, 'tom_specs_clitool', 'test', 'spec_checks', 'sbp_fixture.dart');
 const BINARY = path.join(EXT, 'bin', getCurrentPlatform(), binaryFileName('tomspecs'));
 const UAM = path.join(WORKSPACE, 'tom_uam', 'tom_specs');
@@ -113,7 +113,7 @@ describe('TomSpecs process checks', () => {
         assert.deepEqual(imp.findings, [{ kind: 'SCHEMA', text: 'line 19: missing' }]);
         assert.deepEqual(imp.lines, ['written   a.yaml', 'rendition a.md']);
         assert.equal(run('import-answers', 'decode    OK\n', 'REFUSED   the rendition differs beyond answers\n', 2).outcome, 'refused');
-        const usage = run('authorization', '', 'usage: tomspecs :spec-authorization <sbp.docspecs.yaml> — operations, role matrix, screens and use cases agree (checks/authorization_cross_check.yaml)\nthe role model is the project\'s: x/checks/authorization_cross_check.yaml\n', 2);
+        const usage = run('authorization', '', 'usage: tomspecs :spec-authorization <sbp.tomspecs.yaml> — operations, role matrix, screens and use cases agree (checks/authorization_cross_check.yaml)\nthe role model is the project\'s: x/checks/authorization_cross_check.yaml\n', 2);
         assert.equal(usage.outcome, 'usageError');
         assert.equal(usage.stderr.length, 2);
     });
@@ -122,8 +122,8 @@ describe('TomSpecs process checks', () => {
         const why = cannotRun(MERIDIAN);
         if (why) { t.skip(why); return; }
         fs.mkdirSync(path.join(ws, 'mer', 'phase2'), { recursive: true });
-        fs.copyFileSync(MERIDIAN, path.join(ws, 'mer', 'phase2', 'sbp.docspecs.yaml'));
-        const doc = 'mer/phase2/sbp.docspecs.yaml';
+        fs.copyFileSync(MERIDIAN, path.join(ws, 'mer', 'phase2', 'sbp.tomspecs.yaml'));
+        const doc = 'mer/phase2/sbp.tomspecs.yaml';
         const req = await withTiming('tomAi_specRequiredFields:typical', () => parse(specRequiredFieldsImpl(deps(), { file: doc })));
         assert.equal(req.ok, true);
         assert.equal(req.check, 'required-fields');
@@ -150,7 +150,7 @@ describe('TomSpecs process checks', () => {
         const pic = await withTiming('tomAi_specProjectIdeaCoverage:typical', () => parse(specProjectIdeaCoverageImpl(deps(), { projectIdea: 'mer/idea.md', file: doc })));
         assert.equal(pic.ok, true);
         assert.equal(pic.summary.ids, 0, 'an idea without ids');
-        assert.match((await parse(specRequiredFieldsImpl(deps(), { file: '../outside.docspecs.yaml' }))).error, /outside the workspace/);
+        assert.match((await parse(specRequiredFieldsImpl(deps(), { file: '../outside.tomspecs.yaml' }))).error, /outside the workspace/);
     });
 
     test('SK-3: the answer import', async (t) => {
@@ -158,7 +158,7 @@ describe('TomSpecs process checks', () => {
         if (why) { t.skip(why); return; }
         const yamlText = /const String fixtureYaml = '''([\s\S]*?)''';/.exec(fs.readFileSync(ANSWER_FIXTURE, 'utf8'))![1];
         fs.mkdirSync(path.join(ws, 'imp'), { recursive: true });
-        const yaml = 'imp/sbp.docspecs.yaml';
+        const yaml = 'imp/sbp.tomspecs.yaml';
         const md = 'imp/sbp.md';
         fs.writeFileSync(path.join(ws, yaml), yamlText);
         // The rendition, as `tomspecs :spec-render` writes it (exit 1: the fixture is not complete enough for the schema tier).
@@ -204,7 +204,7 @@ describe('TomSpecs process checks', () => {
 
     test('SK-4: the question register\'s write', async () => {
         fs.mkdirSync(path.join(ws, 'reg'), { recursive: true });
-        fs.writeFileSync(path.join(ws, 'reg', 'doc.docspecs.yaml'), 'document:\n');
+        fs.writeFileSync(path.join(ws, 'reg', 'doc.tomspecs.yaml'), 'document:\n');
         fs.writeFileSync(path.join(ws, 'reg', 'index.md'), '# Questions\n\nopen 1\n');
         const calls: Array<{ check: string; args: string[] }> = [];
         const runner: SpecChecksDeps['runChecks'] = async (check, args) => {
@@ -213,22 +213,22 @@ describe('TomSpecs process checks', () => {
             fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('open 1', 'open 0'));
             return { exitCode: 0, stdout: `counts    rewritten\nregister  1 index rows, 0 blocks in the Blueprint, 0 waiting (0 ★) — 0 finding(s)\n`, stderr: '' };
         };
-        const dry = await parse(specQuestionRegisterImpl(deps({ runChecks: runner }), { file: 'reg/doc.docspecs.yaml', index: 'reg/index.md', write: true, dryRun: true }));
+        const dry = await parse(specQuestionRegisterImpl(deps({ runChecks: runner }), { file: 'reg/doc.tomspecs.yaml', index: 'reg/index.md', write: true, dryRun: true }));
         assert.equal(dry.ok, true);
         assert.equal(dry.summary.countsRewritten, true);
         assert.match(dry.files[0].diff, /\+open 0/);
         assert.equal(read('reg/index.md'), '# Questions\n\nopen 1\n');
-        assert.equal(calls[0].args[0], path.join(ws, 'reg', 'doc.docspecs.yaml'), 'the document where it is (its spec root)');
+        assert.equal(calls[0].args[0], path.join(ws, 'reg', 'doc.tomspecs.yaml'), 'the document where it is (its spec root)');
         assert.notEqual(calls[0].args[1], path.join(ws, 'reg', 'index.md'), 'the index is a copy');
         assert.equal(calls[0].args[2], '--write');
-        const written = await parse(specQuestionRegisterImpl(deps({ runChecks: runner }), { file: 'reg/doc.docspecs.yaml', index: 'reg/index.md', write: true }));
+        const written = await parse(specQuestionRegisterImpl(deps({ runChecks: runner }), { file: 'reg/doc.tomspecs.yaml', index: 'reg/index.md', write: true }));
         assert.equal(written.files[0].written, true);
         assert.equal(read('reg/index.md'), '# Questions\n\nopen 0\n');
     });
 
     test('SK-5: no binary for the platform', async () => {
         const missing: SpecChecksDeps['runChecks'] = async () => { throw new DartBinaryMissing('tomspecs', '/ext/bin/x/tomspecs', 'x'); };
-        const r = await parse(specFeatureRegisterImpl(deps({ runChecks: missing }), { file: 'reg/doc.docspecs.yaml' }));
+        const r = await parse(specFeatureRegisterImpl(deps({ runChecks: missing }), { file: 'reg/doc.tomspecs.yaml' }));
         assert.deepEqual([r.ok, r.outcome, r.expected], [false, 'binaryMissing', '/ext/bin/x/tomspecs']);
         assert.match(r.error, /tomspecs \(TomSpecs process checks, CodeSpecs validation and mapping\) is not available on x/);
         assert.match(r.help, /tomAi\.showDartBinariesHelp/);
@@ -241,12 +241,12 @@ describe('TomSpecs process checks', () => {
         const B = 'tom_uam/tom_specs/phase2_solution_blueprint';
         const live = deps({ wsRoot: WORKSPACE });
         const cases: Array<[string, Promise<string>, string[]]> = [
-            ['required-fields', specRequiredFieldsImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml` }), [`${B}/tom_uam.sbp.docspecs.yaml`]],
-            ['feature-register', specFeatureRegisterImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml` }), [`${B}/tom_uam.sbp.docspecs.yaml`]],
-            ['authorization', specAuthorizationCheckImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml` }), [`${B}/tom_uam.sbp.docspecs.yaml`]],
-            ['question-register', specQuestionRegisterImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml`, index: `${B}/clarifications.sbp.md` }), [`${B}/tom_uam.sbp.docspecs.yaml`, `${B}/clarifications.sbp.md`]],
-            ['project-idea-coverage', specProjectIdeaCoverageImpl(live, { projectIdea: 'tom_uam/tom_specs/phase1_project_idea/project_idea.tom_uam.md', file: `${B}/tom_uam.sbp.docspecs.yaml` }),
-                ['tom_uam/tom_specs/phase1_project_idea/project_idea.tom_uam.md', `${B}/tom_uam.sbp.docspecs.yaml`]],
+            ['required-fields', specRequiredFieldsImpl(live, { file: `${B}/tom_uam.sbp.tomspecs.yaml` }), [`${B}/tom_uam.sbp.tomspecs.yaml`]],
+            ['feature-register', specFeatureRegisterImpl(live, { file: `${B}/tom_uam.sbp.tomspecs.yaml` }), [`${B}/tom_uam.sbp.tomspecs.yaml`]],
+            ['authorization', specAuthorizationCheckImpl(live, { file: `${B}/tom_uam.sbp.tomspecs.yaml` }), [`${B}/tom_uam.sbp.tomspecs.yaml`]],
+            ['question-register', specQuestionRegisterImpl(live, { file: `${B}/tom_uam.sbp.tomspecs.yaml`, index: `${B}/clarifications.sbp.md` }), [`${B}/tom_uam.sbp.tomspecs.yaml`, `${B}/clarifications.sbp.md`]],
+            ['project-idea-coverage', specProjectIdeaCoverageImpl(live, { projectIdea: 'tom_uam/tom_specs/phase1_project_idea/project_idea.tom_uam.md', file: `${B}/tom_uam.sbp.tomspecs.yaml` }),
+                ['tom_uam/tom_specs/phase1_project_idea/project_idea.tom_uam.md', `${B}/tom_uam.sbp.tomspecs.yaml`]],
         ];
         for (const [check, call, args] of cases) {
             const tool = JSON.parse(await call);
@@ -260,19 +260,19 @@ describe('TomSpecs process checks', () => {
             if (check === 'authorization') { assert.equal(tool.findingCount, Object.values(tool.summary.checks as Record<string, number>).reduce((a, b) => a + b, 0)); }
         }
         // Coverage: the table is the binary's report, line for line.
-        const sample = path.join(AI_BUILD, 'tom_som_conformance', 'samples', 'exercise_full_model.docspecs.yaml');
+        const sample = path.join(AI_BUILD, 'tom_som_conformance', 'samples', 'exercise_full_model.tomspecs.yaml');
         if (fs.existsSync(sample)) {
-            const cov = JSON.parse(await specCoverageImpl(live, { sample: path.relative(WORKSPACE, sample), file: `${B}/tom_uam.sbp.docspecs.yaml` }));
-            const out = execFileSync(BINARY, [SPEC_COMMANDS['coverage'], sample, path.join(WORKSPACE, B, 'tom_uam.sbp.docspecs.yaml')], { encoding: 'utf8', maxBuffer: 256 << 20 });
+            const cov = JSON.parse(await specCoverageImpl(live, { sample: path.relative(WORKSPACE, sample), file: `${B}/tom_uam.sbp.tomspecs.yaml` }));
+            const out = execFileSync(BINARY, [SPEC_COMMANDS['coverage'], sample, path.join(WORKSPACE, B, 'tom_uam.sbp.tomspecs.yaml')], { encoding: 'utf8', maxBuffer: 256 << 20 });
             assert.deepEqual(cov.summary.table, out.split(/\r?\n/).filter((l) => l.trim() !== ''));
         }
         // The import, as a dry run: what the binary's --dry-run reports, nothing written.
-        const yaml = path.join(WORKSPACE, B, 'tom_uam.sbp.docspecs.yaml');
+        const yaml = path.join(WORKSPACE, B, 'tom_uam.sbp.tomspecs.yaml');
         const before = fs.statSync(yaml).mtimeMs;
-        const imp = JSON.parse(await specImportAnswersImpl(live, { file: `${B}/tom_uam.sbp.docspecs.yaml`, rendition: `${B}/tom_uam.sbp.md`, dryRun: true }));
+        const imp = JSON.parse(await specImportAnswersImpl(live, { file: `${B}/tom_uam.sbp.tomspecs.yaml`, rendition: `${B}/tom_uam.sbp.tomspecs.md`, dryRun: true }));
         let impOut = '';
         let impCode = 0;
-        try { impOut = execFileSync(BINARY, [SPEC_COMMANDS['import-answers'], '--dry-run', yaml, path.join(WORKSPACE, B, 'tom_uam.sbp.md')], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
+        try { impOut = execFileSync(BINARY, [SPEC_COMMANDS['import-answers'], '--dry-run', yaml, path.join(WORKSPACE, B, 'tom_uam.sbp.tomspecs.md')], { encoding: 'utf8', maxBuffer: 256 << 20 }); }
         catch (e) { impCode = (e as { status: number }).status; impOut = String((e as { stdout: string }).stdout); }
         assert.equal(imp.exitCode, impCode);
         const counts = /import\s+(\d+) answer\(s\), (\d+) other value\(s\)/.exec(impOut);

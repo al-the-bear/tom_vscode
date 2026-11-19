@@ -36,7 +36,7 @@ import {
 } from '../codespecs-gate-tools.js';
 
 const AI_BUILD = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const CORPUS = path.join(AI_BUILD, 'tom_som_conformance', 'generated-doc', 'codespecs_extracts');
 const CORPUS_RECORD = fs.readFileSync(path.join(CORPUS, 'gate.verdicts.yaml'), 'utf8');
 
@@ -83,7 +83,7 @@ class CraftedModelService extends SomModelService {
 
 /** A spec root holding Meridian, the corpus extracts and the corpus record. */
 function specRoot(name: string, withRecord = true): string {
-    put(`${name}/meridian.docspecs.yaml`, MERIDIAN_YAML);
+    put(`${name}/meridian.tomspecs.yaml`, MERIDIAN_YAML);
     for (const f of fs.readdirSync(CORPUS)) {
         if (f === 'gate.verdicts.yaml' && !withRecord) { continue; }
         put(`${name}/generated-doc/codespecs_extracts/${f}`, fs.readFileSync(path.join(CORPUS, f), 'utf8'));
@@ -92,10 +92,10 @@ function specRoot(name: string, withRecord = true): string {
 }
 
 describe('CodeSpecs gate and gate record', () => {
-    before(() => { void service.model; put('meridian.docspecs.yaml', MERIDIAN_YAML); });
+    before(() => { void service.model; put('meridian.tomspecs.yaml', MERIDIAN_YAML); });
 
     test('CG-1: the clean sample opens the gate', async () => {
-        const r = JSON.parse(await withTiming('tomAi_specCodeSpecsGate:typical', () => codeSpecsGateImpl(deps, { file: 'meridian.docspecs.yaml' })));
+        const r = JSON.parse(await withTiming('tomAi_specCodeSpecsGate:typical', () => codeSpecsGateImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true, JSON.stringify(r).slice(0, 400));
         assert.equal(r.gateOpen, true, JSON.stringify(r.checks.filter((c: Json) => !c.passed)));
         assert.deepEqual(r.checks.map((c: Json) => [c.check, c.ran, c.passed]), [
@@ -106,7 +106,7 @@ describe('CodeSpecs gate and gate record', () => {
     });
 
     test('CG-2: A1 — an empty required form field, at its path', async () => {
-        const file = meridianWith('a1.docspecs.yaml', `${FR}/FRE-REQU-LST-2/FRED`, 'description', '');
+        const file = meridianWith('a1.tomspecs.yaml', `${FR}/FRE-REQU-LST-2/FRED`, 'description', '');
         const r = await run(codeSpecsGateImpl, { file });
         assert.equal(r.gateOpen, false);
         const a1 = check(r, 'A1');
@@ -117,7 +117,7 @@ describe('CodeSpecs gate and gate record', () => {
     });
 
     test('CG-3: A2 — a bad enum value', async () => {
-        const file = meridianWith('a2.docspecs.yaml', `${FR}/FRE-REQU-LST-1/FREP`, 'priority', 'urgent');
+        const file = meridianWith('a2.tomspecs.yaml', `${FR}/FRE-REQU-LST-1/FREP`, 'priority', 'urgent');
         const a2 = check(await run(codeSpecsGateImpl, { file }), 'A2');
         assert.equal(a2.passed, false);
         assert.deepEqual(a2.findings.map((f: Json) => [f.code, f.path]), [['enumValueUnknown', `${FR}/FRE-REQU-LST-1/FREP`]]);
@@ -127,7 +127,7 @@ describe('CodeSpecs gate and gate record', () => {
         const crafted = new CraftedModelService((classes) => {
             classes.ActorEntry.annotations = classes.ActorEntry.annotations.filter((a: { name: string }) => !['CodeSpecKind', 'FollowUpKind', 'NoArtifact'].includes(a.name));
         });
-        const r = await run(codeSpecsGateImpl, { file: 'meridian.docspecs.yaml' }, { ...deps, service: crafted });
+        const r = await run(codeSpecsGateImpl, { file: 'meridian.tomspecs.yaml' }, { ...deps, service: crafted });
         const a3 = check(r, 'A3');
         assert.equal(a3.passed, false);
         assert.ok(a3.findings.length >= 4 && a3.findings.every((f: Json) => f.code === 'unrouted' && /ACEN-ACTO-LST-\d+$/.test(f.path)));
@@ -140,8 +140,8 @@ describe('CodeSpecs gate and gate record', () => {
     test('CG-4b: A3 — the projection document is refused at its root', async () => {
         const cgp = new SpecDocument();
         SpecEditor.forModel(cgp, service.model).setValue('CGP/content', 'What generation reaches.');
-        put('projection.docspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
-        const r = await run(codeSpecsGateImpl, { file: 'projection.docspecs.yaml' });
+        put('projection.tomspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
+        const r = await run(codeSpecsGateImpl, { file: 'projection.tomspecs.yaml' });
         assert.equal(r.gateOpen, false);
         const a3 = check(r, 'A3');
         assert.equal(a3.passed, false);
@@ -150,7 +150,7 @@ describe('CodeSpecs gate and gate record', () => {
     });
 
     test('CG-5: A4 — an empty required marker source', async () => {
-        const file = meridianWith('a4.docspecs.yaml', `${ENTITY}/DAENT-IDEN`, 'tableName', '');
+        const file = meridianWith('a4.tomspecs.yaml', `${ENTITY}/DAENT-IDEN`, 'tableName', '');
         const a4 = check(await run(codeSpecsGateImpl, { file }), 'A4');
         assert.equal(a4.passed, false);
         const finding = a4.findings.find((f: Json) => f.code === 'missingSource');
@@ -163,7 +163,7 @@ describe('CodeSpecs gate and gate record', () => {
             const content = classes.ScreenElementAction.fields.find((f: { name: string }) => f.name === 'content');
             content.formFields = content.formFields.filter((f: { name: string }) => f.name !== 'triggerKind');
         });
-        const a5 = check(await run(codeSpecsGateImpl, { file: 'meridian.docspecs.yaml' }, { ...deps, service: crafted }), 'A5');
+        const a5 = check(await run(codeSpecsGateImpl, { file: 'meridian.tomspecs.yaml' }, { ...deps, service: crafted }), 'A5');
         assert.equal(a5.passed, false);
         assert.deepEqual(a5.findings.map((f: Json) => [f.code, f.location, f.path]), [['missingCarrier', 'ScreenElementAction.content.triggerKind', undefined]]);
         assert.match(a5.fix, /model-level/);
@@ -172,7 +172,7 @@ describe('CodeSpecs gate and gate record', () => {
     test('CG-7: the gate record', async () => {
         const root = specRoot('full');
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsVerdicts:typical', () =>
-            codeSpecsVerdictsImpl(deps, { file: `${root}/meridian.docspecs.yaml` })));
+            codeSpecsVerdictsImpl(deps, { file: `${root}/meridian.tomspecs.yaml` })));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.exists, true);
         assert.equal(r.file, 'full/generated-doc/codespecs_extracts/gate.verdicts.yaml');

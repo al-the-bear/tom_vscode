@@ -31,7 +31,7 @@ import { SomModelService } from '../som-model-service.js';
 // out/services/__tests__ -> extension root is three levels up.
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const MERIDIAN = path.resolve(
-    EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml',
+    EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml',
 );
 
 describe('SomModelService', () => {

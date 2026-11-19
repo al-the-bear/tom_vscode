@@ -31,7 +31,7 @@ import { specGetSectionImpl } from '../spec-tools.js';
 import { summarizeToolInput } from '../shared-tool-registry.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const SYSCL = 'SBP/introductionAndScope/summary/SYSCL';
@@ -47,7 +47,7 @@ const deps: SpecToolDeps = {
 
 let counter = 0;
 function copy(): string {
-    const name = `b${++counter}.docspecs.yaml`;
+    const name = `b${++counter}.tomspecs.yaml`;
     fs.writeFileSync(path.join(ws, name), MERIDIAN_YAML);
     return name;
 }
@@ -214,8 +214,8 @@ describe('tomAi_specApplyEdits', () => {
     });
 
     test('SB-8: the approval prompt summarises the batch', () => {
-        const summary = summarizeToolInput(SPEC_APPLY_EDITS_TOOL, { file: 'spec/x.docspecs.yaml', edits: FILL });
-        assert.match(summary, /^7 edits to spec\/x\.docspecs\.yaml: /);
+        const summary = summarizeToolInput(SPEC_APPLY_EDITS_TOOL, { file: 'spec/x.tomspecs.yaml', edits: FILL });
+        assert.match(summary, /^7 edits to spec\/x\.tomspecs\.yaml: /);
         assert.match(summary, /addNode ×1, setFormField ×4, setHeadline ×1, setCodeSpec ×1/);
         assert.match(summary, /Paths: .*\$req\/FRED/);
         assert.match(summarizeToolInput(SPEC_APPLY_EDITS_TOOL, { file: 'x', edits: FILL, dryRun: true }), /dry run, writes nothing/);

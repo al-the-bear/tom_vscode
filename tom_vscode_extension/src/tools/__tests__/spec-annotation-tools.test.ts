@@ -90,7 +90,7 @@ import { specSetFormFieldImpl } from '../spec-edit-tools.js';
 import { READ_ONLY_TOOLS } from '../tool-executors.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 /** The value every test annotates. Paragraphs: 0 text, 1 comment C-3, 2 marks, 3 question, 4 text, 5 comment without id. */
 const VALUE = 'SBP/content';
@@ -124,7 +124,7 @@ const read = (name: string): string => fs.readFileSync(path.join(ws, name), 'utf
 let counter = 0;
 /** A fresh Meridian copy whose summary holds the annotated value. */
 async function annotated(): Promise<string> {
-    const file = `a${++counter}.docspecs.yaml`;
+    const file = `a${++counter}.tomspecs.yaml`;
     fs.writeFileSync(path.join(ws, file), MERIDIAN_YAML);
     const set = await run(specSetContentImpl, { file, path: VALUE, text: ANNOTATED });
     assert.equal(set.ok, true, JSON.stringify(set));
@@ -372,7 +372,7 @@ describe('TomSpecs annotation tools', () => {
     });
 
     test('SA-14: a marked write', async () => {
-        const file = `m${++counter}.docspecs.yaml`;
+        const file = `m${++counter}.tomspecs.yaml`;
         fs.writeFileSync(path.join(ws, file), MERIDIAN_YAML);
         assert.equal((await run(specSetContentImpl, { file, path: VALUE, text: 'Orders are kept two years.' })).ok, true);
         const r = JSON.parse(await withTiming('tomAi_specSetContent:marked', () =>
@@ -450,7 +450,7 @@ describe('TomSpecs annotation tools', () => {
         assert.deepEqual(elsewhere.counts, { answered: 0, open: 0, comments: 0, marks: 0 });
         assert.equal((await run(specExtractAnswersImpl, { file, path: 'SBP/nope' })).code, 'unresolvedPath');
 
-        const cla = `cla${++counter}.docspecs.yaml`;
+        const cla = `cla${++counter}.tomspecs.yaml`;
         assert.equal((await run(specCreateDocumentImpl, { file: cla, root: 'CLA' })).ok, true);
         const claSet = await run(specSetContentImpl, { file: cla, path: 'CLA/content', text: 'The landscape.\n\n> ⬆️ **C-1** (Eve): Which systems?' });
         assert.equal(claSet.ok, true, JSON.stringify(claSet));
@@ -464,8 +464,8 @@ describe('TomSpecs annotation tools', () => {
         assert.equal((await run(specExtractAnswersImpl, { files: [file, copy] })).code, 'overlap', 'two fragments of one root writing the same values');
         assert.equal((await run(specExtractAnswersImpl, {})).code, 'invalidInput');
         assert.equal((await run(specExtractAnswersImpl, { file, files: [file] })).code, 'invalidInput');
-        assert.equal(answersLabel('x/tom_uam.sbp.docspecs.yaml'), 'tom_uam.sbp');
-        assert.equal(answersLabel('tom_uam.sbp.md'), 'tom_uam.sbp');
+        assert.equal(answersLabel('x/tom_uam.sbp.tomspecs.yaml'), 'tom_uam.sbp');
+        assert.equal(answersLabel('tom_uam.sbp.tomspecs.md'), 'tom_uam.sbp');
 
         const floor = new Set(READ_ONLY_TOOLS.map((t) => t.name));
         const [extractTool, writeTool] = SPEC_ANSWERS_TOOLS;
@@ -512,19 +512,19 @@ describe('TomSpecs annotation tools', () => {
             fs.writeFileSync(path.join(ws, dir, name), text);
             return `${dir}/${name}`;
         };
-        const a = put('a.docspecs.yaml', MERIDIAN_YAML);
+        const a = put('a.tomspecs.yaml', MERIDIAN_YAML);
         assert.equal((await run(specSetContentImpl, { file: a, path: VALUE, text: ANNOTATED })).ok, true);
         await run(specSetAnswerImpl, { file: a, questionId: 'BQ-01', answer: '(b)' });
-        const b = `${dir}/b.md`;
+        const b = `${dir}/b.tomspecs.md`;
         assert.equal((await run(specCreateDocumentImpl, { file: b, root: 'SBP' })).ok, true);
         assert.equal((await run(specSetContentImpl, { file: b, path: VALUE, text: ANNOTATED })).ok, true);
-        put('c.docspecs.yaml', MERIDIAN_YAML);
+        put('c.tomspecs.yaml', MERIDIAN_YAML);
         put('notes.md', '# Notes\n\nNot a spec.\n');
 
         const r = JSON.parse(await withTiming('tomAi_specAnnotations:dir', () => specAnnotationsImpl(deps, { dir } as never)));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.searched, dir);
-        assert.deepEqual(r.documents.map((d: Json) => d.file), [`${dir}/a.docspecs.yaml`, `${dir}/b.md`, `${dir}/c.docspecs.yaml`]);
+        assert.deepEqual(r.documents.map((d: Json) => d.file), [`${dir}/a.tomspecs.yaml`, `${dir}/b.tomspecs.md`, `${dir}/c.tomspecs.yaml`]);
         const [da, db, dc] = r.documents;
         assert.deepEqual(da.counts, { questions: 1, openQuestions: 0, answeredQuestions: 1, comments: 2, marks: 2, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
         assert.deepEqual(db.counts, { questions: 1, openQuestions: 1, answeredQuestions: 0, comments: 2, marks: 2, unresolvedQuestions: 0, conflicts: 0, openConflicts: 0 });
@@ -673,7 +673,7 @@ describe('TomSpecs annotation tools', () => {
         assert.match(timed(file), /\*\*Answer( \(<time>\))?:\*\* \(b\) settled/);
         assert.equal(JSON.parse(await specSetAnswerImpl(deps, { file: await annotated(), questionId: 'BQ-01', answer: '(b)' })).author, undefined, 'no member id: the team answer, as before');
         // A marked change carries the member's attribution token.
-        const marked = `m${++counter}.docspecs.yaml`;
+        const marked = `m${++counter}.tomspecs.yaml`;
         fs.writeFileSync(path.join(ws, marked), MERIDIAN_YAML);
         assert.equal((await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Orders are kept two years.' })).ok, true);
         const m = JSON.parse(await specSetContentImpl(mine, { file: marked, path: VALUE, text: 'Orders are kept three years.', marked: true }));
@@ -722,7 +722,7 @@ describe('TomSpecs annotation tools', () => {
         assert.ok(read(batchFile).includes(`(${T1}): In a batch.`));
         assert.ok(read(batchFile).includes(`**Answer (${T2}):** (b)`));
 
-        const marked = `m${++counter}.docspecs.yaml`;
+        const marked = `m${++counter}.tomspecs.yaml`;
         fs.writeFileSync(path.join(ws, marked), MERIDIAN_YAML);
         assert.equal((await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Kept two years.' })).ok, true);
         const m = await run(specSetContentImpl, { file: marked, path: VALUE, text: 'Kept three years.', marked: true, author: 'carol', at: T1 });

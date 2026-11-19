@@ -171,7 +171,7 @@ export interface Runbook {
     guideSections: Array<{ guide: GuideInfo['id']; section: string }>;
 }
 
-const FILE_ARG: RunbookArgument = { name: 'file', description: 'The specification document (`*.docspecs.yaml` or SOM Markdown).', required: true };
+const FILE_ARG: RunbookArgument = { name: 'file', description: 'The specification document (`*.tomspecs.yaml` or SOM Markdown).', required: true };
 const QUEST_ARG: RunbookArgument = { name: 'questId', description: 'The quest the Phase-4 todo tree lives in.', required: false };
 
 export const RUNBOOKS: readonly Runbook[] = [

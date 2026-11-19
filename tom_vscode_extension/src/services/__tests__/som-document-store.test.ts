@@ -40,8 +40,8 @@ import { olderSameMajor, stampOf, withStamp } from '../../tools/__tests__/_somSa
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
+const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
 /** The stamp ai_build's sample carries today; it moves with the model. */
 const SAMPLE_STAMP = stampOf(MERIDIAN_YAML);
 
@@ -86,7 +86,7 @@ async function refusal(promise: Promise<unknown>): Promise<SomDocumentError> {
 
 describe('SomDocumentStore', () => {
     test('SD-1: a YAML file loads', () => {
-        const p = write('sd1.docspecs.yaml', MERIDIAN_YAML);
+        const p = write('sd1.tomspecs.yaml', MERIDIAN_YAML);
         const doc = store().load(p);
         assert.equal(doc.format, 'yaml');
         assert.equal(doc.root.sectionId, 'SBP');
@@ -98,30 +98,30 @@ describe('SomDocumentStore', () => {
     });
 
     test('SD-2: rendering with the file own stamp and review is byte-identical', () => {
-        const doc = store().load(write('sd2.docspecs.yaml', MERIDIAN_YAML));
+        const doc = store().load(write('sd2.tomspecs.yaml', MERIDIAN_YAML));
         assert.equal(store().render(doc, { stamp: doc.stamp }), MERIDIAN_YAML);
     });
 
     test('SD-3: the review pass — absent, explicit empty, with entries', () => {
         const s = store();
-        const absent = s.load(write('sd3a.docspecs.yaml', MERIDIAN_YAML));
+        const absent = s.load(write('sd3a.tomspecs.yaml', MERIDIAN_YAML));
         assert.equal(absent.review, null);
         assert.ok(!s.render(absent, { stamp: absent.stamp }).includes('review:'), 'no review pass is added');
 
         const emptyText = `${MERIDIAN_YAML}review: {}\n`;
-        const empty = s.load(write('sd3b.docspecs.yaml', emptyText));
+        const empty = s.load(write('sd3b.tomspecs.yaml', emptyText));
         assert.notEqual(empty.review, null, 'an explicit empty pass is present');
         assert.equal(Object.keys(empty.review as object).length, 0);
         assert.equal(s.render(empty, { stamp: empty.stamp }), emptyText);
 
         const fullText = `${MERIDIAN_YAML}review:\n  "SBP/content":\n    comment: |2-\n      Checked.\n    reviewed: true\n`;
-        const full = s.load(write('sd3c.docspecs.yaml', fullText));
+        const full = s.load(write('sd3c.tomspecs.yaml', fullText));
         assert.equal(s.render(full, { stamp: full.stamp }), fullText);
     });
 
     test('SD-3b: an explicit empty pass survives a save, however its key is written', async () => {
         const s = store();
-        for (const [name, key] of [['sd3d.docspecs.yaml', 'review'], ['sd3e.docspecs.yaml', '"review"']]) {
+        for (const [name, key] of [['sd3d.tomspecs.yaml', 'review'], ['sd3e.tomspecs.yaml', '"review"']]) {
             const p = write(name, `${MERIDIAN_YAML}${key}: {}\n`);
             const doc = s.load(p);
             assert.notEqual(doc.review, null, `${key}: the pass is present`);
@@ -134,7 +134,7 @@ describe('SomDocumentStore', () => {
 
     test('SD-4: save writes, stamps the model version and returns the new revision', async () => {
         const s = store();
-        const p = write('sd4.docspecs.yaml', withStamp(MERIDIAN_YAML, olderSameMajor(service.modelVersion)));
+        const p = write('sd4.tomspecs.yaml', withStamp(MERIDIAN_YAML, olderSameMajor(service.modelVersion)));
         const doc = s.load(p);
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
         const result = await s.save(doc);
@@ -151,7 +151,7 @@ describe('SomDocumentStore', () => {
 
     test('SD-5: a file changed since load is never overwritten', async () => {
         const s = store();
-        const p = write('sd5.docspecs.yaml', MERIDIAN_YAML);
+        const p = write('sd5.tomspecs.yaml', MERIDIAN_YAML);
         const doc = s.load(p);
         fs.writeFileSync(p, `${MERIDIAN_YAML}# changed by someone else\n`);
         const err = await refusal(s.save(doc));
@@ -168,7 +168,7 @@ describe('SomDocumentStore', () => {
         // An older stamp, so the diff also shows the upgrade a save would write.
         const older = olderSameMajor(service.modelVersion);
         const original = withStamp(MERIDIAN_YAML, older);
-        const p = write('sd6.docspecs.yaml', original);
+        const p = write('sd6.tomspecs.yaml', original);
         const doc = s.load(p);
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Dry run.');
         const result = await s.save(doc, { dryRun: true });
@@ -180,7 +180,7 @@ describe('SomDocumentStore', () => {
     });
 
     test('SD-7: a document dirty in an editor is refused', async () => {
-        const p = write('sd7.docspecs.yaml', MERIDIAN_YAML);
+        const p = write('sd7.tomspecs.yaml', MERIDIAN_YAML);
         const s = store((file) => file === p);
         const err = await refusal(s.save(s.load(p)));
         assert.equal(err.code, 'dirtyInEditor');
@@ -188,13 +188,13 @@ describe('SomDocumentStore', () => {
 
     test('SD-8: newer same-major and cross-major stamps load read-only', async () => {
         const s = store();
-        const newer = s.load(write('sd8a.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
+        const newer = s.load(write('sd8a.tomspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
         assert.equal(newer.editability, SomEditability.rejectedNewerMinor);
         assert.match(newer.readOnlyReason ?? '', /1\.99.*1\.\d+/);
         const err = await refusal(s.save(newer));
         assert.equal(err.code, 'readOnly');
 
-        const cross = s.load(write('sd8b.docspecs.yaml', withStamp(MERIDIAN_YAML, '2.0')));
+        const cross = s.load(write('sd8b.tomspecs.yaml', withStamp(MERIDIAN_YAML, '2.0')));
         assert.equal(cross.editability, SomEditability.readOnlyCrossMajor);
         assert.ok(cross.readOnlyReason);
     });
@@ -244,33 +244,33 @@ describe('SomDocumentStore', () => {
     test('SD-12: unknown format and unknown root are clear errors', () => {
         const s = store();
         assert.throws(() => s.load(write('sd12.txt', 'hello')), (e: unknown) => e instanceof SomDocumentError && e.code === 'unknownFormat');
-        assert.throws(() => s.load(write('sd12.docspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))),
+        assert.throws(() => s.load(write('sd12.tomspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))),
             (e: unknown) => e instanceof SomDocumentError && e.code === 'unknownRoot');
-        assert.throws(() => s.load(path.join(tmp, 'missing.docspecs.yaml')), (e: unknown) => e instanceof SomDocumentError && e.code === 'notFound');
+        assert.throws(() => s.load(path.join(tmp, 'missing.tomspecs.yaml')), (e: unknown) => e instanceof SomDocumentError && e.code === 'notFound');
     });
 
     test('SD-13: save reports review entries whose path no longer resolves', async () => {
         const s = store();
         const text = `${MERIDIAN_YAML}review:\n  "SBP/noSuchSection":\n    comment: ok\n`;
-        const doc = s.load(write('sd13.docspecs.yaml', text));
+        const doc = s.load(write('sd13.tomspecs.yaml', text));
         const result = await s.save(doc, { dryRun: true });
         assert.deepEqual(result.staleReviewPaths, ['SBP/noSuchSection']);
     });
 
     test('SD-14: peek identifies a document from its header, null for anything else', () => {
         const s = store();
-        const yaml = s.peek(write('sd14.docspecs.yaml', MERIDIAN_YAML));
+        const yaml = s.peek(write('sd14.tomspecs.yaml', MERIDIAN_YAML));
         assert.deepEqual([yaml?.format, yaml?.root.sectionId, yaml?.stamp, yaml?.editability, yaml?.versionReason],
             ['yaml', 'SBP', SAMPLE_STAMP, SomEditability.editable, null]);
         const md = s.peek(write('sd14.md', MERIDIAN_MD));
         assert.deepEqual([md?.format, md?.root.sectionId, md?.stamp], ['markdown', 'SBP', stampOf(MERIDIAN_MD)]);
-        const newer = s.peek(write('sd14n.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
+        const newer = s.peek(write('sd14n.tomspecs.yaml', withStamp(MERIDIAN_YAML, '1.99')));
         assert.equal(newer?.editability, SomEditability.rejectedNewerMinor);
         assert.match(newer?.versionReason ?? '', /1\.99/);
         assert.equal(s.peek(write('sd14-plain.md', '# Notes\n\ntext\n')), null);
         assert.equal(s.peek(write('sd14-plain.yaml', 'key: value\n')), null);
-        assert.equal(s.peek(write('sd14-unknown.docspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))), null);
-        assert.equal(s.peek(path.join(tmp, 'missing.docspecs.yaml')), null);
+        assert.equal(s.peek(write('sd14-unknown.tomspecs.yaml', MERIDIAN_YAML.replace('SBP D00SolutionBlueprint:', 'ZZZ Nothing:'))), null);
+        assert.equal(s.peek(path.join(tmp, 'missing.tomspecs.yaml')), null);
         assert.equal(s.peek(write('sd14.txt', 'x')), null);
     });
 
@@ -279,7 +279,7 @@ describe('SomDocumentStore', () => {
         const foreign = foreignMeridian();
         assert.notEqual(foreign, MERIDIAN_YAML);
         assert.match(foreign, /SYTS-WORK-1: \|2-\n/);
-        const p = write('sd16.docspecs.yaml', foreign);
+        const p = write('sd16.tomspecs.yaml', foreign);
         const doc = s.load(p);
         assert.notEqual(s.render(doc, { stamp: doc.stamp }), foreign, 'the encoder alone would rewrite it');
         SpecEditor.forModel(doc.document, service.model).setValue('SBP/content', 'Replaced summary.');
@@ -302,7 +302,7 @@ describe('SomDocumentStore', () => {
     test('SD-17: a moved list item', async () => {
         const s = store();
         const foreign = foreignMeridian();
-        const p = write('sd17.docspecs.yaml', foreign);
+        const p = write('sd17.tomspecs.yaml', foreign);
         const doc = s.load(p);
         const list = 'SBP/introductionAndScope/systemDescription/UCE-USER-LST-1/SYTS-SYST-LST-1';
         doc.document.moveListItem(service.model, `${list}/SYTS-WORK-LST-3`, 0, null);
@@ -316,7 +316,7 @@ describe('SomDocumentStore', () => {
 
     test('SD-15: create, and an empty YAML document keeps its root', async () => {
         const s = store();
-        const yamlPath = path.join(tmp, 'sd15', 'new.docspecs.yaml');
+        const yamlPath = path.join(tmp, 'sd15', 'new.tomspecs.yaml');
         const created = await s.create(yamlPath, 'SBP');
         assert.match(fs.readFileSync(yamlPath, 'utf8'), /^document:\n {2}SBP D00SolutionBlueprint: \{\}$/m);
         assert.equal(created.root.sectionId, 'SBP');
@@ -328,7 +328,7 @@ describe('SomDocumentStore', () => {
         assert.deepEqual(md.fidelityProblems, []);
         assert.equal(md.readOnlyReason, null);
 
-        const full = s.load(write('sd15-full.docspecs.yaml', MERIDIAN_YAML));
+        const full = s.load(write('sd15-full.tomspecs.yaml', MERIDIAN_YAML));
         full.document.removeValuesUnder('SBP');
         await s.save(full);
         const again = s.load(full.filePath);

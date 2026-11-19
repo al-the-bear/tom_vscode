@@ -13,6 +13,8 @@
  *   ST-15  the live finder over vscode.workspace.findFiles (stub): a RelativePattern on the start folder with the
  *          candidate glob, the skipped-folder exclude, the cap and a cancellation token; a cancelled search is
  *          `stoppedBy: 'time'`, a full one `candidates'
+ *   ST-16  listDocuments names only the new names: `*.tomspecs.yaml`, `*.tomspecs.md` and `*.readable.md` (marked
+ *          `rendition: "readable"`); a SOM document under another name is not listed
  *   ST-3   outline: root first, depth, paging continues where the page ended
  *   ST-4   outline: every node kind agrees with the runtime's resolution
  *   ST-5   outline: filledOnly leaves empty subtrees out; the full tree stays in budget
@@ -54,8 +56,8 @@ import {
 } from '../spec-tools.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
+const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const FR1 = `${FR}/FRE-REQU-LST-1`;
@@ -66,17 +68,17 @@ function put(rel: string, text: string): void {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, text);
 }
-put('specs/meridian.docspecs.yaml', MERIDIAN_YAML);
-put('specs/meridian.md', MERIDIAN_MD);
-put('specs/sub/newer.docspecs.yaml', withStamp(MERIDIAN_YAML, '1.99'));
+put('specs/meridian.tomspecs.yaml', MERIDIAN_YAML);
+put('specs/meridian.tomspecs.md', MERIDIAN_MD);
+put('specs/sub/newer.tomspecs.yaml', withStamp(MERIDIAN_YAML, '1.99'));
 put('specs/notes.md', '# Notes\n\nNot a SOM document.\n');
 put('specs/config.yaml', 'key: value\n');
-put('node_modules/pkg/hidden.docspecs.yaml', MERIDIAN_YAML);
-put('.hidden/hidden.docspecs.yaml', MERIDIAN_YAML);
+put('node_modules/pkg/hidden.tomspecs.yaml', MERIDIAN_YAML);
+put('.hidden/hidden.tomspecs.yaml', MERIDIAN_YAML);
 
 const service = SomModelService.instance;
 const deps: SpecToolDeps = { wsRoot: ws, store: new SomDocumentStore(service), service };
-const YAML_FILE = 'specs/meridian.docspecs.yaml';
+const YAML_FILE = 'specs/meridian.tomspecs.yaml';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const call = async (impl: (d: SpecToolDeps, i: any) => Promise<string>, input: unknown): Promise<any> => JSON.parse(await impl(deps, input));
@@ -95,11 +97,11 @@ describe('TomSpecs read-only tools', () => {
         assert.ok(r.roots.some((x: { sectionId: string }) => x.sectionId === 'SBP'));
         assert.equal(r.roots.length, service.model.roots.length);
         assert.deepEqual(r.documents.map((d: { file: string }) => d.file), [
-            'specs/meridian.docspecs.yaml',
-            'specs/meridian.md',
-            'specs/sub/newer.docspecs.yaml',
+            'specs/meridian.tomspecs.md',
+            'specs/meridian.tomspecs.yaml',
+            'specs/sub/newer.tomspecs.yaml',
         ]);
-        const [yaml, md, newer] = r.documents;
+        const [md, yaml, newer] = r.documents;
         assert.deepEqual([yaml.format, yaml.root, yaml.stamp, yaml.editability], ['yaml', 'SBP', stampOf(MERIDIAN_YAML), 'editable']);
         assert.equal(yaml.readOnlyReason, undefined);
         assert.deepEqual([md.format, md.root, md.stamp], ['markdown', 'SBP', stampOf(MERIDIAN_MD)]);
@@ -126,15 +128,15 @@ describe('TomSpecs read-only tools', () => {
         let asked: { start: string; budget: number } | undefined;
         const finder: SpecToolDeps['findCandidates'] = async (start, opts) => {
             asked = { start, budget: opts.deadline - Date.now() };
-            return { files: [abs('specs/sub/newer.docspecs.yaml'), abs('specs/notes.md'), abs('specs/config.yaml'),
-                abs('node_modules/pkg/hidden.docspecs.yaml'), abs('.hidden/hidden.docspecs.yaml'),
-                abs('specs/meridian.md'), abs('specs/meridian.docspecs.yaml')] };
+            return { files: [abs('specs/sub/newer.tomspecs.yaml'), abs('specs/notes.md'), abs('specs/config.yaml'),
+                abs('node_modules/pkg/hidden.tomspecs.yaml'), abs('.hidden/hidden.tomspecs.yaml'),
+                abs('specs/meridian.tomspecs.md'), abs('specs/meridian.tomspecs.yaml')] };
         };
         const r = JSON.parse(await withTiming('tomAi_specListDocuments:findFiles', () => specListDocumentsImpl({ ...deps, findCandidates: finder }, {})));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.search, 'findFiles');
         assert.deepEqual(r.documents.map((d: { file: string }) => d.file),
-            ['specs/meridian.docspecs.yaml', 'specs/meridian.md', 'specs/sub/newer.docspecs.yaml'], 'as the walk finds them');
+            ['specs/meridian.tomspecs.md', 'specs/meridian.tomspecs.yaml', 'specs/sub/newer.tomspecs.yaml'], 'as the walk finds them');
         assert.equal(r.truncated, undefined);
         assert.equal(asked!.start, ws);
         assert.ok(Math.abs(asked!.budget - SPEC_LIST_TIME_BUDGET_MS) < 1000, 'the default budget');
@@ -145,7 +147,7 @@ describe('TomSpecs read-only tools', () => {
         assert.equal(asked!.start, path.join(ws, 'specs'));
         assert.ok(asked!.budget <= 3000 && asked!.budget > 2000);
 
-        const partial = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: async () => ({ files: [abs('specs/meridian.md')], stoppedBy: 'time' }) }, {}));
+        const partial = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: async () => ({ files: [abs('specs/meridian.tomspecs.md')], stoppedBy: 'time' }) }, {}));
         assert.deepEqual([partial.truncated, partial.stoppedBy, partial.documents.length], [true, 'time', 1], 'the finder\'s stop is passed on');
         const capped = JSON.parse(await specListDocumentsImpl({ ...deps, findCandidates: finder }, { maxResults: 2 }));
         assert.deepEqual([capped.documents.length, capped.stoppedBy], [2, 'maxResults']);
@@ -165,10 +167,10 @@ describe('TomSpecs read-only tools', () => {
             let call: { include: { base: { fsPath: string }; pattern: string }; exclude: string; max: number; token: { isCancellationRequested: boolean } } | undefined;
             vscode.workspace.findFiles = async (include: never, exclude: string, max: number, token: never): Promise<unknown[]> => {
                 call = { include, exclude, max, token };
-                return [vscode.Uri.file('/ws/a.md'), vscode.Uri.file('/ws/b.docspecs.yaml')];
+                return [vscode.Uri.file('/ws/a.md'), vscode.Uri.file('/ws/b.tomspecs.yaml')];
             };
             const r = await vscodeSpecCandidates('/ws', { deadline: Date.now() + 5000, cap: 10 });
-            assert.deepEqual(r, { files: ['/ws/a.md', '/ws/b.docspecs.yaml'] });
+            assert.deepEqual(r, { files: ['/ws/a.md', '/ws/b.tomspecs.yaml'] });
             assert.equal(call!.include.base.fsPath, '/ws');
             assert.equal(call!.include.pattern, SPEC_CANDIDATE_GLOB);
             assert.equal(call!.exclude, SPEC_CANDIDATE_EXCLUDE);
@@ -327,12 +329,12 @@ describe('TomSpecs read-only tools', () => {
     });
 
     test('ST-12: Markdown documents', async () => {
-        const r = await call(specOutlineImpl, { file: 'specs/meridian.md', depth: 1 });
+        const r = await call(specOutlineImpl, { file: 'specs/meridian.tomspecs.md', depth: 1 });
         assert.equal(r.ok, true);
         assert.equal(r.document.format, 'markdown');
         assert.equal(r.document.readOnlyReason, null, 'the sample Markdown imports faithfully (tom_specs qrb8 fixed)');
         assert.equal(r.nodes[0].path, 'SBP');
-        const missing = await call(specOutlineImpl, { file: 'specs/none.docspecs.yaml' });
+        const missing = await call(specOutlineImpl, { file: 'specs/none.tomspecs.yaml' });
         assert.equal(missing.code, 'notFound');
     });
 
@@ -341,5 +343,25 @@ describe('TomSpecs read-only tools', () => {
             'tomAi_specListDocuments', 'tomAi_specOutline', 'tomAi_specGetSection', 'tomAi_specReflect',
         ]);
         assert.ok(SPEC_TOOLS.every((t) => t.readOnly && !t.requiresApproval));
+    });
+});
+
+describe('TomSpecs document names', () => {
+    test('ST-16: listDocuments lists the tomspecs names and marks a readable rendition', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'spec-names-'));
+        const write = (rel: string, text: string): void => {
+            fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+            fs.writeFileSync(path.join(root, rel), text);
+        };
+        write('a.tomspecs.yaml', MERIDIAN_YAML);
+        write('a.tomspecs.md', MERIDIAN_MD);
+        write('a.readable.md', MERIDIAN_MD);
+        write('old.md', MERIDIAN_MD);
+        write('old.docspecs.yaml', MERIDIAN_YAML);
+        const r = JSON.parse(await specListDocumentsImpl({ ...deps, wsRoot: root }, {}));
+        assert.equal(r.ok, true, JSON.stringify(r));
+        assert.deepEqual(r.documents.map((d: { file: string }) => d.file), ['a.readable.md', 'a.tomspecs.md', 'a.tomspecs.yaml']);
+        assert.deepEqual(r.documents.map((d: { rendition?: string }) => d.rendition ?? null), ['readable', null, null]);
+        assert.equal(SPEC_CANDIDATE_GLOB, '**/*.{tomspecs.yaml,tomspecs.md,readable.md}');
     });
 });

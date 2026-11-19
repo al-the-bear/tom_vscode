@@ -70,7 +70,7 @@ const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const SAMPLE_TRIO = path.join(AI_BUILD, 'tom_specs_samples', 'phase4_codespecs_run', 'codespec');
 const CONTRACT_SOURCE = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_core_codespecs', 'doc', 'codespecs_derivation_contract.md');
 const VOCABULARY_SOURCE = path.join(AI_BUILD, 'tom_code_specs', 'lib', 'src', 'annotations', 'vocabulary.dart');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'codespecs-validate-'));
 /** A copy of the fixture's trio and extracts under `name/`. */
@@ -448,8 +448,8 @@ describe('CodeSpecs step context', () => {
 
     test('SC-6: a step\'s units and IR documents', async () => {
         fs.mkdirSync(path.join(ws, 'unitrun'), { recursive: true });
-        fs.writeFileSync(path.join(ws, 'unitrun', 'meridian.docspecs.yaml'), MERIDIAN_YAML);
-        const file = 'unitrun/meridian.docspecs.yaml';
+        fs.writeFileSync(path.join(ws, 'unitrun', 'meridian.tomspecs.yaml'), MERIDIAN_YAML);
+        const file = 'unitrun/meridian.tomspecs.yaml';
         assert.equal((await call(codeSpecsWriteExtractsImpl, { file })).ok, true);
 
         const r = await call(codeSpecsStepContextImpl, { file, step: 10 });

@@ -46,14 +46,14 @@ import { CATEGORY_MAP } from '../../utils/toolCategories.js';
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE_IR = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4', 'codespec', 'irspecs');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 const ws = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261114_vscimpb99_map-')));
 after(() => { setIrRunnerForTest(undefined); fs.rmSync(ws, { recursive: true, force: true }); });
 fs.mkdirSync(path.join(ws, 'run'), { recursive: true });
-fs.writeFileSync(path.join(ws, 'run', 'meridian.docspecs.yaml'), MERIDIAN_YAML);
+fs.writeFileSync(path.join(ws, 'run', 'meridian.tomspecs.yaml'), MERIDIAN_YAML);
 fs.cpSync(FIXTURE_IR, path.join(ws, 'run', 'irspecs'), { recursive: true });
-const FILE = 'run/meridian.docspecs.yaml';
+const FILE = 'run/meridian.tomspecs.yaml';
 
 const service = SomModelService.instance;
 const deps: SpecToolDeps = { wsRoot: ws, store: new SomDocumentStore(service), service };
@@ -120,14 +120,14 @@ describe('tomAi_specCodeSpecsMap', () => {
 
     test('CM-4: the bundled tomspecs maps a ts-shared unit without a Dart SDK', { skip: currentDartBinary(MAPPER_BIN, EXT_ROOT).path ? false : `no ${MAPPER_BIN} for this platform` }, async () => {
         // The shared unit on the TypeScript mapper (no `dart format`); the run's PATH holds no Dart SDK.
-        fs.writeFileSync(path.join(ws, 'run', 'ts.docspecs.yaml'), MERIDIAN_YAML.replace(/(unitId: \|2-\n\s+meridian_codespec_shared[\s\S]*?mapping: \|2-\n\s+)dart-tom/, '$1ts-shared'));
+        fs.writeFileSync(path.join(ws, 'run', 'ts.tomspecs.yaml'), MERIDIAN_YAML.replace(/(unitId: \|2-\n\s+meridian_codespec_shared[\s\S]*?mapping: \|2-\n\s+)dart-tom/, '$1ts-shared'));
         const pathBefore = process.env.PATH;
         process.env.PATH = '/usr/bin:/bin';
         try {
             setIrRunnerForTest((args: string[]) => runClitool({ tool: 'ir', args }, { timeoutMs: 120_000, extensionRoot: EXT_ROOT }));
-            const plan = await call({ file: 'run/ts.docspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared', dryRun: true });
+            const plan = await call({ file: 'run/ts.tomspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared', dryRun: true });
             assert.ok(plan.runs.some((r: Json) => r.mapper === 'ts-shared'), JSON.stringify(plan.runs));
-            const r = await call({ file: 'run/ts.docspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared' });
+            const r = await call({ file: 'run/ts.tomspecs.yaml', out: 'run/ts-out', unit: 'meridian_codespec_shared' });
             const ts = r.runs.find((x: Json) => x.mapper === 'ts-shared');
             assert.equal(ts.exitCode, 0, JSON.stringify(ts));
             assert.match(ts.written, /file\(s\) written/);
@@ -192,7 +192,7 @@ describe('tomAi_specCodeSpecsMap', () => {
             const v = JSON.parse(await specValidateImpl(deps, { file: `run/${name}` } as never));
             return (v.violations ?? []).map((x: Json) => x.code);
         };
-        assert.equal((await codes('md.docspecs.yaml', 'markdown')).includes('unitEmitterUnknown'), false);
-        assert.ok((await codes('bad.docspecs.yaml', 'nowhere-emitter')).includes('unitEmitterUnknown'), 'the check is live');
+        assert.equal((await codes('md.tomspecs.yaml', 'markdown')).includes('unitEmitterUnknown'), false);
+        assert.ok((await codes('bad.tomspecs.yaml', 'nowhere-emitter')).includes('unitEmitterUnknown'), 'the check is live');
     });
 });

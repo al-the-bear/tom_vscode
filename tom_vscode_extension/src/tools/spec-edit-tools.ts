@@ -422,10 +422,10 @@ const MARK_AUTHOR_PARAM = { type: 'string', description: 'With `marked`: the rev
 export const SPEC_CREATE_DOCUMENT_TOOL = editTool<SpecCreateDocumentInput>(
     { name: 'tomAi_specCreateDocument', displayName: 'Spec: Create Document' },
     'Create a new, empty TomSpecs document for one model root, stamped with the current model version. The format follows '
-    + 'the file name: `*.docspecs.yaml` or `*.md`. Refuses an existing file (`code: "exists"`); creates missing folders. '
+    + 'the file name: `*.tomspecs.yaml` or `*.tomspecs.md`. Refuses an existing file (`code: "exists"`); creates missing folders. '
     + 'List the roots with tomAi_specListDocuments. Answers the new document\'s header (format, stamp, revision).' + FIRST_LOOK,
     {
-        file: { type: 'string', description: 'The new file, `*.docspecs.yaml` or `*.md`, inside the workspace.' },
+        file: { type: 'string', description: 'The new file, `*.tomspecs.yaml` or `*.tomspecs.md`, inside the workspace.' },
         root: { type: 'string', description: 'The document root: its section id (e.g. `SBP`) or type (e.g. `D00SolutionBlueprint`).' },
     },
     ['file', 'root'],

@@ -69,8 +69,8 @@ export interface SpecCandidateSearch {
     stoppedBy?: 'time' | 'candidates';
 }
 
-/** The files specListDocuments looks at: YAML specs and Markdown (SOM or not; the peek decides). */
-export const SPEC_CANDIDATE_GLOB = '**/*.{md,docspecs.yaml}';
+/** The files specListDocuments looks at: `*.tomspecs.yaml`, `*.tomspecs.md` and the readable renditions `*.readable.md` (the peek decides). */
+export const SPEC_CANDIDATE_GLOB = '**/*.{tomspecs.yaml,tomspecs.md,readable.md}';
 /** Never searched: dependencies, build output, scratch space and dot folders (VCS and tool state). */
 export const SPEC_CANDIDATE_EXCLUDE = '{**/node_modules/**,**/out/**,**/dist/**,**/build/**,**/ztmp/**,**/.*/**}';
 
@@ -188,7 +188,7 @@ function liveAgentAuthor(): string {
 
 export const FILE_PARAM = {
     type: 'string',
-    description: 'A TomSpecs document: `*.docspecs.yaml` or a SOM-rendered `*.md`. Workspace-relative or absolute (inside the workspace).',
+    description: 'A TomSpecs document: `*.tomspecs.yaml` or a SOM-rendered `*.tomspecs.md`. Workspace-relative or absolute (inside the workspace).',
 };
 export const PATH_PARAM_HINT =
     'A document path: the root section id, field segments and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`; take it from tomAi_specOutline.';

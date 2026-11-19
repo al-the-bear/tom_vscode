@@ -30,8 +30,8 @@ import { SomCommentsWorkerClient } from '../som-review-comments-client.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 import { SpecQuestionDraft } from 'tom_som_typescript_runtime';
 
@@ -79,7 +79,7 @@ describe('review comments in SOM Markdown', () => {
     });
 
     test('MC-3: a document that is not faithful, and YAML', () => {
-        const yaml = store.load(write('mc3.docspecs.yaml', MERIDIAN_YAML));
+        const yaml = store.load(write('mc3.tomspecs.yaml', MERIDIAN_YAML));
         assert.deepEqual(somCommentContext(yaml, service).formFieldRanges, []);
         assert.equal(somCommentContext(yaml, service).nextCommentNumber, 1, 'a YAML document still counts its comments');
 

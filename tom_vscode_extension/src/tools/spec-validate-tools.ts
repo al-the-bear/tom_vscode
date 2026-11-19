@@ -96,11 +96,13 @@ export async function specRenderImpl(deps: SpecToolDeps, input: SpecRenderInput)
     }
 }
 
-/** `X.docspecs.yaml` ↔ `X.md`, beside the source. */
+/** `X.tomspecs.yaml` ↔ `X.tomspecs.md`, beside the source. */
 export function defaultConvertTarget(file: string): string {
-    if (file.toLowerCase().endsWith('.docspecs.yaml')) { return `${file.slice(0, -'.docspecs.yaml'.length)}.md`; }
-    if (file.toLowerCase().endsWith('.md')) { return `${file.slice(0, -'.md'.length)}.docspecs.yaml`; }
-    return `${file}.md`;
+    const lower = file.toLowerCase();
+    if (lower.endsWith('.tomspecs.yaml')) { return `${file.slice(0, -'.tomspecs.yaml'.length)}.tomspecs.md`; }
+    if (lower.endsWith('.tomspecs.md')) { return `${file.slice(0, -'.tomspecs.md'.length)}.tomspecs.yaml`; }
+    if (lower.endsWith('.md')) { return `${file.slice(0, -'.md'.length)}.tomspecs.yaml`; }
+    return `${file}.tomspecs.md`;
 }
 
 export async function specConvertImpl(deps: SpecToolDeps, input: SpecConvertInput): Promise<string> {
@@ -174,7 +176,7 @@ export const SPEC_CONVERT_TOOL: SharedToolDefinition<SpecConvertInput> = {
     name: 'tomAi_specConvert',
     displayName: 'Spec: Convert',
     description:
-        'Write a TomSpecs document in the other format: `*.docspecs.yaml` → `*.md` or `*.md` → `*.docspecs.yaml`, stamped '
+        'Write a TomSpecs document in the other format: `*.tomspecs.yaml` → `*.tomspecs.md` or `*.tomspecs.md` → `*.tomspecs.yaml`, stamped '
         + 'with the current model version. `target` defaults to the same name beside the source; an existing target needs '
         + '`overwrite`. Refused: a source that is read-only (Markdown whose import is not faithful or has parse '
         + 'rejections, or a model version that cannot be edited), a target in the source\'s format, a target dirty in an '

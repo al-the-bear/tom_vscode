@@ -38,7 +38,7 @@ import {
 } from '../codespecs-tools.js';
 
 const AI_BUILD = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const CORPUS = path.join(AI_BUILD, 'tom_som_conformance', 'generated-doc', 'codespecs_extracts');
 const CATALOG_SOURCE = path.join(AI_BUILD, 'tom_specs_model', 'generated-doc', 'codespecs', 'codespecs_areas.json');
 
@@ -74,7 +74,7 @@ class UnroutedModelService extends SomModelService {
 }
 
 describe('CodeSpecs tools', () => {
-    before(() => { void service.model; put('meridian.docspecs.yaml', MERIDIAN_YAML); });
+    before(() => { void service.model; put('meridian.tomspecs.yaml', MERIDIAN_YAML); });
 
     test('CS-1: the catalogue', async () => {
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsAreas:typical', () => codeSpecsAreasImpl(deps, {})));
@@ -130,24 +130,24 @@ describe('CodeSpecs tools', () => {
 
     test('CS-3: routing of the sample', async () => {
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsRouting:typical', () =>
-            codeSpecsRoutingImpl(deps, { file: 'meridian.docspecs.yaml' })));
+            codeSpecsRoutingImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true, JSON.stringify(r).slice(0, 300));
         assert.equal(r.passed, true);
         assert.deepEqual(r.unrouted, []);
         assert.equal(r.counts.documentRoot, 1);
         assert.ok(r.counts.feedsCode > 0 && r.counts.feedsProcess > 0 && r.counts.feedsNothing > 0);
-        const nothing = await run(codeSpecsRoutingImpl, { file: 'meridian.docspecs.yaml', verdict: 'feedsNothing', limit: 2000 });
+        const nothing = await run(codeSpecsRoutingImpl, { file: 'meridian.tomspecs.yaml', verdict: 'feedsNothing', limit: 2000 });
         assert.equal(nothing.routings.length, r.counts.feedsNothing);
-        const scoped = await run(codeSpecsRoutingImpl, { file: 'meridian.docspecs.yaml', path: ACTORS });
+        const scoped = await run(codeSpecsRoutingImpl, { file: 'meridian.tomspecs.yaml', path: ACTORS });
         assert.ok(scoped.routings.length > 0 && scoped.routings.every((x: Json) => x.path.startsWith(ACTORS)));
         // A subtree a process delivers is not walked further: its classes take no routing of their own.
-        const process = await run(codeSpecsRoutingImpl, { file: 'meridian.docspecs.yaml', path: 'SBP/introductionAndScope' });
+        const process = await run(codeSpecsRoutingImpl, { file: 'meridian.tomspecs.yaml', path: 'SBP/introductionAndScope' });
         assert.deepEqual(process.routings.map((x: Json) => x.verdict), ['feedsProcess']);
     });
 
     test('CS-4: an unrouted class', async () => {
         const crafted: SpecToolDeps = { ...deps, service: new UnroutedModelService() };
-        const r = await run(codeSpecsRoutingImpl, { file: 'meridian.docspecs.yaml' }, crafted);
+        const r = await run(codeSpecsRoutingImpl, { file: 'meridian.tomspecs.yaml' }, crafted);
         assert.equal(r.passed, false);
         assert.ok(r.unrouted.length >= 4, 'every actor');
         assert.ok(r.unrouted.every((u: Json) => u.className === 'ActorEntry'));
@@ -155,36 +155,36 @@ describe('CodeSpecs tools', () => {
         assert.match(r.unrouted[0].fix, /@CodeSpecKind/);
         assert.match(r.unrouted[0].fix, /does not route/);
 
-        const extract = await run(codeSpecsExtractImpl, { file: 'meridian.docspecs.yaml' }, crafted);
+        const extract = await run(codeSpecsExtractImpl, { file: 'meridian.tomspecs.yaml' }, crafted);
         assert.equal(extract.code, 'extractError');
         assert.equal(extract.path, `${ACTORS}/ACEN-ACTO-LST-1`, 'the first unrouted node');
         assert.equal(extract.className, 'ActorEntry');
-        const write = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.docspecs.yaml', outDir: 'refused' }, crafted);
+        const write = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.tomspecs.yaml', outDir: 'refused' }, crafted);
         assert.equal(write.code, 'extractError');
         assert.ok(!fs.existsSync(path.join(ws, 'refused')), 'nothing written');
     });
 
     test('CS-5: an area\'s extract and the summary', async () => {
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsExtract:typical', () =>
-            codeSpecsExtractImpl(deps, { file: 'meridian.docspecs.yaml', area: 'CE-EN' })));
+            codeSpecsExtractImpl(deps, { file: 'meridian.tomspecs.yaml', area: 'CE-EN' })));
         assert.equal(r.ok, true);
         assert.equal(r.markdown, fs.readFileSync(path.join(CORPUS, 'CE-EN.extract.md'), 'utf8'));
         assert.equal(r.provenance.length, r.entries);
         assert.ok(r.provenance.every((p: Json) => p.path && p.className && p.routedBy));
-        const summary = await run(codeSpecsExtractImpl, { file: 'meridian.docspecs.yaml' });
+        const summary = await run(codeSpecsExtractImpl, { file: 'meridian.tomspecs.yaml' });
         assert.equal(summary.areas.length, 27);
         assert.equal(summary.totalEntries, summary.areas.reduce((n: number, a: Json) => n + a.entries, 0));
     });
 
     test('CS-6: written extracts equal the conformance corpus', async () => {
-        const dry = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.docspecs.yaml', dryRun: true });
+        const dry = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.tomspecs.yaml', dryRun: true });
         assert.equal(dry.written, false);
         assert.equal(dry.outDir, 'generated-doc/codespecs_extracts', 'beside the document by default');
         assert.equal(dry.counts.new, 54);
         assert.ok(!fs.existsSync(path.join(ws, 'generated-doc')));
 
         const r = JSON.parse(await withTiming('tomAi_specCodeSpecsWriteExtracts:typical', () =>
-            codeSpecsWriteExtractsImpl(deps, { file: 'meridian.docspecs.yaml' })));
+            codeSpecsWriteExtractsImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true);
         const written = fs.readdirSync(path.join(ws, 'generated-doc', 'codespecs_extracts')).sort();
         assert.equal(written.length, 54);
@@ -192,16 +192,16 @@ describe('CodeSpecs tools', () => {
             assert.equal(fs.readFileSync(path.join(ws, 'generated-doc', 'codespecs_extracts', f), 'utf8'),
                 fs.readFileSync(path.join(CORPUS, f), 'utf8'), `${f} matches the corpus`);
         }
-        const again = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.docspecs.yaml' });
+        const again = await run(codeSpecsWriteExtractsImpl, { file: 'meridian.tomspecs.yaml' });
         assert.deepEqual(again.counts, { new: 0, changed: 0, unchanged: 54 });
     });
 
     test('CS-7: the projection document is refused', async () => {
         const cgp = new SpecDocument();
         SpecEditor.forModel(cgp, service.model).setValue('CGP/content', 'What generation reaches.');
-        put('projection.docspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
+        put('projection.tomspecs.yaml', yamlEncode(cgp, service.metaTree('CGP'), service.modelVersion, null));
         for (const impl of [codeSpecsRoutingImpl, codeSpecsExtractImpl, codeSpecsWriteExtractsImpl]) {
-            const r = await run(impl, { file: 'projection.docspecs.yaml' });
+            const r = await run(impl, { file: 'projection.tomspecs.yaml' });
             // The runtime refuses it, on the root's @CodeSpecsProjection marker.
             assert.equal(r.code, 'extractError');
             assert.match(r.error, /generation projection/);

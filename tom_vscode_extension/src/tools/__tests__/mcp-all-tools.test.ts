@@ -72,7 +72,7 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const QUEST = 'demo';
 const TODO_FILE = `todos.${QUEST}.todo.yaml`;
-const SPEC = 'specs/meridian.docspecs.yaml';
+const SPEC = 'specs/meridian.tomspecs.yaml';
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const ISSUE_REPO = 'sandbox/issues';
 const TEST_REPO = 'sandbox/tests';
@@ -134,7 +134,7 @@ function seedFixture(): void {
         '        repeatable: true', '    gate:', '      id: gate', '',
     ].join('\n'));
     put('_ai/processes/flow/flow.md', '# Flow\n\nBuild, then review.\n');
-    put(SPEC, fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8'));
+    put(SPEC, fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8'));
     git(WS, 'init', '-q');
     git(WS, 'config', 'user.email', 'mcp-test@example.invalid');
     git(WS, 'config', 'user.name', 'mcp test');
@@ -442,7 +442,7 @@ function inputs(): Record<string, Input> {
         tomAi_specCodeSpecsTrace: { file: SPEC, specPath: 'SBP/introductionAndScope' },
         tomAi_specCodeSpecsStepContext: { file: SPEC, step: 1 },
         tomAi_specCodeSpecsValidate: { shared: 'specs/none_codespec_shared' },
-        tomAi_specCodeSpecsMap: { file: 'specs/none.docspecs.yaml', out: 'specs/mapped', dryRun: true },
+        tomAi_specCodeSpecsMap: { file: 'specs/none.tomspecs.yaml', out: 'specs/mapped', dryRun: true },
         tomAi_specConvert: { file: SPEC, target: 'specs/meridian.md' },
         // The process checks (bundled tomspecs :spec-*): the sandbox has no checks/ data, so authorization and
         // coverage answer the usage error naming it; the import is a dry run on the rendition specConvert wrote.
@@ -453,7 +453,7 @@ function inputs(): Record<string, Input> {
         tomAi_specAuthorizationCheck: { file: SPEC },
         tomAi_specCoverage: { sample: SPEC, file: SPEC },
         tomAi_specImportAnswers: { file: SPEC, rendition: 'specs/meridian.md', dryRun: true },
-        tomAi_specCreateDocument: { file: 'specs/new.docspecs.yaml', root: 'SBP' },
+        tomAi_specCreateDocument: { file: 'specs/new.tomspecs.yaml', root: 'SBP' },
         tomAi_createSession: { name: 'mcp-test' },
     };
 }

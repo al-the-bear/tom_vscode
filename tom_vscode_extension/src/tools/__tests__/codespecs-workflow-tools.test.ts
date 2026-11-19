@@ -53,7 +53,7 @@ import {
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const EXTRACTS = path.join('generated-doc', 'codespecs_extracts');
 
@@ -91,7 +91,7 @@ const stage = (r: Json, name: string): Json => r.stages.find((s: Json) => s.stag
 const states = (r: Json): Record<string, string> => Object.fromEntries(r.stages.map((s: Json) => [s.stage, s.state]));
 
 function meridian(dir: string): string {
-    return put(`${dir}/meridian.docspecs.yaml`, MERIDIAN_YAML);
+    return put(`${dir}/meridian.tomspecs.yaml`, MERIDIAN_YAML);
 }
 
 /** A gate record over every active area, all sufficient — or only the first `count`. */
@@ -120,7 +120,7 @@ describe('CodeSpecs workflow', () => {
     test('WS-2: stuck at Stage A', async () => {
         const loaded = store.load(path.join(ws, meridian('w2')));
         loaded.document.setFormField(`${FR}/FRE-REQU-LST-2/FRED`, 'description', '');
-        const file = put('w2/meridian.docspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
+        const file = put('w2/meridian.tomspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
         const r = await statusOf({ file });
         const gate = stage(r, 'gate');
         assert.equal(gate.state, 'failing');
@@ -296,9 +296,9 @@ describe('CodeSpecs workflow', () => {
         const section = JSON.parse(await codeSpecsGuideImpl({ guide: 'prompt', section: '6.2' }));
         assert.equal(section.ok, true);
         assert.match(section.text, /^### 6\.2 /);
-        const runbook = JSON.parse(await codeSpecsGuideImpl({ runbook: 'codespecs-authoring-step', file: 'specs/sbp.docspecs.yaml', step: 10 }));
+        const runbook = JSON.parse(await codeSpecsGuideImpl({ runbook: 'codespecs-authoring-step', file: 'specs/sbp.tomspecs.yaml', step: 10 }));
         assert.match(runbook.text, /csgen10/);
-        assert.match(runbook.text, /specs\/sbp\.docspecs\.yaml/);
+        assert.match(runbook.text, /specs\/sbp\.tomspecs\.yaml/);
         assert.match(runbook.text, /From the guide \(mapping §4\.4\.6\)/);
         assert.equal(JSON.parse(await codeSpecsGuideImpl({ guide: 'nope' })).code, 'unknownGuide');
         assert.equal(JSON.parse(await codeSpecsGuideImpl({ guide: 'prompt', section: '99' })).code, 'unknownSection');

@@ -12,6 +12,7 @@
  *   SV-7  convert round-trips YAML → Markdown → YAML byte-identically
  *   SV-8  convert refuses non-canonical Markdown, an existing target, and dropping review entries unasked
  *   SV-9  registration: validate and render are read-only, convert needs approval
+ *   SV-10 the default convert target: `X.tomspecs.yaml` ↔ `X.tomspecs.md`, beside the source
  */
 
 import test, { before, describe } from 'node:test';
@@ -35,14 +36,15 @@ import { summarizeToolInput } from '../shared-tool-registry.js';
 import {
     SPEC_CONVERT_TOOL,
     SPEC_VALIDATE_TOOLS,
+    defaultConvertTarget,
     specConvertImpl,
     specRenderImpl,
     specValidateImpl,
 } from '../spec-validate-tools.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
+const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const FR1 = `${FR}/FRE-REQU-LST-1`;
@@ -66,26 +68,26 @@ const run = async (impl: (d: SpecToolDeps, i: any) => Promise<string>, input: ob
 
 /** Meridian with three defects: a bad enum name, an empty required field, a wrong stated count. */
 function brokenMeridian(): string {
-    const loaded = store.load(path.join(ws, put('tmp-source.docspecs.yaml', MERIDIAN_YAML)));
+    const loaded = store.load(path.join(ws, put('tmp-source.tomspecs.yaml', MERIDIAN_YAML)));
     const doc = loaded.document;
     doc.setFormField(`${FR1}/FREP`, 'priority', 'urgent');
     doc.setFormField(`${FR}/FRE-REQU-LST-2/FRED`, 'description', '');
     doc.setFormField(SYSCL, 'functionalRequirementCount', '7');
-    return put('broken.docspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
+    return put('broken.tomspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
 }
 
 /** The YAML text of part of Meridian. */
 function fragment(name: string, pick: (doc: Json) => Json): string {
-    const doc = store.load(path.join(ws, put('tmp-whole.docspecs.yaml', MERIDIAN_YAML))).document;
+    const doc = store.load(path.join(ws, put('tmp-whole.tomspecs.yaml', MERIDIAN_YAML))).document;
     return put(name, yamlEncode(pick(doc), service.metaTree('SBP'), '1.3', null));
 }
 
 describe('TomSpecs validate, render and convert', () => {
-    before(() => { void service.model; void service.metaTree('SBP'); put('meridian.docspecs.yaml', MERIDIAN_YAML); });
+    before(() => { void service.model; void service.metaTree('SBP'); put('meridian.tomspecs.yaml', MERIDIAN_YAML); });
 
     test('SV-1: a clean sample validates clean', async () => {
         const r = JSON.parse(await withTiming('tomAi_specValidate:typical', () =>
-            specValidateImpl(deps, { file: 'meridian.docspecs.yaml' })));
+            specValidateImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.equal(r.format, 'spec-validation');
         assert.equal(r.formatVersion, 1);
@@ -122,9 +124,9 @@ describe('TomSpecs validate, render and convert', () => {
     test('SV-3: path keeps only the findings under it', async () => {
         // Compared with the unfiltered run, not with fixed counts: how many findings one broken value
         // produces is the runtime's business (an emptied required field also became a value finding).
-        const all = await run(specValidateImpl, { file: 'broken.docspecs.yaml' });
+        const all = await run(specValidateImpl, { file: 'broken.tomspecs.yaml' });
         const under = all.violations.filter((v: Json) => v.path.startsWith(FR));
-        const r = await run(specValidateImpl, { file: 'broken.docspecs.yaml', path: FR });
+        const r = await run(specValidateImpl, { file: 'broken.tomspecs.yaml', path: FR });
         assert.ok(under.length >= 2, 'the enum and the emptied description lie under FR');
         assert.deepEqual(r.violations, under, 'exactly the findings under FR');
         assert.equal(r.outOfScope, all.violations.length - under.length);
@@ -133,29 +135,29 @@ describe('TomSpecs validate, render and convert', () => {
     });
 
     test('SV-4: fragments validate as one; overlaps name every writer', async () => {
-        const rest = fragment('frag/rest.docspecs.yaml', (doc) => { doc.removeValuesUnder(FR); return doc; });
-        const reqs = fragment('frag/requirements.docspecs.yaml', (doc) => subtreeOf(doc, FR));
+        const rest = fragment('frag/rest.tomspecs.yaml', (doc) => { doc.removeValuesUnder(FR); return doc; });
+        const reqs = fragment('frag/requirements.tomspecs.yaml', (doc) => subtreeOf(doc, FR));
         const together = JSON.parse(await withTiming('tomAi_specValidate:fragments', () =>
             specValidateImpl(deps, { files: [rest, reqs] })));
         assert.equal(together.passed, true, JSON.stringify(together.violations.slice(0, 3)));
 
-        const twice = fragment('frag/first-requirement.docspecs.yaml', (doc) => subtreeOf(doc, FR1));
+        const twice = fragment('frag/first-requirement.tomspecs.yaml', (doc) => subtreeOf(doc, FR1));
         const r = await run(specValidateImpl, { files: [reqs, twice] });
         const overlaps = r.violations.filter((v: Json) => v.code === 'overlap');
         assert.ok(overlaps.length > 0);
         // Both write the first requirement's values, and its place in the list.
         assert.ok(overlaps.every((v: Json) => v.tier === 'decode' && (v.path.startsWith(FR1) || v.path === `${FR}/FRE-REQU-LST`)));
         assert.ok(overlaps.some((v: Json) => v.path === `${FR1}/FRED`));
-        assert.match(overlaps[0].message, /frag\/requirements\.docspecs\.yaml/);
-        assert.match(overlaps[0].message, /frag\/first-requirement\.docspecs\.yaml/);
+        assert.match(overlaps[0].message, /frag\/requirements\.tomspecs\.yaml/);
+        assert.match(overlaps[0].message, /frag\/first-requirement\.tomspecs\.yaml/);
         assert.deepEqual(r.notRun.map((n: Json) => n.tier), ['schema', 'instance']);
     });
 
     test('SV-5: different roots and an unreadable file are decode findings', async () => {
-        await store.create(path.join(ws, 'other.docspecs.yaml'), 'CLA');
-        const roots = await run(specValidateImpl, { files: ['meridian.docspecs.yaml', 'other.docspecs.yaml'] });
+        await store.create(path.join(ws, 'other.tomspecs.yaml'), 'CLA');
+        const roots = await run(specValidateImpl, { files: ['meridian.tomspecs.yaml', 'other.tomspecs.yaml'] });
         assert.equal(roots.violations[0].code, 'rootMismatch');
-        const broken = put('broken-file.docspecs.yaml', 'version: 2\ndocument:\n  NOPE Nothing:\n    x: 1\n');
+        const broken = put('broken-file.tomspecs.yaml', 'version: 2\ndocument:\n  NOPE Nothing:\n    x: 1\n');
         const r = await run(specValidateImpl, { file: broken });
         assert.equal(r.violations[0].tier, 'decode');
         assert.equal(r.violations[0].code, 'unknownRoot');
@@ -163,35 +165,35 @@ describe('TomSpecs validate, render and convert', () => {
     });
 
     test('SV-6: render equals the Markdown golden; a subtree renders alone', async () => {
-        const r = JSON.parse(await withTiming('tomAi_specRender:typical', () => specRenderImpl(deps, { file: 'meridian.docspecs.yaml' })));
+        const r = JSON.parse(await withTiming('tomAi_specRender:typical', () => specRenderImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true);
         assert.equal(r.markdown, MERIDIAN_MD, 'byte-identical to the shipped Markdown of the same document');
-        const sub = await run(specRenderImpl, { file: 'meridian.docspecs.yaml', path: FR1 });
+        const sub = await run(specRenderImpl, { file: 'meridian.tomspecs.yaml', path: FR1 });
         assert.ok(sub.markdown.startsWith(`<!-- docspec: solution-blueprint/${stampOf(MERIDIAN_YAML)} -->`), 'under the document\'s own header');
         assert.match(sub.markdown, /<!--\[FRE-REQU-ORDER-CAPTURE\]/);
         assert.doesNotMatch(sub.markdown, /FRE-REQU-SYNC-PRICING/);
         assert.ok(sub.lines < r.lines / 10);
-        assert.equal((await run(specRenderImpl, { file: 'meridian.docspecs.yaml', path: `${FR}/FRE-REQU-LST-99` })).code, 'unresolvedPath');
+        assert.equal((await run(specRenderImpl, { file: 'meridian.tomspecs.yaml', path: `${FR}/FRE-REQU-LST-99` })).code, 'unresolvedPath');
     });
 
     test('SV-7: convert round-trips YAML → Markdown → YAML', async () => {
-        const created = await store.create(path.join(ws, 'rt/clean.docspecs.yaml'), 'SBP');
+        const created = await store.create(path.join(ws, 'rt/clean.tomspecs.yaml'), 'SBP');
         const editor = SpecEditor.forModel(created.document, service.model);
         editor.setValue('SBP/content', 'A clean blueprint.');
         const item = editor.addListItem(`${FR}/FRE-REQU-LST`, 'FRE-REQU-ONE');
         editor.setFormValue(`${item}/FRED`, 'description', 'The one requirement.');
         await store.save(created);
-        const original = read('rt/clean.docspecs.yaml');
+        const original = read('rt/clean.tomspecs.yaml');
 
-        const toMd = JSON.parse(await withTiming('tomAi_specConvert:typical', () => specConvertImpl(deps, { file: 'rt/clean.docspecs.yaml' })));
+        const toMd = JSON.parse(await withTiming('tomAi_specConvert:typical', () => specConvertImpl(deps, { file: 'rt/clean.tomspecs.yaml' })));
         assert.equal(toMd.ok, true, JSON.stringify(toMd));
-        assert.equal(toMd.target, 'rt/clean.md');
+        assert.equal(toMd.target, 'rt/clean.tomspecs.md');
         assert.equal(toMd.format, 'markdown');
-        assert.match(read('rt/clean.md'), /<!--\[FRE-REQU-ONE\]-->/);
+        assert.match(read('rt/clean.tomspecs.md'), /<!--\[FRE-REQU-ONE\]-->/);
 
-        const back = await run(specConvertImpl, { file: 'rt/clean.md', target: 'rt/back.docspecs.yaml' });
+        const back = await run(specConvertImpl, { file: 'rt/clean.tomspecs.md', target: 'rt/back.tomspecs.yaml' });
         assert.equal(back.ok, true, JSON.stringify(back));
-        assert.equal(read('rt/back.docspecs.yaml'), original, 'byte-identical after the round trip');
+        assert.equal(read('rt/back.tomspecs.yaml'), original, 'byte-identical after the round trip');
     });
 
     test('SV-8: convert refusals and the review pass', async () => {
@@ -200,29 +202,38 @@ describe('TomSpecs validate, render and convert', () => {
         assert.equal(unfaithful.code, 'readOnly');
         assert.match(unfaithful.error, /rewrite it/);
 
-        const exists = await run(specConvertImpl, { file: 'rt/clean.docspecs.yaml' });
+        const exists = await run(specConvertImpl, { file: 'rt/clean.tomspecs.yaml' });
         assert.equal(exists.code, 'exists');
-        const same = await run(specConvertImpl, { file: 'rt/clean.docspecs.yaml', target: 'rt/x.docspecs.yaml' });
+        const same = await run(specConvertImpl, { file: 'rt/clean.tomspecs.yaml', target: 'rt/x.tomspecs.yaml' });
         assert.equal(same.code, 'sameFormat');
 
-        put('reviewed.docspecs.yaml', `${read('rt/clean.docspecs.yaml')}review:\n  "SBP/content":\n    comment: ok\n`);
-        const refused = await run(specConvertImpl, { file: 'reviewed.docspecs.yaml' });
+        put('reviewed.tomspecs.yaml', `${read('rt/clean.tomspecs.yaml')}review:\n  "SBP/content":\n    comment: ok\n`);
+        const refused = await run(specConvertImpl, { file: 'reviewed.tomspecs.yaml' });
         assert.equal(refused.code, 'reviewWouldBeDropped');
         assert.ok(!fs.existsSync(path.join(ws, 'reviewed.md')));
-        const dry = await run(specConvertImpl, { file: 'reviewed.docspecs.yaml', dropReview: true, dryRun: true });
+        const dry = await run(specConvertImpl, { file: 'reviewed.tomspecs.yaml', dropReview: true, dryRun: true });
         assert.equal(dry.written, false);
         assert.match(dry.diff, /^\+<!-- docspec:/m);
         assert.ok(!fs.existsSync(path.join(ws, 'reviewed.md')));
-        const dropped = await run(specConvertImpl, { file: 'reviewed.docspecs.yaml', dropReview: true });
+        const dropped = await run(specConvertImpl, { file: 'reviewed.tomspecs.yaml', dropReview: true });
         assert.equal(dropped.written, true);
         assert.equal(dropped.droppedReviewEntries, 1);
-        assert.match(read('reviewed.docspecs.yaml'), /^review:/m, 'the source keeps its review pass');
+        assert.match(read('reviewed.tomspecs.yaml'), /^review:/m, 'the source keeps its review pass');
     });
 
     test('SV-9: registration', () => {
         const [validate, render, convert] = SPEC_VALIDATE_TOOLS;
         assert.deepEqual([validate.readOnly, render.readOnly, convert.readOnly], [true, true, false]);
         assert.equal(convert.requiresApproval, true);
-        assert.equal(summarizeToolInput(SPEC_CONVERT_TOOL, { file: 'a.docspecs.yaml', overwrite: true }), 'Convert a.docspecs.yaml → a.md (overwrites it)');
+        assert.equal(summarizeToolInput(SPEC_CONVERT_TOOL, { file: 'a.tomspecs.yaml', overwrite: true }), 'Convert a.tomspecs.yaml → a.tomspecs.md (overwrites it)');
+    });
+});
+
+describe('TomSpecs convert target names', () => {
+    test('SV-10: the default convert target is the other `*.tomspecs.*` name beside the source', () => {
+        assert.equal(defaultConvertTarget('specs/tom_uam.sbp.tomspecs.yaml'), 'specs/tom_uam.sbp.tomspecs.md');
+        assert.equal(defaultConvertTarget('specs/tom_uam.sbp.tomspecs.md'), 'specs/tom_uam.sbp.tomspecs.yaml');
+        assert.equal(defaultConvertTarget('specs/draft.md'), 'specs/draft.tomspecs.yaml');
+        assert.equal(defaultConvertTarget('specs/draft'), 'specs/draft.tomspecs.md');
     });
 });

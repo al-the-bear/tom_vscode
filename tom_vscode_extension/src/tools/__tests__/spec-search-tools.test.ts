@@ -39,10 +39,10 @@ import type { SpecToolDeps } from '../spec-tool-common.js';
 import { SPEC_SEARCH_TOOLS, specSearchImpl, specSearchIterateImpl } from '../spec-search-tools.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'spec-search-'));
-const FILE = 'meridian.docspecs.yaml';
+const FILE = 'meridian.tomspecs.yaml';
 fs.writeFileSync(path.join(ws, FILE), MERIDIAN_YAML);
 
 const service = SomModelService.instance;
@@ -203,7 +203,7 @@ describe('TomSpecs search tools', () => {
     });
 
     test('SS-11: iterating after the file changed re-runs the query', async () => {
-        const file = 'changing.docspecs.yaml';
+        const file = 'changing.tomspecs.yaml';
         fs.writeFileSync(path.join(ws, file), MERIDIAN_YAML);
         const first = JSON.parse(await specSearchImpl(deps, { file, text: 'order', pageSize: 2 }));
         assert.ok(first.total > 2);
@@ -251,7 +251,7 @@ describe('TomSpecs search tools', () => {
         assert.equal((await search({ kinds: ['chapter'] })).code, 'invalidInput');
         assert.equal((await search({ state: 'reviewed' })).code, 'invalidInput');
         assert.equal((await search({ regex: true })).code, 'invalidInput');
-        assert.equal((await search({ file: 'missing.docspecs.yaml' })).code, 'notFound');
+        assert.equal((await search({ file: 'missing.tomspecs.yaml' })).code, 'notFound');
     });
 
     test('SS-14: both tools are read-only', () => {

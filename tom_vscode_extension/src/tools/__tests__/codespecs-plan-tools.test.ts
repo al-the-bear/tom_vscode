@@ -42,7 +42,7 @@ import { CODESPECS_PLAN_TOOLS, codeSpecsPlanTodosImpl, slugOf, type PlanTodoDeps
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const CORPUS = path.join(AI_BUILD, 'tom_som_conformance', 'generated-doc', 'codespecs_extracts');
 const EXTRACTS = path.join('generated-doc', 'codespecs_extracts');
 
@@ -227,31 +227,31 @@ describe('CodeSpecs plan todos', () => {
     });
 
     test('PT-6: Stage A with the document', async () => {
-        put('m/meridian.docspecs.yaml', MERIDIAN_YAML);
+        put('m/meridian.tomspecs.yaml', MERIDIAN_YAML);
         for (const f of fs.readdirSync(CORPUS)) {
             put(path.join('m', EXTRACTS, f), fs.readFileSync(path.join(CORPUS, f), 'utf8'));
         }
-        const ok = await call({ file: 'm/meridian.docspecs.yaml', questId: 'q6', appName: 'meridian', dryRun: true });
+        const ok = await call({ file: 'm/meridian.tomspecs.yaml', questId: 'q6', appName: 'meridian', dryRun: true });
         assert.equal(ok.ok, true, JSON.stringify(ok).slice(0, 400));
         assert.deepEqual(ok.stageA, { checked: true, open: true, failing: [] });
         assert.deepEqual(ok.tree.csopen, [], 'the corpus record descopes its insufficient areas');
 
-        const loaded = store.load(path.join(ws, 'm', 'meridian.docspecs.yaml'));
+        const loaded = store.load(path.join(ws, 'm', 'meridian.tomspecs.yaml'));
         loaded.document.setFormField('SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-2/FRED', 'description', '');
-        put('m/meridian.docspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
-        const closed = await call({ file: 'm/meridian.docspecs.yaml', questId: 'q6', appName: 'meridian' });
+        put('m/meridian.tomspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
+        const closed = await call({ file: 'm/meridian.tomspecs.yaml', questId: 'q6', appName: 'meridian' });
         assert.equal(closed.code, 'gateClosed');
         assert.ok(closed.stageA.failing.includes('A1'), 'the emptied required field fails A1 (other checks may report it too)');
         assert.equal(fs.existsSync(path.join(ws, '_ai', 'quests', 'q6')), false, 'on rejection no todo is created');
     });
 
     test('PT-8: one csproj per generation unit; csgen names its IR documents and units', async () => {
-        put('u/meridian.docspecs.yaml', MERIDIAN_YAML);
-        const written = JSON.parse(await codeSpecsWriteExtractsImpl(deps, { file: 'u/meridian.docspecs.yaml' }));
+        put('u/meridian.tomspecs.yaml', MERIDIAN_YAML);
+        const written = JSON.parse(await codeSpecsWriteExtractsImpl(deps, { file: 'u/meridian.tomspecs.yaml' }));
         assert.equal(written.ok, true, JSON.stringify(written).slice(0, 300));
         put(path.join('u', EXTRACTS, 'gate.verdicts.yaml'), fs.readFileSync(path.join(CORPUS, 'gate.verdicts.yaml'), 'utf8'));
 
-        const dry = await call({ file: 'u/meridian.docspecs.yaml', questId: 'q8', dryRun: true });
+        const dry = await call({ file: 'u/meridian.tomspecs.yaml', questId: 'q8', dryRun: true });
         assert.equal(dry.ok, true, JSON.stringify(dry).slice(0, 400));
         assert.deepEqual(dry.units, { read: true, units: [
             { unitId: 'meridian_codespec_shared', kind: 'shared' },
@@ -266,7 +266,7 @@ describe('CodeSpecs plan todos', () => {
         ], 'no app name needed: the units name their packages');
         assert.equal(dry.tree.csproj[2].title, 'csproj3: scaffold the generation unit meridian_codespec_server (server)');
 
-        const created = await call({ file: 'u/meridian.docspecs.yaml', questId: 'q8' });
+        const created = await call({ file: 'u/meridian.tomspecs.yaml', questId: 'q8' });
         assert.equal(created.ok, true, JSON.stringify(created).slice(0, 400));
         const todos = todosOf('q8');
         const byStem = (stem: string): Json => todos.find((t) => t.id.startsWith(`${stem}_`));

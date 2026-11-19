@@ -170,7 +170,7 @@ describe('DocSpecs Markdown tools', () => {
         assert.equal(explicit.passed, true);
         fs.rmSync(path.join(ws, 'docs/.tom'), { recursive: true });
 
-        put('meridian.md', fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8'));
+        put('meridian.md', fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8'));
         const som = await run(docspecsValidateImpl, { file: 'meridian.md' });
         assert.equal(som.schema.source, 'generated');
         assert.equal(som.passed, true, JSON.stringify(som.findings.slice(0, 3)));

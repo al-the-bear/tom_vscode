@@ -116,11 +116,11 @@ describe('CodeSpecs guides', () => {
         assert.deepEqual(names, ['codespecs-next-step', 'codespecs-stage-a', 'codespecs-extraction', 'codespecs-stage-b',
             'codespecs-stage-c', 'codespecs-authoring-step', 'codespecs-validate']);
         for (const r of RUNBOOKS) {
-            const text = runbookText(r.name, { file: 'specs/sbp.docspecs.yaml', step: '10', questId: 'q1', shared: 'out/app_codespec_shared' });
+            const text = runbookText(r.name, { file: 'specs/sbp.tomspecs.yaml', step: '10', questId: 'q1', shared: 'out/app_codespec_shared' });
             assert.ok(text.ok, r.name);
             if (!text.ok) { continue; }
             assert.match(text.text, /tomAi_specCodeSpecs[A-Z]\w+/, `${r.name} names its tools`);
-            assert.ok(text.text.includes('specs/sbp.docspecs.yaml'), `${r.name}: the file is filled in`);
+            assert.ok(text.text.includes('specs/sbp.tomspecs.yaml'), `${r.name}: the file is filled in`);
             for (const ref of r.guideSections) {
                 assert.ok(text.text.includes(`(${ref.guide} §${ref.section})`), `${r.name} carries ${ref.guide} §${ref.section}`);
             }
@@ -132,7 +132,7 @@ describe('CodeSpecs guides', () => {
 
     test('GD-5: IR authoring and generation units', () => {
         const text = (name: string): string => {
-            const r = runbookText(name, { file: 'specs/sbp.docspecs.yaml', step: '10', questId: 'q1' });
+            const r = runbookText(name, { file: 'specs/sbp.tomspecs.yaml', step: '10', questId: 'q1' });
             assert.ok(r.ok, name);
             return r.ok ? r.text.split('\n---\n')[0] : '';
         };
@@ -142,11 +142,11 @@ describe('CodeSpecs guides', () => {
         assert.match(authoring, /its `units`/);
         assert.match(authoring, /irspecs_ir\.md §8\.1/);
         const validate = text('codespecs-validate');
-        assert.match(validate, /1\. Map\. tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"` and `out`/);
-        assert.match(validate, /`tomspecs :ir-map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.docspecs\.yaml --unit <id> --out <out>`/);
+        assert.match(validate, /1\. Map\. tomAi_specCodeSpecsMap with `file: "specs\/sbp\.tomspecs\.yaml"` and `out`/);
+        assert.match(validate, /`tomspecs :ir-map --mapper <m> --ir <spec-root>\/irspecs --spec specs\/sbp\.tomspecs\.yaml --unit <id> --out <out>`/);
         assert.match(validate, /No mapper needs a Dart SDK: dart-tom\s+formats in-process\./);
         assert.doesNotMatch(validate, /formatterUnavailable|TOM_DART/, 'no Dart SDK prerequisite (vscimpb147)');
-        assert.match(authoring, /tomAi_specCodeSpecsMap with `file: "specs\/sbp\.docspecs\.yaml"`, `out: <scratch>`/);
+        assert.match(authoring, /tomAi_specCodeSpecsMap with `file: "specs\/sbp\.tomspecs\.yaml"`, `out: <scratch>`/);
         assert.match(validate, /tomAi_specCodeSpecsValidate with `ir`/);
         assert.match(validate, /`regeneratedIr`/);
         assert.match(text('codespecs-stage-c'), /csproj<n> \(one scaffolding todo per generation unit/);
@@ -156,10 +156,10 @@ describe('CodeSpecs guides', () => {
 
     test('GD-6: the coverage-gap record', () => {
         const text = (name: string): string => {
-            const r = runbookText(name, { file: 'specs/sbp.docspecs.yaml', step: '10', questId: 'q1' });
+            const r = runbookText(name, { file: 'specs/sbp.tomspecs.yaml', step: '10', questId: 'q1' });
             return r.ok ? r.text.split('\n---\n')[0] : '';
         };
-        const record = 'generated-doc/codespecs_extracts/coverage_gaps.yaml beside specs/sbp.docspecs.yaml';
+        const record = 'generated-doc/codespecs_extracts/coverage_gaps.yaml beside specs/sbp.tomspecs.yaml';
         const stageB = text('codespecs-stage-b');
         assert.ok(stageB.includes(record), stageB);
         assert.match(stageB, /`foundBy: stageB`/);

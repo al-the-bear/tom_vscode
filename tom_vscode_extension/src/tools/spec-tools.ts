@@ -98,7 +98,7 @@ export const SPEC_LIST_MAX_BUDGET_MS = 120000;
 export const SPEC_LIST_MAX_CANDIDATES = 50000;
 
 function isCandidate(name: string): boolean {
-    return name.endsWith('.docspecs.yaml') || name.endsWith('.md');
+    return name.endsWith('.tomspecs.yaml') || name.endsWith('.tomspecs.md') || name.endsWith('.readable.md');
 }
 
 /** Whether `abs`, under `start`, sits in a folder the search skips (a finder may not know the rule). */
@@ -124,6 +124,7 @@ function documentEntry(deps: SpecToolDeps, abs: string): Record<string, unknown>
         stamp: summary.stamp,
         editability: summary.editability,
         ...(summary.versionReason ? { readOnlyReason: summary.versionReason } : {}),
+        ...(abs.endsWith('.readable.md') ? { rendition: 'readable' } : {}),
     };
 }
 
@@ -294,7 +295,8 @@ export const SPEC_LIST_DOCUMENTS_TOOL: SharedToolDefinition<SpecListDocumentsInp
     displayName: 'Spec: List Documents',
     description:
         'List the TomSpecs (SOM) document roots the model defines (section id, type, title) and the SOM documents found under '
-        + '`dir` (default: the workspace): `*.docspecs.yaml`, and `*.md` whose headings carry `<!--[SECTIONID]-->`. Each document '
+        + '`dir` (default: the workspace): `*.tomspecs.yaml` and `*.tomspecs.md`, and the readable renditions `*.readable.md` '
+        + '(marked `rendition: "readable"`). Each document '
         + 'comes with its root, model-version stamp and editability under the SOM §4.2 version rules. Skips dot-folders, '
         + 'node_modules, out, dist, build and ztmp. Candidates come from VS Code\'s file search (`search: "findFiles"`, '
         + 'symlinked folders followed; measured on mbp in the extension host: the whole workspace in 1–1.5 s), else from walking the '

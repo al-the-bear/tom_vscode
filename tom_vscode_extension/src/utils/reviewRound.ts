@@ -42,7 +42,7 @@ export interface ReviewRound {
     kind: 'som' | 'markdown';
     /** The base file in the round folder. */
     base: string;
-    /** The copies' file extension, with its dot (`.docspecs.yaml`, `.md`). */
+    /** The copies' file extension, with its dot (`.tomspecs.yaml`, `.tomspecs.md`, `.md`). */
     extension: string;
     /** ISO time the round was created. */
     created: string;
@@ -63,10 +63,11 @@ export interface ReviewRound {
     merged?: { at: string; file: string; report: string };
 }
 
-/** A document's file extension as the copies take it: `.docspecs.yaml`, `.yaml`, `.md`. */
+/** A document's file extension as the copies take it: `.tomspecs.yaml`, `.tomspecs.md`, `.yaml`, `.md`. */
 export function documentExtension(file: string): string {
     const lower = file.toLowerCase();
-    if (lower.endsWith('.docspecs.yaml')) { return '.docspecs.yaml'; }
+    if (lower.endsWith('.tomspecs.yaml')) { return '.tomspecs.yaml'; }
+    if (lower.endsWith('.tomspecs.md')) { return '.tomspecs.md'; }
     const m = /\.[^./\\]+$/.exec(file);
     return m ? m[0] : '';
 }

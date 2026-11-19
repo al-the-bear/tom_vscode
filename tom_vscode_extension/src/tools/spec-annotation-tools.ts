@@ -352,9 +352,9 @@ async function annotationsAcrossFolder(deps: SpecToolDeps, input: SpecAnnotation
 /** The value a plain Markdown file is read as: the whole text, one value of a document of its own. */
 const PLAIN_VALUE = 'MD/content';
 
-/** A plain annotated Markdown file: not a `*.docspecs.yaml`, and the store does not read it as a SOM document. */
+/** A plain annotated Markdown file: not a `*.tomspecs.yaml`, and the store does not read it as a SOM document. */
 function isPlainMarkdown(deps: SpecToolDeps, absolute: string): boolean {
-    return /\.(md|markdown)$/i.test(absolute) && !/\.docspecs\.yaml$/i.test(absolute) && deps.store.peek(absolute) === null;
+    return /\.(md|markdown)$/i.test(absolute) && !/\.tomspecs\.yaml$/i.test(absolute) && deps.store.peek(absolute) === null;
 }
 
 /**

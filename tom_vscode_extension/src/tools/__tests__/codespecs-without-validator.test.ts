@@ -44,7 +44,7 @@ import { codeSpecsStatusImpl, type StatusDeps } from '../codespecs-workflow-tool
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const WS_ROOT = path.resolve(EXT_ROOT, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
-const MERIDIAN = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml');
+const MERIDIAN = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml');
 const PLATFORM = getCurrentPlatform();
 /** The validator binary. */
 const VALIDATOR = 'tomspecs';
@@ -115,8 +115,8 @@ describe('CodeSpecs without tomspecs', () => {
 
     test('NV-3: status with shared', async (t) => {
         if (!fs.existsSync(MERIDIAN)) { t.skip(`no ${MERIDIAN}`); return; }
-        fs.copyFileSync(MERIDIAN, path.join(ws, 'run', 'meridian.docspecs.yaml'));
-        const file = 'run/meridian.docspecs.yaml';
+        fs.copyFileSync(MERIDIAN, path.join(ws, 'run', 'meridian.tomspecs.yaml'));
+        const file = 'run/meridian.tomspecs.yaml';
         const without = JSON.parse(await codeSpecsStatusImpl(deps, status, { file }));
         const r = JSON.parse(await codeSpecsStatusImpl(deps, status, { file, shared: 'run/codespec/shared' }));
         assert.equal(r.ok, true, JSON.stringify(r));
@@ -138,7 +138,7 @@ describe('CodeSpecs without tomspecs', () => {
         assert.deepEqual(notices, [NOTICE], 'once for the trace tool');
         if (fs.existsSync(MERIDIAN)) {
             for (let i = 0; i < 2; i++) {
-                const r = JSON.parse(await codeSpecsStatusImpl(deps, status, { file: 'run/meridian.docspecs.yaml', shared: 'run/codespec/shared' }));
+                const r = JSON.parse(await codeSpecsStatusImpl(deps, status, { file: 'run/meridian.tomspecs.yaml', shared: 'run/codespec/shared' }));
                 assert.equal(r.warnings.length, 1);
             }
             assert.deepEqual(notices, [NOTICE, NOTICE], 'once more for the status tool');
@@ -149,7 +149,7 @@ describe('CodeSpecs without tomspecs', () => {
     });
 
     test('NV-5: runbook, process, activation', (t) => {
-        const rb = runbookText('codespecs-validate', { file: 'spec.docspecs.yaml', shared: 'app_codespec_shared' });
+        const rb = runbookText('codespecs-validate', { file: 'spec.tomspecs.yaml', shared: 'app_codespec_shared' });
         assert.ok(rb.ok);
         assert.match((rb as { text: string }).text, /`outcome: "binaryMissing"`[\s\S]*"validation not run: tomspecs missing on <platform>"[\s\S]*carry on with the other steps\. The G4 gate stays unpassed until\nvalidation has run on a host that has the binary/);
         const ext = fs.readFileSync(path.join(EXT_ROOT, 'src', 'extension.ts'), 'utf8');

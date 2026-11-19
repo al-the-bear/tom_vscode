@@ -26,7 +26,7 @@ const { vscodeSomDocumentIo } = require('../som-document-io-vscode.js') as typeo
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'som-io-vscode-'));
 const SAMPLE = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents',
-    'meridian_order_management.docspecs.yaml'), 'utf8');
+    'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 function open(filePath: string, text: string, isDirty = false): FakeTextDocument {
     const doc = fakeTextDocument(filePath, text, { isDirty });
@@ -47,7 +47,7 @@ const requested = (): StubWorkspaceEdit[] => stub.spies.byMethod('workspace.appl
 describe('vscodeSomDocumentIo', () => {
     test('SDV-1: a file open in no editor is read and written on disk', async () => {
         reset();
-        const p = path.join(tmp, 'sdv1.docspecs.yaml');
+        const p = path.join(tmp, 'sdv1.tomspecs.yaml');
         fs.writeFileSync(p, 'on disk\n');
         assert.equal(vscodeSomDocumentIo.read(p), 'on disk\n');
         assert.equal(vscodeSomDocumentIo.isDirty?.(p), false);
@@ -58,7 +58,7 @@ describe('vscodeSomDocumentIo', () => {
 
     test('SDV-2: an open, clean file is written as one full-range edit, then saved', async () => {
         reset();
-        const p = path.join(tmp, 'sdv2.docspecs.yaml');
+        const p = path.join(tmp, 'sdv2.tomspecs.yaml');
         fs.writeFileSync(p, 'disk text\n');
         const doc = open(p, 'buffer text\n');
         assert.equal(vscodeSomDocumentIo.read(p), 'buffer text\n', 'the editor buffer is the truth');
@@ -79,7 +79,7 @@ describe('vscodeSomDocumentIo', () => {
 
     test('SDV-3: an open, dirty file is refused by the store', async () => {
         reset();
-        const p = path.join(tmp, 'sdv3.docspecs.yaml');
+        const p = path.join(tmp, 'sdv3.tomspecs.yaml');
         fs.writeFileSync(p, SAMPLE);
         open(p, SAMPLE, true);
         assert.equal(vscodeSomDocumentIo.isDirty?.(p), true);
@@ -91,7 +91,7 @@ describe('vscodeSomDocumentIo', () => {
 
     test('SDV-4: a refused edit or a failed save is an error', async () => {
         reset();
-        const p = path.join(tmp, 'sdv4.docspecs.yaml');
+        const p = path.join(tmp, 'sdv4.tomspecs.yaml');
         fs.writeFileSync(p, 'x\n');
         const doc = open(p, 'x\n');
         stub.setApplyEditResult(false);

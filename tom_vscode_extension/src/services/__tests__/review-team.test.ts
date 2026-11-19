@@ -70,20 +70,20 @@ describe('Review team and rounds', () => {
 
     test('RT-3: a merged SOM document\'s team and revision history', async () => {
         fs.mkdirSync(path.join(ws, 'som'), { recursive: true });
-        const file = 'som/req.docspecs.yaml';
+        const file = 'som/req.tomspecs.yaml';
         assert.equal((await run(specCreateDocumentImpl, { file, root: 'RSP' })).ok, true);
         for (const [memberId, displayName, role, owner] of [['alice', 'Alice Owner', 'Product owner', true], ['bob', 'Bob Dev', 'Developer', false]] as const) {
             assert.equal((await run(specAddNodeImpl, { file, parentPath: 'RSP/reviewTeam', childSegment: 'RVMEM-MEMB-LST', fields: { content: { memberId, displayName, role, owner } } })).ok, true);
         }
         assert.equal((await run(specSetContentImpl, { file, path: 'RSP/content', text: 'Orders are kept two years.' })).ok, true);
         assert.equal((await run(specReviewRoundCreateImpl, { file, round: 'som/round', date: '2026-11-05' })).ok, true);
-        assert.equal((await run(specSetContentImpl, { file: 'som/round/alice.docspecs.yaml', path: 'RSP/content', text: 'Orders are kept three years.' })).ok, true);
-        fs.copyFileSync(path.join(ws, 'som/round/base.docspecs.yaml'), path.join(ws, 'som/round/erin.docspecs.yaml'));
-        assert.equal((await run(specSetContentImpl, { file: 'som/round/erin.docspecs.yaml', path: 'RSP/content', text: 'Orders are kept two years, then archived.' })).ok, true);
+        assert.equal((await run(specSetContentImpl, { file: 'som/round/alice.tomspecs.yaml', path: 'RSP/content', text: 'Orders are kept three years.' })).ok, true);
+        fs.copyFileSync(path.join(ws, 'som/round/base.tomspecs.yaml'), path.join(ws, 'som/round/erin.tomspecs.yaml'));
+        assert.equal((await run(specSetContentImpl, { file: 'som/round/erin.tomspecs.yaml', path: 'RSP/content', text: 'Orders are kept two years, then archived.' })).ok, true);
         const merged = await run(specMergeReviewsImpl, { round: 'som/round', guests: [{ memberId: 'erin', displayName: 'Erin Ops', role: 'Operations' }] });
         assert.equal(merged.ok, true, JSON.stringify(merged));
 
-        const loaded = deps.store.load(path.join(ws, 'som/round/merged/req.docspecs.yaml'));
+        const loaded = deps.store.load(path.join(ws, 'som/round/merged/req.tomspecs.yaml'));
         assert.deepEqual(documentTeam(loaded.document, 'RSP').map((m) => [m.memberId, m.owner]), [['alice', true], ['bob', false]]);
         const history = readRevisionHistory(service.model, loaded.document, 'RSP');
         assert.equal(history.length, 1);
@@ -94,7 +94,7 @@ describe('Review team and rounds', () => {
         assert.deepEqual(history[0].reviewers.map((m) => [m.memberId, m.displayName, m.guest === true]), [['alice', 'Alice Owner', false], ['erin', 'Erin Ops', true]]);
 
         // The MD Browser reads the same from the document's Markdown rendition.
-        assert.equal((await run(specConvertImpl, { file: 'som/round/merged/req.docspecs.yaml', target: 'som/round/merged/req.md', dropReview: true })).ok, true);
+        assert.equal((await run(specConvertImpl, { file: 'som/round/merged/req.tomspecs.yaml', target: 'som/round/merged/req.md', dropReview: true })).ok, true);
         const context = somCommentContext(deps.store.load(path.join(ws, 'som/round/merged/req.md')), service);
         assert.deepEqual(context.team.map((m) => m.memberId), ['alice', 'bob']);
         assert.deepEqual(context.revisions[0].reviewers.map((m) => [m.memberId, m.guest === true]), [['alice', false], ['erin', true]]);

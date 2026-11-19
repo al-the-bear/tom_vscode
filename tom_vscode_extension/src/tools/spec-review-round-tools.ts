@@ -119,7 +119,7 @@ function findBlueprint(deps: SpecToolDeps, documentPath: string): string | null 
         let names: string[] = [];
         try { names = fs.readdirSync(dir); } catch { names = []; }
         for (const name of names.sort()) {
-            if (!/\.(md|docspecs\.yaml)$/.test(name)) { continue; }
+            if (!/\.tomspecs\.(md|yaml)$/.test(name)) { continue; }
             const file = path.join(dir, name);
             if (file === documentPath) { continue; }
             const peek = deps.store.peek(file);
@@ -168,7 +168,7 @@ function resolveTeam(deps: SpecToolDeps, loaded: LoadedSomDocument, sbp: string 
 
 /** A plain Markdown file is one the store does not read as a SOM document. */
 function isSomFile(deps: SpecToolDeps, absolute: string): boolean {
-    return /\.docspecs\.yaml$/i.test(absolute) || deps.store.peek(absolute) !== null;
+    return /\.tomspecs\.yaml$/i.test(absolute) || deps.store.peek(absolute) !== null;
 }
 
 function readRound(deps: SpecToolDeps, roundInput: string): { folder: string; round: ReviewRound } {

@@ -8,7 +8,7 @@
  * Tools are stateless per call: load, edit, save, with the file as the truth.
  *
  * Formats:
- *   - `*.docspecs.yaml`: the runtime's YAML codec. The `review:` pass is
+ *   - `*.tomspecs.yaml`: the runtime's YAML codec. The `review:` pass is
  *     carried through unchanged: decode() returns null for a file without
  *     one and a map, possibly empty, for a file with one (SOM §12.1), and
  *     encode() writes back exactly that, so an explicit `review: {}` stays.
@@ -194,10 +194,10 @@ function sha256(text: string): string {
 
 function formatOf(filePath: string): SomDocumentFormat {
     const lower = filePath.toLowerCase();
-    if (lower.endsWith('.docspecs.yaml') || lower.endsWith('.yaml') || lower.endsWith('.yml')) { return 'yaml'; }
+    if (lower.endsWith('.tomspecs.yaml') || lower.endsWith('.yaml') || lower.endsWith('.yml')) { return 'yaml'; }
     if (lower.endsWith('.md')) { return 'markdown'; }
     throw new SomDocumentError('unknownFormat',
-        `${path.basename(filePath)} is not a SOM document file: expected *.docspecs.yaml or a SOM-rendered *.md.`);
+        `${path.basename(filePath)} is not a SOM document file: expected *.tomspecs.yaml or a SOM-rendered *.tomspecs.md.`);
 }
 
 export class SomDocumentStore {

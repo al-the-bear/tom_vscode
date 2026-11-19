@@ -345,12 +345,12 @@ describe('Grill me / Explain in detail', () => {
             const service = SomModelService.instance;
             const sdeps = { wsRoot: ws, store: new SomDocumentStore(service), service };
             const samples = path.resolve(EXT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-            fs.writeFileSync(path.join(ws, 'sbp.docspecs.yaml'), fs.readFileSync(path.join(samples, 'meridian_order_management.docspecs.yaml'), 'utf8'));
+            fs.writeFileSync(path.join(ws, 'sbp.tomspecs.yaml'), fs.readFileSync(path.join(samples, 'meridian_order_management.tomspecs.yaml'), 'utf8'));
             const value = ['Kiosks are planned.', '', '> **❓ BQ-1 — kiosks:** Kiosks only?', '> - (a) yes', '> - **(b)** no', '> **Answer:**', '',
                 '> ⬆️ **C-3** (agent_idea_author): Proposed answer: (b) no, the web app is used too.'].join('\n');
-            const set = JSON.parse(await specSetContentImpl(sdeps, { file: 'sbp.docspecs.yaml', path: 'SBP/content', text: value }));
+            const set = JSON.parse(await specSetContentImpl(sdeps, { file: 'sbp.tomspecs.yaml', path: 'SBP/content', text: value }));
             assert.equal(set.ok, true, JSON.stringify(set));
-            const conv = JSON.parse(await specConvertImpl(sdeps, { file: 'sbp.docspecs.yaml', target: 'sbp.md' }));
+            const conv = JSON.parse(await specConvertImpl(sdeps, { file: 'sbp.tomspecs.yaml', target: 'sbp.md' }));
             assert.equal(conv.ok, true, JSON.stringify(conv));
             const md = fs.readFileSync(path.join(ws, 'sbp.md'), 'utf8');
             assert.ok(isTomSpecsMarkdown(md));

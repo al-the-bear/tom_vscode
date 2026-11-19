@@ -33,9 +33,9 @@ import { buildToolMcpServer, NULL_MCP_TRAIL_SINK, resolveEffectiveMcpTools } fro
 import type { ResolvedMcpServerSettings } from '../../utils/sendToChatConfig.js';
 
 const AI_BUILD = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const CORPUS = path.join(AI_BUILD, 'tom_som_conformance', 'generated-doc', 'codespecs_extracts');
-const FILE = 'specs/meridian.docspecs.yaml';
+const FILE = 'specs/meridian.tomspecs.yaml';
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 
 const KEY_ENV = 'TOM_SPEC_MCP_TEST_KEY';

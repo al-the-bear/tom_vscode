@@ -65,10 +65,10 @@ const MISSED: ReadonlySet<string> = new Set([
     SpecValidationCode.DUPLICATE_ANNOTATION_ID,
 ]);
 
-/** A document's label: its file name without the format suffix (`tom_uam.sbp.docspecs.yaml` → `tom_uam.sbp`). */
+/** A document's label: its file name without the format suffix (`tom_uam.sbp.tomspecs.yaml`, `tom_uam.sbp.tomspecs.md`, `tom_uam.sbp.readable.md` → `tom_uam.sbp`). */
 export function answersLabel(file: string): string {
     const name = path.basename(file);
-    for (const suffix of ['.docspecs.yaml', '.yaml', '.md']) {
+    for (const suffix of ['.tomspecs.yaml', '.tomspecs.md', '.readable.md', '.yaml', '.md']) {
         if (name.endsWith(suffix)) { return name.slice(0, -suffix.length); }
     }
     return name;

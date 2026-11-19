@@ -5,7 +5,7 @@ client — that has to read, fill or check a TomSpecs specification, and then ta
 it through Phase 4 (CodeSpecs). Every step names the tool to call. The full tool
 reference is [llm_tools.md](llm_tools.md) §4.23–§4.25.
 
-The tools work on `*.docspecs.yaml` and on SOM-rendered `*.md` files, through
+The tools work on `*.tomspecs.yaml` and on SOM-rendered `*.tomspecs.md` files, through
 the TomSpecs runtime bundled with the extension. Paths are document paths: the
 root section id, then field segments and list items `<LIST>-<n>`, for example
 `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`.
@@ -33,7 +33,7 @@ Take them from the outline; do not compose them.
 
    ```json
    {
-     "file": "specs/meridian.docspecs.yaml",
+     "file": "specs/meridian.tomspecs.yaml",
      "expectedRevision": "<from the outline>",
      "edits": [
        { "op": "addNode", "parentPath": "SBP/introductionAndScope/requirements/functionalRequirements", "childSegment": "FRE-REQU-LST", "headline": "FR-07 — Archive closed orders", "as": "req" },
@@ -137,7 +137,7 @@ same names, e.g.
 
 ```json
 {
-  "file": "specs/meridian.docspecs.yaml",
+  "file": "specs/meridian.tomspecs.yaml",
   "edits": [
     { "op": "setAnswer", "questionId": "BQ-01", "answer": "(b)" },
     { "op": "resolveAnnotation", "id": "C-3" },
@@ -165,8 +165,8 @@ same for a TomSpecs document and for plain annotated Markdown.
 
 1. **Start it.** `tomAi_specReviewRoundCreate` with the document creates the
    round folder (default `<document folder>/review-rounds/<stem>-<YYYYMMDD-HHMM>`):
-   `base.<ext>`, one copy per member named by member id (`alice.docspecs.yaml`,
-   `alice.md`) and `round.yaml` (document, base, date, author, team, guests;
+   `base.<ext>`, one copy per member named by member id (`alice.tomspecs.yaml`,
+   `alice.tomspecs.md`) and `round.yaml` (document, base, date, author, team, guests;
    later `nextRound`, the guests accepted for the next round only, which a merge keeps).
    The team is `members` if given, else the document's own review team, else
    the solution blueprint's team for its document type, else the blueprint's

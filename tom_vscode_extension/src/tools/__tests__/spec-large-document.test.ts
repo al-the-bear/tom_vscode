@@ -31,7 +31,7 @@ import { specSetContentImpl } from '../spec-edit-tools.js';
 import { specDecideMarksImpl } from '../spec-annotation-tools.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 const COPIES = 12_000;
 /** Generous for a loaded machine; the tools take a few seconds on the 16 MB Tom UAM Blueprint. */
@@ -91,7 +91,7 @@ type Json = any;
 const run = async (impl: (d: SpecToolDeps, i: any) => Promise<string>, input: object): Promise<Json> => JSON.parse(await impl(deps, input));
 let counter = 0;
 function fresh(): string {
-    const file = `large${++counter}.docspecs.yaml`;
+    const file = `large${++counter}.tomspecs.yaml`;
     fs.writeFileSync(path.join(ws, file), LARGE);
     return file;
 }

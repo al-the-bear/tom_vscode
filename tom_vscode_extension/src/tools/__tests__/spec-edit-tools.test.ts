@@ -66,8 +66,8 @@ import { SpecAnnotation, SpecClass, SpecDocument, SpecEditor, SpecField, SpecFie
 import { resolveEffectiveTools } from '../../handlers/mcpServer-handler.js';
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
-const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.docspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.md'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
+const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const FR1 = `${FR}/FRE-REQU-LST-1`;
@@ -83,7 +83,7 @@ const deps: SpecToolDeps = { wsRoot: ws, store: new SomDocumentStore(service), s
 let counter = 0;
 /** A fresh copy of the sample (optionally with extra text appended); returns its workspace-relative name. */
 function copy(extra = ''): string {
-    const name = `m${++counter}.docspecs.yaml`;
+    const name = `m${++counter}.tomspecs.yaml`;
     fs.writeFileSync(path.join(ws, name), MERIDIAN_YAML + extra);
     return name;
 }
@@ -284,7 +284,7 @@ describe('TomSpecs edit tools', () => {
     });
 
     test('SE-14: create, add, validate — YAML and Markdown', async () => {
-        for (const file of ['new/blueprint.docspecs.yaml', 'new/blueprint.md']) {
+        for (const file of ['new/blueprint.tomspecs.yaml', 'new/blueprint.md']) {
             const created = JSON.parse(await withTiming('tomAi_specCreateDocument:typical', () =>
                 specCreateDocumentImpl(deps, { file, root: 'SBP' })));
             assert.equal(created.ok, true, JSON.stringify(created));
@@ -311,7 +311,7 @@ describe('TomSpecs edit tools', () => {
             }
             assert.equal(field(await section(file, FR1), 'FRED', 'description').value, 'First requirement.');
         }
-        assert.equal((await run(specCreateDocumentImpl, { file: 'x.docspecs.yaml', root: 'NOPE' })).code, 'unknownRoot');
+        assert.equal((await run(specCreateDocumentImpl, { file: 'x.tomspecs.yaml', root: 'NOPE' })).code, 'unknownRoot');
     });
 
     test('SE-15: a read-only document is refused', async () => {
@@ -323,8 +323,8 @@ describe('TomSpecs edit tools', () => {
         assert.match(r.error, /rewrite it/);
         assert.equal(read('meridian.md'), odd);
         // So is a document stamped with a newer model version.
-        fs.writeFileSync(path.join(ws, 'newer.docspecs.yaml'), withStamp(MERIDIAN_YAML, '1.99'));
-        assert.equal((await run(specSetContentImpl, { file: 'newer.docspecs.yaml', path: 'SBP/content', text: 'x' })).code, 'readOnly');
+        fs.writeFileSync(path.join(ws, 'newer.tomspecs.yaml'), withStamp(MERIDIAN_YAML, '1.99'));
+        assert.equal((await run(specSetContentImpl, { file: 'newer.tomspecs.yaml', path: 'SBP/content', text: 'x' })).code, 'readOnly');
     });
 
     test('SE-16: all eleven need approval and stay outside the MCP read-only floor', () => {

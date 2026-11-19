@@ -333,18 +333,18 @@ describe('Team review rounds', () => {
     });
 
     test('RR-5c: a SOM document round with a guest copy', async () => {
-        const file = 'som5c/req.docspecs.yaml';
+        const file = 'som5c/req.tomspecs.yaml';
         fs.mkdirSync(path.join(ws, 'som5c'), { recursive: true });
         assert.equal((await run(specCreateDocumentImpl, { file, root: 'RSP' })).ok, true);
         assert.equal((await run(specSetContentImpl, { file, path: 'RSP/content', text: 'Orders are kept two years.' })).ok, true);
         assert.equal((await run(specReviewRoundCreateImpl, { file, round: 'som5c/round', members: TEAM, date: '2026-11-05', author: 'Alice Owner' })).ok, true);
         // A guest's copy: not on the team, named at the merge.
-        fs.copyFileSync(path.join(ws, 'som5c/round/base.docspecs.yaml'), path.join(ws, 'som5c/round/erin.docspecs.yaml'));
-        assert.equal((await run(specSetContentImpl, { file: 'som5c/round/erin.docspecs.yaml', path: 'RSP/content', text: 'Orders are kept two years, archived after one.' })).ok, true);
+        fs.copyFileSync(path.join(ws, 'som5c/round/base.tomspecs.yaml'), path.join(ws, 'som5c/round/erin.tomspecs.yaml'));
+        assert.equal((await run(specSetContentImpl, { file: 'som5c/round/erin.tomspecs.yaml', path: 'RSP/content', text: 'Orders are kept two years, archived after one.' })).ok, true);
         const m = await run(specMergeReviewsImpl, { round: 'som5c/round', guests: [{ memberId: 'erin', displayName: 'Erin Ops', role: 'Operations' }] });
         assert.equal(m.ok, true, JSON.stringify(m));
         assert.equal(m.summary.guestQuestions, 1);
-        const notes = await run(specAnnotationsImpl, { file: 'som5c/round/merged/req.docspecs.yaml', kinds: ['question'] });
+        const notes = await run(specAnnotationsImpl, { file: 'som5c/round/merged/req.tomspecs.yaml', kinds: ['question'] });
         const guestQuestion = notes.questions.find((q: Json) => /Erin Ops/.test(`${q.topic} ${q.text}`));
         assert.ok(guestQuestion, JSON.stringify(notes.questions));
         // PD-11's three answers (tom_specs tdrguest2, vscimpb115), the first recommended.
@@ -353,7 +353,7 @@ describe('Team review rounds', () => {
     });
 
     test('RR-5: a SOM document with its own team', async () => {
-        const file = 'som5/req.docspecs.yaml';
+        const file = 'som5/req.tomspecs.yaml';
         fs.mkdirSync(path.join(ws, 'som5'), { recursive: true });
         assert.equal((await run(specCreateDocumentImpl, { file, root: 'RSP' })).ok, true);
         for (const [memberId, displayName, role, owner] of [['alice', 'Alice Owner', 'Product owner', true], ['bob', 'Bob Dev', 'Developer', false]] as const) {
@@ -370,8 +370,8 @@ describe('Team review rounds', () => {
         assert.deepEqual(c.team.map((m: Json) => m.memberId), ['alice', 'bob']);
         assert.equal(parseRound(read('som5/round/round.yaml')).author, 'Alice Owner', 'the owner authors the revision entry');
 
-        const copyA = 'som5/round/alice.docspecs.yaml';
-        const copyB = 'som5/round/bob.docspecs.yaml';
+        const copyA = 'som5/round/alice.tomspecs.yaml';
+        const copyB = 'som5/round/bob.tomspecs.yaml';
         assert.equal((await run(specSetContentImpl, { file: copyA, path: 'RSP/content', text: text.replace('two years', 'three years') })).ok, true);
         assert.equal((await run(specSetContentImpl, { file: copyB, path: 'RSP/content', text: text.replace('two years', 'five years') })).ok, true);
         assert.equal((await run(specSetAnswerImpl, { file: copyA, questionId: 'RQ-9', answer: '(b)', author: '' })).ok, true);
@@ -385,7 +385,7 @@ describe('Team review rounds', () => {
         assert.equal(m.ok, true, JSON.stringify(m));
         assert.equal(m.summary.conflicts, 1);
         assert.ok(m.report.revision, 'a SOM merge appends a draft revision entry');
-        const merged = 'som5/round/merged/req.docspecs.yaml';
+        const merged = 'som5/round/merged/req.tomspecs.yaml';
 
         const notes = await run(specAnnotationsImpl, { file: merged });
         assert.equal(notes.ok, true, JSON.stringify(notes));
@@ -428,16 +428,16 @@ describe('Team review rounds', () => {
 
     test('RR-6: the blueprint\'s team for a document without one', async () => {
         fs.mkdirSync(path.join(ws, 'som6/docs'), { recursive: true });
-        const sbp = 'som6/blueprint.docspecs.yaml';
+        const sbp = 'som6/blueprint.tomspecs.yaml';
         assert.equal((await run(specCreateDocumentImpl, { file: sbp, root: 'SBP' })).ok, true);
         const dflt = await run(specAddNodeImpl, { file: sbp, parentPath: 'SBP/stakeholdersAndGovernance/reviewTeam', childSegment: 'RVMEM-MEMB-LST', fields: { content: { memberId: 'dana', displayName: 'Dana Lead', role: 'Architect', owner: true } } });
         assert.equal(dflt.ok, true, JSON.stringify(dflt));
-        const doc = 'som6/docs/req.docspecs.yaml';
+        const doc = 'som6/docs/req.tomspecs.yaml';
         assert.equal((await run(specCreateDocumentImpl, { file: doc, root: 'RSP' })).ok, true);
 
         const byDefault = await run(specReviewRoundCreateImpl, { file: doc, round: 'som6/r1' });
         assert.equal(byDefault.ok, true, JSON.stringify(byDefault));
-        assert.equal(byDefault.teamSource, 'som6/blueprint.docspecs.yaml (default team)');
+        assert.equal(byDefault.teamSource, 'som6/blueprint.tomspecs.yaml (default team)');
         assert.deepEqual(byDefault.team.map((m: Json) => m.memberId), ['dana']);
 
         const entry = await run(specAddNodeImpl, { file: sbp, parentPath: 'SBP/stakeholdersAndGovernance', childSegment: 'DCRVTM-DOCR-LST', fields: { content: { documentType: 'd04RequirementsSpecification' } } });
@@ -446,7 +446,7 @@ describe('Team review rounds', () => {
         assert.equal(member.ok, true, JSON.stringify(member));
         const byType = await run(specReviewRoundCreateImpl, { file: doc, round: 'som6/r2', sbp });
         assert.equal(byType.ok, true, JSON.stringify(byType));
-        assert.equal(byType.teamSource, 'som6/blueprint.docspecs.yaml (d04)');
+        assert.equal(byType.teamSource, 'som6/blueprint.tomspecs.yaml (d04)');
         assert.deepEqual(byType.team.map((m: Json) => m.memberId), ['erik']);
         assert.equal(byType.team.length, 1, 'the most specific team replaces the default');
     });

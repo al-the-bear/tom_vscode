@@ -219,14 +219,14 @@ const SPEC_ROOT_PARAM = {
     type: 'string',
     description: 'The spec root whose `checks/` folder holds the project\'s data. Default: the nearest folder above the document holding `checks/`, else the document folder\'s parent.',
 };
-const YAML_FILE = { ...FILE_PARAM, description: 'The specification document (`*.docspecs.yaml`), workspace-relative or absolute (inside the workspace).' };
+const YAML_FILE = { ...FILE_PARAM, description: 'The specification document (`*.tomspecs.yaml`), workspace-relative or absolute (inside the workspace).' };
 const TAGS = ['tomspecs', 'spec-checks', 'tom-ai-chat'];
 
 export const SPEC_IMPORT_ANSWERS_TOOL: SharedToolDefinition<SpecImportAnswersInput> = {
     name: 'tomAi_specImportAnswers',
     displayName: 'TomSpecs: Import Answers',
     description:
-        'Import the answers typed into a document\'s rendition (`*.md`) into its YAML, in place and verified (tomspecs :spec-import-answers), then regenerate the rendition. A rendition that differs in more than answers is refused (`refused`, the REFUSED lines) unless `allowOtherEdits` (narrative values replaced too). Both files are written through the editor checks: refused when dirty in an editor or changed since read (`expectedRevision` for the YAML); `dryRun` answers the diffs and writes nothing. `summary.imported` lists the answers (question id, path, first line), `files` what was written.'
+        'Import the answers typed into a document\'s rendition (`*.tomspecs.md`) into its YAML, in place and verified (tomspecs :spec-import-answers), then regenerate the rendition. A rendition that differs in more than answers is refused (`refused`, the REFUSED lines) unless `allowOtherEdits` (narrative values replaced too). Both files are written through the editor checks: refused when dirty in an editor or changed since read (`expectedRevision` for the YAML); `dryRun` answers the diffs and writes nothing. `summary.imported` lists the answers (question id, path, first line), `files` what was written.'
         + COMMON,
     tags: TAGS,
     readOnly: false,
@@ -235,7 +235,7 @@ export const SPEC_IMPORT_ANSWERS_TOOL: SharedToolDefinition<SpecImportAnswersInp
         type: 'object',
         properties: {
             file: YAML_FILE,
-            rendition: { type: 'string', description: 'The rendition the answers were typed into (`*.md`).' },
+            rendition: { type: 'string', description: 'The rendition the answers were typed into (`*.tomspecs.md`).' },
             dryRun: { type: 'boolean', description: 'Answer the diffs, write nothing. Default false.' },
             allowOtherEdits: { type: 'boolean', description: 'Also take other narrative values changed in the rendition. Default false.' },
             expectedRevision: { type: 'string', description: 'The YAML\'s `revision` from the last read; refused when it changed since.' },
@@ -338,7 +338,7 @@ export const SPEC_COVERAGE_TOOL: SharedToolDefinition<SpecCoverageInput> = {
     inputSchema: {
         type: 'object',
         properties: {
-            sample: { type: 'string', description: 'The full-model sample (`*.docspecs.yaml`), e.g. tom_som_conformance/samples/exercise_full_model.docspecs.yaml.' },
+            sample: { type: 'string', description: 'The full-model sample (`*.tomspecs.yaml`), e.g. tom_som_conformance/samples/exercise_full_model.tomspecs.yaml.' },
             file: YAML_FILE,
             old: { type: 'string', description: 'An older version of the document, to compare with.' },
             tsv: { type: 'boolean', description: 'Add the TSV of the empty sections. Default false.' },

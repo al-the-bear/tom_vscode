@@ -49,7 +49,7 @@ const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIXTURE = path.join(EXT_ROOT, 'src', 'tools', '__tests__', 'fixtures', 'phase4');
 const AI_BUILD = path.resolve(EXT_ROOT, '..', '..', 'ai_build');
 const SAMPLE_EXTRACTS = path.join(AI_BUILD, 'tom_specs_samples', 'phase4_codespecs_run', 'build', 'codespecs_extracts');
-const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.docspecs.yaml'), 'utf8');
+const MERIDIAN_YAML = fs.readFileSync(path.join(AI_BUILD, 'tom_som_dart_v0', 'documents', 'meridian_order_management.tomspecs.yaml'), 'utf8');
 const CORPUS = path.join(AI_BUILD, 'tom_som_conformance', 'generated-doc', 'codespecs_extracts');
 
 const ENTITY = 'SBP/informationAndDataModel/dataModel/DAENT-ENTI-LST-1';
@@ -158,10 +158,10 @@ describe('CodeSpecs query and trace', () => {
     });
 
     test('CT-7: the heading codeSpec forward link', async () => {
-        put('spec/meridian.docspecs.yaml', MERIDIAN_YAML);
+        put('spec/meridian.tomspecs.yaml', MERIDIAN_YAML);
         for (const f of fs.readdirSync(CORPUS)) { put(`spec/generated-doc/codespecs_extracts/${f}`, fs.readFileSync(path.join(CORPUS, f), 'utf8')); }
         const fr1 = 'SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1';
-        const r = await call(codeSpecsTraceImpl, { file: 'spec/meridian.docspecs.yaml', specPath: `${fr1}/FRED` });
+        const r = await call(codeSpecsTraceImpl, { file: 'spec/meridian.tomspecs.yaml', specPath: `${fr1}/FRED` });
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.deepEqual(r.headingCodeSpec, [
             { path: fr1, codeSpec: 'CsOrder,CsOrder.captureFromEdi,CsOrderRepository' },
@@ -226,8 +226,8 @@ describe('CodeSpecs query and trace', () => {
     });
 
     test('CT-13: generation units in the extracts', async () => {
-        put('units/meridian.docspecs.yaml', MERIDIAN_YAML);
-        const written = await call(codeSpecsWriteExtractsImpl, { file: 'units/meridian.docspecs.yaml', outDir: 'units/extracts' });
+        put('units/meridian.tomspecs.yaml', MERIDIAN_YAML);
+        const written = await call(codeSpecsWriteExtractsImpl, { file: 'units/meridian.tomspecs.yaml', outDir: 'units/extracts' });
         assert.equal(written.ok, true, JSON.stringify(written).slice(0, 400));
         const MSGKR = 'SBP/informationAndDataModel/messageKeyRegistry';
         const stored = await call(codeSpecsQueryImpl, { extractsDir: 'units/extracts', path: MSGKR });
