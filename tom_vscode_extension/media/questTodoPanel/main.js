@@ -2376,8 +2376,8 @@ function qtDecisionRowHtml(d, i) {
         '<button class="qt-edit-btn qt-decision-rm-btn" data-qt-decision-idx="' + i + '" title="Remove decision">\uD83D\uDDD1\uFE0F</button></div>' +
         '<div class="qt-decision-body' + (open ? '' : ' hidden') + '" data-qt-decision-body="' + i + '">' +
         qtFormRow('Summary', '<input class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="summary" value="' + qtEsc(d.summary || '') + '">') +
-        qtFormRow('Decision needed', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision_needed" data-completion="on">' + qtEsc(d.decision_needed || '') + '</textarea>') +
-        qtFormRow('Decision', '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision" data-completion="on">' + qtEsc(d.decision || '') + '</textarea>') +
+        qtFormRow('Decision needed' + qtMdButtons('decision_needed:' + i, 'Decision needed'), '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision_needed" data-completion="on">' + qtEsc(d.decision_needed || '') + '</textarea>') +
+        qtFormRow('Decision' + qtMdButtons('decision:' + i, 'Decision'), '<textarea class="qt-decision-field" data-qt-decision-idx="' + i + '" data-qt-decision-field="decision" data-completion="on">' + qtEsc(d.decision || '') + '</textarea>') +
         '</div></div>';
 }
 
@@ -2483,7 +2483,8 @@ function qtAnswerRow(todo) {
 }
 
 /**
- * The two markdown preview buttons of a field (`desc`, `notes`, `answer`): show
+ * The two markdown preview buttons of a field (`desc`, `notes`, `answer`, the After done section's
+ * `od-instructions` and `od-notify`, a decision's `decision_needed:<i>` and `decision:<i>`): show
  * it rendered in the overlay over the whole panel (media/shared/mdOverlay.js),
  * or open it in the markdown preview editor. One delegated click handler
  * (qtHandleMdButtonClick) serves every form, so re-rendering needs no wiring.
@@ -2497,12 +2498,31 @@ function qtMdButtons(field, what) {
         '</span>';
 }
 
-var QT_MD_FIELD_LABELS = { desc: 'Description', notes: 'Notes' };
+var QT_MD_FIELD_LABELS = { desc: 'Description', notes: 'Notes', 'od-instructions': 'After done \u2014 Instructions', 'od-notify': 'After done \u2014 Notify prompt' };
+var QT_MD_FIELD_IDS = { desc: 'qt-d-desc', notes: 'qt-d-notes', 'od-instructions': 'qt-od-instructions', 'od-notify': 'qt-od-notify' };
+
+/** A decision field's key (`decision_needed:<i>`, `decision:<i>`): its field and index; undefined for the others. */
+function qtMdDecisionField(field) {
+    var m = /^(decision_needed|decision):(\d+)$/.exec(String(field || ''));
+    return m ? { name: m[1], idx: m[2] } : undefined;
+}
 
 /** The field's text as it is now: the form's value, unsaved edits included. */
 function qtMdFieldText(field) {
-    var el = document.getElementById(field === 'desc' ? 'qt-d-desc' : 'qt-d-notes');
+    var dec = qtMdDecisionField(field);
+    var el = dec
+        ? document.querySelector('.qt-decision-field[data-qt-decision-idx="' + dec.idx + '"][data-qt-decision-field="' + dec.name + '"]')
+        : document.getElementById(QT_MD_FIELD_IDS[field] || 'qt-d-notes');
     return el ? el.value : '';
+}
+
+/** The title of the rendered field: its label; a decision's names the decision by its summary. */
+function qtMdFieldLabel(field) {
+    var dec = qtMdDecisionField(field);
+    if (!dec) return QT_MD_FIELD_LABELS[field] || field;
+    var summaryEl = document.querySelector('.qt-decision-field[data-qt-decision-idx="' + dec.idx + '"][data-qt-decision-field="summary"]');
+    var summary = summaryEl && summaryEl.value.trim() ? summaryEl.value.trim() : 'Decision ' + (Number(dec.idx) + 1);
+    return summary + ' \u2014 ' + (dec.name === 'decision' ? 'Decision' : 'Decision needed');
 }
 
 function qtHandleMdButtonClick(e) {
@@ -2528,7 +2548,7 @@ function qtHandleMdButtonClick(e) {
     var owner = isNew ? 'New todo' : ((qtDetailTodo && qtDetailTodo.id) || 'Todo');
     vscode.postMessage({
         type: btn.getAttribute('data-qt-md-mode') === 'editor' ? 'qtOpenMarkdownPreview' : 'qtRenderMarkdown',
-        title: owner + ' \u2014 ' + (QT_MD_FIELD_LABELS[field] || field),
+        title: owner + ' \u2014 ' + qtMdFieldLabel(field),
         markdown: qtMdFieldText(field),
     });
 }
@@ -3105,8 +3125,8 @@ function qtOnDoneSection(todo) {
         qtFormRow('Actions', '<span class="qt-od-actions">' + QT_OD_ACTIONS.map(function(a) {
             return '<label title="' + qtEsc(a[2]) + '"><input type="checkbox" data-od-action="' + a[0] + '"' + (acts.indexOf(a[0]) >= 0 ? ' checked' : '') + '>' + a[1] + '</label>';
         }).join('') + '</span>') +
-        qtFormRow('Instructions', '<textarea id="qt-od-instructions" placeholder="What the agent does when the todo is completed">' + qtEsc(od.instructions || '') + '</textarea>') +
-        qtFormRow('Notify prompt', '<textarea id="qt-od-notify" placeholder="The done notification notify queues (empty: the Todo — Done Notification template, else none)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
+        qtFormRow('Instructions' + qtMdButtons('od-instructions', 'Instructions'), '<textarea id="qt-od-instructions" placeholder="What the agent does when the todo is completed">' + qtEsc(od.instructions || '') + '</textarea>') +
+        qtFormRow('Notify prompt' + qtMdButtons('od-notify', 'Notify prompt'), '<textarea id="qt-od-notify" placeholder="The done notification notify queues (empty: the Todo — Done Notification template, else none)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
         qtFormRow('Report to', '<input id="qt-od-report" placeholder="path#section" value="' + qtEsc(od.report_to || '') + '">') +
         qtFormRow('Filed by', '<input id="qt-od-filed-by" readonly class="qt-readonly" value="' + qtEsc(filedBy || '(not recorded)') + '" title="Written when the todo was filed; not editable">') +
         '</div>';

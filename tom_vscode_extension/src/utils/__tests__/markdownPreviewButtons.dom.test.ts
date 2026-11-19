@@ -13,6 +13,9 @@
  *   MP-4 the host's qtMarkdownHtml opens the overlay
  *   MP-5 a queue item's Answer block has the two buttons; they post renderMarkdown / openMarkdownPreview
  *        with the full answer, and the host's markdownHtml opens the overlay
+ *   MP-7 the After done section's Instructions and Notify prompt, and each decision's Decision needed and
+ *        Decision have the two buttons; they post the field's text as it is in the form, titled with the
+ *        todo and the field (a decision's by its summary)
  *   MP-6 both hosts render with the safe renderer and open the editor with showMarkdownHtmlPreview;
  *        both webviews load the overlay's script and stylesheet
  */
@@ -134,6 +137,35 @@ describe('markdown preview buttons', () => {
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'markdownHtml', title: 'Answer — Do the thing', html: '<h1>Result</h1>' } }));
         assert.ok(visible(w), 'the overlay opens');
         assert.equal(w.document.querySelector('.tom-md-overlay h1').textContent, 'Result');
+    });
+
+    test('MP-7: After done and the decisions', (t) => {
+        const { w, posted } = todoPanel(t);
+        const todo = {
+            id: 'dn1', title: 'Decide', status: 'decision-needed', description: 'd',
+            on_done: { actions: ['notify'], instructions: 'Then **tell** them.', notify_prompt: 'Done: ${itemTitle}' },
+            decisions: [{ summary: 'Which store', decision_needed: 'Options: (a) **A** (b) B' }, { summary: '', decision_needed: 'x', decision: '(a) because' }],
+        };
+        w.eval(`qtDetailTodo = ${JSON.stringify(todo)};`);
+        w.qtRenderDetail(todo);
+        const pane = w.document.getElementById('qt-detail-pane');
+        const fields = ['od-instructions', 'od-notify', 'decision_needed:0', 'decision:0', 'decision_needed:1', 'decision:1'];
+        for (const field of fields) {
+            for (const mode of ['overlay', 'editor']) {
+                assert.ok(pane.querySelector(`.qt-md-btn[data-qt-md-field="${field}"][data-qt-md-mode="${mode}"]`), `${field} ${mode}`);
+            }
+        }
+        const click = (field: string, mode: string): Record<string, unknown> => {
+            posted.length = 0;
+            pane.querySelector(`.qt-md-btn[data-qt-md-field="${field}"][data-qt-md-mode="${mode}"]`).click();
+            return posted.at(-1)!;
+        };
+        assert.deepEqual(click('od-instructions', 'overlay'), { type: 'qtRenderMarkdown', title: 'dn1 — After done — Instructions', markdown: 'Then **tell** them.' });
+        w.document.getElementById('qt-od-notify').value = 'Edited ${itemOutcome}';
+        assert.deepEqual(click('od-notify', 'editor'), { type: 'qtOpenMarkdownPreview', title: 'dn1 — After done — Notify prompt', markdown: 'Edited ${itemOutcome}' });
+        assert.deepEqual(click('decision_needed:0', 'overlay'), { type: 'qtRenderMarkdown', title: 'dn1 — Which store — Decision needed', markdown: 'Options: (a) **A** (b) B' });
+        pane.querySelector('.qt-decision-field[data-qt-decision-idx="1"][data-qt-decision-field="decision"]').value = '(b) after all';
+        assert.deepEqual(click('decision:1', 'editor'), { type: 'qtOpenMarkdownPreview', title: 'dn1 — Decision 2 — Decision', markdown: '(b) after all' }, 'unsaved text; a decision without a summary by its number');
     });
 
     test('MP-6: the hosts and the assets', () => {
