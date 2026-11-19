@@ -35,6 +35,7 @@ body {
 .row:hover .dismiss { visibility: visible; }
 .type-askOpened { color: var(--vscode-charts-orange, #d18616); }
 .type-userNotified { color: var(--vscode-charts-blue, #3794ff); }
+.type-answer { color: var(--vscode-charts-green, #3fb950); }
 .type-subprocessSuggested { color: var(--vscode-charts-purple, #b180d7); }
 .type-decisionWaiting { color: var(--vscode-charts-yellow, #cca700); }
 .type-userTodo { color: var(--vscode-charts-green, #3fb950); }

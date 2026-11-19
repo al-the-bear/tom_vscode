@@ -119,6 +119,8 @@ import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation
 import { markShuttingDown, setOpenAskChatSender } from './services/openAskRecord';
 import { startUserNotificationEmitter } from './services/userNotificationEmitter';
 import { userInteractions } from './services/userInteractions';
+import { configureAnswersStore } from './services/userAnswersStore';
+import { initAnswersPanel } from './handlers/answersPanel-handler';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -507,6 +509,9 @@ export async function activate(context: vscode.ExtensionContext) {
     registerNotificationsView(context);
     // @TOM INFO › USER NOTIFICATIONS: what is directed at the user, kept apart (vscimpb170).
     registerUserNotificationsView(context);
+    // tomAi_answerUser (vscimpb171): the machine's answer store for this window's _ai, and the Answers page.
+    configureAnswersStore(context.globalStorageUri.fsPath, () => WsPaths.aiRoot);
+    initAnswersPanel(context);
     timeStep('notifications', stepStart);
 
     // Register Unified Notepad (T2) panel

@@ -56,7 +56,7 @@ function ev(type: NotificationType, sec: number, extra: Partial<NotificationEven
 describe('USER NOTIFICATIONS', () => {
     test('UN-1: the types in NOTIFICATIONS', () => {
         assert.deepEqual(NOTIFICATION_TYPES.slice(0, 5), ['itemQueued', 'itemDeleted', 'todoCreated', 'todoUpdated', 'todoChanged'], 'the old five first, in order');
-        assert.deepEqual(USER_NOTIFICATION_TYPES, ['askOpened', 'askClosed', 'userNotified', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding']);
+        assert.deepEqual(USER_NOTIFICATION_TYPES, ['askOpened', 'askClosed', 'userNotified', 'answer', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding']);
         for (const t of NOTIFICATION_TYPES) { assert.ok(NOTIFICATION_TYPE_INFO[t].label && NOTIFICATION_TYPE_INFO[t].icon, t); }
         assert.ok(USER_NOTIFICATION_TYPES.every((t) => NOTIFICATION_TYPES.includes(t)));
         // Merge rules: unchanged for the old types, the same for the new ones.

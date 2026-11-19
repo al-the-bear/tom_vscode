@@ -83,6 +83,8 @@ export const PLAN_MODE_REFUSAL = 'plan mode: read and plan only — present your
  */
 export const PLAN_MODE_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
     'tomAi_enterPlanMode', 'tomAi_exitPlanMode', 'tomAi_askUser', 'tomAi_askUserPicker', 'tomAi_notifyUser',
+    // An answer changes nothing in the workspace: it goes to the user's answer store.
+    'tomAi_answerUser',
 ]);
 
 /**

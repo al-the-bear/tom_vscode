@@ -577,7 +577,9 @@ renders it; you can drag it into the secondary side bar), and **RUNS**
 its subject, position and state (running, paused, idle, or waiting for you, an
 event or a task, with what it waits for), **USER NOTIFICATIONS**
 (`tomAi.userNotifications`): every ask, message, suggestion, decision, todo
-and queue hold directed at you, open asks shown until answered, and
+and queue hold directed at you, open asks shown until answered (an answer an
+agent gave with `tomAi_answerUser` opens in the **Answers** page, `@T: Answers`,
+where its suggested todos are added with a click), and
 **NOTIFICATIONS**
 (`tomAi.notifications`): what agents and you did to queues and todos in every
 window — items queued and deleted, todos created, edited and moved on —, merged

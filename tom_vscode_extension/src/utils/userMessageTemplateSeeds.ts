@@ -6,7 +6,8 @@
  * - **With asking** (`with-asking`): before the work, every unclear point of
  *   the prompt is asked through the ask tools; decision-needed todos only for
  *   what the user explicitly leaves open.
- * - Every seeded template names the ask tools for what it leaves open
+ * - Every seeded template names the ask tools for what it leaves open, and
+ *   tomAi_answerUser for a question the prompt asks beside the work
  *   ({@link ASK_TOOLS_PARAGRAPH}; Explain TODO asks in a Markdown document
  *   through tomAi_askInMdBrowser).
  * - An entry still holding an earlier built-in body (never edited) is brought
@@ -20,12 +21,22 @@
 
 import { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_ID, PREVIOUS_EXPLAIN_TODO_BODIES, explainTodoTemplateEntry } from './explainTodoTemplate';
 
-/** The ask tools, as every seeded template names them for what it leaves open. */
-export const ASK_TOOLS_PARAGRAPH =
+/** The ask tools, as the seeded templates named them before tomAi_answerUser (vscimpb171). */
+export const PREVIOUS_ASK_TOOLS_PARAGRAPH =
     '**Asking:** whatever is unclear or ambiguous, ask me instead of deciding it yourself, with the ask tools: '
     + '`tomAi_askUser` (one numbered question each, `choices` for the options, your recommendation first), '
     + '`tomAi_askUserPicker` for a pick from a list, `tomAi_askInMdBrowser` when the questions need a longer document. '
     + 'Call them without `timeoutMinutes` and wait for my answer. File a decision-needed todo only for what I explicitly leave open.';
+
+/** When to answer with tomAi_answerUser: a question in a prompt that also asks for work (vscimpb171). */
+export const ANSWER_TOOL_PARAGRAPH =
+    '**Answering:** when my prompt asks you a question beside the work, answer it with `tomAi_answerUser` '
+    + '(a title, the answer in Markdown, and prompts or complete todos you suggest) as soon as you know the answer, '
+    + 'and go on with the work: it does not wait, and I find the answer in the Answers page instead of the trail. '
+    + 'A question from you to me stays `tomAi_askUser`.';
+
+/** The ask tools and the answer tool, as every seeded template names them. */
+export const ASK_TOOLS_PARAGRAPH = `${PREVIOUS_ASK_TOOLS_PARAGRAPH}\n\n${ANSWER_TOOL_PARAGRAPH}`;
 
 /** Id of the seeded "With asking" template. */
 export const WITH_ASKING_USER_MESSAGE_TEMPLATE_ID = 'with-asking';
@@ -62,6 +73,14 @@ export const PREVIOUS_EXECUTE_TODO_BODIES: readonly string[] = [
     + 'todo so it is tracked.\n\nOnce the TODO is fully done, change its status to '
     + '"Completed".\n\nPlease verify everything stated is implemented exactly as '
     + 'described.',
+    // With the ask tools named, before tomAi_answerUser (vscimpb171).
+    'Do the following TODO:\n\n${userMessage}\n\n'
+    + 'Work through the TODO completely. When you start working on the TODO change '
+    + 'its status to "In-Progress". If you notice anything that should be improved '
+    + 'or also needs fixing, fix or do it. If you cannot do it now, create a new '
+    + 'todo so it is tracked.\n\nOnce the TODO is fully done, change its status to '
+    + '"Completed".\n\nPlease verify everything stated is implemented exactly as '
+    + 'described.\n\n' + PREVIOUS_ASK_TOOLS_PARAGRAPH,
 ];
 
 /** The retired templates; a reference to one resolves to {@link RETIRED_TEMPLATE_FALLBACK_ID}. */

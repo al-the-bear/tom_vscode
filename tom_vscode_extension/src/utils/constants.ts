@@ -170,6 +170,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_deleteSessionTodo',
     // Notification
     'tomAi_notifyUser',
+    // An answer for the user, the turn going on (vscimpb171)
+    'tomAi_answerUser',
     // Waiting on something outside the turn (vscimpb82)
     'tomAi_waitFor',
     // Issues (bottom-panel WS tab — issue tracker)

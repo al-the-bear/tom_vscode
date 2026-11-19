@@ -24,6 +24,9 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
+import { ANSWER_USER_TOOL as ANSWER_USER_DEF, answerUserImpl, type AnswerUserDeps, type AnswerUserInput } from './answer-user-tool';
+import { answersDir, fireAnswerStored } from '../services/userAnswersStore';
+import { writeAnswer } from '../utils/userAnswers';
 import { SessionTodoStore } from '../managers/sessionTodoStore';
 import * as questTodo from '../managers/questTodoManager';
 import { todoItemPromptText, todoQueueItemSpec } from '../utils/todoQueueItems';
@@ -98,6 +101,54 @@ export function notifyUserLive(input: NotifyUserInput): Promise<string> {
 export const NOTIFY_USER_TOOL: SharedToolDefinition<NotifyUserInput> = {
     ...NOTIFY_USER_DEF,
     execute: (input) => notifyUserImpl(liveNotificationChannels, input),
+};
+
+// tomAi_answerUser (vscimpb171): an answer for the user, stored and shown, the turn going on.
+
+/** The window id every store of this machine names a window by. */
+function answerWindowId(): string {
+    return `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`;
+}
+
+/** A store that files an added todo as the answering agent (`filedBy`), else as the caller. */
+export function questTodoDepsFiledBy(filedBy?: Record<string, string>): QuestTodoToolsDeps {
+    if (!filedBy) { return liveQuestTodoDeps; }
+    return {
+        ...liveQuestTodoDeps,
+        store: {
+            ...liveQuestTodoStore,
+            create(questId, todo, file): QuestTodoFull {
+                return toFull(questTodo.fileTodo(questId, todo as Omit<questTodo.QuestTodoItem, '_sourceFile'>, file, filedBy));
+            },
+        },
+    };
+}
+
+export const liveAnswerUserDeps: AnswerUserDeps = {
+    context: () => {
+        const session = callerSession();
+        const queueItemId = currentQueueItemId();
+        return {
+            windowId: answerWindowId(),
+            quest: WsPaths.getWorkspaceQuestId(),
+            run: currentInteractionRun(),
+            ...(session ? { session } : {}),
+            ...(queueItemId ? { queueItemId } : {}),
+            filedBy: questTodo.currentTodoFiledBy() as Record<string, string>,
+        };
+    },
+    todoProblem: (quest, todo, file) => createQuestTodoProblem(liveQuestTodoDeps, { questId: quest, todo, ...(file ? { file } : {}) } as CreateQuestTodoInput),
+    store: (answer) => {
+        const dir = answersDir();
+        if (!dir) { throw new Error('no answer store: the window has no _ai folder'); }
+        writeAnswer(dir, answer);
+    },
+    onStored: (answer) => fireAnswerStored(answer),
+};
+
+export const ANSWER_USER_TOOL: SharedToolDefinition<AnswerUserInput> = {
+    ...ANSWER_USER_DEF,
+    execute: (input) => answerUserImpl(liveAnswerUserDeps, input),
 };
 
 // Workspace-info tool moved to `editor-context-tools.ts` (tomAi_getWorkspaceInfo).
@@ -194,6 +245,7 @@ import {
     listQuestTodosImpl,
     getQuestTodoImpl,
     createQuestTodoImpl,
+    createQuestTodoProblem,
     updateQuestTodoImpl,
     moveQuestTodoImpl,
     deleteQuestTodoImpl,
@@ -283,6 +335,7 @@ export const liveQuestTodoDeps: QuestTodoToolsDeps = {
     store: liveQuestTodoStore,
     onMutate: () => refreshSessionPanel(),  // shared panel updates both session + quest views
     partOf: (questId, todoId) => questTodo.todoPartOf(questId, todoId),
+    idRefusal: (id) => questTodo.todoIdRefusal(id),
 };
 
 /** Every todo of a quest, the `-archived` / `-deleted` siblings included. */
@@ -905,6 +958,8 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
 // ============================================================================
 
 import { GET_QUEST_WINDOW_STATUS_TOOL as GET_QUEST_WINDOW_STATUS_DEF, getQuestWindowStatusImpl, type GetQuestWindowStatusInput, type QuestWindowStatusAccess } from './quest-window-status-tools';
+import { callerSession } from './session-param';
+import { currentInteractionRun, currentQueueItemId } from '../services/userWaits';
 
 const liveQuestWindowStatusAccess: QuestWindowStatusAccess = {
     questExists: (quest) => liveQuestSendAccess.questExists(quest),
@@ -1349,6 +1404,7 @@ export const WORKSPACE_TODO_LIST_TOOL = WORKSPACE_TODO_LIST_TOOL_NEW;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     NOTIFY_USER_TOOL,
+    ANSWER_USER_TOOL,
     DETERMINE_QUEST_TOOL,
     LIST_TODOS_TOOL,
     GET_ALL_TODOS_TOOL,

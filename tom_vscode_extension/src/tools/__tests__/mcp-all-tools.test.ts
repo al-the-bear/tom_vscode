@@ -210,6 +210,8 @@ import { TrailService } from '../../services/trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { AskUserRegistry } from '../../services/askUserRegistry.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
+import { answersDir, configureAnswersStore } from '../../services/userAnswersStore.js';
+import { readAnswers } from '../../utils/userAnswers.js';
 import { setExtensionLogUri } from '../../utils/outputChannelLogs.js';
 import { renderTransportPicker } from '../../utils/transportPicker.js';
 import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../../utils/anthropicApiKeyCheck.js';
@@ -315,6 +317,7 @@ function inputs(): Record<string, Input> {
         tomAi_askUser: { questions: ['Is this the sandbox?'] },
         tomAi_askUserPicker: { items: ['yes', 'no'] },
         tomAi_notifyUser: { message: 'from the MCP test', channel: 'vscode' },
+        tomAi_answerUser: { title: 'Is this the sandbox?', answer: 'Yes: **the sandbox**.', suggestedPrompts: [{ text: 'Go on in the sandbox' }] },
         tomAi_waitFor: { reason: 'the MCP test waits a moment', minutes: 0.002 },
         tomAi_fetchWebpage: { url: 'https://example.invalid/' },
         tomAi_webSearch: { query: 'sandbox' },
@@ -643,6 +646,7 @@ function startStores(): void {
         asAbsolutePath: (rel: string) => path.join(EXT_ROOT, rel),
     } as never;
     setExtensionPath(EXT_ROOT);
+    configureAnswersStore(path.join(SANDBOX, 'global-storage'), () => path.join(WS, '_ai'));
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
     ProcessStateStore.init(context);
@@ -753,6 +757,10 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.equal(git(EXT_ROOT, 'rev-parse', 'HEAD'), headBefore, "and has no new commit (gitWrite committed in the sandbox's)");
         assert.equal(os.homedir(), HOME, 'HOME is the sandbox home while the tools run');
         assert.notEqual(HOME, REAL_HOME);
+        // tomAi_answerUser stored its answer in the sandbox's store and returned without waiting.
+        assert.match(answerOf('tomAi_answerUser'), /"ok": ?true[\s\S]*"stored": ?true/);
+        assert.ok(answersDir()!.startsWith(SANDBOX + path.sep));
+        assert.deepEqual(readAnswers(answersDir()!).map((a) => [a.title, a.suggestedPrompts.length, a.read]), [['Is this the sandbox?', 1, false]]);
         assert.ok(refusedRequests.length >= 2, `the web tools tried to go out and were refused: ${refusedRequests.join(', ')}`);
         // What the write tools wrote is there, in the sandbox.
         assert.equal(fs.readFileSync(path.join(WS, 'created/applied.md'), 'utf8'), 'applied\n', 'tomAi_applyEdit');

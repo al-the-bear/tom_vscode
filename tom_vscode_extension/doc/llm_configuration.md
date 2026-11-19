@@ -554,7 +554,7 @@ What tools a send offers is decided in this order (`AnthropicHandler.sendMessage
 
 The same list then reaches every transport: the direct request's `tools`, the Agent SDK's in-process MCP server, VS Code LM's `tools` option and the Local LLM request. On the Agent SDK, Claude Code's built-in tools follow the profile's *Use Built-In Agent SDK Tools*, not the role type.
 
-**Always-on tools:** `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, `tomAi_notifyUser`, `tomAi_getProcessState`, `tomAi_setProcessState`, `tomAi_listQuestTodos`, `tomAi_getQuestTodo`, `tomAi_createQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_waitFor`. A role type cannot switch them off. A profile with a selection of its own gets them too, and the Prompt Template Editor shows them greyed and on.
+**Always-on tools:** `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, `tomAi_notifyUser`, `tomAi_answerUser`, `tomAi_getProcessState`, `tomAi_setProcessState`, `tomAi_listQuestTodos`, `tomAi_getQuestTodo`, `tomAi_createQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_waitFor`. A role type cannot switch them off. A profile with a selection of its own gets them too, and the Prompt Template Editor shows them greyed and on.
 
 The two files are validated against `src/config/role-type.schema.json` and `role-config.schema.json`, which are copied into the workspace's `.tom/json-schema/roles/`. The Role Editor and the Role Type Editor (`tomAi.editor.roles`, `tomAi.editor.roleTypes`; `src/handlers/rolesEditor-handler.ts`, `src/services/roleStore.ts`) write only valid files. A `role-config.yaml` holds only `roleType` for now.
 

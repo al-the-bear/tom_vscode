@@ -457,6 +457,7 @@ Two-tier: `shared/` (cross-quest, one set of files) and the quest scope, which i
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_notifyUser` | Notification (the quest's Telegram when set up on this machine, else VS Code). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_answerUser` | Give the user an answer **without waiting**: for a question a prompt asks beside the work. `title`, `answer` (Markdown), optionally `question`, `suggestedPrompts` and `suggestedTodos` (complete todo records, checked as `tomAi_createQuestTodo` checks them). Returns at once; the answer is stored for the machine and shown in the Answers page. See [`tomAi_answerUser`](#tomai_answeruser). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_waitFor` | Wait on something outside the turn that only time resolves (pub.dev's 12 versions in 24 h, a rate window): `reason` (one line, shown on the queue item), `until` (ISO or `HH:MM`) or `minutes`, at most 48 h, optional `details`. Blocks; answers `{ok, outcome: elapsed / interrupted / cancelled, waited, message}` — `interrupted`: the user moved on from the queue (Continue), end the turn with a note of what is still to do; the item steps back and its stage is sent again later. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_askUser` | **THE** way to ask the user and get an answer. Blocking: asks up to 15 questions in a webview + Telegram and returns the user's verbatim reply. Waits **indefinitely** by default — the block *is* the pause, so a prompt running in the queue holds there until the user answers. Pass `timeoutMinutes` to continue automatically instead. `choices` adds buttons — an answer, a move of the quest's process (made by the extension on the click), a branch or subprocess of the current step — at a `{{choice:<id>}}` marker or under their question. One open question per process run: questions of different runs stand side by side in the user-input panel (a tab per run); Telegram replies name the run (`<run>: answer`) when several are open. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_askUserPicker` | `showQuickPick` selection — requires a human. Same indefinite-by-default wait and optional `timeoutMinutes`. One picker per process run at a time; while another run's QuickPick is on screen, it is answered in the user-input panel. | ✅ | ✅ | ⚪ | ✅ |
@@ -1079,7 +1080,7 @@ Tool descriptions are short: purpose, arguments and the one trap, each at most 1
 
 ### 5.0 Tools a request carries
 
-The **core set** is always sent in full: `tomAi_readFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_createFile`, `tomAi_listDirectory`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_runCommand`, `tomAi_runCommandStream`, `tomAi_readCommandOutput`, `tomAi_gitRead`, `tomAi_gitWrite`, `tomAi_getQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_createQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_askUser`, `tomAi_readPastToolResult`, `tomAi_notifyUser`, `tomAi_describeTool`, `tomAi_loadSkill` (`DEFAULT_CORE_TOOLS`, `src/utils/toolSelection.ts`), plus the profile's **Core Tools (added)** (`coreTools`).
+The **core set** is always sent in full: `tomAi_readFile`, `tomAi_editFile`, `tomAi_multiEditFile`, `tomAi_createFile`, `tomAi_listDirectory`, `tomAi_findFiles`, `tomAi_findTextInFiles`, `tomAi_runCommand`, `tomAi_runCommandStream`, `tomAi_readCommandOutput`, `tomAi_gitRead`, `tomAi_gitWrite`, `tomAi_getQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_createQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_askUser`, `tomAi_readPastToolResult`, `tomAi_notifyUser`, `tomAi_answerUser`, `tomAi_describeTool`, `tomAi_loadSkill` (`DEFAULT_CORE_TOOLS`, `src/utils/toolSelection.ts`), plus the profile's **Core Tools (added)** (`coreTools`).
 
 A prompt names more tools with a line in its text — in a user-message template, a process step's prompt or the typed prompt:
 
@@ -1273,6 +1274,28 @@ Stage a new prompt-queue item with optional pre-prompts, main-prompt config, and
 ### `tomAi_addQueuePrePrompt`
 
 Append a pre-prompt to an existing staged/pending queue item. **Pre-prompts run BEFORE the main prompt**, in insertion order, each waiting for its own answer (or `answerWaitMinutes`) before the next fires. Use `tomAi_updateQueuePrePrompt` to add `repeatCount`/`answerWaitMinutes`/reminder settings after creation. Transport defaults to the item's transport; override per pre-prompt with the `transport` field. The answer carries `warning` when a stage of the item runs on an Anthropic profile whose configuration uses the direct API and whose key variable is not in this VS Code's environment: every send of that stage would fail. The item is kept; pick another profile (an Agent SDK one) or have the key set and VS Code restarted.
+
+### `tomAi_answerUser`
+
+Give the user an answer without waiting. A prompt often asks for work and also asks questions; an answer written into the reply ends up in the trail, where the items that run afterwards bury it. With `tomAi_answerUser` the agent hands the answer over as soon as it has it and goes on with its turn: the call returns at once. Call it once per question. To ask the user something, use `tomAi_askUser`.
+
+| Argument | Meaning |
+| --- | --- |
+| `title` | The question in a few words; the list shows it. Required. |
+| `answer` | The answer, Markdown. Required. |
+| `question` | The user's question, quoted. |
+| `suggestedPrompts` | `[{label, text}]`: prompts to continue with. The user copies one with **Copy** and queues it himself; nothing is queued by the tool or the page. `label` defaults to the text's first line. |
+| `suggestedTodos` | `[{quest?, todo, file?}]`: todos the user may add with one click. `todo` is the **complete** record as `tomAi_createQuestTodo` takes it (id from `tomAi_generateIdPrefix`, description, title, status, decisions, references …); `quest` defaults to the window's quest, `file` to the quest's own todo file. |
+
+Every suggested todo is checked as `tomAi_createQuestTodo` checks a create (id and description present, the id accepted by the todo schema and not in the quest, references as objects, `blocked_until`, `repeat`, `on_done`), and an id may not be suggested twice for one quest. One suggestion that is not complete refuses the whole call — `{ok: false, error, problems: [...]}`, each problem naming its entry — and nothing is stored. A suggested todo is **not created** by the call: what a prompt asks to be filed, the agent files with `tomAi_createQuestTodo` itself.
+
+The answer `{ok: true, id, stored: true, suggestedPrompts, suggestedTodos, note}` says only that it is stored. The answer is recorded with the window, quest, run, session and queue item of the call, and with the caller's `filed_by`, which a todo added from it gets.
+
+**Where the user finds it.** The Answers page (`@T: Answers`, `tomAi.showAnswers`; also in Extension Tools and the Status Page's overview) lists the answers on the left, unread ones bold, each with its time, quest and run, and shows the selected one on the right: the question, the rendered answer, the suggested todos (**Show record**, **Add todo**; an added one shows its id and cannot be added twice) and the suggested prompts (**Copy**). The page opens beside the user's work when an answer arrives, without taking the focus; an answer is read once it is in view in the focused page, and **Mark as unread** keeps it unread until another answer is selected. Each answer is also a row of USER NOTIFICATIONS (and an *Answers you* event in NOTIFICATIONS); a click on the row opens it in the page.
+
+**Storage.** One JSON file per answer in the extension's global storage, in a folder per real `_ai` path (`<globalStorage>/answers/<hash>/`): every window whose quests share that `_ai` folder sees the same answers, nothing is written into `_ai` or git, and answers stay on the machine they were given on. Answers are kept until deleted — one answer, **Delete read**, or **Delete all** (asks first). Past 500 stored answers the window offers, at most once an hour, to delete the 100 oldest, the 200 oldest, those older than 7 days or older than 30 days.
+
+The tool is always on (whatever the role), in the core set, and allowed in plan mode: it changes nothing in the workspace.
 
 ### `tomAi_askUser`
 

@@ -239,6 +239,11 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.showAnswers",
+        "title": "@T: Answers",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.commandline.add",
         "title": "@T: Add Commandline",
         "category": "@Tom"

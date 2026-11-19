@@ -41,6 +41,7 @@ export const ALWAYS_ON_TOOLS: readonly string[] = [
     'tomAi_askUserPicker',
     'tomAi_askInMdBrowser',
     'tomAi_notifyUser',
+    'tomAi_answerUser',
     'tomAi_getProcessState',
     'tomAi_setProcessState',
     'tomAi_listQuestTodos',

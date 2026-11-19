@@ -156,6 +156,8 @@ export interface QuestTodoToolsDeps {
     partOf?(questId: string, todoId: string): string[];
     /** Today's local date (YYYY-MM-DD), against which `overdue` is computed; a test seam. */
     today?(): string;
+    /** Why `id` is no todo id by the todo schema's id pattern, or undefined (a dry-run check; the writer checks it again). */
+    idRefusal?(id: string): string | undefined;
 }
 
 /** Today for the overdue state: the deps' clock, else the local date now. */
@@ -652,31 +654,33 @@ export function validateTodoReferences(references: unknown): string | undefined 
     return undefined;
 }
 
+/**
+ * Why tomAi_createQuestTodo would refuse `input`, or undefined when it would
+ * create the todo: the required fields, the fields a caller may not set, the
+ * shapes of references / blocked_until / repeat / on_done, the id rule of the
+ * todo schema (`deps.idRefusal`) and an id the quest already has. Nothing is
+ * written — also what tomAi_answerUser checks a suggested todo with.
+ */
+export function createQuestTodoProblem(deps: QuestTodoToolsDeps, input: CreateQuestTodoInput): string | undefined {
+    if (!input.questId) { return '`questId` is required.'; }
+    if (!input.todo?.id) {
+        return '`todo.id` is required — there are NO auto-id rules for quest todos. Pick a stable lowercase id like `add-auth-flow`.';
+    }
+    if (!input.todo?.description) { return '`todo.description` is required.'; }
+    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateOnDone(deps, input.questId, input.todo.on_done);
+    if (shapeError) { return shapeError; }
+    const idRefused = deps.idRefusal?.(String(input.todo.id));
+    if (idRefused) { return idRefused; }
+    if (deps.store.findById(input.questId, input.todo.id)) {
+        return `Todo "${input.todo.id}" already exists in quest "${input.questId}". Pick a different id, or use \`tomAi_updateQuestTodo\` to modify it.`;
+    }
+    return undefined;
+}
+
 export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: CreateQuestTodoInput): Promise<string> {
     try {
-        if (!input.questId) {
-            return JSON.stringify({ ok: false, error: '`questId` is required.' });
-        }
-        if (!input.todo?.id) {
-            return JSON.stringify({
-                ok: false,
-                error: '`todo.id` is required — there are NO auto-id rules for quest todos. Pick a stable lowercase id like `add-auth-flow`.',
-            });
-        }
-        if (!input.todo?.description) {
-            return JSON.stringify({ ok: false, error: '`todo.description` is required.' });
-        }
-        const referencesError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateOnDone(deps, input.questId, input.todo.on_done);
-        if (referencesError) {
-            return JSON.stringify({ ok: false, error: referencesError });
-        }
-        // Check for collision
-        if (deps.store.findById(input.questId, input.todo.id)) {
-            return JSON.stringify({
-                ok: false,
-                error: `Todo "${input.todo.id}" already exists in quest "${input.questId}". Pick a different id, or use \`tomAi_updateQuestTodo\` to modify it.`,
-            });
-        }
+        const problem = createQuestTodoProblem(deps, input);
+        if (problem) { return JSON.stringify({ ok: false, error: problem }); }
         // SCD203: computed BEFORE the create, so the proposed id is not in
         // the list it is being compared against.
         const warning = stemCollisionWarning(deps, input.questId, input.todo.id);

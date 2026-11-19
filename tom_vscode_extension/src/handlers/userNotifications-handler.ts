@@ -12,7 +12,8 @@
  * the dismissed ids are kept in one file beside the log, shared by every
  * window; the log is not changed, so NOTIFICATIONS still shows them. A click on
  * an open ask of this window opens it: the MD Browser of an MD Browser ask,
- * else the user-input panel on its run. The view's badge counts the open asks.
+ * else the user-input panel on its run. A click on an answer (tomAi_answerUser)
+ * opens it in the Answers page. The view's badge counts the open asks.
  */
 
 import * as fs from 'fs';
@@ -28,6 +29,8 @@ import { userInteractions } from '../services/userInteractions';
 import { SHOW_USER_INTERACTION_COMMAND } from './userInteractionPanel';
 
 export const USER_NOTIFICATIONS_VIEW_ID = 'tomAi.userNotifications';
+/** The Answers page's command (handlers/answersPanel-handler.ts), by id: the two handlers do not import each other. */
+const SHOW_ANSWERS_COMMAND = 'tomAi.showAnswers';
 /** The dismissed set's file, beside the log. */
 export const USER_DISMISSED_FILE = 'user-dismissed.json';
 
@@ -144,6 +147,12 @@ class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
             if (msg.type === 'ready') { this.post(); return; }
             if (msg.type === 'dismiss' && typeof msg.id === 'string') { this.dismiss([msg.id]); return; }
             if (msg.type === 'dismissAnswered') { this.dismiss(dismissibleAnsweredIds(currentUserRows())); return; }
+            if (msg.type === 'openAnswer' && typeof msg.id === 'string') {
+                // An answer (tomAi_answerUser): shown in the Answers page; the store is the machine's, so any window's answer opens.
+                const row = currentUserRows().find((r) => r.id === msg.id);
+                if (row?.key) { await vscode.commands.executeCommand(SHOW_ANSWERS_COMMAND, { id: row.key }); }
+                return;
+            }
             if (msg.type === 'openAsk' && typeof msg.id === 'string') {
                 const row = currentUserRows().find((r) => r.id === msg.id);
                 if (row && !await openAskOfRow(row)) {

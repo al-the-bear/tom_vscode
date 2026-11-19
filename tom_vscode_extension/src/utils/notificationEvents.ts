@@ -7,7 +7,8 @@
  * changed (its status changed). The user-directed types (vscimpb170, listed
  * in {@link USER_NOTIFICATION_TYPES}, shown again in USER NOTIFICATIONS):
  * something waits for the user (an ask, a picker, an MD Browser ask, a plan, a
- * tool approval) and its close, a tomAi_notifyUser message, suggested
+ * tool approval) and its close, a tomAi_notifyUser message, an answer given
+ * with tomAi_answerUser (vscimpb171, opened in the Answers page), suggested
  * subprocesses, a process decision waiting, a todo filed for the user
  * (decision-needed or a user action), the queue holding for the user. Each
  * event records when, the window (quest), the run, who (an agent — transport,
@@ -24,16 +25,16 @@
 
 export type NotificationType =
     | 'itemQueued' | 'itemDeleted' | 'todoCreated' | 'todoUpdated' | 'todoChanged'
-    | 'askOpened' | 'askClosed' | 'userNotified' | 'subprocessSuggested' | 'decisionWaiting' | 'userTodo' | 'queueHolding';
+    | 'askOpened' | 'askClosed' | 'userNotified' | 'answer' | 'subprocessSuggested' | 'decisionWaiting' | 'userTodo' | 'queueHolding';
 
 /** Every type, in the order the view's toggles show them. */
 export const NOTIFICATION_TYPES: readonly NotificationType[] = [
     'itemQueued', 'itemDeleted', 'todoCreated', 'todoUpdated', 'todoChanged',
-    'askOpened', 'askClosed', 'userNotified', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding',
+    'askOpened', 'askClosed', 'userNotified', 'answer', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding',
 ];
 
 /** The types directed at the user (USER NOTIFICATIONS shows them; `askClosed` marks its ask answered there). */
-export const USER_NOTIFICATION_TYPES: readonly NotificationType[] = ['askOpened', 'askClosed', 'userNotified', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding'];
+export const USER_NOTIFICATION_TYPES: readonly NotificationType[] = ['askOpened', 'askClosed', 'userNotified', 'answer', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding'];
 
 /** A type's toggle label and codicon. */
 export const NOTIFICATION_TYPE_INFO: Readonly<Record<NotificationType, { label: string; icon: string }>> = {
@@ -45,6 +46,7 @@ export const NOTIFICATION_TYPE_INFO: Readonly<Record<NotificationType, { label: 
     askOpened: { label: 'Asks you', icon: 'comment-discussion' },
     askClosed: { label: 'Answered', icon: 'pass' },
     userNotified: { label: 'Tells you', icon: 'bell-dot' },
+    answer: { label: 'Answers you', icon: 'comment' },
     subprocessSuggested: { label: 'Suggests', icon: 'type-hierarchy-sub' },
     decisionWaiting: { label: 'Decision', icon: 'git-compare' },
     userTodo: { label: 'Todo for you', icon: 'person' },
@@ -58,7 +60,7 @@ export type UserAskKind = 'question' | 'picker' | 'mdBrowser' | 'plan' | 'approv
 export interface NotificationUser {
     /** An ask: what kind; the other types: their own kind (e.g. a todo's `decision-needed` / `user action`). */
     kind?: string;
-    /** Pairs an `askClosed` with its `askOpened` (the interaction's id); unique per ask. */
+    /** Pairs an `askClosed` with its `askOpened` (the interaction's id); unique per ask. An `answer`: the answer's id in the store. */
     key?: string;
     /** One line. */
     title: string;
@@ -232,6 +234,7 @@ const NOUN: Record<NotificationType, [string, string, string]> = {
     askOpened: ['ask', 'asks', 'opened'],
     askClosed: ['ask', 'asks', 'answered'],
     userNotified: ['message', 'messages', 'sent'],
+    answer: ['answer', 'answers', 'given'],
     subprocessSuggested: ['suggestion', 'suggestions', 'made'],
     decisionWaiting: ['decision', 'decisions', 'waiting'],
     userTodo: ['todo for you', 'todos for you', 'filed'],
@@ -243,6 +246,7 @@ const USER_VERB: Partial<Record<NotificationType, string>> = {
     askOpened: 'waits for you',
     askClosed: 'answered',
     userNotified: 'tells you',
+    answer: 'answers you',
     subprocessSuggested: 'suggested',
     decisionWaiting: 'decision waits',
     userTodo: 'todo for you',

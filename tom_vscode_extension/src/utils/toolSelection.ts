@@ -26,7 +26,7 @@ export const DEFAULT_CORE_TOOLS: readonly string[] = [
     'tomAi_readFile', 'tomAi_editFile', 'tomAi_multiEditFile', 'tomAi_createFile', 'tomAi_listDirectory',
     'tomAi_findFiles', 'tomAi_findTextInFiles', 'tomAi_runCommand', 'tomAi_runCommandStream', 'tomAi_readCommandOutput',
     'tomAi_gitRead', 'tomAi_gitWrite', 'tomAi_getQuestTodo', 'tomAi_updateQuestTodo', 'tomAi_createQuestTodo',
-    'tomAi_generateIdPrefix', 'tomAi_askUser', 'tomAi_readPastToolResult', 'tomAi_notifyUser', 'tomAi_describeTool',
+    'tomAi_generateIdPrefix', 'tomAi_askUser', 'tomAi_readPastToolResult', 'tomAi_notifyUser', 'tomAi_answerUser', 'tomAi_describeTool',
     // The system prompt lists the skills (CC-10): the tool that loads one is never deferred.
     'tomAi_loadSkill',
 ];

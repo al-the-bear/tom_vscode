@@ -1443,9 +1443,11 @@ export function fileTodo(
     questId: string,
     todo: Omit<QuestTodoItem, '_sourceFile'>,
     targetFile?: string,
+    /** Who files it, when it is not the caller: the agent whose answer suggested it (tomAi_answerUser, vscimpb171). */
+    filedBy?: TodoFiledBy,
 ): QuestTodoItem {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
-    const created = createTodo(questId, { ...todo, filed_by: currentTodoFiledBy() }, targetFile);
+    const created = createTodo(questId, { ...todo, filed_by: filedBy ?? currentTodoFiledBy() }, targetFile);
     notifyTodoCreated(questId, created);
     applyUnblockEntries(questId, created.id, unblockEntryPlan(undefined, created, questId));
     return created;

@@ -92,6 +92,8 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'The todo panel on its own in a side bar: the workspace\'s quests (or the open windows\', one quest, or all quests you tick), live, archived and deleted todos, by quest or combined, each id with its quest.' },
     { id: 'aiWorkspaceQuests', label: 'AI Workspace Quests', group: 'quest', icon: 'folder-library', command: 'tomAi.editor.aiWorkspaceQuests',
         purpose: 'The quests this workspace works on (`_ai/workspaces/<workspace>.yaml`), each with its short description: the quest lists and tomAi_listQuests offer them first.' },
+    { id: 'answers', label: 'Answers', group: 'quest', icon: 'comment', command: 'tomAi.showAnswers',
+        purpose: 'The answers agents gave you with tomAi_answerUser, kept out of the trails: the list, each answer with its suggested todos (added on a click) and prompts (copied).' },
     { id: 'createQuest', label: 'Create New Quest', group: 'quest', icon: 'new-folder', command: 'tomAi.createQuest',
         purpose: 'A new quest\'s files and the todo that defines it with you.' },
     { id: 'setupWorkspaceFolder', label: 'Setup New Workspace Folder', group: 'quest', icon: 'root-folder', command: 'tomAi.setupWorkspaceFolder',

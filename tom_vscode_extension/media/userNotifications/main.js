@@ -4,7 +4,8 @@
 // {type: 'state', rows, open, thisWindow} whenever the shared log or the
 // dismissed set changes. One row per event, newest first; an open ask shows how
 // long it waits. A click opens the details; Dismiss (row) and Dismiss answered
-// (bar) post back; Open (an open ask of this window) posts openAsk.
+// (bar) post back; Open (an open ask of this window) posts openAsk; a click on
+// an answer (tomAi_answerUser) posts openAnswer.
 /* global acquireVsCodeApi */
 (function () {
     var vscode = acquireVsCodeApi();
@@ -103,6 +104,8 @@
         // An open ask of this window opens where it is answered (the user-input panel, the MD Browser).
         var r = state.rows.filter(function (x) { return x.id === id; })[0];
         if (r && expanded[id] && r.state === 'open' && r.key && r.windowId === state.thisWindow) { vscode.postMessage({ type: 'openAsk', id: id }); }
+        // An answer opens in the Answers page.
+        if (r && expanded[id] && r.type === 'answer' && r.key) { vscode.postMessage({ type: 'openAnswer', id: id }); }
     });
 
     window.addEventListener('message', function (ev) {
