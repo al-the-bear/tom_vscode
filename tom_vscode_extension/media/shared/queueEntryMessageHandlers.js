@@ -228,6 +228,11 @@ function editItemTransport(id) {
   // updateItemTransport when the user confirms.
   vscode.postMessage({ type: 'editItemTransport', id: id });
 }
+function pickItemProfile(id) {
+  // The click on an item header's profile: the host opens the profile picker
+  // (every profile, whatever its transport) and gives the item the one chosen.
+  vscode.postMessage({ type: 'pickItemProfile', id: id });
+}
 function editItemSession(id) {
   // Pick the item's Agent SDK session in VS Code's picker (existing, new,
   // based on another, or the queue default).

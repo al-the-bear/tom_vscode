@@ -312,19 +312,12 @@ function renderEntry(item, idx) {
 
   /* --- Status bar (queue mode) or simple header (template mode) --- */
   var headerHtml = '';
-  /* Transport badge — spec §4.10 visible indicator that this item
-   * routes through anthropic instead of the default Copilot flow.
-   * Shown only for non-copilot items so the default state stays
-   * uncluttered. Profile id is included when set so users can tell
-   * multi-profile queues apart at a glance.
+  /* The profile the item runs with (src/utils/queueItemProfile.ts): its own as a
+   * clickable name, else an icon button — it runs with the session's profile or
+   * the queue default, named in the tooltip. A click opens the profile picker
+   * (every profile, whatever its transport) until the item has finished.
    */
-  var transportBadge = '';
-  if (item.transport === 'anthropic') {
-    var pid = typeof item.anthropicProfileId === 'string' && item.anthropicProfileId
-      ? ':' + item.anthropicProfileId : '';
-    transportBadge = '  <span style="background:#4a9eff;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Queue item dispatches through AnthropicHandler.sendMessage (auto-approve forced). Profile: ' +
-      escapeHtml(item.anthropicProfileId || '(default)') + '">[anthropic' + escapeHtml(pid) + ']</span>';
-  }
+  var transportBadge = renderItemProfile(item, safeId);
   /* Process position: the step the item belongs to (a Proceed prompt, what it
    * queued, or the process-move marker that moves the process on after them). */
   // A tomAi_askUser question the turn waits in: since when, and a button that opens it
@@ -385,7 +378,6 @@ function renderEntry(item, idx) {
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\'' + safeId + '\')" title="Toggle details"></span>' +
           statusLabel + repeatProgress + tplRepeatProgress + transportBadge + processBadge +
           (!isChat && item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
-          (!isChat && item.template && item.template !== '(None)' ? '  [AW]' : '') +
           (isChat ? chatSourceChip(item) : '') +
           '<span class="status-icons">' +
           (isChat ? '' : '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\'' + safeId + '\')" title="Preview"></span>') +
@@ -538,7 +530,6 @@ function renderEntry(item, idx) {
       '<div class="status-bar template-mode">' +
         '<span>' +
           (item.template && item.template !== '(None)' ? '[' + escapeHtml(item.template) + ']' : '') +
-          (item.template && item.template !== '(None)' ? '  [AW]' : '') +
         '</span>' +
       '</div>' +
     '</div>';
@@ -1215,6 +1206,32 @@ function renderDoneNotificationTarget(item, safeId, finished) {
 }
 
 /**
+ * An item header's profile: `item.profileView` from the host. Its own profile is a chip with the profile's
+ * name; without one it is an icon button (the default it runs with in the tooltip). Both open the profile
+ * picker while the item can still change (`canPick`).
+ */
+function renderItemProfile(item, safeId) {
+  var view = item.profileView;
+  // Without the host's view (a page that shows entries on its own): the item's own profile, by its id.
+  if (!view && item.transport === 'anthropic' && item.anthropicProfileId) {
+    view = { own: true, transport: 'anthropic', id: item.anthropicProfileId, name: item.anthropicProfileId, canPick: false };
+  }
+  if (!view) return '';
+  var runsWith = view.transport === 'anthropic'
+    ? (view.name || view.id || 'the default profile') + (view.detail ? ' (' + view.detail + ')' : '')
+    : 'Copilot';
+  var click = view.canPick ? ' onclick="event.stopPropagation();pickItemProfile(\'' + safeId + '\')"' : '';
+  if (view.own) {
+    return '<span class="queue-profile-chip' + (view.canPick ? ' pickable' : '') + '" data-profile="' + escapeHtml(String(view.id || '')) + '"' + click
+      + ' title="' + escapeHtml('Profile of this item: ' + runsWith + (view.canPick ? '. Click to choose another profile.' : '')) + '">'
+      + escapeHtml(String(view.name || view.id || '')) + '</span>';
+  }
+  if (!view.canPick) return '';
+  return '<span class="codicon codicon-account queue-profile-btn"' + click
+    + ' title="' + escapeHtml('No profile of its own: it runs with ' + runsWith + ' (the session\'s profile, else the queue default). Click to choose a profile for this item.') + '"></span>';
+}
+
+/**
  * The out-of-budget panel (src/utils/outOfBudget.ts): why the item stopped,
  * a picker of the other profiles (preset to the stopped profile's fallback)
  * and two buttons — continue there with the out-of-budget prompt, or resend
@@ -1364,7 +1381,7 @@ function renderFollowUps(item, status) {
     var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
-        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') + ' [AW]' +
+        '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') +
         (f.transport === 'anthropic' ? ' <span style="background:#4a9eff;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;">[anthropic' + (f.anthropicProfileId ? ':' + escapeHtml(f.anthropicProfileId) : '') + ']</span>' : '') +
         '</span>' +
         '<span class="followup-tools">' +

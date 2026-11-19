@@ -12,7 +12,7 @@
  *        detail's default queue button first; both post `defaultTarget: true`; the detail's buttons are icon buttons
  *   TD-5 the Next and Fresh toggles: in the bar before the queue buttons and as the first two buttons of a todo's Run
  *        row; a click posts qtSetQueueToggle and shows on every copy; the host's qtQueueToggles sets them; Next shows
- *        its state by its icon (arrow down to a point: the end; arrow up from a point: next), Fresh as a pressed
+ *        its state by its icon (the numbered list: the end; the arrow up in a circle: next), Fresh as a pressed
  *        toggle; the tooltips say what they do
  *   TD-6 a group todo's Run row ends with two GROUP item buttons: in the default run (`defaultTarget: true`) and
  *        with options, both posting qtQueueTodoGroup; a plain todo has none
@@ -124,7 +124,7 @@ for (const [name, config] of VIEWS) {
             assert.equal(nexts().length, 2, 'the bar\'s and the row\'s');
             for (const b of nexts()) {
                 assert.equal(b.getAttribute('aria-pressed'), 'false');
-                assert.ok(b.querySelector('.codicon-debug-step-into'), 'off: arrow down to a point');
+                assert.ok(b.querySelector('.codicon-list-ordered'), 'off: the numbered list (queued at the end)');
                 assert.match(b.title, /^Queue next: off — .* at the end of the queue\./);
             }
             posted.length = 0;
@@ -132,7 +132,7 @@ for (const [name, config] of VIEWS) {
             assert.deepEqual(posted.find((m) => m.type === 'qtSetQueueToggle'), { type: 'qtSetQueueToggle', which: 'next', on: true });
             for (const b of nexts()) {
                 assert.equal(b.getAttribute('aria-pressed'), 'true', 'every copy');
-                assert.ok(b.querySelector('.codicon-debug-step-out'), 'on: arrow up from a point');
+                assert.ok(b.querySelector('.codicon-arrow-circle-up'), 'on: the arrow up in a circle (queued next)');
                 assert.match(b.title, /^Queue next: on — .* at the front of the queue/);
             }
             posted.length = 0;

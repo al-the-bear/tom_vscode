@@ -4118,6 +4118,57 @@ export class PromptQueueManager {
         return item.lastDispatched?.transport ?? this.resolveStageTransport(item).transport;
     }
 
+    /** The transport and profile the item's main prompt is sent with now: its own, else its session's, else the queue default's. */
+    resolvedProfileOf(id: string): { transport: QueuedTransport; anthropicProfileId?: string } | undefined {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return undefined; }
+        const resolved = this.resolveStageTransport(item);
+        return { transport: resolved.transport, ...(resolved.anthropicProfileId ? { anthropicProfileId: resolved.anthropicProfileId } : {}) };
+    }
+
+    /**
+     * Give the item a profile of its own (the click on its header's profile),
+     * whatever the profile's transport: it is sent on the Anthropic transport
+     * with that profile and the profile's own configuration. `undefined`
+     * takes its own profile away again: the session's, else the queue default.
+     * Allowed until the item has finished; on a sending item it applies from
+     * its next stage or iteration. A profile chosen by hand ends an
+     * out-of-budget fallback.
+     *
+     * Refused when the profile cannot continue the conversation of the item's
+     * session (`sessionMismatch` names the session); `defaultSession: true`
+     * then moves a staged or pending item to the queue's default session.
+     */
+    setItemProfile(id: string, profileId: string | undefined, opts: { defaultSession?: boolean } = {}): { ok: true } | { ok: false; reason: string; sessionMismatch?: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return { ok: false, reason: 'no such item' }; }
+        if (item.status === 'sent' || isChatStatus(item.status)) { return { ok: false, reason: 'the item has finished' }; }
+        if (item.processMove) { return { ok: false, reason: 'a process-move marker is never sent to a model' }; }
+        if (profileId) {
+            const section = loadSendToChatConfig()?.anthropic as ProfileSection | undefined;
+            if (!lookupProfile(section, profileId)) { return { ok: false, reason: `there is no Anthropic profile "${profileId}"` }; }
+        }
+        if (opts.defaultSession && !this.canChangeSession(item.status)) { return { ok: false, reason: 'only a staged or pending item can change its session' }; }
+        const next: QueuedPrompt = {
+            ...item,
+            transport: profileId ? 'anthropic' : undefined,
+            anthropicProfileId: profileId || undefined,
+            anthropicConfigId: undefined,
+            budgetFallback: undefined,
+            ...(opts.defaultSession ? { session: undefined, sessionCreate: undefined } : {}),
+        };
+        const refusal = this.sessionRefusal(next);
+        if (refusal) { return { ok: false, reason: refusal, ...(next.session ? { sessionMismatch: next.session } : {}) }; }
+        item.transport = next.transport;
+        item.anthropicProfileId = next.anthropicProfileId;
+        item.anthropicConfigId = undefined;
+        delete item.budgetFallback;
+        if (opts.defaultSession) { item.session = undefined; item.sessionCreate = undefined; }
+        this.persist();
+        this._onDidChange.fire();
+        return { ok: true };
+    }
+
     /**
      * Resend the stage a sending item runs now (vscimpb55): its turn is ended, the
      * question it waits in closed, and the same stage dispatched again with a note

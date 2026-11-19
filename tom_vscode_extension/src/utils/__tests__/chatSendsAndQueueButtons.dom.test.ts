@@ -132,7 +132,7 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(entry('c2').querySelector('.status-kind').textContent, 'SENT CHAT');
         assert.ok(entry('c2').querySelector('.answer-preview .qe-md-btn[data-qe-md-mode="overlay"]'), 'the answer with its markdown buttons');
         assert.match(entry('c3').textContent, /overloaded/);
-        assert.match(entry('c1').querySelector('.status-bar').textContent, /\[anthropic:opus-direct\].*\[panel\]chat/);
+        assert.match(entry('c1').querySelector('.status-bar').textContent, /opus-direct.*\[panel\]chat/);
         for (const id of ['c1', 'c2']) {
             assert.equal(entry(id).querySelectorAll('[onclick*="sendNow"], [onclick*="resend"], select').length, 0, `${id}: no queue controls`);
         }
@@ -182,7 +182,7 @@ describe('chat sends and the queue buttons', () => {
     test('CB-6: Queue next', () => {
         const { w, posted } = chatPanel();
         const btn = w.document.querySelector('[data-action="addToQueueNext"][data-id="anthropic"]');
-        assert.ok(btn.querySelector('.codicon-add') && btn.querySelector('.codicon-debug-step-into'), '+ and the send-between icon');
+        assert.ok(btn.querySelector('.codicon-add') && btn.querySelector('.codicon-arrow-circle-up'), '+ and the arrow up in a circle, the queue item\'s Send next icon');
         w.document.getElementById('anthropic-profile').innerHTML = '<option value="opus-direct" selected>Opus</option>';
         w.document.getElementById('anthropic-text').value = 'Now';
         btn.click();
@@ -260,7 +260,7 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(text.textContent, prompt);
         assert.equal(text.getAttribute('style'), 'margin:4px 0; white-space:pre-wrap;');
         assert.equal(sent.querySelector('.chat-item-prompt'), null);
-        assert.match(sent.querySelector('.status-bar').textContent, /\[anthropic:opus-direct\].*\[Σ in 10 · out 20\].*\[panel\]chat/);
+        assert.match(sent.querySelector('.status-bar').textContent, /opus-direct.*\[Σ in 10 · out 20\].*\[panel\]chat/);
         // The answer: the first 600 characters, the toggle, the two Markdown buttons.
         const ans = sent.querySelector('.answer-preview');
         assert.ok(ans, 'the answer block');

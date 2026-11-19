@@ -29,6 +29,7 @@ import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
+import { itemProfileView, profilePickEntries, QUEUE_DEFAULT_PICK, type ConfigurationLike, type ItemProfileView, type ProfileLike } from '../utils/queueItemProfile';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
@@ -436,6 +437,12 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             }
           }
           sendState();
+          return;
+        }
+        case 'pickItemProfile': {
+          // The click on an item header's profile: any profile, whatever its transport.
+          const id = typeof msg.id === 'string' ? msg.id : '';
+          if (id) { await pickItemProfile(id); sendState(); }
           return;
         }
         case 'editItemTransport':
@@ -1240,6 +1247,70 @@ function questionViewOf(item: QueuedPrompt): { firstLine: string; since: string 
     } catch { return undefined; }
 }
 
+/** The profiles and configurations the item headers and the profile picker name. */
+function profileCatalogue(): { profiles: ProfileLike[]; configurations: ConfigurationLike[] } {
+    try {
+        const config = loadSendToChatConfig();
+        const profiles = (config?.anthropic?.profiles ?? []).filter((p) => !!p && typeof p.id === 'string') as ProfileLike[];
+        const configurations: ConfigurationLike[] = [
+            ...((config?.anthropic?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string')
+                .map((c) => ({ id: c.id, name: c.name, model: c.model, transport: c.transport || 'direct' }))),
+            ...(((config as { localLlm?: { configurations?: Array<{ id?: string; name?: string; model?: string }> } } | null)?.localLlm?.configurations ?? [])
+                .filter((c) => !!c && typeof c.id === 'string').map((c) => ({ id: c.id as string, name: c.name, model: c.model, transport: 'localLlm' }))),
+        ];
+        return { profiles, configurations };
+    } catch { return { profiles: [], configurations: [] }; }
+}
+
+/** What an item's header shows for its profile (src/utils/queueItemProfile.ts); undefined for a marker. A chat send names the profile it was sent with, without a click. */
+function profileViewOf(item: QueuedPrompt, catalogue: { profiles: ProfileLike[]; configurations: ConfigurationLike[] }): ItemProfileView | undefined {
+    if (item.processMove) { return undefined; }
+    let resolved: { transport: string; anthropicProfileId?: string } | undefined;
+    try { resolved = PromptQueueManager.instance.resolvedProfileOf(item.id); } catch { /* not ready */ }
+    return itemProfileView({
+        status: item.status, ownTransport: item.transport, ownProfileId: item.anthropicProfileId,
+        resolved: resolved ?? { transport: item.transport ?? 'copilot', anthropicProfileId: item.anthropicProfileId },
+        ...catalogue,
+    });
+}
+
+/**
+ * The profile picker of an item's header: every profile, whatever its
+ * transport. A profile that cannot continue the conversation of the item's
+ * session is offered with the queue's default session instead (asked first).
+ */
+export async function pickItemProfile(id: string): Promise<void> {
+    const pqm = PromptQueueManager.instance;
+    const item = pqm.getById(id);
+    if (!item) { return; }
+    const catalogue = profileCatalogue();
+    const view = profileViewOf(item, catalogue);
+    if (!view?.canPick) { return; }
+    if (catalogue.profiles.length === 0) {
+        void vscode.window.showWarningMessage('No profiles are defined. Create one in the template editor (Anthropic profiles) first.');
+        return;
+    }
+    const picked = await vscode.window.showQuickPick(profilePickEntries(catalogue.profiles, catalogue.configurations, view), {
+        title: 'Profile of this queue item',
+        placeHolder: view.own ? `Its profile: ${view.name}` : view.transport === 'anthropic' ? `No profile of its own — it runs with ${view.name}` : 'No profile of its own — it runs on Copilot (the queue default)',
+        matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true,
+    });
+    if (!picked) { return; }
+    const profileId = picked.value === QUEUE_DEFAULT_PICK ? undefined : picked.value;
+    let result = pqm.setItemProfile(id, profileId);
+    if (!result.ok && result.sessionMismatch) {
+        const useDefault = 'Use the default session';
+        const answer = await vscode.window.showWarningMessage(
+            `Profile "${picked.label}" cannot continue session "${result.sessionMismatch}".`,
+            { modal: true, detail: `${result.reason}\n\nThe item can run with this profile in the queue's default session instead.` },
+            useDefault,
+        );
+        if (answer !== useDefault) { return; }
+        result = pqm.setItemProfile(id, profileId, { defaultSession: true });
+    }
+    if (!result.ok) { void vscode.window.showWarningMessage(`The profile was not changed: ${result.reason}.`); }
+}
+
 /** The transport of a sending item's stage. */
 function stageTransportOf(item: QueuedPrompt): string | undefined {
     try { return PromptQueueManager.instance.stageTransportOf(item.id); } catch { return item.lastDispatched?.transport ?? item.transport; }
@@ -1550,13 +1621,17 @@ function buildState(): Record<string, unknown> {
         ];
     } catch { /* */ }
 
+    const catalogue = profileCatalogue();
     return {
         type: 'state',
         // A plain array for serialisation; an item a missing API key would make fail carries the reason.
         // The process position an item belongs to is shown on it, as text.
         items: items.map((item) => {
             const processPosition = processPositionOf(item);
+            const profileView = profileViewOf(item, catalogue);
             const extra = {
+                // The profile it runs with: its own (a clickable name) or the default's (an icon button).
+                ...(profileView ? { profileView } : {}),
                 ...(apiKeyWarnings.has(item.id) ? { apiKeyWarnings: apiKeyWarnings.get(item.id) } : {}),
                 ...(processPosition ? { processPosition } : {}),
                 // The tokens the item's stages used in this run, summed (input / output / cache read / cache write).

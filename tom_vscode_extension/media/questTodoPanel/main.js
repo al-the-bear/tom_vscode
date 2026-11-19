@@ -3320,7 +3320,7 @@ var qtFresh = false;
 /** The two toggles as buttons; qtApplyQueueToggles gives every copy its icon, state and tooltip. */
 function qtQueueToggleButtonsHtml() {
     return '<button type="button" class="icon-btn qt-toggle-btn qt-next-toggle" data-qt-queue-toggle="next" aria-pressed="' + (qtQueueNext ? 'true' : 'false') + '" aria-label="Queue next" title="' + qtQueueNextTitle() + '">' +
-            '<span class="codicon ' + (qtQueueNext ? 'codicon-debug-step-out' : 'codicon-debug-step-into') + '"></span></button>' +
+            '<span class="codicon ' + (qtQueueNext ? 'codicon-arrow-circle-up' : 'codicon-list-ordered') + '"></span></button>' +
         '<button type="button" class="icon-btn qt-toggle-btn qt-fresh-toggle' + (qtFresh ? ' pressed' : '') + '" data-qt-queue-toggle="fresh" aria-pressed="' + (qtFresh ? 'true' : 'false') + '" aria-label="Fresh session" title="' + qtFreshTitle() + '">' +
             '<span class="codicon codicon-sparkle"></span></button>';
 }
@@ -3350,7 +3350,7 @@ function qtApplyQueueToggles() {
         btn.classList.toggle('pressed', !next && on);
         btn.title = next ? qtQueueNextTitle() : qtFreshTitle();
         var icon = btn.querySelector('.codicon');
-        if (icon && next) { icon.className = 'codicon ' + (on ? 'codicon-debug-step-out' : 'codicon-debug-step-into'); }
+        if (icon && next) { icon.className = 'codicon ' + (on ? 'codicon-arrow-circle-up' : 'codicon-list-ordered'); }
     }
 }
 
