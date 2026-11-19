@@ -1,0 +1,52 @@
+/* @TOM INFO › USER NOTIFICATIONS — see main.js. */
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 2px 6px 6px;
+}
+.muted { color: var(--vscode-descriptionForeground); }
+.bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 2px 0 4px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.bar .grow { flex: 1 1 auto; }
+.bar .summary { font-size: 0.9em; }
+.icon {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.9em;
+}
+.icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+.row { padding: 3px 0; border-radius: 3px; cursor: pointer; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.row:hover { background: var(--vscode-list-hoverBackground); }
+.row-line { display: flex; align-items: center; gap: 5px; }
+.row-line .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.open .row-line .title { font-weight: 600; }
+.row-meta { display: flex; gap: 6px; padding-left: 20px; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
+.state { font-size: 0.8em; padding: 0 5px; border-radius: 8px; white-space: nowrap; }
+.state-open { background: var(--vscode-inputValidation-warningBackground, #5a4b00); color: var(--vscode-foreground); }
+.state-answered { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.dismiss { visibility: hidden; }
+.row:hover .dismiss { visibility: visible; }
+.type-askOpened { color: var(--vscode-charts-orange, #d18616); }
+.type-userNotified { color: var(--vscode-charts-blue, #3794ff); }
+.type-subprocessSuggested { color: var(--vscode-charts-purple, #b180d7); }
+.type-decisionWaiting { color: var(--vscode-charts-yellow, #cca700); }
+.type-userTodo { color: var(--vscode-charts-green, #3fb950); }
+.type-queueHolding { color: var(--vscode-editorError-foreground, #f14c4c); }
+.row.answered .type-askOpened { color: var(--vscode-descriptionForeground); }
+.details { margin: 3px 0 4px 18px; padding: 3px 6px; border-left: 2px solid var(--vscode-panel-border, #555); font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.details .actions { margin-top: 4px; white-space: normal; }
+.details button.open-ask {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 2px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+}
