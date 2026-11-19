@@ -8,8 +8,8 @@
 ### Global Guidelines
 | Document | Purpose |
 |----------|---------|
-| [Documentation Guidelines](../../../../_copilot_guidelines/documentation_guidelines.md) | Where to place user docs vs development docs |
-| [Specification Workflow](../../../../_copilot_guidelines/spec_workflow.md) | How to implement from specifications |
+| [Documentation Guidelines](../../../../../../../../_agent_guidelines/documentation_guidelines.md) | Where to place user docs vs development docs |
+| [Specification Workflow](../../../../../../../../_agent_guidelines/spec_workflow.md) | How to implement from specifications |
 
 ### Dart Guidelines
 | Document | Purpose |
