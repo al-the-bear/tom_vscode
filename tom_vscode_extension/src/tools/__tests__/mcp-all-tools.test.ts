@@ -38,7 +38,7 @@
  *   MA-11 a send that fails because the direct transport has no key goes to `error` at once — not `retry` —
  *        with the cause and the fix, auto-send stays on, the user is told once; any other failure still retries
  *   MA-12 an item whose main prompt is a `prefix*` walk with nothing to walk over (no todo of the prefix, or only
- *        completed / in-progress / the user's own) is held in `error` at once, its reason in `warning`; setting its
+ *        completed / cancelled / the user's own; an in-progress one is work: a walk runs a stale claim) is held in `error` at once, its reason in `warning`; setting its
  *        status checks again, a pre-prompt (which may create the todos) stages it again; blocked todos count as work;
  *        an item queued with pre-prompts is not judged
  *   MA-13 (qrfix10) a merged plain Markdown team review through the server: tomAi_specAnnotations lists its
@@ -969,13 +969,13 @@ describe('every tool over MCP, in a sandbox', () => {
             assert.equal(none.status, 'error');
             assert.match(none.warning, /^The item is held in error: Nothing to iterate over: no todo of quest "demo" has an id starting with "ma-none-"/);
             assert.match(manager.getById(none.id)?.error ?? '', /^Nothing to iterate over/);
-            // Only todos the walk passes: completed, in progress, the user's own.
+            // Only todos the walk passes: completed, cancelled, the user's own.
             await todo('ma-walk-1_aaaa-done', 'completed');
-            await todo('ma-walk-2_aaaa-running', 'in-progress');
+            await todo('ma-walk-2_aaaa-dropped', 'cancelled');
             const passed = await call('tomAi_addQueueItem', { text: 'do ${repeatTodoId}', repeatCount: 'ma-walk-*' });
             items.push(passed.id);
             assert.equal(passed.status, 'error');
-            assert.match(passed.warning, /none of the 2 todos of "ma-walk-\*" in quest "demo" is open \(1 completed, 1 in-progress\)/);
+            assert.match(passed.warning, /none of the 2 todos of "ma-walk-\*" in quest "demo" is open \(1 completed, 1 cancelled\)/);
             // Setting the status checks again: still nothing, then work.
             assert.equal((await call('tomAi_setQueueItemStatus', { queueItemId: passed.id, status: 'staged' })).ok, false, 'still nothing to walk over');
             assert.equal(manager.getById(passed.id)?.status, 'error');

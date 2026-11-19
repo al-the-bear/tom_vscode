@@ -216,6 +216,12 @@ export interface QueuePromptYaml {
     'needs-attention'?: string;
     /** While the item is `todo-blocked`: the todo it is held at and what that waits for. */
     'blocked-on'?: string;
+    /** While the item is `todo-blocked`: the id of the todo it is held at. */
+    'blocked-todo'?: string;
+    /** Todos the user skipped on the held item (Continue): its walk passes them. */
+    'skipped-todos'?: string[];
+    /** Todos the user runs anyway on the held item: their blockers do not hold. */
+    'ignore-block-todos'?: string[];
     /** The longest a turn of the item waits for its own background work, in minutes (0: no wait). */
     'background-wait-limit-minutes'?: number;
     /** While a turn waits for its background work: since, the limit and what still runs (utils/backgroundWait.ts). */

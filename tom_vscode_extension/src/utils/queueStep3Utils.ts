@@ -423,6 +423,8 @@ export function collectPrefixTodos(
             status: normaliseStatus(todo.status),
             ...(todo.userAction === true ? { userAction: true as const } : {}),
             ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
+            // A todo the user skipped on a held walk (Continue) is passed (utils/walkBlockView.ts).
+            ...(todo.excluded === true ? { excluded: true as const } : {}),
             ...(todo.blockedReason ? { blockedReason: todo.blockedReason } : {}),
         });
     }
@@ -512,7 +514,9 @@ export function isEmptyTodoIterationError(error: unknown): boolean {
  * may be released while the walk runs) or `decision-needed` (the walk holds
  * there for the user). Everything else — completed, cancelled, in-progress,
  * the user's own — the walk passes, so a series of only those, or no series
- * at all, would end the item without a single send.
+ * at all, would end the item without a single send. (The queue's view of the
+ * todos, utils/walkBlockView.ts, gives a stale in-progress todo — one no
+ * running item works on — as not-started: the walk runs it.)
  */
 export function emptyTodoIterationReason(
     value: unknown,

@@ -12,6 +12,12 @@
  *   TB-4 a plain item that names its todo (`todoIdPattern`, the todo panel's Queue button) is held the same way
  *        before its prompt goes out; a free todo's item is sent; a releasable one is released and sent
  *   TB-5 a todo marked `blocked` with nothing that says why holds the item too
+ *   TB-6 a walk runs an in-progress todo of its series that no running item works on (a stale claim) and does not
+ *        hold a later todo that waits for it: both run, in order
+ *   TB-7 a blocker a queue item ahead runs (here a staged one naming it) does not hold the walk behind it
+ *   TB-8 a held walk's Continue skips the blocked todo and goes on with the next; Run anyway runs it without
+ *        waiting; a single-todo item offers Run anyway but no Continue; Stop and Interrupt put a held item back to
+ *        staged (its hold record gone)
  */
 
 import test, { after, describe } from 'node:test';
@@ -250,6 +256,71 @@ describe('a queue item whose todo is blocked', () => {
         assert.equal(turns.length, 0);
         assert.equal(live(item).status, 'todo-blocked');
         assert.equal(live(item).blockedOn, 'todo tf1_x is blocked (its status says so; no `blocked_by` names why)');
+        reset();
+    });
+
+    test('TB-6: a stale in-progress todo of the series runs first and holds nothing', async () => {
+        reset();
+        writeTodoFile('tg', [['tg1_x', 'in-progress'], ['tg2_x', 'not-started', ['tg1_x']]]);
+        const item = await runWalk('tg');
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tg1_x', 'tg2_x']);
+        assert.equal(live(item).status, 'sent');
+    });
+
+    test('TB-7: a blocker an item ahead runs does not hold', async () => {
+        reset();
+        writeTodoFile('tz', [['tz1_x', 'not-started']]);
+        writeTodoFile('ti', [['ti1_x', 'not-started', ['tz1_x']]]);
+        const ahead = await queue().enqueue({ originalText: 'do tz1_x', todoIdPattern: 'tz1_x', transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-tz', deferSend: true, initialStatus: 'staged' } as never);
+        assert.equal(live(ahead).status, 'staged');
+        const item = await runWalk('ti');
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['ti1_x'], 'not held: the item ahead runs its blocker');
+        assert.equal(live(item).status, 'sent');
+    });
+
+    test('TB-8: Continue, Run anyway, Stop and Interrupt on a held item', async () => {
+        reset();
+        writeTodoFile('gates', [['gate8', 'in-progress']]);
+        writeTodoFile('tj', [['tj1_x', 'not-started', ['gate8']], ['tj2_x', 'not-started']]);
+        const walk = await runWalk('tj');
+        assert.equal(live(walk).status, 'todo-blocked');
+        assert.equal(live(walk).blockedTodo, 'tj1_x');
+        assert.deepEqual(queue().blockedItemActions(walk.id), { canSkip: true, canRunAnyway: true });
+        assert.equal(queue().skipBlockedTodo(walk.id), true);
+        await wait(500);
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tj2_x'], 'the walk went on with the next todo');
+        assert.equal(live(walk).status, 'sent');
+        assert.equal(todoOf('tj1_x').status, 'not-started', 'the skipped todo is left as it was');
+        assert.match(queueFileText(walk.id), /skipped-todos:/);
+
+        reset();
+        writeTodoFile('tk', [['tk1_x', 'blocked', ['gate8']]]);
+        const anyway = await runWalk('tk');
+        assert.equal(live(anyway).status, 'todo-blocked');
+        assert.equal(queue().runBlockedTodoAnyway(anyway.id), true);
+        await wait(500);
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tk1_x'], 'run without waiting for gate8');
+        assert.equal(live(anyway).status, 'sent');
+
+        reset();
+        writeTodoFile('tl', [['tl1_x', 'not-started', ['gate8']], ['tl2_x', 'not-started', ['gate8']]]);
+        const single = await queue().enqueue({ originalText: 'do tl1_x', todoIdPattern: 'tl1_x', transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-tl1', deferSend: true, initialStatus: 'pending' } as never);
+        queue().autoSendEnabled = true;
+        await wait(300);
+        assert.equal(live(single).status, 'todo-blocked');
+        assert.deepEqual(queue().blockedItemActions(single.id), { canSkip: false, canRunAnyway: true }, 'a single todo has no next one');
+        assert.equal(queue().skipBlockedTodo(single.id), false);
+        assert.equal(queue().stopActiveItem(), true, 'Stop takes the held item');
+        assert.equal(live(single).status, 'staged');
+        assert.equal(live(single).blockedOn, undefined);
+        assert.equal(live(single).blockedTodo, undefined);
+        const other = await queue().enqueue({ originalText: 'do tl2_x', todoIdPattern: 'tl2_x', transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-tl2', deferSend: true, initialStatus: 'pending' } as never);
+        queue().autoSendEnabled = true;
+        await wait(300);
+        assert.equal(live(other).status, 'todo-blocked');
+        assert.equal(queue().interruptActiveItemForContinuation(), true, 'Interrupt takes the held item too');
+        assert.equal(live(other).status, 'staged');
+        assert.equal(turns.length, 0);
         reset();
     });
 });

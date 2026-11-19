@@ -60,6 +60,7 @@ function renderEntry(item, idx) {
   var isWaiting = safeStatus === 'waiting';
   var isRetry = safeStatus === 'retry';
   var isInterrupted = safeStatus === 'interrupted';
+  var isTodoBlocked = safeStatus === 'todo-blocked';
   var reminderEnabled = item.reminderEnabled !== false;
   var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
@@ -388,6 +389,11 @@ function renderEntry(item, idx) {
           // this exact rep and resend it when auto-send is re-enabled.
           (isSending ? '<span class="codicon ' + interruptButtonIcon(item) + '" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="' + escapeHtml(interruptButtonTitle(item)) + '"></span>' : '') +
           (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
+          // Held at a blocked todo: Stop (back to staged, e.g. to renumber the todos and restart it), Continue past
+          // the todo (a walk or GROUP item) and Run anyway (the blocking information may be out of date).
+          (isTodoBlocked ? '<span class="codicon codicon-debug-stop" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stop: move back to Staged (rearrange the todos, then set it to Pending to restart it)"></span>' : '') +
+          (isTodoBlocked && item.blockedActions && item.blockedActions.canSkip ? '<span class="codicon codicon-debug-step-over" style="cursor:pointer;color:#000;" onclick="skipBlockedTodo(\'' + safeId + '\')" title="Continue: skip the blocked todo and go on with the next one"></span>' : '') +
+          (isTodoBlocked && item.blockedActions && item.blockedActions.canRunAnyway ? '<span class="codicon codicon-run-all" style="cursor:pointer;color:#000;" onclick="runBlockedTodoAnyway(\'' + safeId + '\')" title="Run anyway: run the blocked todo now without waiting for its blockers"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
           // A sent item can be sent again: the whole item runs once more from its first prompt.

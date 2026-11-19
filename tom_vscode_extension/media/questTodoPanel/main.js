@@ -948,9 +948,14 @@ function qtQueuedRunAt(t, k) {
     return Array.isArray(t.queuedRuns) && t.queuedRuns[k] ? String(t.queuedRuns[k]) : 'default';
 }
 
+/** The longest run name a queue mark shows; a longer one is cut with … (the tooltip names it in full). */
+var QT_QUEUED_RUN_MAX = 15;
+
 /** A queue number as the mark shows it: `#2`, or `chg1 #2` outside the default run (each run tab numbers its own). */
 function qtQueuedLabel(number, run) {
-    return (run && run !== 'default' ? run + ' ' : '') + '#' + number;
+    if (!run || run === 'default') return '#' + number;
+    var name = String(run);
+    return (name.length > QT_QUEUED_RUN_MAX ? name.slice(0, QT_QUEUED_RUN_MAX - 1) + '\u2026' : name) + ' #' + number;
 }
 
 /** The 🔁 mark of a repeated todo, its rule (and when it is due again) in the tooltip. */
