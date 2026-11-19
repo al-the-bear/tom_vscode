@@ -67,7 +67,7 @@ import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
 import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
 import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
 import { groupItemMembers, parseGroupSelection, selectionOf, withMemberChoice, withSelectionFlags, type GroupMemberView, type GroupSelection } from '../utils/groupItemSelection';
-import { claimTodo, reclaimForResend, releaseTodoClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
+import { claimTodo, reclaimForResend, releaseTodoClaim, settleGroupClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
 import {
     buildAnswerFilePath,
@@ -6342,6 +6342,11 @@ export class PromptQueueManager {
             }
             // The todo's follow-up, once its answer is on it (ww_a_collab-5).
             if (!item.todoClaim.released) { await this._settleTodoOnDone(item.todoClaim, item); }
+            // A group todo the item ran as a TODO item stays a group unless it was completed.
+            const group = settleGroupClaim(QUEST_TODO_STATUS_PORT, item.todoClaim);
+            if (group === 'restored' || group === 'failed') {
+                logQueue(`Group todo ${item.todoClaim.questId}/${item.todoClaim.todoId} not completed by its TODO item — ${group === 'restored' ? 'back to group' : 'could not be set back to group'}`);
+            }
             item.todoClaim = undefined;
         }
         // The pause gate (auto-send off) is checked in each stage just before

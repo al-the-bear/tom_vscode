@@ -292,6 +292,11 @@ describe('the todo panel\'s queue-target flow', () => {
         await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'a2' });
         assert.equal(enqueued.length + inbox().length - before, 0);
         assert.match(warnings().at(-1)!, /walks the todos of quest q1: queue it into q1, not q2/);
+        // A group todo's Run row (asTodo): the group todo itself as a TODO item, its members not walked.
+        enqueued.length = 0;
+        answers = ['q1', 'default', '$(list-ordered) default@default'];
+        await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'g1', asTodo: true });
+        assert.deepEqual([enqueued[0].repeatCount, enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].template], ['todo:q1/g1', 'g1', 'anthropic', 'execute-todo'], 'a TODO item over the group todo');
         // The todo's own quest is the default when it has a window (a list of several quests).
         picks.length = 0;
         answers = [undefined];

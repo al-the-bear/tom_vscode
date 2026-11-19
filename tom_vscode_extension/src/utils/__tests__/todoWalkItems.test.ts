@@ -5,6 +5,8 @@
  *   TW-2 collectWalkTodos: a TODO item's one todo; a GROUP item's members in comprised_of order, this quest's only,
  *        numbered 1, 2, …; a prefix as before
  *   TW-3 the walk rules apply: pick, decision hold, user-action pass, empty reasons; the series count
+ *   TW-6 a TODO item over a group todo sends the group todo itself (status `group`, not its members); a prefix
+ *        or GROUP walk never sends a group todo; completed, it is done
  *   TW-4 deriveQueueItemKind / parseQueueItemKind
  *   TW-5 todoQueueItemSpec: walk value, id pattern, refusals; the TODO item's text from the walk prompt
  */
@@ -62,6 +64,23 @@ describe('TODO and GROUP walks', () => {
         assert.equal(resolveTodoPrefixRepeatCount('group:q/g1', TODOS), 3, 'a group counts its walked members');
         assert.equal(resolveTodoPrefixRepeatCount('todo:q/s1', TODOS), 1);
         assert.equal(resolveTodoPrefixRepeatCount('m*', ['m1', 'm7']), 7, 'ids still work for a prefix');
+    });
+
+    test('TW-6: a TODO item over a group todo', () => {
+        const [entry] = collectWalkTodos({ kind: 'todo', quest: 'q', id: 'g1' }, TODOS);
+        assert.equal(entry.status, 'group');
+        assert.equal(entry.groupAsTodo, true);
+        assert.equal(pickNextTodoForIteration('todo:q/g1', TODOS)?.id, 'g1');
+        assert.equal(emptyTodoIterationReason('todo:q/g1', TODOS, 'q'), undefined);
+        const plan = planMainStageDispatch('todo:q/g1', 0, 1, TODOS);
+        assert.equal(plan.mode === 'todo' && plan.todo.id, 'g1');
+        const withGroup: TodoIterationSource[] = [...TODOS, { id: 'g2', status: 'group', comprisedOf: ['g1'] }];
+        assert.ok(!collectWalkTodos({ kind: 'prefix', prefix: 'g' }, withGroup).some((e) => e.groupAsTodo), 'a prefix walk marks none');
+        assert.equal(pickNextTodoForIteration('g*', withGroup), undefined, 'a prefix walk never sends a group todo');
+        assert.equal(pickNextTodoForIteration('group:q/g2', withGroup), undefined, 'nor does a GROUP walk over a group member');
+        const done = TODOS.map((t) => (t.id === 'g1' ? { ...t, status: 'completed' } : t));
+        assert.equal(pickNextTodoForIteration('todo:q/g1', done), undefined);
+        assert.match(emptyTodoIterationReason('todo:q/g1', done, 'q')!, /1 completed/);
     });
 
     test('TW-4: the item kind', () => {

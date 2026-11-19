@@ -844,8 +844,8 @@ function qtQueueItemButton(t) {
 }
 
 /** Queue todo `id` as a TODO item (a GROUP item for a group todo). */
-function qtQueueAsTodoItem(id) {
-    vscode.postMessage({ type: 'qtQueueAsTodoItem', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
+function qtQueueAsTodoItem(id, asTodo) {
+    vscode.postMessage(Object.assign({ type: 'qtQueueAsTodoItem', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) }, asTodo ? { asTodo: true } : {}));
 }
 
 /** The queue button of a todo group (header or detail view); hidden until GROUP items exist (vscimpb127). */
@@ -3300,8 +3300,8 @@ function qtTodoButtonsRow(todo) {
             '<span class="codicon codicon-send"></span></button>' +
         '<button class="icon-btn qt-todo-btn" type="button" data-qt-todo-btn="queue" title="Add this todo to a prompt queue (Anthropic): asks the quest, run and free session (next or at the end as the Next toggle says); with the Todo buttons template for ' + which + ' todos (Status Page)">' +
             '<span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
-        '<button class="icon-btn qt-queue-item-detail-btn" type="button" title="Queue as todo item: ' +
-            (isGroup ? 'a GROUP item that walks the group\'s members in order' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
+        '<button class="icon-btn qt-queue-item-detail-btn" type="button"' + (isGroup ? ' data-qt-as-todo="1"' : '') + ' title="Queue as todo item: ' +
+            (isGroup ? 'the group todo itself as a TODO item (its members are not walked) — the queue claims it when it is sent (group \u2192 in-progress) and puts it back to group when it is not completed' : 'a TODO item — the queue claims the todo when it is sent and checks it is completed') +
             '; asks the quest, run and free session (next or at the end as the Next toggle says)">' +
             '<span class="codicon codicon-run-all"></span></button>' +
         (isGroup
@@ -3408,7 +3408,7 @@ document.addEventListener('click', function(e) {
     if (!btn || !qtDetailTodo || btn.disabled) { return; }
     e.preventDefault();
     qtPauseButton(btn);
-    qtQueueAsTodoItem(qtDetailTodo.id);
+    qtQueueAsTodoItem(qtDetailTodo.id, btn.getAttribute('data-qt-as-todo') === '1');
 });
 
 /** The Guide me buttons (qtUserActionRow): one delegated handler. */

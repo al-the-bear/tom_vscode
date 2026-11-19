@@ -80,6 +80,20 @@ export function claimTodo(
     };
 }
 
+/**
+ * A settled claim on a group todo (a TODO item over the group todo itself): the
+ * group stays a group. The todo is put back to `group` when it still holds the
+ * runner's write — the agent did not complete it (or set anything else); a
+ * status the agent wrote is left alone. Any other claim: nothing to do.
+ */
+export function settleGroupClaim(port: TodoStatusPort, claim: TodoClaim | undefined): 'restored' | 'left' | 'none' | 'failed' {
+    if (!claim || claim.released || claim.priorStatus !== 'group') { return 'none'; }
+    const found = normaliseStatus(port.readStatus(claim.questId, claim.todoId));
+    if (found === undefined) { return 'failed'; }
+    if (found !== CLAIM_STATUS) { return 'left'; }
+    return port.writeStatus(claim.questId, claim.todoId, 'group') ? 'restored' : 'failed';
+}
+
 export type ReleaseOutcome =
     /** No live claim — nothing to do. */
     | 'none'

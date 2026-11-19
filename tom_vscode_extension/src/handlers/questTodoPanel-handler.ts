@@ -2143,8 +2143,10 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             return true;
         }
         case 'qtQueueAsTodoItem': {
-            // "Queue as todo item" (a tile, the detail view; vscimpb127): a TODO item, a GROUP item for a group todo.
-            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, undefined, msg.sourceFile);
+            // "Queue as todo item" (a tile, the detail view; vscimpb127): a TODO item, a GROUP item for a group todo —
+            // except from a group todo's Run row (`asTodo`), whose own group buttons queue the GROUP item: there the
+            // group todo itself is queued as a TODO item.
+            await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, msg.asTodo === true ? 'todo' : undefined, msg.sourceFile);
             return true;
         }
         case 'qtQueueGroupPrompt': {
@@ -3734,7 +3736,7 @@ export class QuestTodoEmbeddedViewProvider implements vscode.WebviewViewProvider
  * over the todos of the todo's own quest, so it is queued into that quest (another quest's through its window's
  * inbox).
  */
-async function queueTodoAsItem(questId: string, todoId: string, instance = 'panel', forceKind?: 'group', sourceFile?: string): Promise<void> {
+async function queueTodoAsItem(questId: string, todoId: string, instance = 'panel', forceKind?: 'group' | 'todo', sourceFile?: string): Promise<void> {
     if (!todoId) { void vscode.window.showErrorMessage('Select a todo first.'); return; }
     const todoQuest = _todoQuestOf(questId, sourceFile, todoId);
     const todo = todoQuest ? questTodo.findTodoById(todoQuest, todoId) : undefined;

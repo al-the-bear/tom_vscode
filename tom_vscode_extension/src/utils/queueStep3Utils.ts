@@ -257,7 +257,15 @@ export interface TodoIterationEntry {
     excluded?: true;
     /** Why the todo may not run now; absent: not blocked. */
     blockedReason?: string;
+    /**
+     * A TODO item over a group todo (status `group`): the group todo itself is sent, as an open todo, and claimed
+     * like one (`group` → in-progress; back to `group` when it is not completed). Never set in a prefix or GROUP walk.
+     */
+    groupAsTodo?: true;
 }
+
+/** A group todo's status: sent only by a TODO item over the group todo itself. */
+export const GROUP_STATUS = 'group';
 
 /** The one status that makes a todo eligible for dispatch. */
 const NOT_STARTED = 'not-started';
@@ -342,7 +350,9 @@ export function collectWalkTodos(walk: TodoWalk, todos: readonly TodoIterationSo
     const byId = new Map(todos.filter((t) => typeof t?.id === 'string').map((t) => [t.id, t]));
     if (walk.kind === 'todo') {
         const todo = byId.get(walk.id);
-        return todo ? [entry(todo, 1)] : [];
+        if (!todo) { return []; }
+        const one = entry(todo, 1);
+        return [one.status === GROUP_STATUS ? { ...one, groupAsTodo: true as const } : one];
     }
     const group = byId.get(walk.id);
     const out: TodoIterationEntry[] = [];
@@ -466,13 +476,13 @@ function isWalkable(e: TodoIterationEntry): boolean {
  */
 function isBlockedStop(e: TodoIterationEntry): boolean {
     if (e.excluded || e.forced || !e.blockedReason || e.userAction) { return false; }
-    return e.status === NOT_STARTED || e.status === 'blocked';
+    return e.status === NOT_STARTED || e.status === 'blocked' || (e.status === GROUP_STATUS && e.groupAsTodo === true);
 }
 
 /** What the walk's usual rules send: `not-started` (or a manual repeated todo it has not run), not the user's own. */
-export function walkRuleSends(e: { status?: string; userAction?: boolean; walkableRepeat?: boolean }): boolean {
+export function walkRuleSends(e: { status?: string; userAction?: boolean; walkableRepeat?: boolean; groupAsTodo?: boolean }): boolean {
     const status = normaliseStatus(e.status);
-    return (status === NOT_STARTED || (status === WAITING_FOR_REPEAT && e.walkableRepeat === true)) && !e.userAction;
+    return (status === NOT_STARTED || (status === WAITING_FOR_REPEAT && e.walkableRepeat === true) || (status === GROUP_STATUS && e.groupAsTodo === true)) && !e.userAction;
 }
 
 /**

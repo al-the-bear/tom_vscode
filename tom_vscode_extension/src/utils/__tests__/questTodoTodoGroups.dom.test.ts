@@ -167,6 +167,13 @@ describe('todo groups in the todo panel', () => {
         assert.match(detailBtn.title, /^Queue as todo item/, 'an icon button: its tooltip names it');
         detailBtn.click();
         assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel3-tag', sourceFile: 'todos.qa.todo.yaml' });
+        // A group todo's Run row: the run-all button queues the group todo itself as a TODO item (its own group
+        // buttons queue the GROUP item).
+        window.qtRenderDetail({ ...TODOS[0], description: 'd' });
+        const groupRunAll = window.document.querySelector('.qt-queue-item-detail-btn');
+        assert.match(groupRunAll.title, /the group todo itself as a TODO item/);
+        groupRunAll.click();
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueAsTodoItem', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml', asTodo: true });
     });
 });
 

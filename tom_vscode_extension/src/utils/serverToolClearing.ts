@@ -4,7 +4,7 @@
  * DA-15 (a)): the API's context editing (`clear_tool_uses_20250919`, beta
  * `context-management-2025-06-27`) clears old tool results before the model
  * sees them, while what we send stays append-only — the prompt cache and the
- * signed thinking blocks of thinking models (Opus 5.5, Fable 5.1) stay valid,
+ * signed thinking blocks of thinking models (Opus 5.5, Anthropic Fable) stay valid,
  * since server-side clearing does not count as a history edit.
  *
  * Used once the conversation holds a thinking block — the conversations the

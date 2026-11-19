@@ -15,6 +15,9 @@
  * TC-7  a Resend re-claims a released todo still at its prior status ...
  * TC-8  ... and does not when somebody moved it after the release
  * TC-9  the claim round-trips through its persisted YAML shape
+ * TC-11 a settled claim on a group todo (a TODO item over the group todo):
+ *       back to `group` while it still holds the claim; a status the agent
+ *       wrote stays; any other claim is left alone
  * TC-10 wiring: the queue manager writes in-progress only through a claim,
  *       releases it on every exit that ends a run before its answer (stop,
  *       interrupt, error, removal, clear) and settles it on re-entry
@@ -29,6 +32,7 @@ import {
     claimTodo,
     reclaimForResend,
     releaseTodoClaim,
+    settleGroupClaim,
     todoClaimFromYaml,
     todoClaimToYaml,
     type TodoStatusPort,
@@ -144,6 +148,26 @@ describe('queueTodoClaim', () => {
         assert.equal(todoClaimToYaml(undefined), undefined);
         assert.equal(todoClaimFromYaml(undefined), undefined);
         assert.equal(todoClaimFromYaml({ quest: 'webwork' }), undefined);
+    });
+
+    test('TC-11: a settled claim on a group todo', () => {
+        const s = store({ g1: 'group', t1: 'not-started' });
+        const claim = claimTodo(s.port, 'q', 'g1', 'group', NOW)!;
+        assert.equal(claim.priorStatus, 'group');
+        assert.equal(s.statuses.get('g1'), CLAIM_STATUS);
+        assert.equal(settleGroupClaim(s.port, claim), 'restored');
+        assert.equal(s.statuses.get('g1'), 'group');
+        const again = claimTodo(s.port, 'q', 'g1', 'group', NOW)!;
+        s.statuses.set('g1', 'completed');
+        assert.equal(settleGroupClaim(s.port, again), 'left');
+        assert.equal(s.statuses.get('g1'), 'completed');
+        const plain = claimTodo(s.port, 'q', 't1', 'not-started', NOW)!;
+        assert.equal(settleGroupClaim(s.port, plain), 'none');
+        assert.equal(s.statuses.get('t1'), CLAIM_STATUS, 'a plain todo keeps what it has at settle');
+        assert.equal(settleGroupClaim(s.port, undefined), 'none');
+        assert.equal(settleGroupClaim(s.port, { ...claim, released: true }), 'none');
+        const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'managers', 'promptQueueManager.ts'), 'utf8');
+        assert.match(src, /const group = settleGroupClaim\(QUEST_TODO_STATUS_PORT, item\.todoClaim\);[\s\S]{0,400}item\.todoClaim = undefined;/);
     });
 
     test('TC-10: the queue manager claims, releases and settles at the right places', () => {
