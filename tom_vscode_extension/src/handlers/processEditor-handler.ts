@@ -15,6 +15,11 @@ import * as vscode from 'vscode';
 
 import { ProcessStateStore } from '../managers/processStateStore';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { moveDirection } from '../utils/listOrder';
+
+/** The list key the process list's order is stored under (`editorListOrder`). */
+export const PROCESSES_LIST_KEY = 'processes';
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
 import { validateProcessDefinition, type ProcessDefinition, type ProcessValidation } from '../utils/processDefinition';
@@ -84,7 +89,8 @@ async function store(): Promise<ProcessStateStore> {
 async function sendList(): Promise<void> {
     if (!panel) { return; }
     const s = await store();
-    const list = s.list();
+    // In the order the Up / Down buttons gave the list (list key `processes`); a process not placed yet follows.
+    const list = inStoredOrder(PROCESSES_LIST_KEY, s.list(), (e) => e.id);
     if (selectedId && !list.some((e) => e.id === selectedId)) { selectedId = undefined; }
     if (!selectedId && list.length) { selectedId = s.state.process || list[0].id; }
     void panel.webview.postMessage({
@@ -130,6 +136,8 @@ interface EditorMessage {
     /** pickSession: the node's path in the definition ('' = the process) and its current session name. */
     path?: string;
     current?: string;
+    /** move: `up` or `down`. */
+    direction?: string;
 }
 
 async function handle(msg: EditorMessage): Promise<void> {
@@ -176,6 +184,14 @@ async function handle(msg: EditorMessage): Promise<void> {
             if (picked !== undefined) {
                 void panel?.webview.postMessage({ type: 'sessionPicked', path: msg.path ?? '', spec: picked === '' ? null : picked });
             }
+            break;
+        }
+        case 'move': {
+            // Up / Down: the order is stored; the process folders are not touched. Only the list goes back,
+            // so the process being edited keeps its unsaved changes.
+            const direction = moveDirection(msg.direction);
+            const shown = inStoredOrder(PROCESSES_LIST_KEY, s.list(), (e) => e.id).map((e) => e.id);
+            if (direction && msg.id && moveInStoredOrder(PROCESSES_LIST_KEY, shown, msg.id, direction)) { await sendList(); }
             break;
         }
         case 'revert':

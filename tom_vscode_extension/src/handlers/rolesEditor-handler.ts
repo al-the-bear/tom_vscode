@@ -13,6 +13,8 @@
  * its JSON schema.
  */
 
+import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { moveDirection } from '../utils/listOrder';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { RoleStore } from '../services/roleStore';
@@ -37,9 +39,10 @@ function store(): RoleStore | undefined {
 /** What the webview shows: the items of its kind, the role types to pick, the tools to select. */
 export function rolesEditorData(kind: RolesEditorKind, s: RoleStore | undefined): Record<string, unknown> {
     if (!s) { return { type: 'data', kind, error: 'No workspace is open.', items: [] }; }
-    const roleTypes = s.roleTypes();
+    // Each list in the order the Up / Down buttons gave it (list keys `roles`, `roleTypes`); an entry not placed yet follows.
+    const roleTypes = inStoredOrder('roleTypes', s.roleTypes(), (t) => t.id);
     if (kind === 'roles') {
-        return { type: 'data', kind, items: s.roles(), roleTypes: roleTypes.map((t) => ({ id: t.id, name: t.value?.name ?? t.id })) };
+        return { type: 'data', kind, items: inStoredOrder('roles', s.roles(), (r) => r.id), roleTypes: roleTypes.map((t) => ({ id: t.id, name: t.value?.name ?? t.id })) };
     }
     return {
         type: 'data', kind, items: roleTypes,
@@ -75,6 +78,13 @@ export async function handleRolesEditorMessage(
                 if (!ROLE_ID_PATTERN.test(name)) { ui.error(`"${name}" is not a valid name: letters, digits, _ and -, starting with a letter or digit.`); return undefined; }
                 if (kind === 'roles') { s.createRole(name); } else { s.createRoleType(name); }
                 return data(name);
+            }
+            case 'move': {
+                // Up / Down: the entry moves one place in the list; the order is stored, the folders are not touched.
+                const direction = moveDirection(msg.direction);
+                const shown = ((rolesEditorData(kind, s).items ?? []) as Array<{ id: string }>).map((i) => i.id);
+                if (!direction || !moveInStoredOrder(kind, shown, id, direction)) { return undefined; }
+                return { type: 'order', ids: ((rolesEditorData(kind, s).items ?? []) as Array<{ id: string }>).map((i) => i.id) };
             }
             case 'delete':
                 if (kind !== 'roleTypes') { return undefined; }

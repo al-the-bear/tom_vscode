@@ -13,6 +13,8 @@
  * Assets: `media/groupPromptEditor/`.
  */
 
+import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { moveDirection, type MoveDirection } from '../utils/listOrder';
 import * as vscode from 'vscode';
 
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
@@ -90,7 +92,32 @@ function pageEntries(): PageEntry[] {
     if (!read.some((e) => e.scope === 'global' && e.kind === 'default')) {
         entries.unshift({ scope: 'global', kind: 'default', name: '', text: BUILTIN_GROUP_PROMPT, key: groupPromptKey({ scope: 'global', kind: 'default', name: '' }), exists: false });
     }
-    return entries;
+    return orderedEntries(entries);
+}
+
+/** The list key of one list of the page — a scope's entries of one kind — for its stored order (services/editorListOrder.ts). */
+export function groupPromptsListKey(scope: GroupPromptScope, kind: GroupPromptKind, quest: string): string {
+    return scope === 'global' ? `groupPrompts:global:${kind}` : `groupPrompts:quest:${quest}:${kind}`;
+}
+
+/** The entries with each list (scope and kind) in the order the Up / Down buttons gave it; the lists stay where they were. */
+function orderedEntries(entries: PageEntry[]): PageEntry[] {
+    const lists = new Map<string, PageEntry[]>();
+    for (const e of entries) {
+        const key = groupPromptsListKey(e.scope, e.kind, questId);
+        lists.set(key, [...(lists.get(key) ?? []), e]);
+    }
+    return [...lists].flatMap(([key, list]) => inStoredOrder(key, list, (e) => e.name));
+}
+
+/** Up / Down: the entry moves one place within its list; the order is stored, the unsaved texts of the page stay. */
+function move(key: string, direction: MoveDirection | undefined): void {
+    const entries = pageEntries();
+    const entry = entries.find((e) => e.key === key);
+    if (!entry || !direction) { return; }
+    const shown = entries.filter((e) => e.scope === entry.scope && e.kind === entry.kind).map((e) => e.name);
+    if (!moveInStoredOrder(groupPromptsListKey(entry.scope, entry.kind, questId), shown, entry.name, direction)) { return; }
+    void panel?.webview.postMessage({ type: 'order', keys: pageEntries().map((e) => e.key) });
 }
 
 function sendAll(): void {
@@ -164,6 +191,7 @@ interface Message {
     key?: string;
     questId?: string;
     entries?: GroupPromptEntry[];
+    direction?: unknown;
 }
 
 async function handle(msg: Message): Promise<void> {
@@ -190,6 +218,9 @@ async function handle(msg: Message): Promise<void> {
             break;
         case 'delete':
             if (msg.scope && msg.kind) { await remove(msg.scope, msg.kind, msg.name ?? ''); }
+            break;
+        case 'move':
+            if (msg.key) { move(msg.key, moveDirection(msg.direction)); }
             break;
         case 'save':
             if (msg.entries) { save(msg.entries); }

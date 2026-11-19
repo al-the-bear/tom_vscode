@@ -87,6 +87,10 @@
                 + (p.valid ? '' : '<span class="badge error" title="' + p.errorCount + ' problem(s)">invalid</span>')
                 + '</li>';
         }).join('') || '<li class="muted">No processes yet.</li>';
+        // The move buttons follow the selection: off at the list's ends and without one.
+        var at = processes.map(function (p) { return p.id; }).indexOf(selected);
+        /** @type {HTMLButtonElement} */ (document.getElementById('btn-move-up')).disabled = at <= 0;
+        /** @type {HTMLButtonElement} */ (document.getElementById('btn-move-down')).disabled = at < 0 || at >= processes.length - 1;
     }
 
     function roleSelect(path, value) {
@@ -817,6 +821,9 @@
     });
     /** @type {HTMLElement} */ (document.getElementById('btn-new')).addEventListener('click', function () { post({ type: 'create' }); });
     /** @type {HTMLElement} */ (document.getElementById('btn-copy')).addEventListener('click', function () { post({ type: 'copy', id: selected }); });
+    // Up / Down: the selected process moves one place in the list (the host stores the order and sends the list again).
+    /** @type {HTMLElement} */ (document.getElementById('btn-move-up')).addEventListener('click', function () { if (selected) { post({ type: 'move', id: selected, direction: 'up' }); } });
+    /** @type {HTMLElement} */ (document.getElementById('btn-move-down')).addEventListener('click', function () { if (selected) { post({ type: 'move', id: selected, direction: 'down' }); } });
     document.addEventListener('keydown', function (e) {
         if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(); }
     });

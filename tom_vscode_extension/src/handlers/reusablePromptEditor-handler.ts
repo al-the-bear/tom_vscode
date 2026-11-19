@@ -22,6 +22,8 @@ import { getWorkspaceName } from '../utils/panelYamlStore';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { moveDirection, type MoveDirection } from '../utils/listOrder';
 
 // ============================================================================
 // Types
@@ -230,6 +232,25 @@ function _listPromptFiles(dir: string): { id: string; label: string }[] {
         .map(f => ({ id: f, label: f }));
 }
 
+/** The list key of a scope's stored file order (services/editorListOrder.ts). */
+export function reusablePromptsListKey(scope: string, subScopeId: string): string {
+    return scope === 'global' ? 'reusablePrompts:global' : `reusablePrompts:${scope}:${subScopeId}`;
+}
+
+/** The prompt files of a scope in the order the Up / Down buttons gave them; a file not placed yet follows by name. */
+function _orderedPromptFiles(scope: string, subScopeId: string, dir: string): { id: string; label: string }[] {
+    return inStoredOrder(reusablePromptsListKey(scope, subScopeId), _listPromptFiles(dir), (f) => f.id);
+}
+
+/** Up / Down: the file moves one place in its scope's list; the order is stored, the files are not touched. */
+async function _moveFile(scope: PromptScope, subScopeId: string, fileId: string, direction: MoveDirection | undefined): Promise<void> {
+    const dir = await _resolveDir(scope, subScopeId);
+    if (!dir || !fileId || !direction) { return; }
+    const shown = _orderedPromptFiles(scope, subScopeId, dir).map((f) => f.id);
+    if (!moveInStoredOrder(reusablePromptsListKey(scope, subScopeId), shown, fileId, direction)) { return; }
+    _panel?.webview.postMessage({ type: 'filesReordered', scope, subScopeId, files: _orderedPromptFiles(scope, subScopeId, dir) });
+}
+
 /** The workspace walks behind the project and scan scopes (shared, asynchronous). */
 async function _getProjectPromptScopes(): Promise<ScopeItem[]> {
     const wsRoot = layoutWorkspaceFolder();
@@ -288,6 +309,9 @@ async function _handleMessage(msg: any): Promise<void> {
         case 'delete':
             await _deleteFile(msg.scope, msg.subScopeId, msg.fileId);
             break;
+        case 'move':
+            await _moveFile(msg.scope, String(msg.subScopeId ?? ''), String(msg.fileId ?? ''), moveDirection(msg.direction));
+            break;
         case 'openInVsCode':
             await _openInVsCode(msg.scope, msg.subScopeId, msg.fileId);
             break;
@@ -328,7 +352,7 @@ async function _sendAllData(scope?: string, subScopeId?: string, fileId?: string
             scan: scanScopes.map(s => ({ id: s.id, label: s.label })),
         },
         files: {
-            global: globalDir ? _listPromptFiles(globalDir) : [],
+            global: globalDir ? _orderedPromptFiles('global', 'global', globalDir) : [],
         },
         preferred: {
             scope: scope || 'global',
@@ -342,7 +366,7 @@ async function _sendAllData(scope?: string, subScopeId?: string, fileId?: string
 
 async function _sendScopeFiles(scope: PromptScope, subScopeId: string): Promise<void> {
     const dir = await _resolveDir(scope, subScopeId);
-    const files = dir ? _listPromptFiles(dir) : [];
+    const files = dir ? _orderedPromptFiles(scope, subScopeId, dir) : [];
     _panel?.webview.postMessage({ type: 'scopeFiles', scope, subScopeId, files });
 }
 

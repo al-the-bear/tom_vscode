@@ -49,6 +49,7 @@ function renderList() {
   }).join('');
   list.querySelectorAll('li').forEach(function(li) { li.addEventListener('click', function() { select(li.dataset.id); }); });
   document.getElementById('btnDelete').disabled = !current();
+  syncMoveButtons();
 }
 
 function renderRoleForm(item) {
@@ -140,12 +141,30 @@ function save() {
 document.getElementById('btnAdd').addEventListener('click', function() { vscode.postMessage({ type: 'add' }); });
 document.getElementById('btnDelete').addEventListener('click', function() { if (current()) { vscode.postMessage({ type: 'delete', id: selected }); } });
 document.getElementById('btnRefresh').addEventListener('click', function() { vscode.postMessage({ type: 'refresh', selected: selected }); });
+// Up / Down: the selected entry moves one place in the list (the order is stored by the host; the folders stay).
+document.getElementById('btnMoveUp').addEventListener('click', function() { if (current()) { vscode.postMessage({ type: 'move', id: selected, direction: 'up' }); } });
+document.getElementById('btnMoveDown').addEventListener('click', function() { if (current()) { vscode.postMessage({ type: 'move', id: selected, direction: 'down' }); } });
+/** The move buttons follow the selection: off at the list's ends and without one. */
+function syncMoveButtons() {
+  var ids = (data.items || []).map(function(i) { return i.id; });
+  var at = ids.indexOf(selected);
+  document.getElementById('btnMoveUp').disabled = at <= 0;
+  document.getElementById('btnMoveDown').disabled = at < 0 || at >= ids.length - 1;
+}
 document.addEventListener('keydown', function(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
 });
 
 window.addEventListener('message', function(event) {
   const msg = event.data;
+  if (msg && msg.type === 'order') {
+    // The host stored a new order: only the list is drawn again, the form being edited stays.
+    var rank = {};
+    (msg.ids || []).forEach(function(id, i) { rank[id] = i; });
+    (data.items || []).sort(function(a, b) { return (rank[a.id] === undefined ? 1e9 : rank[a.id]) - (rank[b.id] === undefined ? 1e9 : rank[b.id]); });
+    renderList();
+    return;
+  }
   if (!msg || msg.type !== 'data') { return; }
   data = msg;
   if (msg.selected) { selected = msg.selected; }

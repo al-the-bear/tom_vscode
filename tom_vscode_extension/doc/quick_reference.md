@@ -219,6 +219,8 @@
 
 The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.
 
+Editors with a list on the left have **Up / Down** (↑ ↓) for the selected entry: configuration entries (profiles, templates) move in the configuration, so the pickers follow; file-based lists (queue templates, reusable prompts, group prompts, roles, role types, processes) keep their order in the configuration's `editorListOrder`. The todo panel's search field has an **×** that clears it.
+
 #### Copilot Action Bar Fields
 
 | Field | Width | Description |

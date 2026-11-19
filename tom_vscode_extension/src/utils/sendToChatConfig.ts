@@ -80,6 +80,13 @@ export interface SendToChatConfig {
             autostart?: boolean;
         };
     };
+    /**
+     * The order of the editors' file-based lists (queue templates, reusable
+     * prompts, group prompts, roles, role types, processes), per list key:
+     * the ids in the order the Up / Down buttons gave them
+     * (utils/listOrder.ts, services/editorListOrder.ts).
+     */
+    editorListOrder?: Record<string, string[]>;
     todoPanel?: {
         /**
          * The text of a todo's done notification (its on_done `notify`) when

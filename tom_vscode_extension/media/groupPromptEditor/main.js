@@ -68,6 +68,11 @@
         $('revert').disabled = !anyDirty;
         var cur = entryOf(selected);
         $('delete').disabled = !cur || !cur.exists;
+        // Up / Down: within the entry's own list (its scope and kind); off at the ends.
+        var peers = cur ? entries.filter(function (e) { return e.scope === cur.scope && e.kind === cur.kind; }) : [];
+        var at = cur ? peers.indexOf(cur) : -1;
+        $('moveUp').disabled = at <= 0;
+        $('moveDown').disabled = at < 0 || at >= peers.length - 1;
         $('delete').textContent = cur && cur.scope === 'global' && cur.kind === 'default' ? 'Use built-in' : 'Delete';
     }
 
@@ -123,6 +128,12 @@
                     + '<span class="var-desc">' + esc(v.description) + '</span></button>';
             }).join('');
             select(entryOf(msg.selected) ? msg.selected : (entries[0] && entries[0].key));
+        } else if (msg.type === 'order') {
+            // The host stored a new order: the entries are put in it; the unsaved texts stay.
+            var rank = {};
+            (msg.keys || []).forEach(function (k, i) { rank[k] = i; });
+            entries.sort(function (a, b) { return (rank[a.key] === undefined ? 1e9 : rank[a.key]) - (rank[b.key] === undefined ? 1e9 : rank[b.key]); });
+            renderList();
         } else if (msg.type === 'preview' && msg.key === selected) {
             $('preview').textContent = msg.text;
             $('preview-note').textContent = msg.note ? '— ' + msg.note : '';
@@ -156,6 +167,8 @@
         var e = entryOf(selected);
         if (e) { vscode.postMessage({ type: 'delete', scope: e.scope, kind: e.kind, name: e.name }); }
     });
+    $('moveUp').addEventListener('click', function () { if (selected) { vscode.postMessage({ type: 'move', key: selected, direction: 'up' }); } });
+    $('moveDown').addEventListener('click', function () { if (selected) { vscode.postMessage({ type: 'move', key: selected, direction: 'down' }); } });
     $('revert').addEventListener('click', function () { vscode.postMessage({ type: 'revert' }); });
     $('save').addEventListener('click', function () {
         vscode.postMessage({ type: 'save', entries: dirtyEntries().map(function (e) { return { scope: e.scope, kind: e.kind, name: e.name, text: edited[e.key] }; }) });

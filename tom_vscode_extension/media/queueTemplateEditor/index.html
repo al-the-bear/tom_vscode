@@ -41,6 +41,8 @@
       <button class="ctx-btn-icon" onclick="renameCurrentTemplate()" title="Rename Template"><span class="codicon codicon-edit"></span></button>
       <button class="ctx-btn-icon" onclick="openCurrentTemplateFile()" title="Open Template YAML"><span class="codicon codicon-go-to-file"></span></button>
       <button class="ctx-btn-icon" onclick="deleteCurrentTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
+      <button class="ctx-btn-icon" id="tplMoveUp" onclick="moveCurrentTemplate('up')" title="Move the selected template up in the list"><span class="codicon codicon-arrow-up"></span></button>
+      <button class="ctx-btn-icon" id="tplMoveDown" onclick="moveCurrentTemplate('down')" title="Move the selected template down in the list"><span class="codicon codicon-arrow-down"></span></button>
     </div>
     <div class="tpl-sidebar-list" id="templateList"></div>
   </div>

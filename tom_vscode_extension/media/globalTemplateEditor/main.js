@@ -65,6 +65,22 @@ document.getElementById('btnDelete').addEventListener('click', () => {
 document.getElementById('btnSave').addEventListener('click', () => {
     saveCurrentItem();
 });
+// Up / Down: the selected entry moves one place in its list (the host reorders the configuration's array).
+const btnMoveUp = document.getElementById('btnMoveUp');
+const btnMoveDown = document.getElementById('btnMoveDown');
+function moveCurrent(direction) {
+    if (!currentItemId) return;
+    vscode.postMessage({ type: 'move', category: currentCategory, itemId: currentItemId, direction });
+}
+btnMoveUp.addEventListener('click', () => moveCurrent('up'));
+btnMoveDown.addEventListener('click', () => moveCurrent('down'));
+/** The buttons follow the selection: off at the list's ends and without one. */
+function syncMoveButtons() {
+    const items = (categories.find(c => c.id === currentCategory) || {}).items || [];
+    const at = items.findIndex(i => i.id === currentItemId);
+    btnMoveUp.disabled = at <= 0;
+    btnMoveDown.disabled = at < 0 || at >= items.length - 1;
+}
 
 function renderCategories(initialCategory) {
     categorySelect.innerHTML = '';
@@ -84,6 +100,7 @@ function renderFileList(selectId) {
     const items = cat?.items || [];
     if (items.length === 0) {
         fileList.innerHTML = '<div class="empty">No templates in this category</div>';
+        syncMoveButtons();
         return;
     }
     fileList.innerHTML = items.map(item =>
@@ -96,9 +113,11 @@ function renderFileList(selectId) {
             currentItemId = el.dataset.id;
             fileList.querySelectorAll('.item').forEach(e => e.classList.remove('selected'));
             el.classList.add('selected');
+            syncMoveButtons();
             vscode.postMessage({ type: 'selectItem', category: currentCategory, itemId: currentItemId });
         });
     });
+    syncMoveButtons();
 }
 
 var _helpOverlayAdded = false;
@@ -311,6 +330,7 @@ window.addEventListener('message', e => {
             renderFileList(msg.initialItemId);
             if (msg.initialItemId) {
                 currentItemId = msg.initialItemId;
+                syncMoveButtons();
                 vscode.postMessage({ type: 'selectItem', category: currentCategory, itemId: currentItemId });
             }
             break;

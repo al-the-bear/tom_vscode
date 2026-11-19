@@ -30,6 +30,11 @@ import { loadSendToChatConfig } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { moveDirection } from '../utils/listOrder';
+
+/** The list key of the queue templates' stored order (services/editorListOrder.ts). */
+export const QUEUE_TEMPLATES_LIST_KEY = 'queueTemplates';
 
 // ============================================================================
 // State
@@ -162,6 +167,16 @@ async function handleMessage(msg: any): Promise<void> {
       return;
     }
 
+    case 'moveTemplate': {
+      // Up / Down: the template moves one place in the list; the order is stored (editorListOrder).
+      const templateId = String(msg.templateId ?? '').trim();
+      const direction = moveDirection(msg.direction);
+      if (!templateId || !direction) { return; }
+      const shown = inStoredOrder(QUEUE_TEMPLATES_LIST_KEY, readAllTemplates(), (t) => t.templateId).map((t) => t.templateId);
+      if (moveInStoredOrder(QUEUE_TEMPLATES_LIST_KEY, shown, templateId, direction)) { sendState(templateId); }
+      return;
+    }
+
     case 'deleteCurrentTemplate': {
       const templateId = msg.templateId?.trim();
       if (!templateId) { return; }
@@ -220,7 +235,8 @@ async function handleMessage(msg: any): Promise<void> {
 // ============================================================================
 
 function buildState(selectedId?: string): Record<string, unknown> {
-  const templates = readAllTemplates();
+  // In the order the Up / Down buttons gave them; a template not placed yet follows.
+  const templates = inStoredOrder(QUEUE_TEMPLATES_LIST_KEY, readAllTemplates(), (t) => t.templateId);
   const ids = templates.map(t => t.templateId);
 
   let selected: string | undefined = selectedId;

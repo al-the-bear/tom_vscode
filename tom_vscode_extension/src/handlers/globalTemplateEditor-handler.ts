@@ -37,6 +37,7 @@ import { loadSendToChatConfig, saveSendToChatConfig, SendToChatConfig, DEFAULT_T
 import { PLACEHOLDER_HELP } from './promptTemplate';
 import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { categorizeTools } from '../utils/toolCategories';
+import { moveById, moveDirection, type MoveDirection } from '../utils/listOrder';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
 import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copilotTemplates';
 import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
@@ -578,6 +579,9 @@ async function _handleMessage(msg: any): Promise<void> {
             break;
         case 'rename':
             await _renameItem(msg.category, msg.itemId);
+            break;
+        case 'move':
+            _moveItem(msg.category, String(msg.itemId ?? ''), moveDirection(msg.direction));
             break;
         case 'delete':
             await _deleteItem(msg.category, msg.itemId);
@@ -1336,6 +1340,59 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
     if (saveSendToChatConfig(config)) {
         _sendAllData(category, targetId);
     }
+}
+
+/**
+ * The configuration array a category's entries are kept in, with how to put a
+ * reordered one back; undefined for a category that is one fixed entry.
+ */
+function _categoryArray(config: SendToChatConfig, category: TemplateCategory): { items: any[]; idOf(item: any, index: number): string; set(next: any[]): void } | undefined {
+    const byId = (item: any): string => String(item?.id ?? '');
+    switch (category) {
+        case 'reminder':
+            return { items: (config as any).reminders?.templates ?? [], idOf: byId, set: (next) => { ((config as any).reminders ??= {}).templates = next; } };
+        case 'timedRequests':
+            return { items: (config as any).timedRequests ?? [], idOf: (item, i) => String(item?.id || i), set: (next) => { (config as any).timedRequests = next; } };
+        case 'anthropicProfiles':
+            return { items: config.anthropic?.profiles ?? [], idOf: byId, set: (next) => { if (config.anthropic) { config.anthropic.profiles = next; } } };
+        case 'anthropicUserMessage':
+            return { items: config.anthropic?.userMessageTemplates ?? [], idOf: byId, set: (next) => { if (config.anthropic) { config.anthropic.userMessageTemplates = next; } } };
+        case 'compaction':
+            return { items: config.compaction?.templates ?? [], idOf: byId, set: (next) => { if (config.compaction) { config.compaction.templates = next; } } };
+        case 'memoryExtraction':
+            return { items: config.compaction?.memoryExtractionTemplates ?? [], idOf: byId, set: (next) => { if (config.compaction) { config.compaction.memoryExtractionTemplates = next; } } };
+        case 'transportRetry':
+            return { items: config.anthropic?.transportRetry?.templates ?? [], idOf: byId, set: (next) => { if (config.anthropic?.transportRetry) { config.anthropic.transportRetry.templates = next; } } };
+        case 'interactiveQuestions':
+            return { items: config.anthropic?.interactiveQuestionsTemplates ?? [], idOf: byId, set: (next) => { if (config.anthropic) { config.anthropic.interactiveQuestionsTemplates = next; } } };
+        case 'assistPrompts':
+            return { items: config.assistPrompts?.templates ?? [], idOf: byId, set: (next) => { if (config.assistPrompts) { config.assistPrompts.templates = next; } } };
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * The Up / Down buttons: entry `itemId` of `category` moves one place in its
+ * array of the configuration, so the list here and every picker that lists
+ * the entries follow. Answers whether it moved.
+ */
+export function moveTemplateItemInConfig(config: SendToChatConfig, category: TemplateCategory, itemId: string, direction: MoveDirection): boolean {
+    const array = _categoryArray(config, category);
+    if (!array) { return false; }
+    const indexed = array.items.map((item, index) => ({ item, id: array.idOf(item, index) }));
+    const next = moveById(indexed, itemId, direction, (x) => x.id);
+    if (!next) { return false; }
+    array.set(next.map((x) => x.item));
+    return true;
+}
+
+function _moveItem(category: TemplateCategory, itemId: string, direction: MoveDirection | undefined): void {
+    const config = loadSendToChatConfig();
+    if (!config || !itemId || !direction) { return; }
+    if (!moveTemplateItemInConfig(config, category, itemId, direction)) { return; }
+    // Only the list is sent again: the fields being edited stay as they are.
+    if (saveSendToChatConfig(config)) { _sendCategoryItems(category); }
 }
 
 async function _deleteItem(category: TemplateCategory, itemId: string): Promise<void> {

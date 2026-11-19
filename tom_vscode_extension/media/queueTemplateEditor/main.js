@@ -80,6 +80,7 @@ window.addEventListener('message', function(e) {
 function renderSidebar() {
   var list = document.getElementById('templateList');
   if (!list) return;
+  syncTemplateMoveButtons();
   if (templateEntries.length === 0) {
     list.innerHTML = '<div style="opacity:0.5;font-size:0.85em;padding:8px;">No templates yet</div>';
     return;
@@ -125,6 +126,23 @@ function renameCurrentTemplate() {
 function openCurrentTemplateFile() {
   if (!selectedId) { showFeedback('No template selected', 'error'); return; }
   vscode.postMessage({ type: 'showTemplateFile', templateId: selectedId });
+}
+
+/** Up / Down: the selected template moves one place in the list (the order is stored by the host). */
+// eslint-disable-next-line no-unused-vars -- called by the sidebar header's inline onclick
+function moveCurrentTemplate(direction) {
+  if (!selectedId) return;
+  vscode.postMessage({ type: 'moveTemplate', templateId: selectedId, direction: direction });
+}
+
+/** The move buttons follow the selection: off at the list's ends and without one. */
+function syncTemplateMoveButtons() {
+  var at = -1;
+  for (var i = 0; i < templateEntries.length; i++) { if (templateEntries[i].id === selectedId) { at = i; } }
+  var up = document.getElementById('tplMoveUp');
+  var down = document.getElementById('tplMoveDown');
+  if (up) { up.disabled = at <= 0; }
+  if (down) { down.disabled = at < 0 || at >= templateEntries.length - 1; }
 }
 
 function deleteCurrentTemplate() {

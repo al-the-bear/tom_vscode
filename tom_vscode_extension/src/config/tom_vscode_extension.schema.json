@@ -149,6 +149,14 @@
             },
             "additionalProperties": false
         },
+        "editorListOrder": {
+            "type": "object",
+            "description": "The order of the editors' file-based lists (queue templates, reusable prompts, group prompts, roles, role types, processes), per list key: the ids in the order the Up / Down buttons gave them. An entry a list does not name follows the named ones; an id that names no entry is ignored.",
+            "additionalProperties": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
         "todoPanel": {
             "type": "object",
             "description": "The todo panel's queue items and chat sends.",

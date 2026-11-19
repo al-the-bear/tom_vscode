@@ -74,6 +74,21 @@
         vscode.postMessage({ type: 'delete', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
     });
     document.getElementById('btnSave').addEventListener('click', saveFile);
+    // Up / Down: the selected file moves one place in the list (the order is stored by the host; the files stay).
+    const btnMoveUp = document.getElementById('btnMoveUp');
+    const btnMoveDown = document.getElementById('btnMoveDown');
+    function moveCurrentFile(direction) {
+        if (!currentFileId) return;
+        vscode.postMessage({ type: 'move', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId, direction });
+    }
+    btnMoveUp.addEventListener('click', () => moveCurrentFile('up'));
+    btnMoveDown.addEventListener('click', () => moveCurrentFile('down'));
+    /** The buttons follow the selection: off at the list's ends and without one. */
+    function syncMoveButtons() {
+        const at = currentFiles.findIndex(f => f.id === currentFileId);
+        btnMoveUp.disabled = at <= 0;
+        btnMoveDown.disabled = at < 0 || at >= currentFiles.length - 1;
+    }
     document.getElementById('btnPreview').addEventListener('click', () => {
         if (!currentFileId) return;
         vscode.postMessage({ type: 'openInPreview', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
@@ -132,6 +147,7 @@
         currentFiles = files || [];
         if (currentFiles.length === 0) {
             fileList.innerHTML = '<div class="empty">No .prompt.md files in this scope</div>';
+            syncMoveButtons();
             return;
         }
         fileList.innerHTML = currentFiles.map(f =>
@@ -146,10 +162,12 @@
                 currentFileId = el.dataset.id;
                 fileList.querySelectorAll('.item').forEach(e => e.classList.remove('selected'));
                 el.classList.add('selected');
+                syncMoveButtons();
                 persistState();
                 vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
             });
         });
+        syncMoveButtons();
     }
 
     function renderEditor(fileId, content) {
@@ -223,6 +241,10 @@
                 if (currentFileId && msg.files.some(f => f.id === currentFileId)) {
                     vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
                 }
+                break;
+            case 'filesReordered':
+                // Only the list: the file being edited stays as it is.
+                if (msg.scope === currentScope && msg.subScopeId === getSubScopeId()) { renderFileList(msg.files, currentFileId); }
                 break;
             case 'fileContent':
                 renderEditor(msg.fileId, msg.content);

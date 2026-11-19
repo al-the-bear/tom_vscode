@@ -320,7 +320,21 @@ function qtNavPush(todoId) {
     var templateSelect = document.getElementById('qt-template-select');
     var addQueueBtn = document.getElementById('qt-btn-add-queue');
     var sendCopilotBtn = document.getElementById('qt-btn-send-copilot');
-    if (searchInput) searchInput.addEventListener('input', function() { qtFilterSearch = this.value.toLowerCase(); qtRenderList(); });
+    // The search field's clear button (x): shown while the field holds text; a click empties it and the filter.
+    var searchClear = document.getElementById('qt-search-clear');
+    function qtSyncSearchClear() { if (searchClear && searchInput) { searchClear.hidden = searchInput.value === ''; } }
+    if (searchInput) searchInput.addEventListener('input', function() { qtFilterSearch = this.value.toLowerCase(); qtSyncSearchClear(); qtRenderList(); });
+    if (searchInput && searchClear) {
+        searchClear.addEventListener('click', function(e) {
+            e.stopPropagation();
+            searchInput.value = '';
+            qtFilterSearch = '';
+            qtSyncSearchClear();
+            qtRenderList();
+            searchInput.focus();
+        });
+        qtSyncSearchClear();
+    }
     if (btnFilter) btnFilter.addEventListener('click', function(e) { e.stopPropagation(); qtToggleFilterPicker(); });
     if (btnSort) btnSort.addEventListener('click', function(e) { e.stopPropagation(); qtToggleSortPicker(); });
     if (btnReload) btnReload.addEventListener('click', function() { qtReloadView(); });
