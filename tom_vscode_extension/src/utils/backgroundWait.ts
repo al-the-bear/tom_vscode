@@ -64,6 +64,19 @@ export interface BackgroundWaitControl {
     keepWaiting(): void;
     /** End the wait now: the turn ends with the still-running hint, the queue goes on. */
     stop(): void;
+    /**
+     * The user writes `text` to the waiting turn (vscimpb173): the agent gets it at once, answers, and the wait
+     * goes on. Undefined when it could not be delivered (the wait is over); `answer` resolves with the agent's
+     * answer where the transport knows it (the Agent SDK).
+     */
+    message?(text: string): { answer?: Promise<string> } | undefined;
+}
+
+/** The user's message as the waiting turn gets it: what it is, and that the wait goes on after the answer. */
+export function backgroundWaitMessageText(text: string): string {
+    return '[A message from the user, written to you while your turn waits for the background work it started. '
+        + 'That work is still running and the wait is not over: answer the message (act on it if it asks for something), '
+        + 'then go on waiting for your background work as before.]\n\n' + text;
 }
 
 /** Why a wait ended with work still running. */

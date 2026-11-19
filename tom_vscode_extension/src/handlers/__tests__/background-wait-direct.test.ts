@@ -32,7 +32,7 @@ import { TrailService } from '../../services/trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { _resetRegistryForTesting, runCommandStreamImpl } from '../../tools/process-tools.js';
 import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
-import type { BackgroundWaitState } from '../../utils/backgroundWait.js';
+import type { BackgroundWaitControl, BackgroundWaitState } from '../../utils/backgroundWait.js';
 
 TrailService.init({} as never);
 TomAiConfiguration.init({} as never);
@@ -68,7 +68,7 @@ handler.getClient = () => ({
     },
 });
 
-function send(opts: { source?: 'queue' | 'chat'; limit?: number; states?: Array<BackgroundWaitState | undefined> }) {
+function send(opts: { source?: 'queue' | 'chat'; limit?: number; states?: Array<BackgroundWaitState | undefined>; onControl?: (c: BackgroundWaitControl | undefined) => void }) {
     return AnthropicHandler.instance.sendMessage({
         userText: 'run the suites and report',
         profile: { id: 'p', name: 'p', systemPrompt: 'Base.', toolApprovalMode: 'never' },
@@ -78,6 +78,7 @@ function send(opts: { source?: 'queue' | 'chat'; limit?: number; states?: Array<
         source: opts.source ?? 'queue',
         ...(opts.limit !== undefined ? { backgroundWaitLimitMinutes: opts.limit } : {}),
         ...(opts.states ? { onBackgroundWait: (s: BackgroundWaitState | undefined) => { opts.states!.push(s); } } : {}),
+        ...(opts.onControl ? { onBackgroundWaitControl: opts.onControl } : {}),
     } as never);
 }
 
@@ -134,6 +135,43 @@ describe('a direct-API queue turn waits for its command streams', () => {
         assert.equal(result.text, 'Started.');
         assert.equal(requests.length, 2);
         _resetRegistryForTesting();
+    });
+
+    test('BD-5: a message from the item joins the next round, then the wait goes on (vscimpb173)', async () => {
+        requests.length = 0;
+        replies = [
+            { kind: 'tool', command: 'sleep 2; echo built; exit 0' },
+            { kind: 'text', text: 'Started the build.' },
+            { kind: 'text', text: 'Understood, waiting.' },
+            { kind: 'text', text: 'About half way; I keep waiting.' },
+            { kind: 'text', text: 'The build finished with exit code 0. Done.' },
+        ];
+        const states: Array<BackgroundWaitState | undefined> = [];
+        let sent = false;
+        const result = await send({
+            states,
+            // As the queue does on the item's Message: once, as soon as the wait hands out its controls.
+            onControl: (c) => {
+                if (!c || sent) { return; }
+                sent = true;
+                setTimeout(() => { assert.deepEqual(c.message?.('How far is the build?'), {}); }, 150);
+            },
+        });
+        assert.equal(requests.length, 5, 'the reminder round, the message\'s round, the round after the command ended');
+        assert.match(lastUserText(requests[3]), /^\[A message from the user, written to you while your turn waits for the background work it started\.[\s\S]*\]\n\nHow far is the build\?$/, 'the model gets it as its next user turn');
+        assert.match(lastUserText(requests[4]), /The background command you started has finished:/, 'then the wait went on to its end');
+        assert.equal(result.text, 'The build finished with exit code 0. Done.');
+        // Waiting, cleared for the message's turn, waiting again, cleared.
+        const shape = states.map((s) => (s ? 'wait' : '-')).join('');
+        assert.match(shape, /^(wait)+-(wait)+-$/);
+        _resetRegistryForTesting();
+    });
+
+    test('BD-6: the Agent SDK takes the message into the running query', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'agent-sdk-transport.ts'), 'utf8');
+        const control = src.slice(src.indexOf('params.onBackgroundWaitControl?.({'), src.indexOf('// While it runs, a chat send into its session can be an update to it.'));
+        assert.match(control, /message: \(text\) => \{\s*if \(input\.backgroundWait\(\) === undefined\) \{ return undefined; \}\s*const pushed = input\.push\(backgroundWaitMessageText\(text\)\);\s*if \(!pushed\) \{ return undefined; \}/);
+        assert.match(control, /return \{ answer: pushed\.answer \};/);
     });
 
     test('BD-4: the Local LLM loop waits the same way', () => {

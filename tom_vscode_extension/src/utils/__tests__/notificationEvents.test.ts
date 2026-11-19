@@ -17,7 +17,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    changedTodoFields, filterNotifications, groupDetails, groupLine, groupNotifications, notificationWindows, todoUpdateType,
+    NOTIFICATION_TYPES, NOTIFICATION_TYPE_INFO, USER_NOTIFICATION_TYPES, changedTodoFields, eventText, filterNotifications, groupDetails, groupLine, groupNotifications, notificationWindows, todoUpdateType,
     type NotificationEvent, type NotificationType, type NotificationWho,
 } from '../notificationEvents.js';
 import { queueItemDraft, todoCreatedDraft, todoUpdateDraft } from '../notificationDrafts.js';
@@ -127,6 +127,20 @@ describe('texts', () => {
         assert.equal(queueItemDraft('itemQueued', { id: 'x', status: 'pending', type: 'reminder' }).who!.label, 'reminder');
         assert.match(queueItemDraft('itemQueued', { id: 'x', status: 'pending', notificationOf: 'q9' }).who!.label!, /done notification of q9/);
         assert.equal(queueItemDraft('itemDeleted', { id: 'x', status: 'sent', type: 'timed' }).who, undefined, 'a deletion: the caller\'s context');
+    });
+
+    test('NE-8: a message the user wrote to a waiting turn (vscimpb173)', () => {
+        assert.equal(NOTIFICATION_TYPES[NOTIFICATION_TYPES.length - 1], 'message', 'a type of its own, after the others');
+        assert.deepEqual(NOTIFICATION_TYPE_INFO.message, { label: 'You wrote', icon: 'mail' });
+        assert.ok(!USER_NOTIFICATION_TYPES.includes('message'), 'from the user, not directed at him: not in USER NOTIFICATIONS');
+        const wrote = (sec: number, title: string): NotificationEvent => ev('message', sec, { who: { kind: 'user' }, run: 'r2', user: { kind: 'waitFor', title, details: ['To the waiting turn of queue item q1 (tomAi_waitFor)', title], queueItemId: 'q1' } });
+        const one = wrote(0, 'Also bump the changelog.');
+        assert.equal(eventText(one), 'you wrote to a waiting turn: Also bump the changelog. · r2');
+        const groups = groupNotifications([one, wrote(20, 'and tag it')]);
+        assert.equal(groups.length, 1);
+        assert.equal(groupLine(groups[0]), '2 messages written to waiting turns by you · vscode_extension');
+        assert.ok(groupDetails(groupNotifications([one])[0]).includes('To the waiting turn of queue item q1 (tomAi_waitFor)'));
+        assert.equal(filterNotifications([one], { windows: [], types: ['itemQueued'] }).length, 0, 'its toggle hides it');
     });
 
     test('NE-7: the window choices', () => {

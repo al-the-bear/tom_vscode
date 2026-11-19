@@ -53,6 +53,8 @@ import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
+import { waitMessageViews } from '../utils/itemWaitMessages';
+import { answerItemAsk, itemAskViews } from '../services/queueItemAsks';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -724,6 +726,20 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'resendSendingStage':
           await resendRunningStage(qm, msg.id);
           break;
+        case 'messageWaitingItem': {
+          // A wait panel's message box (vscimpb173): straight to the item's own waiting turn.
+          const r = qm.messageWaitingItem(String(msg.id ?? ''), String(msg.text ?? ''));
+          if (!r.ok) { vscode.window.showInformationMessage(`The message was not sent: ${r.reason}`); }
+          sendState();
+          break;
+        }
+        case 'answerItemAsk': {
+          // The item's ask panel (vscimpb173): answered as the user-input panel / picker / MD Browser answers it.
+          const r = answerItemAsk(String(msg.id ?? ''), String(msg.askId ?? ''), (msg.response && typeof msg.response === 'object' ? msg.response : {}) as Record<string, unknown>);
+          if (!r.ok) { vscode.window.showInformationMessage(r.reason); }
+          sendState();
+          break;
+        }
         case 'openPendingQuestion':
           // What the item waits for (vscimpb81): the user-input panel on its run's tab, or its MD Browser.
           await vscode.commands.executeCommand('tomAi.showUserInteraction', { itemId: String(msg.id ?? '') });
@@ -1230,6 +1246,12 @@ function stageTransportOf(item: QueuedPrompt): string | undefined {
 }
 
 /** The question a sending item's turn waits in: when it was asked, as a label. */
+/** Whether a message can be written to the item's waiting turn now (vscimpb173). */
+function canMessageWaitOf(item: QueuedPrompt): boolean {
+    if (item.status !== 'sending') { return false; }
+    try { return PromptQueueManager.instance.canMessageWaitingItem(item.id); } catch { return false; }
+}
+
 function pendingQuestionLabelOf(item: QueuedPrompt): string | undefined {
     if (item.status !== 'sending') { return undefined; }
     try {
@@ -1283,6 +1305,8 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
         yieldArmed: item.yieldAfterIteration === true,
         ...(background ? { backgroundLimit: formatLimit(background.limitMinutes) } : {}),
         waitingFor: waitFor !== undefined,
+        canMessage: qm.canMessageWaitingItem(id),
+        canAnswerHere: question !== undefined,
     });
     const text = continuePrompt({
         waitingSince: question ? waitingSinceLabel(question.askedAt, Date.now()) : undefined,
@@ -1295,6 +1319,21 @@ export async function continueWithChoice(qm: PromptQueueManager, id: string): Pr
     if (!action) { return; }
     if (action === 'answer') {
         await vscode.commands.executeCommand('tomAi.showUserInteraction', { itemId: id });
+        return;
+    }
+    if (action === 'answerHere' && question) {
+        // The same answer the user-input panel's Submit sends, typed here (vscimpb173).
+        const text = await vscode.window.showInputBox({ title: question.title ?? 'Answer the question', prompt: question.firstLine, ignoreFocusOut: true });
+        if (text === undefined) { return; }
+        const r = answerItemAsk(id, question.requestId, { type: 'submit', requestId: question.requestId, text });
+        if (!r.ok) { vscode.window.showInformationMessage(r.reason); }
+        return;
+    }
+    if (action === 'message') {
+        const text = await vscode.window.showInputBox({ title: 'Message to the waiting turn', prompt: 'The agent gets it at once, answers, and goes on waiting.', ignoreFocusOut: true });
+        if (text === undefined || text.trim() === '') { return; }
+        const r = qm.messageWaitingItem(id, text);
+        if (!r.ok) { vscode.window.showInformationMessage(`The message was not sent: ${r.reason}`); }
         return;
     }
     if (action === 'waitWithoutLimit') { qm.waitWithoutLimit(id); return; }
@@ -1541,6 +1580,11 @@ function buildState(): Record<string, unknown> {
                 ...(backgroundWaitViewOf(item) ? { backgroundWaitView: backgroundWaitViewOf(item) } : {}),
                 // Its turn waits in tomAi_waitFor: the reason, until when, how long is left (vscimpb82).
                 ...(waitForViewOf(item) ? { waitForView: waitForViewOf(item) } : {}),
+                // What the user wrote to its waiting turn from the item, and whether a message can be written now (vscimpb173).
+                ...(item.status === 'sending' && item.waitMessages?.length ? { waitMessagesView: waitMessageViews(item.waitMessages) } : {}),
+                ...(canMessageWaitOf(item) ? { canMessageWait: true } : {}),
+                // What its turn asks (questions, pickers, MD Browser asks): answered in the item's ask panel (vscimpb173).
+                ...(item.status === 'sending' && itemAskViews(item.id).length ? { askViews: itemAskViews(item.id) } : {}),
                 // Interrupt for continuation (vscimpb112): the soft interrupt's request or hold, the question its
                 // turn waits in (the ❓ tooltip), and the transport (a Copilot item has no hold point).
                 ...(softInterruptViewOf(item) ? { softInterruptView: softInterruptViewOf(item) } : {}),

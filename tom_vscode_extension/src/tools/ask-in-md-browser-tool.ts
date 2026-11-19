@@ -485,8 +485,16 @@ export async function askInMdBrowserImpl(
             ...(queueItemId ? { queueItemId } : {}),
             createdAt: askedAt,
             title: bar.title ?? file,
-            data: { file, title: bar.title, panelId },
-            respond: () => { try { deps.revealPanel?.(panelId); } catch { /* the panel is gone */ } },
+            data: { file, title: bar.title, panelId, requestId: bar.requestId, buttons: bar.buttons, keepFile: bar.keepFile },
+            // The user-input panel's Show it reveals the document; the queue item's ask panel clicks a button
+            // (`{type: 'mdButton', buttonId, keepFile?}`) exactly as the bar in the MD Browser does (vscimpb173).
+            respond: (r) => {
+                if (r?.type === 'mdButton') {
+                    slot.click(bar.requestId, String(r.buttonId ?? ''), typeof r.keepFile === 'boolean' ? r.keepFile : ask.keepFile);
+                    return;
+                }
+                try { deps.revealPanel?.(panelId); } catch { /* the panel is gone */ }
+            },
         });
         if (timeoutMs) {
             ask.timer = (deps.setTimer ?? ((ms, cb) => setTimeout(cb, ms)))(timeoutMs, () => slot.finish('timeout', undefined, ask));

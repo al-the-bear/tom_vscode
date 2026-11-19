@@ -26,6 +26,7 @@ import {
     waitForState,
     waitForToYaml,
     waitForUntilLabel,
+    waitMessageAnswer,
     type WaitForState,
 } from '../waitFor';
 import { WaitForRegistry, type WaitForTimers } from '../../services/waitForRegistry';
@@ -122,6 +123,37 @@ describe('the waits', () => {
         await runAsAskOwner(async () => { chat = reg.wait(STATE(10, timers.now())); });
         assert.equal(await chat, 'cancelled', 'the send that opened it ended');
         assert.deepEqual(reg.waitsOutsideQueue(), []);
+    });
+
+    test('WF-7: a message ends the wait with its text (vscimpb173)', async () => {
+        const timers = fakeTimers();
+        const reg = new WaitForRegistry(timers);
+        const events: string[] = [];
+        reg.onChange((w, phase, outcome) => events.push(`${w.queueItemId ?? '-'}:${phase}${outcome ? ':' + outcome : ''}`));
+        assert.equal(reg.message('q1', 'nobody waits'), false);
+        const waiting = reg.waitForEnd(STATE(10, timers.now()), 'q1');
+        const other = reg.wait(STATE(10, timers.now()), 'q2');
+        assert.equal(reg.message('q1', 'Also bump the changelog.'), true);
+        assert.deepEqual(await waiting, { outcome: 'message', message: 'Also bump the changelog.' });
+        assert.equal(reg.waitOf('q1'), undefined, 'the call returned');
+        assert.ok(reg.waitOf('q2'), 'another item\'s wait goes on');
+        assert.equal(reg.message('q1', 'again'), false, 'once per wait');
+        // The plain outcome, for callers that read only how it ended.
+        const plain = reg.wait(STATE(10, timers.now()), 'q1');
+        reg.message('q1', 'x');
+        assert.equal(await plain, 'message');
+        // The other ends carry no message.
+        reg.interrupt('q2');
+        assert.equal(await other, 'interrupted');
+        const elapsed = reg.waitForEnd(STATE(1, timers.now()), 'q3');
+        timers.advance(61_000);
+        assert.deepEqual(await elapsed, { outcome: 'elapsed' });
+        assert.deepEqual(events, ['q1:begin', 'q2:begin', 'q1:end:message', 'q1:begin', 'q1:end:message', 'q2:end:interrupted', 'q3:begin', 'q3:end:elapsed']);
+        // The answer the tool gives.
+        const state = STATE(90);
+        const answer = JSON.parse(waitMessageAnswer(state, 61 * 60_000, 'hello', NOW + 61 * 60_000));
+        assert.deepEqual([answer.ok, answer.outcome, answer.message, answer.waited, answer.until, answer.remaining], [true, 'message', 'hello', '1 h 1 min', state.until, '29 min']);
+        assert.equal(JSON.parse(waitMessageAnswer(state, 0, 'm', NOW + 91 * 60_000)).remaining, 'none');
     });
 
     test('WF-6: Continue on a waiting item', () => {

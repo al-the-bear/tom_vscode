@@ -18,7 +18,7 @@ import { commandsFinishedMessage, reminderForRunningCommands, waitForOwnedComman
 import { backgroundWorkReminder } from '../utils/backgroundWorkReminder';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 import { commandsOfOwner } from '../tools/process-tools';
-import { formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
+import { backgroundWaitMessageText, formatLimit, listBackgroundWork, resolveBackgroundWaitLimitMinutes, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState } from '../utils/backgroundWait';
 import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
 import { userInteractions } from '../services/userInteractions';
 import { logToolCall } from '../utils/toolCallLog';
@@ -1947,6 +1947,10 @@ export class AnthropicHandler {
             case 'finished':
                 liveTrail?.appendNotice('The background commands have ended; the turn goes on with their result.');
                 return { continueWith: commandsFinishedMessage(outcome.commands) };
+            case 'message':
+                // The user wrote to the waiting turn: it goes on with the message; when it ends again the wait resumes.
+                liveTrail?.appendNotice('The user wrote to the waiting turn; it answers, then the wait for its background work goes on.');
+                return { continueWith: backgroundWaitMessageText(outcome.text) };
             case 'limit':
                 liveTrail?.appendNotice(`Stopped waiting (${outcome.reason === 'stopped' ? 'your choice' : 'the background-wait limit'}): still running ${listBackgroundWork(outcome.running)}.`);
                 return { hint: stillRunningHint(outcome.running, limit, outcome.reason) };

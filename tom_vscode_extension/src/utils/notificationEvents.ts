@@ -10,7 +10,9 @@
  * tool approval) and its close, a tomAi_notifyUser message, an answer given
  * with tomAi_answerUser (vscimpb171, opened in the Answers page), suggested
  * subprocesses, a process decision waiting, a todo filed for the user
- * (decision-needed or a user action), the queue holding for the user. Each
+ * (decision-needed or a user action), the queue holding for the user. `message`
+ * (vscimpb173) is the other direction: the user wrote to a queue item's waiting
+ * turn. Each
  * event records when, the window (quest), the run, who (an agent — transport,
  * profile, session, the queue item and todo it was working on —, the user, or
  * the extension on its own) and what (the item, the todo with the fields
@@ -25,12 +27,14 @@
 
 export type NotificationType =
     | 'itemQueued' | 'itemDeleted' | 'todoCreated' | 'todoUpdated' | 'todoChanged'
-    | 'askOpened' | 'askClosed' | 'userNotified' | 'answer' | 'subprocessSuggested' | 'decisionWaiting' | 'userTodo' | 'queueHolding';
+    | 'askOpened' | 'askClosed' | 'userNotified' | 'answer' | 'subprocessSuggested' | 'decisionWaiting' | 'userTodo' | 'queueHolding'
+    | 'message';
 
 /** Every type, in the order the view's toggles show them. */
 export const NOTIFICATION_TYPES: readonly NotificationType[] = [
     'itemQueued', 'itemDeleted', 'todoCreated', 'todoUpdated', 'todoChanged',
     'askOpened', 'askClosed', 'userNotified', 'answer', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding',
+    'message',
 ];
 
 /** The types directed at the user (USER NOTIFICATIONS shows them; `askClosed` marks its ask answered there). */
@@ -51,6 +55,7 @@ export const NOTIFICATION_TYPE_INFO: Readonly<Record<NotificationType, { label: 
     decisionWaiting: { label: 'Decision', icon: 'git-compare' },
     userTodo: { label: 'Todo for you', icon: 'person' },
     queueHolding: { label: 'Queue holds', icon: 'debug-pause' },
+    message: { label: 'You wrote', icon: 'mail' },
 };
 
 /** What kind of thing waits for the user (an `askOpened` / `askClosed` event). */
@@ -239,6 +244,7 @@ const NOUN: Record<NotificationType, [string, string, string]> = {
     decisionWaiting: ['decision', 'decisions', 'waiting'],
     userTodo: ['todo for you', 'todos for you', 'filed'],
     queueHolding: ['queue hold', 'queue holds', 'reported'],
+    message: ['message', 'messages', 'written to waiting turns'],
 };
 
 /** The verb of a user-directed event's line. */
@@ -251,6 +257,7 @@ const USER_VERB: Partial<Record<NotificationType, string>> = {
     decisionWaiting: 'decision waits',
     userTodo: 'todo for you',
     queueHolding: 'queue holds',
+    message: 'you wrote to a waiting turn',
 };
 
 /** One event's short text. */

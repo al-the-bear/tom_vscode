@@ -12,6 +12,10 @@
  *   QF-4 Continue on a waiting item offers Keep waiting and Interrupt the wait and move on, then Resend and Skip;
  *        Keep waiting changes nothing, Interrupt interrupts
  *   QF-5 Stop on a waiting item cancels the wait: the tool answers `cancelled`, the state is cleared
+ *   QF-6 a message from the item (vscimpb173): the tool answers `message` at once with the text, the wait's end and
+ *        what is left of it; the item keeps the message (the queue file's `wait-messages`), the questions journal
+ *        and NOTIFICATIONS get it; the agent calling the tool again with the same `until` goes on waiting and the
+ *        message shows as resumed; nothing to write to: refused; Continue offers Message…
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- config keys */
@@ -54,9 +58,12 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 import { waitForImpl } from '../wait-for-tool.js';
+import { WaitForRegistry } from '../../services/waitForRegistry.js';
 import { projectQueueItem } from '../prompt-queue-tools.js';
 import { summarizeQueue } from '../../utils/windowActivity.js';
 import { WAIT_RESUME_NOTE } from '../../utils/waitFor.js';
+import { configureNotificationLog, readNotificationEvents } from '../../services/notificationLog.js';
+import { waitMessageViews } from '../../utils/itemWaitMessages.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -235,7 +242,7 @@ describe('a queue turn waiting in tomAi_waitFor', () => {
             await wait(150);
             pick = 'Keep waiting';
             await continueWithChoice(queue(), item.id);
-            assert.deepEqual(shown[0].slice(2), ['Keep waiting', 'Interrupt the wait and move on', 'Resend this stage', 'Skip to the next stage']);
+            assert.deepEqual(shown[0].slice(2), ['Keep waiting', 'Interrupt the wait and move on', 'Message…', 'Resend this stage', 'Skip to the next stage']);
             assert.match(String(shown[0][0]), /waiting: pub\.dev limit: 12 versions in 24 h — until (?:[A-Z][a-z]{2} )?\d\d:\d\d \(59 min left\)/);
             assert.ok(queue().waitForOf(item.id), 'Keep waiting changes nothing');
             pick = 'Interrupt the wait and move on';
@@ -262,5 +269,72 @@ describe('a queue turn waiting in tomAi_waitFor', () => {
         assert.equal(queue().getById(item.id)?.waitingFor, undefined);
         last().finish();
         await wait(150);
+    });
+
+    test('QF-6: a message from the item, and the wait goes on', async () => {
+        clean();
+        waitMinutes = 60;
+        const log = path.join(SANDBOX, 'notifications.jsonl');
+        configureNotificationLog(log, { windowId: 'w-test', quest: () => QUEST, run: () => 'default', who: () => ({ kind: 'extension' }) });
+        try {
+            const item = await add('publish it, please wait');
+            // Not running yet: nothing to write to.
+            assert.deepEqual(queue().messageWaitingItem(item.id, 'hello'), { ok: false, reason: 'The item is not running.' });
+            assert.equal(queue().canMessageWaitingItem(item.id), false);
+            void queue().sendNow(item.id);
+            await wait(150);
+            assert.equal(queue().canMessageWaitingItem(item.id), true);
+            assert.deepEqual(queue().messageWaitingItem(item.id, '   '), { ok: false, reason: 'The message is empty.' });
+            const until = queue().waitForOf(item.id)!.until;
+            assert.deepEqual(queue().messageWaitingItem(item.id, '  Also bump the changelog.\nThen wait on.  '), { ok: true, into: 'waitFor' });
+            // The tool answers at once: the message, the wait's end, what is left, and how to go on waiting.
+            const answer = JSON.parse(await last().tool!);
+            assert.equal(answer.ok, true);
+            assert.equal(answer.outcome, 'message');
+            assert.equal(answer.message, 'Also bump the changelog.\nThen wait on.');
+            assert.equal(answer.until, until);
+            assert.match(answer.remaining, /^(59 min|1 h)$/);
+            assert.match(answer.instruction, new RegExp(`call tomAi_waitFor again with the same reason and \`until: "${until.replace(/[.]/g, '\\.')}"\` to go on waiting`));
+            assert.equal(queue().waitForOf(item.id), undefined, 'the wait ended for the message');
+            assert.equal(statusOf(item), 'sending', 'the turn goes on; the item does not step back');
+            assert.equal(queue().canMessageWaitingItem(item.id), false, 'no wait now');
+            assert.deepEqual(queue().messageWaitingItem(item.id, 'again'), { ok: false, reason: 'The item no longer waits.' });
+            // Kept on the item, in the file, the journal and NOTIFICATIONS.
+            const kept = queue().waitMessagesOf(item.id);
+            assert.deepEqual(kept.map((m) => [m.into, m.text, m.resumed]), [['waitFor', 'Also bump the changelog.\nThen wait on.', undefined]]);
+            assert.equal(waitMessageViews(kept)[0].state, 'the agent has it');
+            assert.match(queueFileText(item.id), /wait-messages:\n\s+- at: /);
+            const journal = fs.readFileSync(path.join(QDIR, `questions.${QUEST}.md`), 'utf8');
+            assert.match(journal, /message to a waiting turn \(tomAi_waitFor\)/);
+            assert.match(journal, /Also bump the changelog\./);
+            const events = readNotificationEvents(log).filter((e) => e.type === 'message');
+            assert.equal(events.length, 1);
+            assert.deepEqual([events[0].who.kind, events[0].user?.kind, events[0].user?.title, events[0].user?.queueItemId], ['user', 'waitFor', 'Also bump the changelog.', item.id]);
+            // The agent waits again with the same end: shown as resumed.
+            const again = queue().items.length ? waitForImpl({ reason: 'pub.dev limit: 12 versions in 24 h', until }, { registry: { wait: (state, id) => WaitForRegistry.instance.waitForEnd(state, id) }, now: () => Date.now(), queueItemId: () => item.id }) : undefined;
+            await wait(50);
+            assert.equal(queue().waitForOf(item.id)?.until, until, 'the same end');
+            assert.equal(queue().waitMessagesOf(item.id)[0].resumed, true);
+            assert.equal(waitMessageViews(queue().waitMessagesOf(item.id))[0].state, 'the wait goes on');
+            // Continue offers Message…: typed in an input box, it goes the same way.
+            const win = vscodeStub.stub.window as Json;
+            const original = { warn: win.showWarningMessage, input: win.showInputBox };
+            win.showWarningMessage = () => Promise.resolve('Message…');
+            win.showInputBox = () => Promise.resolve('From Continue');
+            try {
+                await continueWithChoice(queue(), item.id);
+            } finally {
+                win.showWarningMessage = original.warn;
+                win.showInputBox = original.input;
+            }
+            const second = JSON.parse(await again!);
+            assert.deepEqual([second.outcome, second.message], ['message', 'From Continue']);
+            assert.deepEqual(queue().waitMessagesOf(item.id).map((m) => m.text), ['Also bump the changelog.\nThen wait on.', 'From Continue']);
+            last().finish();
+            await wait(150);
+            assert.equal(statusOf(item), 'sent');
+        } finally {
+            configureNotificationLog(undefined, undefined);
+        }
     });
 });

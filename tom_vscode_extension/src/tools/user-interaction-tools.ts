@@ -53,6 +53,7 @@
 import { currentInteractionRun, currentQueueItemId, whileWaitingForUser } from '../services/userWaits';
 import { userInteractions } from '../services/userInteractions';
 import { registerAskCancel } from '../services/askOwners';
+import { pickedOf, registerLivePicker, type PickerResponse } from '../services/livePickers';
 import * as vscode from 'vscode';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
@@ -347,9 +348,24 @@ function showLiveQuickPick(win: LiveWindow, items: PickerItem[], opts: QuickPick
             settled = true;
             if (timer !== undefined) { clearTimeout(timer); }
             unregister();
+            unlist();
             resolve(result);
             qp.dispose();
         };
+        // Listed for the queue item whose turn waits in it: its ask panel shows the items and can pick there (vscimpb173).
+        // The pinned free-text entry ("Other…") is left out there: the panel has its own text field.
+        const offered = items.filter((i) => i.alwaysShow !== true);
+        const unlist = registerLivePicker({
+            id: `qp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            ...(currentQueueItemId() ? { queueItemId: currentQueueItemId() } : {}),
+            run: currentInteractionRun(),
+            createdAt: Date.now(),
+            ...(opts.title ? { title: opts.title } : {}),
+            ...(opts.placeHolder ? { prompt: opts.placeHolder } : {}),
+            items: offered.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}) })),
+            canPickMany: opts.canPickMany === true,
+            answer: (response) => finish(pickedOf(offered, response, opts.canPickMany === true)),
+        });
         // The prompt that asked owns the question (services/askOwners.ts): when it ends
         // first, the picker closes as on Escape — its answer would reach nobody.
         const unregister = registerAskCancel(() => finish(undefined));
@@ -439,13 +455,7 @@ export function panelQuickPick(items: PickerItem[], opts: QuickPickOpts, run: st
                 items: items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}) })),
                 canPickMany: opts.canPickMany === true,
             },
-            respond: (r) => {
-                if (r.dismissed === true) { finish(undefined); return; }
-                const picked = (Array.isArray(r.selected) ? r.selected : []).map(Number).filter((n) => items[n] !== undefined).map((n) => items[n]);
-                const other = typeof r.other === 'string' ? r.other.trim() : '';
-                if (other) { picked.push({ label: other, value: other }); }
-                finish(opts.canPickMany === true ? picked : picked[0]);
-            },
+            respond: (r) => finish(pickedOf(items, r as PickerResponse, opts.canPickMany === true)),
         });
     });
 }

@@ -89,6 +89,8 @@ import { WAIT_RESUME_NOTE, waitForFromYaml, waitForToYaml, type WaitForState } f
 import { runStatusBarText } from '../utils/queueRunStatus';
 import { BACKGROUND_WORK_HOLD, heldForLine, heldResultResendLine, prefixHeldConversation, SoftInterruptRegistry, softInterruptFromYaml, softInterruptToYaml, type SoftInterruptState } from '../services/softInterrupt';
 import { WaitForRegistry } from '../services/waitForRegistry';
+import { keptAnswer, lastOpenWaitMessage, waitMessageProblem, waitMessagesFromYaml, waitMessagesToYaml, withWaitMessage, type ItemWaitMessage } from '../utils/itemWaitMessages';
+import { appendQuestionLogEntry } from '../services/questionsLog';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
@@ -370,6 +372,12 @@ export interface QueuedPrompt {
      * merge reload; cleared when the wait ends and by crash recovery.
      */
     waitingFor?: WaitForState;
+    /**
+     * The messages the user wrote to the item's waiting turn from the item (vscimpb173;
+     * utils/itemWaitMessages.ts), with the agent's answer where known and whether the wait went on.
+     * Persisted as `wait-messages`.
+     */
+    waitMessages?: ItemWaitMessage[];
     /**
      * Interrupt for continuation, soft (vscimpb112; services/softInterrupt.ts):
      * while the item is `sending`, the request and — once a hold point has it —
@@ -5458,6 +5466,12 @@ export class PromptQueueManager {
         } else {
             const changed = JSON.stringify(live.backgroundWait) !== JSON.stringify(state);
             if (!changed) { return; }
+            // The wait begins again after a message the user wrote into it (the direct transports end the
+            // wait for the message's turn): shown as resumed.
+            if (live.backgroundWait === undefined) {
+                const written = lastOpenWaitMessage(live.waitMessages, 'background');
+                if (written) { written.resumed = true; }
+            }
             live.backgroundWait = state;
             logQueue(`Item ${live.id}: waiting for ${state.items.length} background item(s) since ${state.since}, limit ${state.limitMinutes} min`);
         }
@@ -5507,6 +5521,85 @@ export class PromptQueueManager {
         return true;
     }
 
+    // ----- A message to the item's waiting turn (vscimpb173) ------------------
+
+    /** The messages the user wrote to item `id`'s waiting turn. */
+    waitMessagesOf(id: string): ItemWaitMessage[] {
+        return this._items.find(i => i.id === id)?.waitMessages ?? [];
+    }
+
+    /** Whether a message can be written to item `id` now: its turn waits in tomAi_waitFor or for its background work. */
+    canMessageWaitingItem(id: string): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') { return false; }
+        return item.waitingFor !== undefined || (item.backgroundWait !== undefined && this._backgroundControls.get(id)?.message !== undefined);
+    }
+
+    /**
+     * The user writes `text` to the waiting turn of the sending item `id`, from the item itself: it goes to the
+     * item's own turn (its session and run, no chat send) — a tomAi_waitFor call returns with it (`message`) and
+     * the agent waits on; a turn waiting for its background work gets it as its next user message and waits on
+     * after its answer. The message is kept on the item, logged to the questions journal and to NOTIFICATIONS.
+     */
+    messageWaitingItem(id: string, text: string): { ok: true; into: ItemWaitMessage['into'] } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item || item.status !== 'sending') { return { ok: false, reason: 'The item is not running.' }; }
+        const problem = waitMessageProblem(text);
+        if (problem) { return { ok: false, reason: problem }; }
+        const message: ItemWaitMessage = { at: new Date().toISOString(), into: item.waitingFor ? 'waitFor' : 'background', text: text.trim() };
+        if (item.waitingFor) {
+            // Recorded first: the wait's end fires the change the editor draws from.
+            item.waitMessages = withWaitMessage(item.waitMessages, message);
+            if (!WaitForRegistry.instance.message(id, message.text)) {
+                item.waitMessages = item.waitMessages.filter((m) => m !== message);
+                return { ok: false, reason: 'The item no longer waits.' };
+            }
+        } else {
+            const control = item.backgroundWait ? this._backgroundControls.get(id) : undefined;
+            if (!control) { return { ok: false, reason: 'The item no longer waits.' }; }
+            if (!control.message) { return { ok: false, reason: 'This transport takes no message into a waiting turn.' }; }
+            const sent = control.message(message.text);
+            if (!sent) { return { ok: false, reason: 'The item no longer waits.' }; }
+            item.waitMessages = withWaitMessage(item.waitMessages, message);
+            // The agent's answer (the Agent SDK knows it): kept with the message; the wait goes on after it.
+            sent.answer?.then((answer) => {
+                message.answer = keptAnswer(answer);
+                if (this._items.find(i => i.id === id)?.backgroundWait) { message.resumed = true; }
+                this.persist();
+                this._onDidChange.fire();
+            }).catch(() => undefined);
+        }
+        logQueue(`Item ${id}: the user wrote to its waiting turn (${message.into === 'waitFor' ? 'tomAi_waitFor' : 'background work'}): ${message.text.split('\n')[0].slice(0, 80)}`);
+        const run = itemRun(item);
+        try {
+            const now = Date.now();
+            appendQuestionLogEntry({
+                tool: message.into === 'waitFor' ? 'message to a waiting turn (tomAi_waitFor)' : 'message to a waiting turn (background work)',
+                title: `Written from queue item ${id}${item.waitingFor ? `, waiting: ${item.waitingFor.reason}` : ''}`,
+                questions: [],
+                answer: message.text,
+                source: 'queue item',
+                askedAt: now,
+                answeredAt: now,
+                run,
+            });
+        } catch { /* the journal is best effort */ }
+        emitNotifications([{
+            type: 'message',
+            run,
+            who: { kind: 'user' },
+            user: {
+                kind: message.into,
+                title: message.text.split('\n')[0].slice(0, 120),
+                details: [`To the waiting turn of queue item ${id} (${message.into === 'waitFor' ? 'tomAi_waitFor' : 'its background work'})`, ...message.text.split('\n').slice(0, 20)],
+                queueItemId: id,
+            },
+        }]);
+        this.persist();
+        this._onDidChange.fire();
+        return { ok: true, into: message.into };
+    }
+
     // ----- tomAi_waitFor (vscimpb82; src/utils/waitFor.ts) -------------------
 
     /**
@@ -5520,6 +5613,9 @@ export class PromptQueueManager {
         if (!live) { return; }
         if (state) {
             live.waitingFor = state;
+            // The agent waits again after a message the user wrote into its wait: shown as resumed.
+            const written = lastOpenWaitMessage(live.waitMessages, 'waitFor');
+            if (written) { written.resumed = true; }
             logQueue(`Item ${id}: its turn waits until ${state.until} — ${state.reason}`);
         } else {
             if (live.waitingFor === undefined) { return; }
@@ -7373,6 +7469,7 @@ export class PromptQueueManager {
                 ...(validLimit(main['background-wait-limit-minutes']) !== undefined ? { backgroundWaitLimitMinutes: validLimit(main['background-wait-limit-minutes']) } : {}),
                 ...(backgroundWaitFromYaml(main['background-wait']) ? { backgroundWait: backgroundWaitFromYaml(main['background-wait']) } : {}),
                 ...(waitForFromYaml(main['waiting-for']) ? { waitingFor: waitForFromYaml(main['waiting-for']) } : {}),
+                ...(waitMessagesFromYaml(main['wait-messages']) ? { waitMessages: waitMessagesFromYaml(main['wait-messages']) } : {}),
                 ...(softInterruptFromYaml(main['soft-interrupt']) ? { softInterrupt: softInterruptFromYaml(main['soft-interrupt']) } : {}),
                 ...(typeof main['turn-session-id'] === 'string' && main['turn-session-id'] ? { turnSessionId: main['turn-session-id'] } : {}),
                 ...(main['interrupt-note'] === true ? { interruptNote: true as const } : {}),
@@ -7542,6 +7639,7 @@ export class PromptQueueManager {
             ...(item.backgroundWaitLimitMinutes !== undefined ? { 'background-wait-limit-minutes': item.backgroundWaitLimitMinutes } : {}),
             ...(item.backgroundWait ? { 'background-wait': backgroundWaitToYaml(item.backgroundWait) } : {}),
             ...(item.waitingFor ? { 'waiting-for': waitForToYaml(item.waitingFor) } : {}),
+            ...(item.waitMessages?.length ? { 'wait-messages': waitMessagesToYaml(item.waitMessages) } : {}),
             ...(item.softInterrupt ? { 'soft-interrupt': softInterruptToYaml(item.softInterrupt) } : {}),
             ...(item.turnSessionId ? { 'turn-session-id': item.turnSessionId } : {}),
             ...(item.interruptNote ? { 'interrupt-note': true } : {}),

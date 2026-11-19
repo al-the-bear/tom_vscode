@@ -555,6 +555,10 @@ function renderEntry(item, idx) {
     // Waiting for its background work: always visible, with the ? list and the three choices.
     renderBackgroundWait(item, safeId) +
     renderWaitFor(item, safeId) +
+    // What the user wrote to the waiting turn, while it answers and no wait panel shows (vscimpb173).
+    renderWaitMessagesAlone(item) +
+    // What the turn asks, answered right here (vscimpb173).
+    renderItemAsks(item, safeId) +
     '<div class="' + (expanded ? '' : 'details-hidden') + '">' +
     // The chips come first, under the header: they say why the item will
     // not be sent, or why its last send did not complete — easy to miss below
@@ -703,6 +707,8 @@ function renderWaitFor(item, safeId) {
     + '<span class="wait-for-badge" title="' + escapeHtml(tip) + '">\u23f3 Waiting: ' + escapeHtml(String(view.reason)) + ' \u2014 '
     + '<span class="wait-for-left" data-until="' + escapeHtml(String(view.until)) + '">' + escapeHtml(String(view.left)) + '</span></span>'
     + ' <button type="button" class="wait-for-btn" onclick="event.stopPropagation();interruptWaitFor(\'' + safeId + '\')" title="The agent is told you moved on and ends its turn with a note of what is still to do; the item steps back behind the next item of its run and goes on from that note when it runs again">Interrupt the wait and move on</button>'
+    + renderWaitMessageBox(item, safeId)
+    + renderWaitMessages(item)
     + '</div>';
 }
 
@@ -756,8 +762,304 @@ function renderBackgroundWait(item, safeId) {
     + ' <button type="button" class="bg-wait-btn" data-bg-action="waitWithoutLimit" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'waitWithoutLimit\')"' + (view.unlimited ? ' disabled' : '') + ' title="Wait until the work ends, however long">Wait without limit</button>'
     + ' <button type="button" class="bg-wait-btn" data-bg-action="keepWaiting" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'keepWaiting\')" title="Start the limit again from now">Keep waiting up to ' + escapeHtml(String(view.limit)) + '</button>'
     + ' <button type="button" class="bg-wait-btn stop" data-bg-action="stopWaiting" onclick="event.stopPropagation();backgroundWaitAction(\'' + safeId + '\', \'stopWaiting\')" title="End the turn now (its answer names what still runs); the queue goes on">Stop waiting</button>'
+    + renderWaitMessageBox(item, safeId)
     + list
+    + renderWaitMessages(item)
     + '</div>';
+}
+
+/* ---- Writing to a waiting turn from the item (vscimpb173) -------------------- */
+
+/** A key of the per-item / per-ask state maps kept over redraws. */
+function waitUiState(name) {
+  window[name] = window[name] || {};
+  return window[name];
+}
+
+/**
+ * The Message button of a wait panel and, once clicked, the text area with
+ * Send and Cancel right there in the item (canMessageWait, set by the host
+ * while a message can reach the turn). The draft is kept over redraws.
+ */
+function renderWaitMessageBox(item, safeId) {
+  if (!item.canMessageWait) { return ''; }
+  var open = waitUiState('__waitMsgOpen')[item.id] === true;
+  var btn = ' <button type="button" class="wait-msg-btn" data-wait-msg="open" onclick="event.stopPropagation();toggleWaitMessage(\'' + safeId + '\')"'
+    + ' title="Write to the waiting turn: the agent gets your message at once, answers, and goes on waiting">Message</button>';
+  if (!open) { return btn; }
+  var draft = waitUiState('__waitMsgDraft')[item.id] || '';
+  return btn + '<div class="wait-msg-box" onclick="event.stopPropagation()">'
+    + '<textarea id="waitMsg-' + escapeHtml(String(item.id)) + '" class="wait-msg-text keep-focus" rows="3" placeholder="Your message to the waiting turn (Ctrl/Cmd+Enter sends)"'
+    + ' oninput="waitMessageDraft(\'' + safeId + '\', this.value)" onkeydown="waitMessageKey(event, \'' + safeId + '\')">' + escapeHtml(draft) + '</textarea>'
+    + '<div class="wait-msg-bar">'
+    + '<button type="button" class="wait-msg-btn primary" data-wait-msg="send" onclick="event.stopPropagation();sendWaitMessage(\'' + safeId + '\')" title="Send to this item\'s own turn (its session and run); the wait goes on after the agent has read it">Send</button>'
+    + ' <button type="button" class="wait-msg-btn" data-wait-msg="cancel" onclick="event.stopPropagation();cancelWaitMessage(\'' + safeId + '\')">Cancel</button>'
+    + '</div></div>';
+}
+
+/** The messages written to the item's waiting turn, each with what became of it. */
+function renderWaitMessages(item) {
+  var views = Array.isArray(item.waitMessagesView) ? item.waitMessagesView : [];
+  if (!views.length) { return ''; }
+  return '<div class="wait-msgs">' + views.map(function(m) {
+    var d = new Date(m.at);
+    var two = function(n) { return n < 10 ? '0' + n : String(n); };
+    var when = isNaN(d.getTime()) ? '' : two(d.getHours()) + ':' + two(d.getMinutes());
+    return '<div class="wait-msg">'
+      + '<div class="wait-msg-head">You' + (when ? ', ' + when : '') + ' — <span class="wait-msg-state">' + escapeHtml(String(m.state)) + '</span></div>'
+      + '<div class="wait-msg-body">' + escapeHtml(String(m.text)) + '</div>'
+      + (m.answer ? '<div class="wait-msg-answer"><span class="wait-msg-answer-head">Answer:</span> ' + escapeHtml(String(m.answer)) + '</div>' : '')
+      + '</div>';
+  }).join('') + '</div>';
+}
+
+/** The messages on their own, while the turn answers one and no wait panel shows. */
+function renderWaitMessagesAlone(item) {
+  if (item.status !== 'sending' || item.waitForView || item.backgroundWaitView) { return ''; }
+  var list = renderWaitMessages(item);
+  return list ? '<div class="wait-msgs-alone" data-qid="' + escapeHtml(String(item.id)) + '">' + list + '</div>' : '';
+}
+
+// eslint-disable-next-line no-unused-vars -- called by the Message button's onclick (renderWaitMessageBox)
+function toggleWaitMessage(id) {
+  var open = waitUiState('__waitMsgOpen');
+  open[id] = !open[id];
+  if (typeof render === 'function') { render(); }
+  if (open[id]) {
+    var ta = document.getElementById('waitMsg-' + id);
+    if (ta && ta.focus) { ta.focus(); }
+  }
+}
+
+// eslint-disable-next-line no-unused-vars -- called by the message text area's oninput
+function waitMessageDraft(id, text) { waitUiState('__waitMsgDraft')[id] = text; }
+
+// eslint-disable-next-line no-unused-vars -- called by the message text area's onkeydown
+function waitMessageKey(e, id) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendWaitMessage(id); }
+}
+
+/** Send the item's message box: the item id and the text; an empty text sends nothing. */
+function sendWaitMessage(id) {
+  var ta = document.getElementById('waitMsg-' + id);
+  var text = ta ? ta.value : (waitUiState('__waitMsgDraft')[id] || '');
+  if (!String(text).trim()) { return; }
+  waitUiState('__waitMsgOpen')[id] = false;
+  waitUiState('__waitMsgDraft')[id] = '';
+  if (typeof postWaitMessage === 'function') { postWaitMessage(id, text); }
+  if (typeof render === 'function') { render(); }
+}
+
+// eslint-disable-next-line no-unused-vars -- called by Cancel's onclick (renderWaitMessageBox)
+function cancelWaitMessage(id) {
+  waitUiState('__waitMsgOpen')[id] = false;
+  waitUiState('__waitMsgDraft')[id] = '';
+  if (typeof render === 'function') { render(); }
+}
+
+/* ---- The item's ask panel (vscimpb173) ---------------------------------------- */
+
+/** The answer choice selected per question of ask `ask`: the user's, else the preselected ones. */
+function askSelection(ask) {
+  var all = waitUiState('__askSel');
+  if (!all[ask.id]) {
+    var sel = {};
+    var choices = Array.isArray(ask.data.choices) ? ask.data.choices : [];
+    var layout = Array.isArray(ask.data.layout) ? ask.data.layout : [];
+    layout.forEach(function(place, qi) {
+      var ids = [];
+      (place && Array.isArray(place.segments) ? place.segments : []).forEach(function(s) { if (s.choiceId !== undefined) { ids.push(s.choiceId); } });
+      (place && Array.isArray(place.below) ? place.below : []).forEach(function(id) { ids.push(id); });
+      ids.forEach(function(id) {
+        var c = choices.filter(function(x) { return x.id === id; })[0];
+        if (c && c.kind === 'answer' && c.selected && sel[qi] === undefined) { sel[qi] = c.id; }
+      });
+    });
+    all[ask.id] = sel;
+  }
+  return all[ask.id];
+}
+
+function askChoiceButton(ask, itemSafe, askSafe, id, qi) {
+  var choices = Array.isArray(ask.data.choices) ? ask.data.choices : [];
+  var c = choices.filter(function(x) { return x.id === id; })[0];
+  if (!c) { return escapeHtml('{{choice:' + id + '}}'); }
+  var cid = escapeJsSingleQuoted(String(c.id));
+  if (c.kind === 'answer') {
+    var on = askSelection(ask)[qi] === c.id;
+    return '<button type="button" class="item-ask-choice answer' + (on ? ' selected' : '') + '" data-ask-choice="' + escapeHtml(String(c.id)) + '" data-question="' + qi + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
+      + ' onclick="event.stopPropagation();askToggleChoice(\'' + askSafe + '\', ' + qi + ', \'' + cid + '\')" title="Select this answer (click again to clear); sent with Send">' + escapeHtml(String(c.label)) + '</button>';
+  }
+  return '<button type="button" class="item-ask-choice act" data-ask-choice="' + escapeHtml(String(c.id)) + '" data-question="' + qi + '"'
+    + ' onclick="event.stopPropagation();askChoiceAct(\'' + itemSafe + '\', \'' + askSafe + '\', \'' + cid + '\')" title="' + escapeHtml(c.kind === 'move' ? 'Moves the process to ' + c.target + ' when clicked' : String(c.label) + ' (acts when clicked)') + '">' + escapeHtml(String(c.label)) + '</button>';
+}
+
+function renderAskQuestion(ask, itemSafe, askSafe) {
+  var questions = Array.isArray(ask.data.questions) ? ask.data.questions : [];
+  var layout = Array.isArray(ask.data.layout) ? ask.data.layout : [];
+  var list = questions.map(function(q, qi) {
+    var place = layout[qi];
+    var body;
+    if (place && Array.isArray(place.segments)) {
+      body = place.segments.map(function(seg) {
+        return seg.choiceId !== undefined ? askChoiceButton(ask, itemSafe, askSafe, seg.choiceId, qi) : escapeHtml(String(seg.text));
+      }).join('');
+      if (Array.isArray(place.below) && place.below.length) {
+        body += '<div class="item-ask-choice-row">' + place.below.map(function(id) { return askChoiceButton(ask, itemSafe, askSafe, id, qi); }).join(' ') + '</div>';
+      }
+    } else {
+      body = escapeHtml(String(q));
+    }
+    return '<li>' + body + '</li>';
+  }).join('');
+  var draft = waitUiState('__askDraft')[ask.id] || '';
+  return '<ol class="item-ask-questions">' + list + '</ol>'
+    + '<textarea id="askText-' + escapeHtml(String(ask.id)) + '" class="item-ask-text keep-focus" rows="3" placeholder="Your answer (Ctrl/Cmd+Enter sends)"'
+    + ' oninput="askDraft(\'' + askSafe + '\', this.value)" onkeydown="askKey(event, \'' + itemSafe + '\', \'' + askSafe + '\')">' + escapeHtml(draft) + '</textarea>'
+    + '<div class="item-ask-bar"><button type="button" class="item-ask-btn primary" data-ask-action="send" onclick="event.stopPropagation();askSend(\'' + itemSafe + '\', \'' + askSafe + '\')"'
+    + ' title="Answer the question from here; it closes everywhere (the user-input panel, Telegram)">Send</button></div>';
+}
+
+function renderAskPicker(ask, itemSafe, askSafe) {
+  var items = Array.isArray(ask.data.items) ? ask.data.items : [];
+  var many = ask.data.canPickMany === true;
+  var picked = waitUiState('__askPick')[ask.id] || {};
+  var rows = items.map(function(it, idx) {
+    return '<label class="item-ask-pick"><input type="' + (many ? 'checkbox' : 'radio') + '" name="askPick-' + escapeHtml(String(ask.id)) + '" data-ask-pick="' + idx + '"' + (picked[idx] ? ' checked' : '')
+      + ' onclick="event.stopPropagation();askPickToggle(\'' + askSafe + '\', ' + idx + ', ' + (many ? 'true' : 'false') + ', this.checked)"> '
+      + escapeHtml(String(it.label || '')) + (it.description ? ' — ' + escapeHtml(String(it.description)) : '') + '</label>';
+  }).join('');
+  var draft = waitUiState('__askDraft')[ask.id] || '';
+  return (ask.data.prompt ? '<div class="item-ask-hint">' + escapeHtml(String(ask.data.prompt)) + '</div>' : '')
+    + '<div class="item-ask-picks">' + rows + '</div>'
+    + '<input type="text" id="askText-' + escapeHtml(String(ask.id)) + '" class="item-ask-other keep-focus" placeholder="Other… (your own answer)" value="' + escapeHtml(draft) + '" oninput="askDraft(\'' + askSafe + '\', this.value)">'
+    + '<div class="item-ask-bar">'
+    + '<button type="button" class="item-ask-btn primary" data-ask-action="choose" onclick="event.stopPropagation();askPickSend(\'' + itemSafe + '\', \'' + askSafe + '\', false)">Choose</button>'
+    + ' <button type="button" class="item-ask-btn" data-ask-action="dismiss" onclick="event.stopPropagation();askPickSend(\'' + itemSafe + '\', \'' + askSafe + '\', true)" title="Close the picker without a choice">Dismiss</button>'
+    + '</div>';
+}
+
+function renderAskMdBrowser(ask, itemSafe, askSafe) {
+  var buttons = Array.isArray(ask.data.buttons) ? ask.data.buttons : [];
+  return '<div class="item-ask-hint">' + escapeHtml(String(ask.data.file || '')) + '</div>'
+    + '<div class="item-ask-bar">'
+    + buttons.map(function(b) {
+      return '<button type="button" class="item-ask-btn primary" data-ask-md="' + escapeHtml(String(b.id)) + '" onclick="event.stopPropagation();askMdButton(\'' + itemSafe + '\', \'' + askSafe + '\', \'' + escapeJsSingleQuoted(String(b.id)) + '\')"'
+        + ' title="Answers the ask as this button in the MD Browser does">' + escapeHtml(String(b.label)) + '</button>';
+    }).join(' ')
+    + ' <button type="button" class="item-ask-btn" data-ask-action="show" onclick="event.stopPropagation();askShowDocument(\'' + itemSafe + '\', \'' + askSafe + '\')" title="Bring the document forward in the MD Browser">Show document</button>'
+    + '</div>';
+}
+
+/**
+ * What the item's turn asks (askViews, built by the host), always visible like
+ * the wait panels: a question with its choices and a text area, a picker's
+ * items, an MD Browser ask's buttons. Answering here answers the ask exactly
+ * as the user-input panel, the picker or the MD Browser does. A tool approval
+ * and a plan proposal are named; they are answered in the full panel.
+ */
+function renderItemAsks(item, safeId) {
+  var asks = Array.isArray(item.askViews) ? item.askViews : [];
+  if (!asks.length || item.status !== 'sending') { return ''; }
+  var known = waitUiState('__askViews');
+  return asks.map(function(ask) {
+    ask.data = ask.data || {};
+    known[ask.id] = ask;
+    var askSafe = escapeJsSingleQuoted(String(ask.id));
+    var what = ask.kind === 'question' ? 'asks' : ask.kind === 'picker' ? 'asks you to pick' : ask.kind === 'mdBrowser' ? 'asks in the MD Browser' : ask.kind === 'plan' ? 'proposes a plan' : 'asks for approval';
+    var body = ask.kind === 'question' ? renderAskQuestion(ask, safeId, askSafe)
+      : ask.kind === 'picker' ? renderAskPicker(ask, safeId, askSafe)
+        : ask.kind === 'mdBrowser' ? renderAskMdBrowser(ask, safeId, askSafe)
+          : '<div class="item-ask-hint">Answered in the full panel.</div>';
+    return '<div class="item-ask" data-qid="' + escapeHtml(String(item.id)) + '" data-ask="' + escapeHtml(String(ask.id)) + '" data-ask-kind="' + escapeHtml(String(ask.kind)) + '" onclick="event.stopPropagation()">'
+      + '<div class="item-ask-head"><span class="item-ask-badge">❓ The turn ' + what + ': ' + escapeHtml(String(ask.title || '')) + '</span>'
+      + ' <button type="button" class="item-ask-btn" data-ask-action="open" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="Open it in the full panel">Open question</button></div>'
+      + body + '</div>';
+  }).join('');
+}
+
+// eslint-disable-next-line no-unused-vars -- called by an answer choice's onclick
+function askToggleChoice(askId, qi, choiceId) {
+  var ask = waitUiState('__askViews')[askId];
+  if (!ask) { return; }
+  var sel = askSelection(ask);
+  sel[qi] = sel[qi] === choiceId ? undefined : choiceId;
+  if (typeof render === 'function') { render(); }
+}
+
+function askForget(askId) {
+  delete waitUiState('__askSel')[askId];
+  delete waitUiState('__askDraft')[askId];
+  delete waitUiState('__askPick')[askId];
+}
+
+function askPost(itemId, askId, response) {
+  askForget(askId);
+  if (typeof postItemAsk === 'function') { postItemAsk(itemId, askId, response); }
+}
+
+// eslint-disable-next-line no-unused-vars -- called by a choice that acts at once (move, branch, subprocess)
+function askChoiceAct(itemId, askId, choiceId) {
+  askPost(itemId, askId, { type: 'choice', requestId: askId, choiceId: choiceId });
+}
+
+// eslint-disable-next-line no-unused-vars -- called by the ask's text field's oninput
+function askDraft(askId, text) { waitUiState('__askDraft')[askId] = text; }
+
+// eslint-disable-next-line no-unused-vars -- called by the ask's text area's onkeydown
+function askKey(e, itemId, askId) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); askSend(itemId, askId); }
+}
+
+/**
+ * Send a question's answer: with answer choices, every question's selected
+ * choice and the text (the user-input panel's Send answers); without, the
+ * text (its Submit).
+ */
+function askSend(itemId, askId) {
+  var ask = waitUiState('__askViews')[askId];
+  if (!ask) { return; }
+  var field = document.getElementById('askText-' + askId);
+  var text = field ? field.value : (waitUiState('__askDraft')[askId] || '');
+  var choices = Array.isArray(ask.data.choices) ? ask.data.choices : [];
+  var questions = Array.isArray(ask.data.questions) ? ask.data.questions : [];
+  if (choices.some(function(c) { return c.kind === 'answer'; })) {
+    var sel = askSelection(ask);
+    var answers = questions.map(function(_q, qi) {
+      var a = { text: '' };
+      if (sel[qi] !== undefined) { a.choiceId = sel[qi]; }
+      return a;
+    });
+    askPost(itemId, askId, { type: 'answers', requestId: askId, answers: answers, text: text });
+    return;
+  }
+  askPost(itemId, askId, { type: 'submit', requestId: askId, text: text });
+}
+
+// eslint-disable-next-line no-unused-vars -- called by a picker item's onclick
+function askPickToggle(askId, idx, many, checked) {
+  var all = waitUiState('__askPick');
+  if (!many || !all[askId]) { all[askId] = many && all[askId] ? all[askId] : {}; }
+  all[askId][idx] = checked;
+}
+
+// eslint-disable-next-line no-unused-vars -- called by Choose / Dismiss of a picker
+function askPickSend(itemId, askId, dismissed) {
+  var picked = waitUiState('__askPick')[askId] || {};
+  var selected = Object.keys(picked).filter(function(k) { return picked[k]; }).map(Number).sort(function(a, b) { return a - b; });
+  var field = document.getElementById('askText-' + askId);
+  var other = field ? field.value : (waitUiState('__askDraft')[askId] || '');
+  askPost(itemId, askId, { type: 'picker', id: askId, dismissed: dismissed, selected: selected, other: other });
+}
+
+// eslint-disable-next-line no-unused-vars -- called by an MD Browser ask's button
+function askMdButton(itemId, askId, buttonId) {
+  askPost(itemId, askId, { type: 'mdButton', id: askId, buttonId: buttonId });
+}
+
+// eslint-disable-next-line no-unused-vars -- called by Show document
+function askShowDocument(itemId, askId) {
+  if (typeof postItemAsk === 'function') { postItemAsk(itemId, askId, { type: 'reveal', id: askId }); }
 }
 
 /** `1 continuation`, `2 continuations` (utils/walkCompletionCheck.ts continuationMark). */

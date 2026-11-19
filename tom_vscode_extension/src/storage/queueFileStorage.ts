@@ -220,6 +220,8 @@ export interface QueuePromptYaml {
     'background-wait'?: unknown;
     /** What a turn of the sending item waits for in tomAi_waitFor (src/utils/waitFor.ts): reason, details, since, until. */
     'waiting-for'?: unknown;
+    /** The messages the user wrote to the item's waiting turn (src/utils/itemWaitMessages.ts). */
+    'wait-messages'?: unknown;
     /** Interrupt for continuation, soft (vscimpb112): the request, the held tool result. */
     'soft-interrupt'?: unknown;
     /** The conversation the item's current turn runs in (Agent SDK session id). */

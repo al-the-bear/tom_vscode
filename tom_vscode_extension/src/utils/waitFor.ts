@@ -33,8 +33,15 @@ export interface WaitForState {
     until: string;
 }
 
-/** How a wait ended. */
-export type WaitForOutcome = 'elapsed' | 'interrupted' | 'cancelled';
+/** How a wait ended: `message` — the user wrote to the waiting turn (vscimpb173); the agent reads it and waits on. */
+export type WaitForOutcome = 'elapsed' | 'interrupted' | 'cancelled' | 'message';
+
+/** How a wait ended, with the user's message when that ended it. */
+export interface WaitForEnd {
+    outcome: WaitForOutcome;
+    /** `message`: what the user wrote. */
+    message?: string;
+}
 
 /** The tool's input. */
 export interface WaitForInput {
@@ -177,6 +184,28 @@ export function waitInterruptedAnswer(state: WaitForState, waitedMs: number, inQ
             + 'still to do (the step you waited for, and anything after it). Do not do the awaited step now. The queue puts '
             + 'this item back behind the next item of its lane; when it runs again, you go on from your note.'
             : `The user interrupted the wait for "${state.reason}". Do not do the awaited step now: end your turn with what is still to do.`,
+    });
+}
+
+/**
+ * The tool's answer when the user wrote to the waiting turn (vscimpb173): his message, how long the wait ran,
+ * its end and what is left of it, and how to go on waiting.
+ */
+export function waitMessageAnswer(state: WaitForState, waitedMs: number, text: string, now: number): string {
+    const until = Date.parse(state.until);
+    const left = Number.isFinite(until) ? until - now : 0;
+    return JSON.stringify({
+        ok: true,
+        outcome: 'message',
+        message: text,
+        waited: durationLabel(waitedMs),
+        until: state.until,
+        remaining: left > 0 ? durationLabel(left) : 'none',
+        instruction: left > 0
+            ? `The user wrote to you while you waited for "${state.reason}"; the wait is NOT over. Read \`message\`, act on it if it `
+            + `asks for something, then call tomAi_waitFor again with the same reason and \`until: "${state.until}"\` to go on waiting.`
+            : `The user wrote to you while you waited for "${state.reason}", just as the wait ran out. Read \`message\`, act on it if `
+            + 'it asks for something, then go on with the step you waited for.',
     });
 }
 

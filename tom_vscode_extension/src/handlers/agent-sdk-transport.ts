@@ -331,7 +331,7 @@ import { SoftInterruptRegistry, withHeldForPrefix } from '../services/softInterr
 import { perPromptUsage, snapshotOf } from '../utils/agentSdkUsage';
 import { agentSdkUsageSnapshot, recordAgentSdkUsageSnapshot } from '../services/agentSdkUsageSnapshots';
 import { currentQueueItemId } from '../services/userWaits';
-import { stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
+import { backgroundWaitMessageText, stillRunningHint, type BackgroundWaitControl, type BackgroundWaitState, type BackgroundWorkItem } from '../utils/backgroundWait';
 import { workspaceInstructions } from '../utils/agentInstructions';
 
 /** A CLI background task as the background wait names it. */
@@ -1108,6 +1108,14 @@ async function runAgentSdkAttempt(
             waitWithoutLimit: () => input.waitWithoutLimit(),
             keepWaiting: () => input.keepWaiting(),
             stop: () => input.stopWaiting(),
+            // The user writes to the waiting turn: another user message of the running query; the wait goes on after its answer.
+            message: (text) => {
+                if (input.backgroundWait() === undefined) { return undefined; }
+                const pushed = input.push(backgroundWaitMessageText(text));
+                if (!pushed) { return undefined; }
+                params.liveTrail?.appendNotice('The user wrote to the waiting turn; it answers, then the wait for its background work goes on.');
+                return { answer: pushed.answer };
+            },
         });
     } catch { /* display only */ }
     // While it runs, a chat send into its session can be an update to it.

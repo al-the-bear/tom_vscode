@@ -16,17 +16,21 @@ import {
     waitElapsedAnswer,
     waitForState,
     waitInterruptedAnswer,
+    waitMessageAnswer,
+    type WaitForEnd,
     type WaitForInput,
+    type WaitForOutcome,
 } from '../utils/waitFor';
 
 export interface WaitForDeps {
-    registry: Pick<WaitForRegistry, 'wait'>;
+    /** How the wait ended: the outcome, or the outcome with the user's message. */
+    registry: { wait(state: Parameters<WaitForRegistry['wait']>[0], queueItemId?: string): Promise<WaitForOutcome | WaitForEnd> };
     now(): number;
     queueItemId(): string | undefined;
 }
 
 const LIVE_DEPS: WaitForDeps = {
-    registry: { wait: (state, id) => WaitForRegistry.instance.wait(state, id) },
+    registry: { wait: (state, id) => WaitForRegistry.instance.waitForEnd(state, id) },
     now: () => Date.now(),
     queueItemId: () => currentQueueItemId(),
 };
@@ -37,8 +41,11 @@ export async function waitForImpl(input: WaitForInput, deps: WaitForDeps = LIVE_
     const parsed = waitForState(input, start);
     if ('error' in parsed) { return JSON.stringify({ ok: false, error: parsed.error }); }
     const queueItemId = deps.queueItemId();
-    const outcome = await deps.registry.wait(parsed.state, queueItemId);
+    const ended = await deps.registry.wait(parsed.state, queueItemId);
+    const end: WaitForEnd = typeof ended === 'string' ? { outcome: ended } : ended;
+    const outcome = end.outcome;
     const waited = deps.now() - start;
+    if (outcome === 'message') { return waitMessageAnswer(parsed.state, waited, end.message ?? '', deps.now()); }
     if (outcome === 'elapsed') { return waitElapsedAnswer(parsed.state, waited); }
     if (outcome === 'interrupted') { return waitInterruptedAnswer(parsed.state, waited, queueItemId !== undefined); }
     return waitCancelledAnswer(parsed.state);
@@ -52,7 +59,9 @@ export const WAIT_FOR_DESCRIPTION =
     + `(local; tomorrow when passed), or \`minutes\`; at most ${MAX_WAIT_MINUTES / 60} h. Optional \`details\`. BLOCKING: the turn and its `
     + 'conversation stay open, and its queue run sends nothing else meanwhile. Answers `{ok, outcome, waited, message}`: '
     + '`elapsed` — go on with the awaited step; `interrupted` — the user moved on: end your turn now with a note of what is '
-    + 'still to do and do not do the awaited step (in the queue the item runs again later); `cancelled` — the prompt ended.';
+    + 'still to do and do not do the awaited step (in the queue the item runs again later); `cancelled` — the prompt ended; '
+    + '`message` — the user wrote to you while you waited (`message` is his text, with `until` and `remaining`): read it, act on '
+    + 'it if needed, then call tomAi_waitFor again with the same `until` to go on waiting.';
 
 export const WAIT_FOR_TOOL: SharedToolDefinition<WaitForInput> = {
     name: 'tomAi_waitFor',

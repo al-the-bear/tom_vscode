@@ -574,7 +574,7 @@ function render() {
   // A prompt being edited survives the redraw a state push causes: its
   // focus, caret and scroll position are put back.
   const active = document.activeElement;
-  const editFocus = active && active.classList && active.classList.contains('qe-text-edit')
+  const editFocus = active && active.classList && (active.classList.contains('qe-text-edit') || active.classList.contains('keep-focus'))
     ? { id: active.id, start: active.selectionStart, end: active.selectionEnd, scroll: active.scrollTop }
     : null;
   list.innerHTML = displayItems.map(function(item, idx) { return renderEntry(item, idx); }).join('');
@@ -819,6 +819,10 @@ function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', i
 function resendSendingStage(id) { vscode.postMessage({ type: 'resendSendingStage', id }); }
 // eslint-disable-next-line no-unused-vars -- called by a waiting item's background-wait buttons (queueEntryRenderFunctions.js)
 function backgroundWaitAction(id, action) { vscode.postMessage({ type: 'backgroundWaitAction', id, action }); }
+// eslint-disable-next-line no-unused-vars -- called by a wait panel's message box (sendWaitMessage, queueEntryRenderFunctions.js)
+function postWaitMessage(id, text) { vscode.postMessage({ type: 'messageWaitingItem', id, text }); }
+// eslint-disable-next-line no-unused-vars -- called by the item's ask panel (askPost, queueEntryRenderFunctions.js)
+function postItemAsk(id, askId, response) { vscode.postMessage({ type: 'answerItemAsk', id, askId, response }); }
 // eslint-disable-next-line no-unused-vars -- called by a waiting item's Interrupt button (renderWaitFor)
 function interruptWaitFor(id) { vscode.postMessage({ type: 'interruptWaitFor', id }); }
 // The waiting lines' time left (renderWaitFor) moves on without a redraw.

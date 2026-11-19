@@ -11,7 +11,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { withTiming } from './_timing.js';
-import { waitForImpl, type WaitForDeps } from '../wait-for-tool.js';
+import { WAIT_FOR_DESCRIPTION, waitForImpl, type WaitForDeps } from '../wait-for-tool.js';
 
 const NOW = new Date(2026, 10, 13, 12, 0, 0).getTime();
 
@@ -48,5 +48,33 @@ describe('tomAi_waitFor', () => {
         assert.doesNotMatch(inChat.message, /queue/);
         const cancelled = JSON.parse(await waitForImpl({ reason: 'pub.dev', minutes: 61 }, deps(['cancelled'])));
         assert.deepEqual([cancelled.ok, cancelled.outcome], [false, 'cancelled']);
+    });
+
+    test('WT-3: a message from the user ends the call with it; the agent waits on (vscimpb173)', async () => {
+        // 61 of 90 minutes waited when the message comes.
+        let t = NOW;
+        const d: WaitForDeps = {
+            registry: { wait: async () => { t += 61 * 60_000; return { outcome: 'message', message: 'Also bump the changelog.' }; } },
+            now: () => t,
+            queueItemId: () => 'q1',
+        };
+        const r = JSON.parse(await waitForImpl({ reason: 'pub.dev limit', minutes: 90 }, d));
+        const until = new Date(NOW + 90 * 60_000).toISOString();
+        assert.deepEqual([r.ok, r.outcome, r.message, r.waited, r.until, r.remaining], [true, 'message', 'Also bump the changelog.', '1 h 1 min', until, '29 min']);
+        assert.match(r.instruction, /the wait is NOT over/);
+        assert.ok(r.instruction.includes(`call tomAi_waitFor again with the same reason and \`until: "${until}"\` to go on waiting`));
+        // Called again with that `until`, it waits for what was left.
+        const again: Array<{ until: string }> = [];
+        const d2: WaitForDeps = { registry: { wait: async (state) => { again.push(state); return 'elapsed'; } }, now: () => t, queueItemId: () => 'q1' };
+        assert.equal(JSON.parse(await waitForImpl({ reason: 'pub.dev limit', until: r.until }, d2)).outcome, 'elapsed');
+        assert.equal(again[0].until, until, 'the same end');
+        // Written just as the wait ran out: nothing is left to wait for.
+        const late: WaitForDeps = { registry: { wait: async () => { t = NOW + 200 * 60_000; return { outcome: 'message', message: 'm' }; } }, now: () => t, queueItemId: () => undefined };
+        t = NOW;
+        const over = JSON.parse(await waitForImpl({ reason: 'r', minutes: 90 }, late));
+        assert.equal(over.remaining, 'none');
+        assert.match(over.instruction, /then go on with the step you waited for/);
+        assert.match(WAIT_FOR_DESCRIPTION, /`message` — the user wrote to you while you waited.*call tomAi_waitFor again with the same `until` to go on waiting/);
+        assert.ok(WAIT_FOR_DESCRIPTION.length <= 1250, `description ${WAIT_FOR_DESCRIPTION.length} chars`);
     });
 });

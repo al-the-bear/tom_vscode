@@ -12,7 +12,7 @@
  */
 
 /** What Continue does on a running item. */
-export type ContinueAction = 'answer' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'keepWaitingFor' | 'interruptWaitFor' | 'letNextGoFirst' | 'resend' | 'skip';
+export type ContinueAction = 'answer' | 'answerHere' | 'message' | 'waitWithoutLimit' | 'keepWaiting' | 'stopWaiting' | 'keepWaitingFor' | 'interruptWaitFor' | 'letNextGoFirst' | 'resend' | 'skip';
 
 export interface ContinueOption {
     action: ContinueAction;
@@ -39,9 +39,12 @@ export const QUESTION_CLOSED_BY_SKIP =
 /**
  * The options Continue offers, in order (Cancel is the dialog's own). While
  * the item's turn waits for its background work (`backgroundLimit`: the
- * limit as text, e.g. `6 h`) it also offers the wait's three choices.
+ * limit as text, e.g. `6 h`) it also offers the wait's three choices. While a
+ * message can reach the waiting turn (`canMessage`, vscimpb173) it offers
+ * **Message…**, and while the turn waits in a tomAi_askUser question
+ * (`canAnswerHere`) **Type an answer…** beside Answer now.
  */
-export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string; canLetNextGoFirst?: boolean; yieldArmed?: boolean; waitingFor?: boolean }): ContinueOption[] {
+export function continueOptions(o: { waitingForAnswer: boolean; canResend: boolean; walk: boolean; backgroundLimit?: string; canLetNextGoFirst?: boolean; yieldArmed?: boolean; waitingFor?: boolean; canMessage?: boolean; canAnswerHere?: boolean }): ContinueOption[] {
     const options: ContinueOption[] = [];
     // The turn waits in tomAi_waitFor (vscimpb82): keep waiting, or interrupt the wait and move on.
     if (o.waitingFor) {
@@ -51,6 +54,7 @@ export function continueOptions(o: { waitingForAnswer: boolean; canResend: boole
         );
     }
     if (o.waitingForAnswer) { options.push({ action: 'answer', label: 'Answer now' }); }
+    if (o.waitingForAnswer && o.canAnswerHere) { options.push({ action: 'answerHere', label: 'Type an answer…' }); }
     if (o.backgroundLimit !== undefined) {
         options.push(
             { action: 'waitWithoutLimit', label: 'Wait without limit' },
@@ -58,6 +62,8 @@ export function continueOptions(o: { waitingForAnswer: boolean; canResend: boole
             { action: 'stopWaiting', label: 'Stop waiting' },
         );
     }
+    // The user writes to the waiting turn; it reads the message and waits on (vscimpb173).
+    if (o.canMessage) { options.push({ action: 'message', label: 'Message…' }); }
     // An iteration item: the running iteration finishes, then the next item of its lane goes first (vscimpb60e).
     if (o.yieldArmed) {
         options.push({ action: 'letNextGoFirst', label: 'Keep iterating (do not let the next item go first)' });
@@ -75,7 +81,7 @@ export function continuePrompt(o: { waitingSince?: string; walk: boolean; backgr
     if (o.waitingFor) {
         return {
             message: `This item's turn is waiting: ${o.waitingFor}.`,
-            detail: 'Keep waiting leaves it as it is. Interrupt the wait and move on: the agent is told you moved on, ends its turn '
+            detail: 'Keep waiting leaves it as it is. Message… writes to the waiting turn: the agent reads it and waits on. Interrupt the wait and move on: the agent is told you moved on, ends its turn '
                 + 'with a note of what is still to do, and the item steps back behind the next item of its run; when it runs again, '
                 + `it goes on from that note. Resend ends the turn and sends the same prompt again. ${skip}.`,
         };
@@ -83,13 +89,13 @@ export function continuePrompt(o: { waitingSince?: string; walk: boolean; backgr
     if (o.backgroundWait && !o.waitingSince) {
         return {
             message: `This item's turn is waiting for its background work (${o.backgroundWait}).`,
-            detail: `Wait without limit waits until the work ends. Keep waiting starts the limit again from now. Stop waiting ends the turn now (its answer names what still runs) and the queue goes on. Resend ends the turn and sends the same prompt again. ${skip}.`,
+            detail: `Wait without limit waits until the work ends. Keep waiting starts the limit again from now. Message… writes to the waiting turn: the agent answers and waits on. Stop waiting ends the turn now (its answer names what still runs) and the queue goes on. Resend ends the turn and sends the same prompt again. ${skip}.`,
         };
     }
     if (o.waitingSince) {
         return {
             message: `This item's turn is waiting for your answer (${o.waitingSince}).`,
-            detail: `Answer now opens the question; the turn goes on with your answer. Resend ends the turn and sends the same prompt again. ${skip}. Resend and Skip close the question unanswered.`,
+            detail: `Answer now opens the question, Type an answer… takes your answer right here; the turn goes on with it. Resend ends the turn and sends the same prompt again. ${skip}. Resend and Skip close the question unanswered.`,
         };
     }
     return {

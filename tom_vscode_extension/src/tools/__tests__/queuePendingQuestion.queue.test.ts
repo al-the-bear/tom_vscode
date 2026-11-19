@@ -327,7 +327,7 @@ describe('a queue item waiting for an answer', () => {
         // Cancel: nothing happens.
         pick = undefined;
         await continueWithChoice(queue(), item.id);
-        assert.deepEqual(shown[0].slice(2), ['Answer now', 'Resend this stage', 'Skip to the next todo'], 'Answer now while waiting');
+        assert.deepEqual(shown[0].slice(2), ['Answer now', 'Type an answer…', 'Resend this stage', 'Skip to the next todo'], 'Answer now (and Type an answer…) while waiting');
         assert.match(String(shown[0][0]), /waiting for your answer \(since \d\d:\d\d/);
         assert.equal((shown[0][1] as { modal?: boolean }).modal, true);
         assert.ok(registry().hasPending(), 'still waiting');

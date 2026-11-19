@@ -54,6 +54,7 @@ const ITEM: Required<QueuedPrompt> = {
     backgroundWait: { since: AT, limitMinutes: 30, limitFrom: AT, unlimited: true, items: [{ id: 'b1', kind: 'bash', description: 'build', command: 'make', outputFile: '/tmp/o' }] } as never,
     answerBackgroundLeft: true,
     waitingFor: { reason: 'pub.dev', details: 'limit', since: AT, until: AT },
+    waitMessages: [{ at: AT, into: 'waitFor', text: 'still there?', answer: 'yes', resumed: true }, { at: AT, into: 'background', text: 'status?' }],
     softInterrupt: { requestedAt: Date.parse(AT), heldAt: Date.parse(AT), kind: 'tool', tool: 'Bash', heldResult: 'ok' },
     turnSessionId: 'sid-1', interruptNote: true, heldConversationFile: '/q/held/item-1.conversation.json',
     resumeAfterWait: true, walkContinuations: 2, needsAttention: 'not completed', pauseAfter: true, sendBetween: true, yieldAfterIteration: true,
@@ -110,7 +111,7 @@ describe('the queue entry schema knows every key the queue writes', () => {
         const prompts = doc['prompt-queue'] as Array<Record<string, unknown>>;
         assert.deepEqual(prompts.map((p) => p.type), ['main', 'preprompt', 'followup'], 'a main prompt, a pre-prompt, a follow-up');
         // The fixture reaches the writer's optional branches (spot checks: a key of each kind).
-        for (const key of ['soft-interrupt', 'background-wait', 'waiting-for', 'todo-claim', 'repetition-answers', 'process-run', 'process-move', 'reload-prompt', 'session', 'reminder', 'execution']) {
+        for (const key of ['soft-interrupt', 'background-wait', 'waiting-for', 'wait-messages', 'todo-claim', 'repetition-answers', 'process-run', 'process-move', 'reload-prompt', 'session', 'reminder', 'execution']) {
             assert.ok(key in prompts[0], `the main prompt carries ${key}`);
         }
         assert.ok('last-dispatched' in (prompts[0].execution as object));

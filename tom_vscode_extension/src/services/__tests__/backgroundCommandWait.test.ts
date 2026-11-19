@@ -11,6 +11,8 @@
  *   CW-6 the message the turn goes on with names each command and how it ended
  *   CW-7 the user's choices (vscimpb57): Stop waiting ends the wait (reason `stopped`); Wait without limit waits
  *        past the limit; Keep waiting starts the limit again; the controls are handed out while waiting, then withdrawn
+ *   CW-8 a message from the user (vscimpb173) ends the wait at once with its text and what still runs — the turn
+ *        goes on with it and waits again; the text the turn gets says the wait is not over
  */
 
 import test, { after, describe } from 'node:test';
@@ -21,7 +23,7 @@ import * as path from 'path';
 import { runAsCommandOwner } from '../commandOwners.js';
 import { commandsFinishedMessage, waitForOwnedCommands, type CommandWaitDeps } from '../backgroundCommandWait.js';
 import { _resetRegistryForTesting, commandsOfOwner, runCommandStreamImpl } from '../../tools/process-tools.js';
-import type { BackgroundWaitState } from '../../utils/backgroundWait.js';
+import { backgroundWaitMessageText, type BackgroundWaitState } from '../../utils/backgroundWait.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const WS = fs.realpathSync(fs.mkdtempSync(path.join(EXT_ROOT, '..', '..', '..', 'ztmp', 'vscode_extension_261112_vscimpb56_cmdwait-')));
@@ -127,6 +129,31 @@ describe('waiting for a send\'s command streams', () => {
         assert.equal(kept.kind, 'limit');
         assert.ok(Date.now() - keptFrom >= 550, 'the limit ran again from the click, not from the start');
         assert.ok(d3.states.some((s) => s?.limitFrom !== undefined), 'the state names the new start');
+        _resetRegistryForTesting();
+    });
+
+    test('CW-8: a message from the user', async () => {
+        await start('send-8', 'sleep 5');
+        let control: import('../../utils/backgroundWait.js').BackgroundWaitControl | undefined;
+        // A long poll: the message must not wait for it.
+        const d = deps('send-8', { onControl: (c) => { control = c ?? control; }, pollMs: 4_000 });
+        const from = Date.now();
+        setTimeout(() => { assert.deepEqual(control?.message?.('How far are you?'), {}, 'taken'); }, 100);
+        const out = await waitForOwnedCommands(360, d);
+        assert.ok(Date.now() - from < 2_000, 'at once, not at the next poll');
+        assert.equal(out.kind, 'message');
+        if (out.kind !== 'message') { return; }
+        assert.equal(out.text, 'How far are you?');
+        assert.deepEqual(out.running.map((r) => r.command), ['sleep 5'], 'what still runs');
+        assert.equal(d.states[d.states.length - 1], undefined, 'the waiting state is cleared for the message\'s turn');
+        const text = backgroundWaitMessageText('How far are you?');
+        assert.match(text, /^\[A message from the user, written to you while your turn waits for the background work it started\./);
+        assert.match(text, /the wait is not over: answer the message .*then go on waiting for your background work as before\.\]\n\nHow far are you\?$/);
+        // The wait begins again for the same work (the transport calls it after the message's turn).
+        let again: import('../../utils/backgroundWait.js').BackgroundWaitControl | undefined;
+        const d2 = deps('send-8', { onControl: (c) => { again = c ?? again; } });
+        setTimeout(() => again?.stop(), 100);
+        assert.equal((await waitForOwnedCommands(360, d2)).kind, 'limit');
         _resetRegistryForTesting();
     });
 

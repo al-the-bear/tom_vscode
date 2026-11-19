@@ -255,4 +255,52 @@ describe('a queue item and its background wait', () => {
             win.showWarningMessage = original;
         }
     });
+
+    test('QB-6: a message from the item reaches the waiting turn (vscimpb173)', async () => {
+        sends.length = 0;
+        const item: QueuedPrompt = await queue().enqueue({ originalText: 'write to me', transport: 'anthropic', anthropicProfileId: 'sdk', deferSend: true, initialStatus: 'staged' } as never);
+        void queue().sendNow(item.id);
+        await wait(150);
+        assert.equal(queue().canMessageWaitingItem(item.id), false, 'the turn runs but does not wait');
+        assert.deepEqual(queue().messageWaitingItem(item.id, 'too early'), { ok: false, reason: 'The item no longer waits.' });
+        const calls: string[] = [];
+        // A transport whose wait takes no message.
+        startWaiting(sends[0], calls);
+        assert.equal(queue().canMessageWaitingItem(item.id), false);
+        assert.deepEqual(queue().messageWaitingItem(item.id, 'hello'), { ok: false, reason: 'This transport takes no message into a waiting turn.' });
+        // One that does (the Agent SDK's shape: the answer comes back).
+        const got: string[] = [];
+        let answer: (text: string) => void = () => undefined;
+        let delivered = true;
+        sends[0].onBackgroundWaitControl({
+            waitWithoutLimit: () => undefined, keepWaiting: () => undefined, stop: () => undefined,
+            message: (text: string) => { if (!delivered) { return undefined; } got.push(text); return { answer: new Promise<string>((resolve) => { answer = resolve; }) }; },
+        });
+        assert.equal(queue().canMessageWaitingItem(item.id), true);
+        assert.deepEqual(queue().messageWaitingItem(item.id, ' How far is the corpus run? '), { ok: true, into: 'background' });
+        assert.deepEqual(got, ['How far is the corpus run?'], 'the item\'s own turn got it');
+        assert.deepEqual(queue().waitMessagesOf(item.id).map((m) => [m.into, m.text, m.answer, m.resumed]), [['background', 'How far is the corpus run?', undefined, undefined]]);
+        answer('About two thirds; still waiting.');
+        await wait(20);
+        const kept = queue().waitMessagesOf(item.id)[0];
+        assert.deepEqual([kept.answer, kept.resumed], ['About two thirds; still waiting.', true], 'the answer is kept; the wait goes on');
+        assert.ok(queue().backgroundWaitOf(item.id), 'still waiting');
+        assert.match(queueFileText(item.id), /wait-messages:[\s\S]*answer: "?About two thirds/);
+        // The wait is over on the transport's side: not delivered.
+        delivered = false;
+        assert.deepEqual(queue().messageWaitingItem(item.id, 'late'), { ok: false, reason: 'The item no longer waits.' });
+        assert.equal(queue().waitMessagesOf(item.id).length, 1);
+        // A direct transport ends the wait for the message's turn and begins it again: resumed then.
+        delivered = true;
+        assert.equal(queue().messageWaitingItem(item.id, 'second').ok, true);
+        sends[0].onBackgroundWait(undefined);
+        assert.equal(queue().waitMessagesOf(item.id)[1].resumed, undefined);
+        sends[0].onBackgroundWait(STATE);
+        assert.equal(queue().waitMessagesOf(item.id)[1].resumed, true);
+        sends[0].onBackgroundWait(undefined);
+        sends[0].onBackgroundWaitControl(undefined);
+        finishTurn?.();
+        await wait(200);
+        assert.equal(queue().getById(item.id)?.status, 'sent');
+    });
 });

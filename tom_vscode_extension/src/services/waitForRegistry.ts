@@ -14,7 +14,7 @@
 
 import { registerAskCancel } from './askOwners';
 import { currentQueueItemId } from './userWaits';
-import type { WaitForOutcome, WaitForState } from '../utils/waitFor';
+import type { WaitForEnd, WaitForOutcome, WaitForState } from '../utils/waitFor';
 
 /** An open wait, as the queue and the UI see it. */
 export interface OpenWait {
@@ -24,7 +24,7 @@ export interface OpenWait {
 }
 
 interface WaitEntry extends OpenWait {
-    finish(outcome: WaitForOutcome): void;
+    finish(outcome: WaitForOutcome, message?: string): void;
 }
 
 export interface WaitForTimers {
@@ -60,7 +60,12 @@ export class WaitForRegistry {
      * queue item whose dispatch this runs in (or `queueItemId`).
      */
     wait(state: WaitForState, queueItemId: string | undefined = currentQueueItemId()): Promise<WaitForOutcome> {
-        return new Promise<WaitForOutcome>((resolve) => {
+        return this.waitForEnd(state, queueItemId).then((end) => end.outcome);
+    }
+
+    /** As {@link wait}, answering also the user's message when one ended the wait (`message`, vscimpb173). */
+    waitForEnd(state: WaitForState, queueItemId: string | undefined = currentQueueItemId()): Promise<WaitForEnd> {
+        return new Promise<WaitForEnd>((resolve) => {
             const id = this._nextId++;
             let handle: unknown;
             let unregister: () => void = () => undefined;
@@ -73,12 +78,12 @@ export class WaitForRegistry {
                 id,
                 state,
                 ...(queueItemId ? { queueItemId } : {}),
-                finish: (outcome) => {
+                finish: (outcome, message) => {
                     if (!this._waits.delete(id)) { return; }
                     if (handle !== undefined) { this.timers.clearTimeout(handle); }
                     unregister();
                     this._emit(entry, 'end', outcome);
-                    resolve(outcome);
+                    resolve({ outcome, ...(message !== undefined ? { message } : {}) });
                 },
             };
             this._waits.set(id, entry);
@@ -107,6 +112,15 @@ export class WaitForRegistry {
         return this._end((w) => w.queueItemId === queueItemId, 'interrupted');
     }
 
+    /**
+     * The user writes `text` to the waiting turn of queue item `queueItemId` (vscimpb173): its wait ends as
+     * `message`, the tool hands the text to the agent, which waits on by calling the tool again. Answers
+     * whether one waited.
+     */
+    message(queueItemId: string, text: string): boolean {
+        return this._end((w) => w.queueItemId === queueItemId, 'message', text);
+    }
+
     /** End the wait `id` (a chat send's) as the user's interrupt. */
     interruptById(id: number): boolean {
         return this._end((w) => w.id === id, 'interrupted');
@@ -123,9 +137,9 @@ export class WaitForRegistry {
         return () => { this._listeners.delete(listener); };
     }
 
-    private _end(match: (w: WaitEntry) => boolean, outcome: WaitForOutcome): boolean {
+    private _end(match: (w: WaitEntry) => boolean, outcome: WaitForOutcome, message?: string): boolean {
         const hits = [...this._waits.values()].filter(match);
-        for (const w of hits) { w.finish(outcome); }
+        for (const w of hits) { w.finish(outcome, message); }
         return hits.length > 0;
     }
 

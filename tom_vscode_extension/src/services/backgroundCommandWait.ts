@@ -21,6 +21,8 @@ export type CommandWaitOutcome =
     | { kind: 'finished'; commands: OwnedCommand[] }
     /** The limit was reached, the user stopped waiting, or waiting is off (limit 0), with these still running. */
     | { kind: 'limit'; running: BackgroundWorkItem[]; reason: 'limit' | 'stopped' | 'off' }
+    /** The user wrote to the waiting turn (vscimpb173): the turn goes on with the message, then waits again. */
+    | { kind: 'message'; text: string; running: BackgroundWorkItem[] }
     /** The send was cancelled while waiting. */
     | { kind: 'cancelled' };
 
@@ -74,6 +76,8 @@ export async function waitForOwnedCommands(limitMinutes: number, deps: CommandWa
     let limitFrom = since;
     let unlimited = false;
     let stopRequested = false;
+    let message: string | undefined;
+    let wake: (() => void) | undefined;
     let running = first;
     const stateOf = (now: OwnedCommand[]): BackgroundWaitState => ({
         since: new Date(since).toISOString(),
@@ -93,12 +97,18 @@ export async function waitForOwnedCommands(limitMinutes: number, deps: CommandWa
         waitWithoutLimit: () => { unlimited = true; show(); },
         keepWaiting: () => { unlimited = false; limitFrom = deps.now(); show(); },
         stop: () => { stopRequested = true; },
+        // Taken at once: the sleep is cut short, the loop answers with it.
+        message: (text) => { message = text; wake?.(); return {}; },
     });
     show();
     try {
         for (;;) {
-            await deps.sleep(deps.pollMs ?? 2_000);
+            await Promise.race([deps.sleep(deps.pollMs ?? 2_000), new Promise<void>((resolve) => { wake = resolve; })]);
+            wake = undefined;
             if (deps.isCancelled()) { return { kind: 'cancelled' }; }
+            if (message !== undefined) {
+                return { kind: 'message', text: message, running: deps.list().filter((c) => handles.has(c.handle) && c.running).map(workItem) };
+            }
             const mine = deps.list().filter((c) => handles.has(c.handle));
             running = mine.filter((c) => c.running);
             if (running.length === 0) { return { kind: 'finished', commands: mine }; }

@@ -220,3 +220,28 @@
 .group-members .gm-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-members .gm-chosen .gm-id { font-style: italic; }
 .group-members .gm-bar { display: flex; gap: 6px; margin-top: 4px; }
+
+/* Writing to a waiting turn from the item, and the item's ask panel (vscimpb173). */
+.wait-msg-btn, .item-ask-btn { font-size: 10px; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, #6b6b6b)); background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+.wait-msg-btn.primary, .item-ask-btn.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: var(--vscode-button-background); }
+.wait-msg-box { flex-basis: 100%; margin-top: 4px; }
+.wait-msg-text, .item-ask-text { width: 100%; box-sizing: border-box; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 4px 6px; resize: vertical; }
+.wait-msg-bar, .item-ask-bar { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.wait-msgs { flex-basis: 100%; margin-top: 4px; font-weight: normal; }
+.wait-msgs-alone { margin: 2px 0; padding: 4px 8px; border-left: 3px solid var(--vscode-descriptionForeground); font-size: 11px; }
+.wait-msg { margin: 3px 0; padding-left: 6px; border-left: 2px solid var(--vscode-descriptionForeground); }
+.wait-msg-head { opacity: 0.75; }
+.wait-msg-body, .wait-msg-answer { white-space: pre-wrap; }
+.wait-msg-answer { margin-top: 2px; opacity: 0.9; }
+.wait-msg-answer-head { font-weight: 600; }
+.item-ask { margin: 2px 0; padding: 4px 8px; border-left: 3px solid #b180d7; background: rgba(177,128,215,0.08); font-size: 11px; }
+.item-ask-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.item-ask-badge { font-weight: 600; }
+.item-ask-questions { margin: 4px 0; padding-left: 20px; white-space: pre-wrap; }
+.item-ask-questions li { margin: 2px 0; }
+.item-ask-choice-row { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px; }
+.item-ask-choice { font-size: 10px; padding: 1px 7px; border-radius: 10px; border: 1px solid #b180d7; background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+.item-ask-choice.selected { background: #b180d7; color: #fff; }
+.item-ask-hint { opacity: 0.8; margin: 2px 0; }
+.item-ask-picks { display: flex; flex-direction: column; margin: 2px 0; }
+.item-ask-other { width: 100%; box-sizing: border-box; font-size: 12px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 2px 6px; }
