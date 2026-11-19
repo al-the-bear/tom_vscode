@@ -23,7 +23,7 @@ The extension carries a workspace template in two parts:
 - **`workspace/`** — what a workspace folder holds: an empty `.tom/`, an
   `AGENTS.md` for its own rules, a `CLAUDE.md` importing the root's shared
   `workspace_agents.md` and its `AGENTS.md`, and its guidelines
-  (`_copilot_guidelines/`: Dart, cloud and D4rt guidelines and the others of
+  (`_agent_guidelines/`: Dart, cloud and D4rt guidelines and the others of
   a Dart workspace, its index linking the root's).
 
 The workspace part's `CLAUDE.md` names the root by the token `{{root}}`
