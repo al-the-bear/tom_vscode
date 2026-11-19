@@ -19,6 +19,8 @@ import { positionText } from '../utils/processActionPrompt';
 import { branchingCards } from '../utils/processBranchingPlan';
 import { NESTED_FOLLOW_UP_LABELS, startedHere, type SuggestionInput } from '../utils/processStack';
 import { resolveLevelIndex } from './quest-process-tools';
+import { emitNotifications } from '../services/notificationLog';
+import { subprocessSuggestedDraft } from '../services/userNotificationEmitter';
 
 /** What the tools read and do. */
 export interface ProcessStackDeps {
@@ -133,6 +135,8 @@ export async function suggestSubprocessImpl(deps: ProcessStackDeps, input: Sugge
     const list = Array.isArray(input?.suggestions) ? input.suggestions : [];
     const result = deps.suggest(list);
     if (!result.ok) { return json(result); }
+    // USER NOTIFICATIONS / NOTIFICATIONS (vscimpb170): the branching editor waits for the user.
+    emitNotifications([subprocessSuggestedDraft(list)]);
     const running = deps.stepRunning();
     if (!running) { deps.showSuggestions(); }
     return json({

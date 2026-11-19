@@ -575,7 +575,10 @@ the active quest's notes on their own (`tomAi.questNotesPanel`, with an
 renders it; you can drag it into the secondary side bar), and **RUNS**
 (`tomAi.runsOverview`): every process run of every window on this machine with
 its subject, position and state (running, paused, idle, or waiting for you, an
-event or a task, with what it waits for), and **NOTIFICATIONS**
+event or a task, with what it waits for), **USER NOTIFICATIONS**
+(`tomAi.userNotifications`): every ask, message, suggestion, decision, todo
+and queue hold directed at you, open asks shown until answered, and
+**NOTIFICATIONS**
 (`tomAi.notifications`): what agents and you did to queues and todos in every
 window — items queued and deleted, todos created, edited and moved on —, merged
 and filterable.

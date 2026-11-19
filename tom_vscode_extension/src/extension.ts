@@ -12,6 +12,7 @@ import { currentInteractionRun, currentQueueItemId } from './services/userWaits'
 import { configureNotificationLog } from './services/notificationLog';
 import { getCurrentToolContext } from './services/tool-execution-context';
 import { registerNotificationsView } from './handlers/notifications-handler';
+import { registerUserNotificationsView } from './handlers/userNotifications-handler';
 import { callerSession } from './tools/session-param';
 import { currentProcessRun } from './services/processRunContext';
 import { registerQuestNotesPanel } from './handlers/questNotesPanel-handler';
@@ -116,6 +117,8 @@ import {
 import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
 import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation';
 import { markShuttingDown, setOpenAskChatSender } from './services/openAskRecord';
+import { startUserNotificationEmitter } from './services/userNotificationEmitter';
+import { userInteractions } from './services/userInteractions';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -502,6 +505,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // @TOM INFO › NOTIFICATIONS: queue and todo events of every window on this machine
     stepStart = performance.now();
     registerNotificationsView(context);
+    // @TOM INFO › USER NOTIFICATIONS: what is directed at the user, kept apart (vscimpb170).
+    registerUserNotificationsView(context);
     timeStep('notifications', stepStart);
 
     // Register Unified Notepad (T2) panel
@@ -884,6 +889,15 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!outcome.ok) { bridgeLog(`Reload: the answer to a chat send's question was not sent: ${outcome.error ?? 'unknown'}`, 'ERROR'); }
     });
     PromptQueueManager.init(context);
+    // USER NOTIFICATIONS (vscimpb170): this window's asks, process decisions and queue holds go to the shared log.
+    {
+        const stop = startUserNotificationEmitter({
+            interactions: userInteractions,
+            process: { onDidChange: (l) => ProcessStateStore.instance!.onDidChange(l), decisionWaitingRuns: () => ProcessStateStore.instance?.decisionWaitingRuns() ?? [] },
+            queue: { onDidChange: (l) => PromptQueueManager.instance.onDidChange(l), holdingItems: () => PromptQueueManager.instance.holdingItems() },
+        });
+        context.subscriptions.push({ dispose: stop });
+    }
     // A completed todo's `on_done`: carried out by the extension (ww_a_collab-5).
     installTodoOnDone();
     // `filed_by` of a todo the tools or the todo panel file: where the call runs.

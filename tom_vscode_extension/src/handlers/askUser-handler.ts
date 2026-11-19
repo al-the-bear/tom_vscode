@@ -99,8 +99,9 @@ function openQuestion(pending: PendingAsk): void {
 }
 
 /** The question was answered, timed out or cancelled: it leaves the panel. */
-function closeQuestion(pending: PendingAsk, source: AskAnswerSource): void {
-    userInteractions.remove(pending.requestId);
+function closeQuestion(pending: PendingAsk, source: AskAnswerSource, answer?: string): void {
+    userInteractions.remove(pending.requestId, source === 'timeout' ? 'timed out' : source === 'cancel' ? `cancelled${answer ? `: ${answer}` : ''}`
+        : `${source === 'telegram' ? 'answered on Telegram' : 'answered'}${answer ? `: ${answer}` : ''}`);
     debugLog(`askUser ${pending.requestId} (run ${pending.run}) settled: ${source}`, 'INFO', 'askUser');
 }
 
@@ -218,8 +219,8 @@ const liveAskUserDeps: AskUserDeps = {
         openQuestion(pending);
         sendAskTelegram(pending);
     },
-    onResolve: (pending, source) => {
-        closeQuestion(pending, source);
+    onResolve: (pending, source, answer) => {
+        closeQuestion(pending, source, answer);
     },
     log: (entry) => appendQuestionLogEntry(entry),
     processContext: liveProcessContext,

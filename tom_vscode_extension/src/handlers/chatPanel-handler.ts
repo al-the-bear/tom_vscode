@@ -224,14 +224,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const queueItemId = currentQueueItemId();
         return new Promise<PlanDecision>((resolve) => {
             let settled = false;
-            let remove: () => void = () => undefined;
+            let remove: (outcome?: string) => void = () => undefined;
             let unregisterOwner: () => void = () => undefined;
             const settle = (decision: PlanDecision): void => {
                 if (settled) { return; }
                 settled = true;
                 this._planProposals.delete(id);
                 unregisterOwner();
-                remove();
+                remove(decision.accepted ? 'accepted' : decision.promptEnded ? 'closed: the prompt ended' : `keep planning${decision.feedback ? `: ${decision.feedback}` : ''}`);
                 void this._view?.webview.postMessage({ type: 'planProposalSettled', id });
                 resolve(decision);
             };

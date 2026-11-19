@@ -160,7 +160,7 @@ describe('QUEST NOTES side panel (host)', () => {
         const container = pkg.contributes.viewsContainers.activitybar.find((c: Msg) => c.id === 'tomAi-info-sidebar');
         assert.ok(container, '@TOM INFO container');
         assert.ok(fs.existsSync(path.join(EXT_ROOT, container.icon)));
-        assert.deepEqual(pkg.contributes.views['tomAi-info-sidebar'].map((v: Msg) => [v.type, v.id]), [['webview', QUEST_NOTES_PANEL_VIEW_ID], ['webview', 'tomAi.runsOverview'], ['webview', 'tomAi.notifications']]);
+        assert.deepEqual(pkg.contributes.views['tomAi-info-sidebar'].map((v: Msg) => [v.type, v.id]), [['webview', QUEST_NOTES_PANEL_VIEW_ID], ['webview', 'tomAi.runsOverview'], ['webview', 'tomAi.userNotifications'], ['webview', 'tomAi.notifications']]);
         assert.ok(pkg.contributes.views['tomAi-sidebar'].some((v: Msg) => v.id === 'tomAi.questNotes'), 'the @TOM QUEST NOTES view stays');
     });
 });

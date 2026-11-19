@@ -43,7 +43,7 @@ describe('activity-bar containers', () => {
             ['tomAi.todoLogTom', 'TODO LOG'], ['tomAi.windowStatusTom', 'WINDOW STATUS'],
         ]);
         assert.deepEqual(views('tomAi-vsc-sidebar'), [['tomAi.vscResources', 'RESOURCES'], ['tomAi.prerequisites', 'PREREQUISITES']]);
-        assert.deepEqual(views('tomAi-info-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES'], ['tomAi.runsOverview', 'RUNS'], ['tomAi.notifications', 'NOTIFICATIONS']]);
+        assert.deepEqual(views('tomAi-info-sidebar'), [['tomAi.questNotesPanel', 'QUEST NOTES'], ['tomAi.runsOverview', 'RUNS'], ['tomAi.userNotifications', 'USER NOTIFICATIONS'], ['tomAi.notifications', 'NOTIFICATIONS']]);
         assert.deepEqual(views('tomAi-todo-sidebar'), [['tomAi.tomTodo', 'TODO']], 'the todo panel, its only view');
         assert.equal(pkg.contributes.views['tomAi-todo-sidebar'][0].type, 'webview');
         // The same todo panel (media and handler) as QUEST TODOS, as an instance of its own with its defaults.

@@ -234,6 +234,22 @@ export class ProcessStateStore {
         });
     }
 
+    /**
+     * The runs of the quest whose process waits at a decision for the user
+     * (the top level's `decision`), each with its process and position
+     * (USER NOTIFICATIONS, vscimpb170).
+     */
+    decisionWaitingRuns(): Array<{ run: string; process: string; position: string }> {
+        const repo = this.repo();
+        if (!repo || !this.quest) { return []; }
+        const out: Array<{ run: string; process: string; position: string }> = [];
+        for (const r of repo.listRuns(this.quest)) {
+            const top = topLevel(repo.readStateStack(this.quest, r.run).levels);
+            if (top.process && top.decision && !top.completed) { out.push({ run: r.run, process: top.process, position: this.positionOf(top) }); }
+        }
+        return out;
+    }
+
     /** What run `run` (default: the window's) works on: its `process-subject` chat variable, undefined when unset (vscimpb118). */
     subjectOf(run: string = this.run): string | undefined {
         try { return ChatVariablesStore.instance.customOf(run, PROCESS_SUBJECT_VARIABLE)?.trim() || undefined; } catch { return undefined; }

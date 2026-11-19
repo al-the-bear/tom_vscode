@@ -177,7 +177,7 @@ describe('a cancelled send ends the tool call it is blocked in', () => {
         resetPlanModeForTests();
         const chat = src('handlers', 'chatPanel-handler.ts');
         assert.match(chat, /unregisterOwner = registerAskCancel\(\(\) => settle\(\{ accepted: false, promptEnded: true \}\)\);/);
-        assert.match(chat, /settled = true;\s*this\._planProposals\.delete\(id\);\s*unregisterOwner\(\);\s*remove\(\);/);
+        assert.match(chat, /settled = true;\s*this\._planProposals\.delete\(id\);\s*unregisterOwner\(\);\s*remove\(decision\.accepted \? 'accepted' : decision\.promptEnded \? 'closed: the prompt ended'/);
     });
 
     test('CE-6: the Copilot round trip stops when its caller gave up', async () => {

@@ -126,7 +126,7 @@ interface OpenAsk {
     /** The process run the asking turn works in (vscimpb81): one open ask per run. */
     run?: string;
     /** Takes it out of the user-input panel's list (services/userInteractions.ts). */
-    removeInteraction?: () => void;
+    removeInteraction?: (outcome?: string) => void;
     resolve(answer: string): void;
 }
 
@@ -156,11 +156,11 @@ export class MdBrowserAskSlot {
         return [...this.asks.values()].find((a) => a.bar.requestId === requestId);
     }
 
-    private release(ask: OpenAsk): void {
+    private release(ask: OpenAsk, outcome?: string): void {
         const run = ask.run ?? 'default';
         if (this.asks.get(run) === ask) { this.asks.delete(run); }
         ask.unregisterOwner?.();
-        ask.removeInteraction?.();
+        ask.removeInteraction?.(outcome);
     }
 
     begin(ask: OpenAsk): void {
@@ -284,7 +284,7 @@ export class MdBrowserAskSlot {
     /** @internal */
     finish(source: AskMdSource, button?: AskMdButton, ask: OpenAsk | undefined = [...this.asks.values()][0]): void {
         if (!ask || this.asks.get(ask.run ?? 'default') !== ask) { return; }
-        this.release(ask);
+        this.release(ask, source === 'click' && button ? `clicked ${button.label}` : source === 'closed' ? 'the document was closed' : source === 'timeout' ? 'timed out' : 'cancelled (the prompt ended)');
         const deps = ask.deps;
         if (ask.timer !== undefined) { (deps.clearTimer ?? clearTimeout)(ask.timer); }
         // The flow goes on: an unchecked file goes, and its panel with it.

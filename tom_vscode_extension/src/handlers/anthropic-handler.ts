@@ -1977,10 +1977,10 @@ export class AnthropicHandler {
                 if (!this.pendingApprovals.has(req.toolUseId)) { return; }
                 this.pendingApprovals.delete(req.toolUseId);
                 this._onApprovalSettled.fire(req.toolUseId);
-                remove();
+                remove('denied: the prompt ended');
                 resolve(false);
             });
-            this.pendingApprovals.set(req.toolUseId, { resolve: (approved) => { unregisterOwner(); remove(); resolve(approved); }, toolName: req.toolName, run, ...(queueItemId ? { queueItemId } : {}) });
+            this.pendingApprovals.set(req.toolUseId, { resolve: (approved) => { unregisterOwner(); remove(approved ? 'approved' : 'denied'); resolve(approved); }, toolName: req.toolName, run, ...(queueItemId ? { queueItemId } : {}) });
             this._onApprovalNeeded.fire({ ...req, run });
         }));
     }

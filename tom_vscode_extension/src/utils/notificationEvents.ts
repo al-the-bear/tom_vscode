@@ -2,12 +2,18 @@
  * The events of @TOM INFO › NOTIFICATIONS (vscimpb124): what agents, the user
  * and the extension do to queues and todos across the windows of this machine.
  *
- * Five types: an item queued or deleted (a queue item of any run), a todo
- * created, a todo updated (fields or text edited) and a todo changed (its
- * status changed). Each event records when, the window (quest), the run, who
- * (an agent — transport, profile, session, the queue item and todo it was
- * working on —, the user, or the extension on its own) and what (the item, or
- * the todo with the fields changed).
+ * The queue and todo types: an item queued or deleted (a queue item of any
+ * run), a todo created, a todo updated (fields or text edited) and a todo
+ * changed (its status changed). The user-directed types (vscimpb170, listed
+ * in {@link USER_NOTIFICATION_TYPES}, shown again in USER NOTIFICATIONS):
+ * something waits for the user (an ask, a picker, an MD Browser ask, a plan, a
+ * tool approval) and its close, a tomAi_notifyUser message, suggested
+ * subprocesses, a process decision waiting, a todo filed for the user
+ * (decision-needed or a user action), the queue holding for the user. Each
+ * event records when, the window (quest), the run, who (an agent — transport,
+ * profile, session, the queue item and todo it was working on —, the user, or
+ * the extension on its own) and what (the item, the todo with the fields
+ * changed, or what the user is asked or told).
  *
  * The log keeps the events as they happened (services/notificationLog.ts);
  * the view merges them here: events of one type from the same source in the
@@ -16,10 +22,18 @@
  * vscode-free and pure.
  */
 
-export type NotificationType = 'itemQueued' | 'itemDeleted' | 'todoCreated' | 'todoUpdated' | 'todoChanged';
+export type NotificationType =
+    | 'itemQueued' | 'itemDeleted' | 'todoCreated' | 'todoUpdated' | 'todoChanged'
+    | 'askOpened' | 'askClosed' | 'userNotified' | 'subprocessSuggested' | 'decisionWaiting' | 'userTodo' | 'queueHolding';
 
-/** The five types, in the order the view's toggles show them. */
-export const NOTIFICATION_TYPES: readonly NotificationType[] = ['itemQueued', 'itemDeleted', 'todoCreated', 'todoUpdated', 'todoChanged'];
+/** Every type, in the order the view's toggles show them. */
+export const NOTIFICATION_TYPES: readonly NotificationType[] = [
+    'itemQueued', 'itemDeleted', 'todoCreated', 'todoUpdated', 'todoChanged',
+    'askOpened', 'askClosed', 'userNotified', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding',
+];
+
+/** The types directed at the user (USER NOTIFICATIONS shows them; `askClosed` marks its ask answered there). */
+export const USER_NOTIFICATION_TYPES: readonly NotificationType[] = ['askOpened', 'askClosed', 'userNotified', 'subprocessSuggested', 'decisionWaiting', 'userTodo', 'queueHolding'];
 
 /** A type's toggle label and codicon. */
 export const NOTIFICATION_TYPE_INFO: Readonly<Record<NotificationType, { label: string; icon: string }>> = {
@@ -28,7 +42,37 @@ export const NOTIFICATION_TYPE_INFO: Readonly<Record<NotificationType, { label: 
     todoCreated: { label: 'Todo created', icon: 'new-file' },
     todoUpdated: { label: 'Todo edited', icon: 'edit' },
     todoChanged: { label: 'Status', icon: 'arrow-right' },
+    askOpened: { label: 'Asks you', icon: 'comment-discussion' },
+    askClosed: { label: 'Answered', icon: 'pass' },
+    userNotified: { label: 'Tells you', icon: 'bell-dot' },
+    subprocessSuggested: { label: 'Suggests', icon: 'type-hierarchy-sub' },
+    decisionWaiting: { label: 'Decision', icon: 'git-compare' },
+    userTodo: { label: 'Todo for you', icon: 'person' },
+    queueHolding: { label: 'Queue holds', icon: 'debug-pause' },
 };
+
+/** What kind of thing waits for the user (an `askOpened` / `askClosed` event). */
+export type UserAskKind = 'question' | 'picker' | 'mdBrowser' | 'plan' | 'approval';
+
+/** What a user-directed event is about. */
+export interface NotificationUser {
+    /** An ask: what kind; the other types: their own kind (e.g. a todo's `decision-needed` / `user action`). */
+    kind?: string;
+    /** Pairs an `askClosed` with its `askOpened` (the interaction's id); unique per ask. */
+    key?: string;
+    /** One line. */
+    title: string;
+    /** What it asks or says: the questions with their choices, the items, the document, the message, the plan. */
+    details?: string[];
+    /** An `askClosed`: how it was settled (the answer, the choice, or why it closed). */
+    outcome?: string;
+    /** `tomAi_notifyUser`: its urgency and channel. */
+    urgency?: string;
+    channel?: string;
+    /** The session and queue item whose turn it is, when known. */
+    session?: string;
+    queueItemId?: string;
+}
 
 /** Who did it. */
 export interface NotificationWho {
@@ -84,6 +128,8 @@ export interface NotificationEvent {
     who: NotificationWho;
     item?: NotificationItem;
     todo?: NotificationTodo;
+    /** A user-directed event: what the user is asked or told. */
+    user?: NotificationUser;
 }
 
 /** Events merged for the view: one or more of one type, source and quest. */
@@ -183,10 +229,32 @@ const NOUN: Record<NotificationType, [string, string, string]> = {
     todoCreated: ['todo', 'todos', 'created'],
     todoUpdated: ['todo', 'todos', 'edited'],
     todoChanged: ['todo', 'todos', 'changed'],
+    askOpened: ['ask', 'asks', 'opened'],
+    askClosed: ['ask', 'asks', 'answered'],
+    userNotified: ['message', 'messages', 'sent'],
+    subprocessSuggested: ['suggestion', 'suggestions', 'made'],
+    decisionWaiting: ['decision', 'decisions', 'waiting'],
+    userTodo: ['todo for you', 'todos for you', 'filed'],
+    queueHolding: ['queue hold', 'queue holds', 'reported'],
+};
+
+/** The verb of a user-directed event's line. */
+const USER_VERB: Partial<Record<NotificationType, string>> = {
+    askOpened: 'waits for you',
+    askClosed: 'answered',
+    userNotified: 'tells you',
+    subprocessSuggested: 'suggested',
+    decisionWaiting: 'decision waits',
+    userTodo: 'todo for you',
+    queueHolding: 'queue holds',
 };
 
 /** One event's short text. */
 export function eventText(e: NotificationEvent): string {
+    if (e.user) {
+        const outcome = e.type === 'askClosed' && e.user.outcome ? ` — ${previewValue(e.user.outcome, 60)}` : '';
+        return `${USER_VERB[e.type] ?? e.type}: ${e.user.title}${outcome} · ${e.run}`;
+    }
     if (e.item) {
         return `${e.type === 'itemQueued' ? 'queued' : 'deleted'} ${e.item.kind === 'normal' ? '' : `${e.item.kind} `}"${e.item.preview}" · ${e.item.run}`;
     }
@@ -228,6 +296,13 @@ export function groupDetails(g: NotificationGroup): string[] {
     lines.push(g.first === g.last ? `When: ${g.first}` : `When: ${g.first} … ${g.last}`);
     for (const m of g.members) {
         if (g.members.length > 1) { lines.push(`• ${eventText(m)}`); }
+        if (m.user) {
+            const pad = g.members.length > 1 ? '  ' : '';
+            if (m.user.kind) { lines.push(`${pad}Kind: ${m.user.kind}`); }
+            for (const d of m.user.details ?? []) { lines.push(`${pad}${d}`); }
+            if (m.user.outcome) { lines.push(`${pad}Outcome: ${m.user.outcome}`); }
+            if (m.user.urgency || m.user.channel) { lines.push(`${pad}${[m.user.urgency && `urgency ${m.user.urgency}`, m.user.channel && `channel ${m.user.channel}`].filter(Boolean).join(', ')}`); }
+        }
         if (m.item) { lines.push(`${g.members.length > 1 ? '  ' : ''}Item ${m.item.id} (${m.item.kind}, run ${m.item.run})`); }
         if (m.todo) {
             if (m.todo.title) { lines.push(`${g.members.length > 1 ? '  ' : ''}Todo ${m.todo.id}: ${m.todo.title}`); }

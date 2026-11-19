@@ -138,6 +138,7 @@ import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
 import { emitNotifications } from '../services/notificationLog';
 import { queueItemDraft } from '../utils/notificationDrafts';
 import { DEFAULT_RUN_SESSION, canonicalSessionName, isRunDefaultSession } from '../utils/runSessions';
+import { emitRunPaused, type HoldingItem } from '../services/userNotificationEmitter';
 
 // ============================================================================
 // Types
@@ -2068,6 +2069,18 @@ export class PromptQueueManager {
     // ----- queue CRUD --------------------------------------------------------
 
     get items(): readonly QueuedPrompt[] { return this._items; }
+
+    /** The items as USER NOTIFICATIONS reads their holding state (vscimpb170). */
+    holdingItems(): HoldingItem[] {
+        return this._items.map((i) => ({
+            id: i.id,
+            status: i.status,
+            run: itemRun(i),
+            ...(i.needsAttention ? { needsAttention: i.needsAttention } : {}),
+            ...(i.error ? { error: i.error } : {}),
+            preview: (i.originalText ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || i.id,
+        }));
+    }
     get pendingCount(): number { return this._items.filter(i => i.status === 'pending').length; }
     /** The window's run's auto-send (settings per run: {@link runQueueSettings}). */
     get autoSendEnabled(): boolean { return this._settingsOf(undefined).autoSend; }
@@ -6776,6 +6789,8 @@ export class PromptQueueManager {
         if (!this._settingsOf(run).autoSend) { return; }
         this._putRunSettings(run, { ...this._settingsOf(run), autoSend: false });
         logQueue(`Run ${run} paused: ${why}`);
+        // USER NOTIFICATIONS: the queue holds for the user (vscimpb170).
+        emitRunPaused(run, why, item?.id);
         this.persistSettings();
         this._onDidChange.fire();
     }

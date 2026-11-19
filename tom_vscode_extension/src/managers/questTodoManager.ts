@@ -34,6 +34,7 @@ import { todoCreatedDraft, todoUpdateDraft } from '../utils/notificationDrafts';
 import { setGroupCompletedHook, todoPartOf as todoPartOfIn } from '../utils/todoBlockingCascade';
 import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
 import { isCompletion } from '../utils/todoOnDoneRun';
+import { userTodoDraft } from '../services/userNotificationEmitter';
 import {
     buildFiledBy, normaliseOnDone, unblockEntry, unblockEntryPlan, withBlockedByEntry, withoutBlockedByEntry,
     type FiledByContext, type TodoFiledBy, type TodoOnDone, type UnblockEntryPlan,
@@ -1418,13 +1419,17 @@ export function questOfTodoFile(filePath: string): string | undefined {
 
 /** NOTIFICATIONS: a todo was filed (or imported) in `questId`. */
 export function notifyTodoCreated(questId: string, todo: QuestTodoItem): void {
-    emitNotifications([todoCreatedDraft(questId, todo as unknown as Record<string, unknown> & { id: string })]);
+    const forUser = userTodoDraft(questId, todo as unknown as Parameters<typeof userTodoDraft>[1]);
+    emitNotifications([todoCreatedDraft(questId, todo as unknown as Record<string, unknown> & { id: string }), ...(forUser ? [forUser] : [])]);
 }
 
 /** NOTIFICATIONS: a todo of `questId` was updated; one event per call, its status change or its edit. */
 export function notifyTodoUpdated(questId: string, before: QuestTodoItem, after: QuestTodoItem): void {
     const draft = todoUpdateDraft(questId, before as unknown as Record<string, unknown> & { id: string }, after as unknown as Record<string, unknown> & { id: string });
-    if (draft) { emitNotifications([draft]); }
+    // USER NOTIFICATIONS (vscimpb170): a todo that became the user's (decision-needed, a user action).
+    const forUser = userTodoDraft(questId, after as unknown as Parameters<typeof userTodoDraft>[1], before as unknown as Parameters<typeof userTodoDraft>[2]);
+    const drafts = [...(draft ? [draft] : []), ...(forUser ? [forUser] : [])];
+    if (drafts.length) { emitNotifications(drafts); }
 }
 
 /**

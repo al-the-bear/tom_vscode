@@ -624,6 +624,12 @@
         },
         {
           "type": "webview",
+          "id": "tomAi.userNotifications",
+          "name": "USER NOTIFICATIONS",
+          "icon": "$(bell-dot)"
+        },
+        {
+          "type": "webview",
           "id": "tomAi.notifications",
           "name": "NOTIFICATIONS",
           "icon": "$(bell)"

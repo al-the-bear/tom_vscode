@@ -46,6 +46,8 @@
  */
 
 import { SharedToolDefinition } from './shared-tool-registry';
+import { emitNotifications } from '../services/notificationLog';
+import { userNotifiedDraft } from '../services/userNotificationEmitter';
 
 // ===========================================================================
 // Narrow dep
@@ -100,6 +102,8 @@ export async function notifyUserImpl(channels: NotificationChannels, input: Noti
         }
         const urgency: NotifyUrgency = input.urgency ?? 'info';
         const requestedChannel: NotifyChannel = input.channel ?? 'auto';
+        // USER NOTIFICATIONS / NOTIFICATIONS (vscimpb170): the message, whatever channel shows it.
+        emitNotifications([userNotifiedDraft({ message: input.message, ...(input.title ? { title: input.title } : {}), urgency, channel: requestedChannel })]);
         const prefix = urgencyPrefix(urgency);
         const titleLine = input.title ? `**${input.title}**\n` : '';
         const text = `${prefix} ${titleLine}${input.message}`;

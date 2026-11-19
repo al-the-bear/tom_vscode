@@ -413,13 +413,14 @@ export function panelQuickPick(items: PickerItem[], opts: QuickPickOpts, run: st
     return new Promise<QuickPickResult>((resolve) => {
         const id = `pick_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         let done = false;
-        let remove: () => void = () => undefined;
+        let remove: (outcome?: string) => void = () => undefined;
         const finish = (result: QuickPickResult): void => {
             if (done) { return; }
             done = true;
             if (timer !== undefined) { clearTimeout(timer); }
             unregister();
-            remove();
+            remove(result === undefined ? 'dismissed' : result === QUICK_PICK_TIMED_OUT ? 'timed out'
+                : `picked ${(Array.isArray(result) ? result : [result]).map((i) => (i as PickerItem).label).join(', ') || 'nothing'}`);
             resolve(result);
         };
         const unregister = registerAskCancel(() => finish(undefined));
