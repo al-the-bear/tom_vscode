@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -112,6 +112,9 @@
         var foldLevelBtn = document.getElementById('foldLevelBtn');
         var indentBtn = document.getElementById('indentBtn');
         var indentSizeSelect = document.getElementById('indentSizeSelect');
+        var readAllBtn = document.getElementById('readAllBtn');
+        var readKindBtn = document.getElementById('readKindBtn');
+        var readKindPop = document.getElementById('readKindPop');
         var contentArea = document.getElementById('contentArea');
         var docBackBtn = document.getElementById('docBackBtn');
         var docForwardBtn = document.getElementById('docForwardBtn');
@@ -198,6 +201,18 @@
         // folding a section never changes the state of the headings inside it.
         var foldState = {};
         var foldFile = '';
+
+        // The reading notation (DocSpecs § Reading Notation; blocks.js scans it).
+        // Each marked block or span is one element, `.mdb-rd` / `.mdb-rs` with
+        // `data-kind`; a kind's mode is a class on the content area
+        // (`mdb-read-<kind>-<mode>`), so changing it writes one attribute and CSS
+        // does the rest. Opening one element is the reader's choice for it, kept
+        // by its key (kind, text, occurrence) like a fold flag.
+        var readingModes = {};          // kind -> {block, span}: the reader's choice; absent = the default
+        var readingOpen = {};           // element key -> true (opened) / false (closed again)
+        var readingAll = false;         // Show all marked text (the panel's, not stored)
+        var readingSeen = {};           // occurrence counts of the keys while a render runs
+        var readingCounts = {};         // kind -> elements of the shown document (the kinds popup)
 
         // Indentation by heading level: a heading at (level - 1) steps, its
         // section's content one step deeper; a step is `indentSize` spaces (ch).
@@ -287,6 +302,45 @@
         }
         if (indentSizeSelect) {
             indentSizeSelect.addEventListener('change', applyIndent);
+        }
+        // Reading: Show all marked text, and the kinds popup.
+        if (readAllBtn) {
+            readAllBtn.addEventListener('click', function() {
+                readingAll = !readingAll;
+                applyReadingModes();
+            });
+        }
+        if (readKindBtn && readKindPop) {
+            readKindBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (readKindPop.hidden) { renderReadingKinds(); }
+                readKindPop.hidden = !readKindPop.hidden;
+            });
+            readKindPop.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (e.target && e.target.closest && e.target.closest('[data-read-reset]')) {
+                    readingModes = {};
+                    readingOpen = {};
+                    Array.prototype.forEach.call(contentArea ? contentArea.querySelectorAll('.mdb-rd.mdb-open, .mdb-rs.mdb-open') : [], function(el) { el.classList.remove('mdb-open'); });
+                    applyReadingModes();
+                    renderReadingKinds();
+                }
+            });
+            readKindPop.addEventListener('change', function(e) {
+                var sel = e.target;
+                if (!sel || !sel.dataset || !sel.dataset.readKind) { return; }
+                setReadingMode(sel.dataset.readKind, sel.dataset.readPart === 'span', sel.value);
+            });
+            document.addEventListener('click', function() { readKindPop.hidden = true; });
+        }
+        // A marker is reached with the keyboard too (Enter or Space opens and closes it).
+        if (contentArea) {
+            contentArea.addEventListener('keydown', function(e) {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest && e.target.closest('.mdb-rs-marker')) {
+                    e.preventDefault();
+                    onReadingToggle(e.target);
+                }
+            });
         }
         if (foldAllBtn) {
             foldAllBtn.addEventListener('click', function() {
@@ -572,6 +626,56 @@
                 renderer: function() {
                     return '<span class="mdb-check-here" title="Marked: check here">' + icon('eye', 'Check here') + 'check here</span>';
                 },
+            }, {
+                // The reading notation's fenced div (blocks.js mdbReadingDivToken): one token from the
+                // opening fence to its closing fence; a stray closing fence is a token of its own.
+                name: 'readingDiv',
+                level: 'block',
+                // Bounded to the current paragraph (blocks.js): an unbounded search makes the render quadratic.
+                start: function(src) { return mdbReadingBlockStart(src); },
+                tokenizer: function(src) { return mdbReadingDivToken(src, this.lexer); },
+                renderer: function(token) {
+                    if (token.stray) {
+                        return '<p class="mdb-rd-stray" title="closing fence without an opening fence">:::</p>\n';
+                    }
+                    return readingDivHtml(token, this.parser.parse(token.tokens));
+                },
+            }, {
+                // A bracketed span `[text]{.kind}`: before marked's link tokenizer (extensions run first).
+                name: 'readingSpan',
+                level: 'inline',
+                start: function(src) {
+                    var i = src.indexOf('[');
+                    return i < 0 || src.indexOf(']{', i) < 0 ? undefined : i;
+                },
+                tokenizer: function(src) {
+                    var m = mdbReadingSpan(src);
+                    if (!m) { return undefined; }
+                    return { type: 'readingSpan', raw: m.raw, text: m.text, kind: m.kind, classes: m.classes, id: m.id, attrs: m.attrs, tokens: this.lexer.inlineTokens(m.text) };
+                },
+                renderer: function(token) {
+                    return readingSpanHtml(token.kind, token.attrs, this.parser.parseInline(token.tokens), token.text, '');
+                },
+            }, {
+                // The citation shapes: `(-> ids)` backed by (trace), `(<- source)` / `(<~ source)` taken /
+                // extrapolated from (provenance); a source with a path is linked.
+                name: 'citation',
+                level: 'inline',
+                start: function(src) { var i = src.search(/\((->|<-|<~) /); return i < 0 ? undefined : i; },
+                tokenizer: function(src) {
+                    var m = mdbCitation(src);
+                    if (!m) { return undefined; }
+                    return { type: 'citation', raw: m.raw, arrow: m.arrow, content: m.content, kind: m.kind, tokens: this.lexer.inlineTokens(m.content) };
+                },
+                renderer: function(token) {
+                    var inner = this.parser.parseInline(token.tokens);
+                    // A source path (`file.md`, `file.md#ID`, a path with a slash) is linked through the link resolution.
+                    if (token.arrow !== '->' && /^[^\s<>()]+$/.test(token.content) && /[./#]/.test(token.content)) {
+                        inner = '<a href="' + esc(token.content) + '">' + esc(token.content) + '</a>';
+                    }
+                    var what = token.arrow === '->' ? 'backed by' : token.arrow === '<-' ? 'taken from' : 'extrapolated from';
+                    return readingSpanHtml(token.kind, { label: what + ' ' + token.content }, '(' + esc(token.arrow) + ' ' + inner + ')', token.raw, what);
+                },
             }] });
             /** `data-authors` (`|`-separated) and `data-agent` for the authors a mark names. */
             function authorAttrs(authors) {
@@ -622,6 +726,173 @@
                         return '<span class="mdb-cm mdb-cm-comment" title="Comment">' + icon('comment', 'Comment') + inner + '</span>';
                 }
             }
+        }
+
+        // ---- The reading notation: elements, modes, opening ----
+        function readingEsc(text) {
+            return String(text).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+        }
+        /** Plain text of written Markdown, for a key, a preview or a title. */
+        function readingPlain(md) {
+            // Emphasis markers go (at a word's edge only: `sbpa21_notes` keeps its underscore), and so do list,
+            // quote and heading markers and link targets.
+            return String(md || '').replace(/`+/g, '').replace(/\*{1,3}|~~/g, '').replace(/(^|[\s(])_{1,3}(?=\S)|(\S)_{1,3}(?=[\s.,;:!?)]|$)/gm, '$1$2')
+                .replace(/^[ \t]*(?:[>#]+|[-+]|\d+\.)[ \t]+/gm, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+        }
+        function readingKnown(kind) { return Object.prototype.hasOwnProperty.call(MDB_READING_KINDS, kind); }
+        /** Count an element of `kind` and give it its key and open state. */
+        function readingRegister(kind, text) {
+            var name = kind || '(no kind)';
+            readingCounts[name] = (readingCounts[name] || 0) + 1;
+            var key = mdbReadingKey(kind, text, readingSeen);
+            return { key: key, open: readingOpen[key] === true };
+        }
+        /** The HTML of a fenced div: the collapsed line, the tag that closes it again, the body. */
+        function readingDivHtml(token, inner) {
+            var kind = token.kind || '';
+            var known = readingKnown(kind);
+            var plain = readingPlain(token.text);
+            var reg = readingRegister(kind, plain);
+            var attrs = token.attrs || {};
+            var label = attrs.label || '';
+            var collapsible = known && MDB_READING_KINDS[kind].block.length > 1;
+            var cls = 'mdb-rd' + (known ? '' : ' mdb-rd-unknown') + (token.unclosed ? ' mdb-rd-unclosed' : '') + (reg.open ? ' mdb-open' : '');
+            var title = token.unclosed ? 'no closing fence' : (kind ? kind + (known ? ' — ' + MDB_READING_KINDS[kind].title : '') : 'a marked block without a kind');
+            var preview = plain.length > 60 ? plain.slice(0, 60) + '…' : plain;
+            var head = collapsible
+                ? '<button class="mdb-rd-toggle" aria-expanded="' + (reg.open ? 'true' : 'false') + '"' + (label ? ' title="' + readingEsc(label) + '"' : '') + '>'
+                    + '▸ <span class="mdb-rd-kind">' + readingEsc(label || kind) + '</span>' + (preview ? ' — <span class="mdb-rd-preview">' + readingEsc(preview) + '</span>' : '') + '</button>'
+                    + '<button class="mdb-rd-tag" aria-expanded="true" title="Collapse this ' + readingEsc(kind) + (label ? ': ' + readingEsc(label) : '') + '">▾ ' + readingEsc(kind) + '</button>'
+                : '';
+            var source = kind === 'provenance' && attrs.source
+                ? '<div class="mdb-rd-source">source: <a href="' + readingEsc(attrs.source) + '">' + readingEsc(attrs.source) + '</a></div>' : '';
+            return '<div class="' + cls + '" data-kind="' + readingEsc(kind) + '" data-rkey="' + readingEsc(reg.key) + '" title="' + readingEsc(title) + '">'
+                + head + '<div class="mdb-rd-body">' + source + inner + '</div></div>\n';
+        }
+        /** The HTML of a span (or a citation): the marker, then the body. `what`: a citation's relation. */
+        function readingSpanHtml(kind, attrs, innerHtml, text, what) {
+            var known = readingKnown(kind);
+            var reg = readingRegister(kind, readingPlain(text));
+            var label = (attrs && attrs.label) || '';
+            var collapsible = known && MDB_READING_KINDS[kind].span.length > 1;
+            var hover = label || readingPlain(text);
+            var marker = collapsible
+                ? '<sup class="mdb-rs-marker" role="button" tabindex="0" aria-expanded="' + (reg.open ? 'true' : 'false') + '" title="' + readingEsc(hover) + '">†</sup>' : '';
+            return '<span class="mdb-rs' + (known ? '' : ' mdb-rs-unknown') + (what ? ' mdb-citation' : '') + (reg.open ? ' mdb-open' : '')
+                + '" data-kind="' + readingEsc(kind) + '" data-rkey="' + readingEsc(reg.key) + '" title="' + readingEsc(kind + (label ? ': ' + label : '')) + '">'
+                + marker + '<span class="mdb-rs-body">' + innerHtml + '</span></span>';
+        }
+        /**
+         * The reading classes of the content area: one per kind in a mode that
+         * hides or styles something (`mdb-read-provenance-collapsed`,
+         * `mdb-read-trace-marker`, `mdb-read-aside-dimmed`, `mdb-read-refs-compact`);
+         * none for a shown kind or while Show all is on. Written as one attribute.
+         */
+        function readingClasses() {
+            var out = [];
+            Object.keys(MDB_READING_KINDS).forEach(function(kind) {
+                var block = mdbReadingMode(readingModes, kind, false);
+                var span = mdbReadingMode(readingModes, kind, true);
+                if (block === 'compact') { out.push('mdb-read-' + kind + '-compact'); return; }
+                if (readingAll) { return; }
+                if (block === 'collapsed') { out.push('mdb-read-' + kind + '-collapsed'); }
+                if (span !== 'shown') { out.push('mdb-read-' + kind + '-' + span); }
+            });
+            return out;
+        }
+        function applyReadingModes() {
+            if (!contentArea) { return; }
+            var keep = String(contentArea.className || '').split(/\s+/).filter(function(c) { return c && c.indexOf('mdb-read-') !== 0; });
+            var next = keep.concat(readingClasses()).join(' ');
+            if (next !== contentArea.className) { contentArea.className = next; }
+            // The switch's own look, written only where it changes (a mode change writes one attribute).
+            if (readAllBtn && readAllBtn.classList.contains('active') !== readingAll) {
+                readAllBtn.classList.toggle('active', readingAll);
+                readAllBtn.title = readingAll ? 'Back to the reading modes chosen for each kind' : 'Show all marked text (every kind in its fullest mode)';
+                var icon = readAllBtn.querySelector('.codicon');
+                if (icon) { icon.className = 'codicon ' + (readingAll ? 'codicon-eye-closed' : 'codicon-eye'); }
+            }
+        }
+        /**
+         * The reader chose `mode` for the blocks (`span` false) or spans of `kind`: one class on
+         * the content area changes; the per-element choices of that kind are cleared.
+         */
+        function setReadingMode(kind, span, mode) {
+            if (!readingKnown(kind)) { return; }
+            var cur = readingModes[kind] || {};
+            readingModes[kind] = span ? { block: cur.block, span: mode } : { block: mode, span: cur.span };
+            var prefix = kind + '|';
+            Object.keys(readingOpen).forEach(function(k) { if (k.indexOf(prefix) === 0) { delete readingOpen[k]; } });
+            if (contentArea) {
+                Array.prototype.forEach.call(contentArea.querySelectorAll((span ? '.mdb-rs' : '.mdb-rd') + '.mdb-open[data-kind="' + kind + '"]'), function(el) {
+                    el.classList.remove('mdb-open');
+                });
+            }
+            applyReadingModes();
+        }
+        /** The kinds popup: a row per kind the document holds (with its count), then the other kinds, then Reset. */
+        function renderReadingKinds() {
+            if (!readKindPop) { return; }
+            var names = { shown: 'shown', collapsed: 'collapsed', marker: 'marker', dimmed: 'dimmed', compact: 'compact' };
+            var select = function(kind, span) {
+                var list = span ? MDB_READING_KINDS[kind].span : MDB_READING_KINDS[kind].block;
+                var cur = mdbReadingMode(readingModes, kind, span);
+                if (list.length < 2) { return '<span class="read-kind-fixed">' + names[list[0]] + '</span>'; }
+                return '<select data-read-kind="' + kind + '" data-read-part="' + (span ? 'span' : 'block') + '" title="' + (span ? 'Inline (spans, citations)' : 'Blocks') + '">'
+                    + list.map(function(m) { return '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + (span ? 'inline: ' : 'block: ') + names[m] + '</option>'; }).join('')
+                    + '</select>';
+            };
+            var row = function(kind) {
+                var count = readingCounts[kind] || 0;
+                return '<div class="read-kind-row"><span class="read-kind-name" title="' + readingEsc(MDB_READING_KINDS[kind].title) + '">' + kind
+                    + (count ? ' <span class="read-kind-count">' + count.toLocaleString('en-US') + '</span>' : '') + '</span>'
+                    + select(kind, false) + (MDB_READING_KINDS[kind].block.length > 1 ? select(kind, true) : '') + '</div>';
+            };
+            var kinds = Object.keys(MDB_READING_KINDS);
+            var present = kinds.filter(function(k) { return readingCounts[k]; });
+            var other = kinds.filter(function(k) { return !readingCounts[k]; });
+            var unknown = Object.keys(readingCounts).filter(function(k) { return !readingKnown(k) && readingCounts[k] > 0; });
+            readKindPop.innerHTML = (present.length ? present.map(row).join('') : '<div class="nav-kind-head">No marked text in this document</div>')
+                + (unknown.length ? '<div class="nav-kind-head" title="Kinds the browser does not know: always shown">Shown as they are</div>'
+                    + unknown.map(function(k) { return '<div class="read-kind-row"><span class="read-kind-name">' + readingEsc(k) + ' <span class="read-kind-count">' + readingCounts[k].toLocaleString('en-US') + '</span></span><span class="read-kind-fixed">shown</span></div>'; }).join('') : '')
+                + (other.length ? '<div class="nav-kind-head">Other kinds</div>' + other.map(row).join('') : '')
+                + '<div class="read-kind-actions"><button class="read-kind-reset" data-read-reset="1" title="Every kind back to the notation\'s defaults">Reset to defaults</button></div>';
+        }
+        /** Whether a reading element hides something now: a collapsed block or a marker span of its kind, not opened. */
+        function readingHides(el) {
+            if (readingAll || el.classList.contains('mdb-open') || el.classList.contains('mdb-rd-unclosed')) { return false; }
+            var kind = el.getAttribute('data-kind') || '';
+            if (!readingKnown(kind)) { return false; }
+            var mode = mdbReadingMode(readingModes, kind, el.classList.contains('mdb-rs'));
+            return mode === 'collapsed' || mode === 'marker';
+        }
+        /** Open (`open` true) or close one reading element, keeping the choice by its key. */
+        function setReadingOpen(el, open) {
+            el.classList.toggle('mdb-open', open);
+            var key = el.getAttribute('data-rkey');
+            if (key) { readingOpen[key] = open; }
+            Array.prototype.forEach.call(el.querySelectorAll(':scope > .mdb-rd-toggle, :scope > .mdb-rs-marker'), function(b) {
+                b.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+        }
+        /** Open the reading elements around `target` that hide it; answers whether any was opened. O(depth). */
+        function revealReading(target) {
+            var opened = false;
+            var el = target && target.closest ? target.closest('.mdb-rd, .mdb-rs') : null;
+            while (el) {
+                if (readingHides(el)) { setReadingOpen(el, true); opened = true; }
+                el = el.parentElement ? el.parentElement.closest('.mdb-rd, .mdb-rs') : null;
+            }
+            return opened;
+        }
+        /** A click or a key on a toggle, a tag or a marker opens or closes its element; answers whether it was one. */
+        function onReadingToggle(t) {
+            var btn = t.closest('.mdb-rd-toggle, .mdb-rd-tag, .mdb-rs-marker');
+            if (!btn) { return false; }
+            var el = btn.parentElement;
+            if (!el || !el.classList) { return false; }
+            setReadingOpen(el, !el.classList.contains('mdb-open'));
+            return true;
         }
 
         /** marked's options: its defaults (GFM: tables, strikethrough, ...) plus `breaks` for CR/LF. */
@@ -798,6 +1069,9 @@
          */
         function renderDocument(text, done) {
             var gen = ++renderGen;
+            // The reading elements are counted and keyed again as the render registers them.
+            readingSeen = {};
+            readingCounts = {};
             shownLinks = {};
             shownCtx = null;
             if (typeof marked === 'undefined' || !marked.lexer || !marked.parser) {
@@ -1057,7 +1331,8 @@
          */
         function patchAfterSave(edit) {
             if (crlfMode || typeof marked === 'undefined') { return false; }
-            if (/^ {0,3}(#|`{3}|~{3})|<[a-zA-Z/!]/m.test(edit.replacement)) { return false; }
+            // A heading, a code fence, a reading fence (one changes where every later div ends) or html: render in full.
+            if (/^ {0,3}(#|`{3}|~{3}|:{3})|<[a-zA-Z/!]/m.test(edit.replacement)) { return false; }
             var lines = shownLines().slice();
             var eol = shownText.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
             var newPart = edit.replacement.replace(/\r\n|\r/g, '\n').split('\n');
@@ -1085,7 +1360,11 @@
             var bounds = function(l) { return l === undefined || l.trim() === '' || /^ {0,3}#{1,6}(\s|$)/.test(l); };
             if (!bounds(lines[regionStart - 1]) || !bounds(lines[regionEnd])) { return false; }
             var region = lines.slice(regionStart, regionEnd).join('\n');
+            // The region's reading elements are counted again (the old ones taken off below) and keyed from it.
+            var seenBefore = readingSeen;
+            readingSeen = {};
             var built = buildPieces(region, regionStart);
+            readingSeen = seenBefore;
             if (built.pieces.some(function(p) { return p.hasHtml || (p.block && (p.block.type === 'heading' || p.block.type === 'group')); })) { return false; }
             // Swap the old wrappers (and anything between them) for the new nodes.
             var oldFirst = shownWrappers[from];
@@ -1104,6 +1383,12 @@
             var parent = oldFirst.parentNode;
             for (var n = oldFirst; n && n !== anchor;) {
                 var next = n.nextSibling;
+                if (n.nodeType === 1) {
+                    Array.prototype.forEach.call(n.querySelectorAll('.mdb-rd, .mdb-rs'), function(r) {
+                        var name = r.getAttribute('data-kind') || '(no kind)';
+                        if (readingCounts[name]) { readingCounts[name]--; }
+                    });
+                }
                 parent.removeChild(n);
                 n = next;
             }
@@ -1131,6 +1416,8 @@
             markOwnLines();
             // A patched heading gets its +/- (and its group may have changed).
             refreshFoldControls();
+            // An open kinds popup shows the new counts; a closed one is filled when it opens.
+            if (readKindPop && !readKindPop.hidden) { renderReadingKinds(); }
             return true;
         }
 
@@ -1323,6 +1610,8 @@
         /** Unfold the sections an element sits in, so it can be seen. */
         function revealElement(target) {
             if (!contentArea || !target) { return; }
+            // The reading elements around it that hide it are opened (O(depth), no walk over the elements).
+            revealReading(target);
             // Nothing folded, nothing to unfold: skip walking every element.
             if (!anyFolded()) { return; }
             var top = topElementOf(target);
@@ -1380,6 +1669,9 @@
         // answer) a third button saves and goes on: `next(saved)` runs once the
         // save landed, or at once when there was nothing to save.
         function openEditor(trigger, placeAfter, initial, buildEdit, next) {
+            // A collapsed div being edited is opened (edit mode changes no mode).
+            var editedDiv = placeAfter && placeAfter.querySelector ? placeAfter.querySelector(':scope > .mdb-rd') : null;
+            if (editedDiv && readingHides(editedDiv)) { setReadingOpen(editedDiv, true); }
             var box = document.createElement('div');
             box.className = 'mdb-editor';
             var area = document.createElement('textarea');
@@ -1775,7 +2067,13 @@
             }
             openEditor(actions, wrapper, '', function(value) {
                 if (!value) { return null; }
-                var source = shownLines().slice(block.startLine, block.endLine).join('\n');
+                var blockLines = shownLines().slice(block.startLine, block.endLine);
+                var source = blockLines.join('\n');
+                // A div: the text goes in at the end of its content, before the closing fence.
+                if (block.type === 'readingDiv' && blockLines.length > 1 && /^ {0,3}:{3,}[ \t]*$/.test(blockLines[blockLines.length - 1])) {
+                    var inner = blockLines.slice(0, -1).join('\n');
+                    return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: inner + value + '\n' + blockLines[blockLines.length - 1] };
+                }
                 return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
             });
         }
@@ -2987,6 +3285,12 @@
             contentArea.addEventListener('click', function(e) {
                 var t = e.target;
                 if (!t || !t.closest) { return; }
+                // A reading element's toggle, tag or marker: open or close that element.
+                if (onReadingToggle(t)) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    return;
+                }
                 var review = t.closest('.mdb-rm-btn');
                 if (review) {
                     e.stopPropagation();
@@ -3214,6 +3518,11 @@
             var el = search.els[matchEl];
             if (scroll) { revealElement(el); }
             var range = textRange(el, search.mAt[search.current], search.query.length);
+            // The match itself may sit in a collapsed block or a marker span inside the block: open those around it.
+            if (scroll && range && range.startContainer) {
+                var at = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+                if (revealReading(at)) { range = textRange(el, search.mAt[search.current], search.query.length); }
+            }
             if (highlightsSupported) {
                 // The other matches near this one, so the neighbourhood is visible too.
                 var near = [];
@@ -3470,12 +3779,15 @@
                 if (!sameFile) {
                     resetDocNav();
                     search.current = -1;
+                    // Opening a reading element is kept for a re-render of the same file only.
+                    readingOpen = {};
                 }
                 renderDocument(shownText, function() {
                     if (search.query) { runSearch(false); }
                     initMermaid();
                     indentApplied = false;  // a fresh render carries no indent styles
                     finishFolding(sameFile);
+                    if (readKindPop && !readKindPop.hidden) { renderReadingKinds(); }
                     applyIndent();
                     var changed = sameFile ? changedOnRender : null;
                     changedOnRender = null;
@@ -3598,6 +3910,9 @@
                 }
             }
         });
+
+        // The reading modes start at the notation's defaults (one class per kind on the content area).
+        applyReadingModes();
 
         // First-paint data from the host (window.__INIT__.content: an `mdContent` message).
         var firstPaint = window.__INIT__ && window.__INIT__.content;

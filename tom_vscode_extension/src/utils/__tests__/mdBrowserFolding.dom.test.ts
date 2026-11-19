@@ -20,6 +20,12 @@
  *         quadratic (work per marked.parser call in proportion to the calls before it) fails the check
  *   MF-9c the check holds on a busy machine: a CPU burner on every core for the whole measurement
  *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
+ *   MF-9b also: a reading-div `start` that searches the whole remaining source (not only the paragraph) makes the
+ *         render quadratic and fails the check — the bound blocks.js mdbReadingBlockStart keeps
+ *   MF-12 a large document with the reading notation (a provenance div, two trace citations, a span and a records
+ *         div per section) renders in linear time too
+ *   MF-13 changing a kind's reading mode writes exactly one attribute (the content area's class), however many
+ *         elements of the kind the document holds
  *   MF-11 a heading's +/- open / collapse every section of its level inside its parent section (vscimpb100):
  *         other sections and levels keep their flags, a collapsed section opens with its siblings, the buttons
  *         are hidden where the level has one section in its parent, and they say what they act on
@@ -84,6 +90,17 @@ const largeDoc = (sections: number): string => {
     return parts.join('\n');
 };
 
+/** A large document with the reading notation: per section a provenance div, two trace citations, a span and a records div. */
+const notationDoc = (sections: number): string => {
+    const parts: string[] = [];
+    for (let i = 0; i < sections; i++) {
+        parts.push(`## Section ${i}`, '', '::: {.provenance}', `_Extrapolated — see iterations/notes_${i}.md._`, ':::', '',
+            `Rights scoped to node ${i} apply to its subtree (-> C${i}.1) and to [its children]{.aside} (-> TR-${i}, BQ-${i}).`, '',
+            '::: records', '| Id | Given | Then |', '| --- | --- | --- |', `| R-${i} | a node | it applies |`, ':::', '');
+    }
+    return parts.join('\n');
+};
+
 /** Where injected busy work leaves its result, so it is not optimised away. */
 let burnSink = 0;
 
@@ -98,10 +115,10 @@ function startBurners(): () => void {
  * (process.cpuUsage), not wall-clock time: the waits between the render's batches and the turns other
  * processes get on a busy machine are not counted.
  */
-async function renderTimed(sections: number, patch?: (w: Win) => void, expectBatches = false): Promise<{ ms: number; wallMs: number; w: Win }> {
+async function renderTimed(sections: number, patch?: (w: Win) => void, expectBatches = false, make: (n: number) => string = largeDoc): Promise<{ ms: number; wallMs: number; w: Win }> {
     const w = setup();
     patch?.(w);
-    const text = largeDoc(sections);
+    const text = make(sections);
     const area = w.document.getElementById('contentArea');
     const cpu = process.cpuUsage();
     const started = performance.now();
@@ -118,6 +135,8 @@ interface RatioOptions {
     patch?: (w: Win) => void;
     /** Asserts the render yields between batches (a large document). */
     expectBatches?: boolean;
+    /** The document of `n` sections (default: largeDoc). */
+    make?: (n: number) => string;
 }
 
 /**
@@ -130,10 +149,10 @@ async function measureRatio(n: number, opts: RatioOptions = {}): Promise<{ ratio
     const twice: Array<{ ms: number; wallMs: number }> = [];
     let window: Win;
     for (let r = 0; r < (opts.rounds ?? 3); r++) {
-        const small = await renderTimed(n, opts.patch, opts.expectBatches);
+        const small = await renderTimed(n, opts.patch, opts.expectBatches, opts.make);
         small.w.close();
         once.push(small);
-        const large = await renderTimed(2 * n, opts.patch, opts.expectBatches);
+        const large = await renderTimed(2 * n, opts.patch, opts.expectBatches, opts.make);
         window?.close();
         window = large.w;
         twice.push(large);
@@ -299,6 +318,62 @@ describe('Markdown Browser folding', () => {
         m.window.close();
         t.diagnostic(`quadratic: ${m.message}`);
         assert.ok(m.ratio >= LINEAR_RATIO, `a quadratic render must fail the check: ${m.message}`);
+        // The reading div's `start` searching the whole remaining source, as an unbounded one would: marked asks it
+        // before every top-level paragraph with everything after it (4,000 paragraphs: 127 million characters), so the
+        // render is quadratic. A real search of the rest plus work in proportion to the characters it scans (a scan in
+        // script, as the bounded one never does on the rest) makes that show above jsdom's own cost per paragraph.
+        const unbounded = (w: Win): void => {
+            w.mdbReadingBlockStart = (src: string): number | undefined => {
+                const m = /\n {0,3}:{3}/.exec(src);
+                let x = 0;
+                for (let i = 0, n = src.length * 40; i < n; i++) { x = (x * 31 + i) | 0; }
+                burnSink ^= x;
+                return m ? m.index : undefined;
+            };
+        };
+        // Many short paragraphs and no heading: one lexed part, whatever its size.
+        const shortParagraphs = (n: number): string => Array.from({ length: n }, (_, i) => `paragraph ${i}`).join('\n\n');
+        // Measured as MF-9 measures (the least CPU time of each size over two rounds); the lower ratio would only help it pass.
+        const u = await measureRatio(1500, { patch: unbounded, make: shortParagraphs, rounds: 2 });
+        u.window.close();
+        t.diagnostic(`unbounded start: ${u.message}`);
+        assert.ok(u.ratio >= LINEAR_RATIO, `an unbounded block start must fail the check: ${u.message}`);
+    });
+
+    test('MF-12: a large document with the reading notation renders in linear time', async (t) => {
+        const N = 1000;
+        const m = await linearCheck(N, { make: notationDoc, expectBatches: true });
+        const w = m.window;
+        assert.equal(w.document.querySelectorAll('.mdb-rd[data-kind="provenance"]').length, 2 * N);
+        assert.equal(w.document.querySelectorAll('.mdb-rs[data-kind="trace"]').length, 4 * N);
+        assert.equal(w.document.querySelectorAll('.mdb-rd[data-kind="records"] table').length, 2 * N);
+        w.close();
+        t.diagnostic(m.message);
+        assert.ok(m.ratio < LINEAR_RATIO, m.message);
+    });
+
+    test('MF-13: a reading mode change writes one attribute', async () => {
+        const w = setup();
+        show(w, notationDoc(300));
+        const area = w.document.getElementById('contentArea');
+        while (area.getAttribute('aria-busy') === 'true') { await new Promise((r) => setTimeout(r, 5)); }
+        w.document.getElementById('readKindBtn').click();
+        const select = w.document.querySelector('#readKindPop select[data-read-kind="provenance"][data-read-part="block"]');
+        assert.ok(select, 'the provenance row');
+        const records: Win[] = [];
+        const observer = new w.MutationObserver((list: Win[]) => records.push(...list));
+        observer.observe(w.document.body, { subtree: true, attributes: true, childList: true, characterData: true });
+        select.value = 'shown';
+        select.dispatchEvent(new w.Event('change', { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 0));
+        records.push(...observer.takeRecords());
+        observer.disconnect();
+        assert.equal(records.length, 1, `one mutation, not one per element (${records.length}: ${records.map((r) => r.type + ' ' + (r.target.id || r.target.className)).join(', ')})`);
+        assert.equal(records[0].target, area);
+        assert.equal(records[0].attributeName, 'class');
+        assert.ok(!area.classList.contains('mdb-read-provenance-collapsed'));
+        assert.ok(area.classList.contains('mdb-read-provenance-marker'), 'the spans keep their mode');
+        w.close();
     });
 
     test('MF-9c: the check holds on a busy machine', async (t) => {
