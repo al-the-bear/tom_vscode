@@ -1024,15 +1024,26 @@ item's own row). It interrupts **softly first**:
   until you resume), the wait goes on.
 - If the prompt ends its turn within 15 seconds, that stage is simply done and
   the run stays paused.
+- **Waiting without a limit**: click the button a second time while it still
+  waits for its hold point (after the first click it shows a watch icon) and it
+  waits for that point however long it takes. There is no hard interrupt after
+  15 seconds: a prompt running a tool for half an hour is held at that tool's
+  result, or simply ends its turn. The row says `INTERRUPTING (NO LIMIT)`.
+- While it waits (and while it holds), a panel under the item's header says so,
+  with **Hard interrupt now** (end the turn at once, as below) and **Cancel
+  interruption**: the turn goes on as if you had never pressed. A request still
+  waiting is withdrawn, a held result is handed back, and the run sends again
+  if the press had switched its auto-send off; if it was already off, it stays off.
 - Re-enabling Auto-send (the play toggle, Auto-start on reload, Auto-continue,
   Telegram `continue`), or **Continue → Resume** on the item, hands the held
   result back: the prompt goes on where it stopped — nothing is sent again. A
   result held longer than a minute tells the model how long it was held.
 - **Hard interrupt**: when nothing could be held within 15 seconds (a long
-  command still running, text without a tool call), when you click the button a
-  second time (after the first click it shows a stop icon: *click again for a
-  hard interrupt now*), when you choose **Continue → Hard interrupt**, and always
-  for a Copilot prompt (it has no hold point). The running prompt is cancelled;
+  command still running, text without a tool call) and you did not ask to wait
+  without a limit; when you click the button a third time, or once it is held
+  (then it shows a stop icon: *click again for a hard interrupt now*); with
+  **Hard interrupt now** in the item's panel or **Continue → Hard interrupt**;
+  and always for a Copilot prompt (it has no hold point). The running prompt is cancelled;
   the item is held at its **current repetition** as `INTERRUPTED <KIND> — RESENDS ON
   RESUME` (e.g. `INTERRUPTED TODO — RESENDS ON RESUME`). Re-enabling Auto-send re-sends that repetition first — with a note
   that it was interrupted (and a tool result it never saw) — in the same
@@ -1066,7 +1077,7 @@ Open with `Ctrl+Shift+6` or `@T: Open Prompt Queue`. The editor provides:
 - **Toolbar**: Auto-send, Auto-start, Auto-pause, Auto-continue toggles, Restart Queue, **Stop** (cancel the running prompt and revert it to Staged) and **Interrupt for continuation** (see above)
 - **Entry list**: Per-item cards with status color coding, type badges, progress indicators. Each card's header starts with its **status and kind in one label**: `PENDING TODO`, `SENDING GROUP`, `STAGED PROMPT`, `PENDING PREFIX`, `PENDING ITERATION`, `SENT CHAT`, `ERROR GROUP`, … — the kind says what the item holds (a TODO or GROUP item, a `prefix*` walk, a repeated prompt, a chat send, or a plain **PROMPT**; see *TODO and GROUP items*). The colour stays by status. What holds or delays the item follows the label: `SENDING TODO (PAUSED)`, `PAUSED TODO`, `SENDING PROMPT — RATE LIMITED, RETRY 2 AT …`, `WAITING PROMPT FOR …`, `RETRYING GROUP 2/7 — NEXT …`, `INTERRUPTED TODO — RESENDS ON RESUME`, `SENDING TODO — ❓ ANSWER NEEDED`, `DECISION-NEEDED PREFIX`; *needs attention* stays a chip beside it
 - **Staged item form**: Template, repeat count, answer wait minutes, repeat prefix/suffix, pre-prompts; the prompt and the repeat prefix/suffix take `Ctrl+Shift+Space` completion — slash commands, skills, files (see [Keyboard productivity](#10-keyboard-productivity))
-- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item: soft first, a second click for the hard interrupt); a held item's Continue offers Resume and Hard interrupt; an interrupted item offers Resend and Move back to Staged
+- **Per-item controls**: Preview, send now, move up/down, delete, toggle reminder, pause after this, interrupt for continuation (on the running item: soft first, a second click waits for the hold point without a limit, a third — or one once held — is the hard interrupt; the item's panel offers Hard interrupt now and Cancel interruption); a held item's Continue offers Resume and Hard interrupt; an interrupted item offers Resend and Move back to Staged
 - **Out of budget**: when a prompt stops because the API credit balance is too low, the item shows an *Out of budget* panel — the profile and session that stopped, a profile picker, **Continue on profile** (sends it on the picked profile with a note pointing to the stopped session's live trail — the *Out of budget* Assist prompt, see [Assist prompts](#assist-prompts)) and **Resend** (the last request again, once there is credit). A profile can name the profile to continue on and switch to it by itself (profile editor: *Out of Budget: Continue On*, *Switch Automatically*); the picker then starts on that profile. An agent can do the same (also when you ask it from Telegram): `tomAi_resendQueueItem` with `profileId`.
 - **Live trail of an item**: the type icon at the right end of an item's headline (the speech bubble, a watch for a timed item, a bell for a reminder) is a button: it opens the live trail of the session the item runs in (its own session, else its run's queue session, `default@<run>`) in the MD Browser in live mode. A Copilot item writes no live trail; the button says so. On a running item whose prompt runs on the Agent SDK the button writes into it instead: it opens a message box under the header (**Send**, **Cancel**, **Open live trail**; Ctrl/Cmd+Enter sends), and the message goes into the running conversation as another user message, which the agent answers in the same turn (while the turn waits in `tomAi_waitFor` or for its background work, the message goes to that wait, as the wait panel's **Message** does). The message and its answer stay listed under the item's header, also after it has ended, and the queue shows it as a chat send (*update*). Other transports take no message while they run — the direct API, Local LLM and Copilot — so there the button opens the live trail and its tooltip says why.
 - **Profile**: an item that names its own profile shows the profile's name in its header (blue chip; the tooltip names model and kind). An item without one shows a person icon button instead: it runs with its session's profile, else the queue default, which the tooltip names. A click on either opens a picker with **every profile**, whatever it runs on — Agent SDK, direct API, VS Code LM, Local LLM; the chosen one becomes the item's own, with the profile's own configuration, and the icon button is replaced by the name. *No profile of its own* in the picker takes it away again. The profile can change until the item has finished; on a sending item it applies from its next stage or iteration. When the chosen profile cannot continue the conversation of the item's session (an Agent SDK session and a profile with its own history, or the reverse), you are asked whether the item runs in the queue's default session instead.

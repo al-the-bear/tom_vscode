@@ -15,7 +15,9 @@
  *     the next request.
  * An item without a requested soft interrupt passes straight through.
  *
- * The request arms a timer (15 s), but a turn already waiting counts as held at
+ * The request arms a timer (15 s) — unless it waits without a limit (the
+ * button's second press, {@link SoftInterruptRegistry.waitWithoutLimit}: for
+ * long tool calls the turn may hold only after many minutes) — but a turn already waiting counts as held at
  * once — in an ask* tool, in tomAi_waitFor, or for its background work (its
  * answer given, the turn waits for its background tasks). When nothing was
  * held by then, the queue decides the same way, and any other turn gets the
@@ -48,6 +50,10 @@ export interface SoftInterruptState {
     tool?: string;
     /** The held result as text (for a resend after the turn was lost). */
     heldResult?: string;
+    /** It waits for a hold point without a limit: no hard interrupt by the timer (the button's second press). */
+    unlimited?: boolean;
+    /** The press switched the run's auto-send off: cancelling the interruption switches it on again. */
+    pausedAutoSend?: boolean;
 }
 
 /** What a hold point gets back on release. */
@@ -163,9 +169,9 @@ export class SoftInterruptRegistry {
      * turn is held. `onTimeout` runs after `timeoutMs` when nothing was held.
      * A second request of the same item changes nothing (answers false).
      */
-    request(itemId: string, onTimeout?: () => void, timeoutMs = this.timeoutMs): boolean {
+    request(itemId: string, onTimeout?: () => void, timeoutMs = this.timeoutMs, opts: { pausedAutoSend?: boolean } = {}): boolean {
         if (this.entries.has(itemId)) { return false; }
-        const entry: Entry = { state: { requestedAt: this.now() }, ...(onTimeout ? { onTimeout } : {}) };
+        const entry: Entry = { state: { requestedAt: this.now(), ...(opts.pausedAutoSend ? { pausedAutoSend: true } : {}) }, ...(onTimeout ? { onTimeout } : {}) };
         if (onTimeout) {
             entry.timer = this.setTimer(timeoutMs, () => {
                 entry.timer = undefined;
@@ -174,6 +180,21 @@ export class SoftInterruptRegistry {
             });
         }
         this.entries.set(itemId, entry);
+        this.changed(itemId);
+        return true;
+    }
+
+    /**
+     * Wait for a hold point without a limit (the button's second press): the
+     * timer stops, so no hard interrupt comes by itself; the turn is held at its
+     * next tool result however long that takes (or ends by itself). Answers
+     * false when nothing waits (none requested, already held, already unlimited).
+     */
+    waitWithoutLimit(itemId: string): boolean {
+        const e = this.entries.get(itemId);
+        if (!e || e.state.heldAt !== undefined || e.state.unlimited) { return false; }
+        this.stopTimer(e);
+        e.state = { ...e.state, unlimited: true };
         this.changed(itemId);
         return true;
     }
@@ -202,7 +223,10 @@ export class SoftInterruptRegistry {
         if (!e || e.release) { return {}; }
         this.stopTimer(e);
         const heldAt = this.now();
-        e.state = { requestedAt: e.state.requestedAt, heldAt, kind: 'tool', tool, heldResult: heldResultText(result) };
+        e.state = {
+            requestedAt: e.state.requestedAt, heldAt, kind: 'tool', tool, heldResult: heldResultText(result),
+            ...(e.state.unlimited ? { unlimited: true } : {}), ...(e.state.pausedAutoSend ? { pausedAutoSend: true } : {}),
+        };
         if (extras) { e.extras = extras; }
         const released = new Promise<HoldRelease>((resolve) => { e.release = resolve; });
         this.changed(itemId);
@@ -284,6 +308,8 @@ export function softInterruptToYaml(state: SoftInterruptState): Record<string, u
         ...(state.kind ? { kind: state.kind } : {}),
         ...(state.tool ? { tool: state.tool } : {}),
         ...(state.heldResult !== undefined ? { 'held-result': state.heldResult } : {}),
+        ...(state.unlimited ? { unlimited: true } : {}),
+        ...(state.pausedAutoSend ? { 'paused-auto-send': true } : {}),
     };
 }
 
@@ -301,6 +327,8 @@ export function softInterruptFromYaml(raw: unknown): SoftInterruptState | undefi
         ...(kind ? { kind } : {}),
         ...(typeof r.tool === 'string' ? { tool: r.tool } : {}),
         ...(typeof r['held-result'] === 'string' ? { heldResult: r['held-result'] } : {}),
+        ...(r.unlimited === true ? { unlimited: true } : {}),
+        ...(r['paused-auto-send'] === true ? { pausedAutoSend: true } : {}),
     };
 }
 

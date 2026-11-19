@@ -3732,9 +3732,10 @@ export class PromptQueueManager {
      * request in flight; the run's auto-send goes off. Re-arming auto-send (or
      * Resume) releases the result and the turn goes on — nothing is resent.
      * Nothing held within 15 s: a turn waiting in an ask* tool, tomAi_waitFor or
-     * for its background work counts as held, any other gets the HARD interrupt. A second press (or
-     * `hard`), a Copilot item, or a turn that cannot hold: the hard interrupt
-     * now — the dispatch is cancelled, the item `interrupted`, and its resend
+     * for its background work counts as held, any other gets the HARD interrupt. A second press while it still
+     * waits for its hold point: it waits WITHOUT A LIMIT (no hard interrupt by the timer; a long tool call may
+     * take many minutes before its result can be held). A third press — or a press once held, or `hard`, a
+     * Copilot item, or a turn that cannot hold: the hard interrupt now — the dispatch is cancelled, the item `interrupted`, and its resend
      * starts with RESEND_INTERRUPTED_NOTE in the conversation it ran in.
      * Between two stages (no turn running) the press only pauses the run.
      *
@@ -3751,9 +3752,17 @@ export class PromptQueueManager {
             return false;
         }
         const transport = sending.lastDispatched?.transport ?? this.resolveStageTransport(sending).transport;
-        const requested = SoftInterruptRegistry.instance.stateOf(sending.id) !== undefined;
+        const soft = SoftInterruptRegistry.instance.stateOf(sending.id);
+        const requested = soft !== undefined;
+        // Second press: still waiting for the hold point — wait for it without a limit instead of the hard interrupt.
+        if (!opts?.hard && soft && soft.heldAt === undefined && !soft.unlimited && SoftInterruptRegistry.instance.waitWithoutLimit(sending.id)) {
+            this.persist();
+            this._onDidChange.fire();
+            logQueue(`interruptActiveItemForContinuation: ${sending.id} waits for its hold point without a limit (second click)`);
+            return true;
+        }
         if (opts?.hard || requested || transport === 'copilot') {
-            this._hardInterrupt(sending, opts?.hard ? 'hard interrupt' : requested ? 'second click' : 'a Copilot item has no hold point');
+            this._hardInterrupt(sending, opts?.hard ? 'hard interrupt' : requested ? (soft?.unlimited ? 'third click' : 'click while held') : 'a Copilot item has no hold point');
             return true;
         }
         if (!this._activeAnthropicCts.has(sending.id)) {
@@ -3764,7 +3773,8 @@ export class PromptQueueManager {
             logQueue(`interruptActiveItemForContinuation: ${sending.id} runs no turn — run paused`);
             return true;
         }
-        SoftInterruptRegistry.instance.request(sending.id, () => this._softInterruptTimedOut(sending.id));
+        const pausedAutoSend = this._settingsOf(itemRun(sending)).autoSend;
+        SoftInterruptRegistry.instance.request(sending.id, () => this._softInterruptTimedOut(sending.id), undefined, { pausedAutoSend });
         // A turn already waiting for the user, in tomAi_waitFor or for its background work counts as held.
         this._markHeldIfWaiting(sending);
         this._pauseRunOf(sending, `${sending.id} soft-interrupted for continuation`);
@@ -3918,6 +3928,25 @@ export class PromptQueueManager {
         }
         if (released) { this.persist(); this._onDidChange.fire(); }
         return released;
+    }
+
+    /**
+     * Cancel item `id`'s interruption (the item's panel): a request still waiting for its hold point is
+     * withdrawn, a held turn goes on; when the press switched the run's auto-send off it comes back on (as
+     * Resume does), else it stays off. Answers whether there was one.
+     */
+    cancelSoftInterrupt(id: string): boolean {
+        const item = this._items.find(i => i.id === id && i.status === 'sending');
+        const state = SoftInterruptRegistry.instance.stateOf(id);
+        if (!item || !state) { return false; }
+        if (state.pausedAutoSend) { return this.resumeHeldItem(id); }
+        SoftInterruptRegistry.instance.release(id);
+        delete item.softInterrupt;
+        this._dropHeldConversation(item);
+        this.persist();
+        this._onDidChange.fire();
+        logQueue(`Item ${id}: interruption cancelled — its turn goes on; the run's auto-send stays off`);
+        return true;
     }
 
     /** What item `id`'s soft interrupt is: requested (waiting for a hold point), held, or none. */

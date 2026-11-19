@@ -14,6 +14,9 @@
  *         passes the extension's own tools and items without a soft interrupt, lets go on abort; registered with a
  *         long timeout for every tool
  *   SI-U6 the status bar text of the window's run: held, interrupting, answer needed, until
+ *   SI-U7 waiting without a limit: the timer stops (never fires), the state says unlimited and keeps it once held
+ *         (and pausedAutoSend from the request); refused when nothing waits, when held, when already unlimited;
+ *         the queue file keeps both
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- queue-file keys, the API's and the SDK hook's wire fields */
@@ -120,6 +123,27 @@ describe('soft interrupt for continuation', () => {
         assert.equal(reg.clear('d')?.tool, 'Bash');
         await settle();
         assert.deepEqual(release, { aborted: true });
+    });
+
+    test('SI-U7: waiting without a limit', async () => {
+        const { reg, advance } = fake();
+        let fired = 0;
+        reg.request('a', () => { fired++; }, undefined, { pausedAutoSend: true });
+        advance(10_000);
+        assert.equal(reg.waitWithoutLimit('a'), true);
+        assert.equal(reg.waitWithoutLimit('a'), false, 'already unlimited');
+        advance(60 * 60_000);
+        assert.equal(fired, 0, 'no hard interrupt by the timer');
+        assert.deepEqual(reg.stateOf('a'), { requestedAt: reg.stateOf('a')!.requestedAt, pausedAutoSend: true, unlimited: true });
+        void reg.holdAt('a', 'Bash', 'out');
+        assert.equal(reg.stateOf('a')?.unlimited, true, 'kept once held');
+        assert.equal(reg.stateOf('a')?.pausedAutoSend, true);
+        assert.equal(reg.waitWithoutLimit('a'), false, 'held: nothing to wait for');
+        assert.equal(reg.waitWithoutLimit('nobody'), false);
+        reg.clear('a');
+        const state = { requestedAt: Date.parse('2026-11-19T10:00:00Z'), unlimited: true, pausedAutoSend: true };
+        assert.deepEqual(softInterruptToYaml(state), { 'requested-at': '2026-11-19T10:00:00.000Z', unlimited: true, 'paused-auto-send': true });
+        assert.deepEqual(softInterruptFromYaml(softInterruptToYaml(state)), state);
     });
 
     test('SI-U4: the record', () => {

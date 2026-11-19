@@ -271,3 +271,8 @@ body.queue-editor-page > .queue-scroll { flex: 1 1 auto; min-height: 0; overflow
 .item-ask-hint { opacity: 0.8; margin: 2px 0; }
 .item-ask-picks { display: flex; flex-direction: column; margin: 2px 0; }
 .item-ask-other { width: 100%; box-sizing: border-box; font-size: 12px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 2px 6px; }
+
+/* A soft interrupt waiting for its hold point (or holding): its line and the two buttons. */
+.soft-interrupt-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; padding: 4px 8px; border: 1px solid #29b6f6; border-radius: 3px; font-size: 11px; }
+.soft-interrupt-line { flex: 1 1 auto; }
+.soft-interrupt-actions { display: inline-flex; gap: 4px; }

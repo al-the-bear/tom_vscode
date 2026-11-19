@@ -1014,6 +1014,18 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             sendState();
             break;
         }
+        case 'cancelSoftInterrupt': {
+            // The interruption panel's Cancel interruption: the turn goes on, as before the press.
+            if (!qm.cancelSoftInterrupt(String(msg.id ?? ''))) { vscode.window.showInformationMessage('No interruption to cancel.'); }
+            sendState();
+            break;
+        }
+        case 'hardInterruptNow': {
+            // The interruption panel's Hard interrupt now.
+            if (!qm.interruptActiveItemForContinuation(String(msg.id ?? ''), undefined, { hard: true })) { vscode.window.showInformationMessage('No prompt is currently running.'); }
+            sendState();
+            break;
+        }
         case 'updateItemRepeat':
           qm.updateRepeat(msg.id, {
             repeatCount: msg.repeatCount,
@@ -1242,7 +1254,7 @@ function waitingForUserOf(item: QueuedPrompt): UserWaitKind[] | undefined {
 }
 
 /** What the editor shows of a sending item's soft interrupt (vscimpb112): requested (with its timeout) or held. */
-export function softInterruptViewOf(item: QueuedPrompt): { phase: 'requested' | 'held'; requestedAt: number; timeoutMs: number; heldAt?: number; kind?: string; tool?: string } | undefined {
+export function softInterruptViewOf(item: QueuedPrompt): { phase: 'requested' | 'held'; requestedAt: number; timeoutMs: number; heldAt?: number; kind?: string; tool?: string; unlimited?: true } | undefined {
     if (item.status !== 'sending') { return undefined; }
     let state: SoftInterruptState | undefined;
     try { state = PromptQueueManager.instance.softInterruptOf(item.id); } catch { state = undefined; }
@@ -1255,6 +1267,7 @@ export function softInterruptViewOf(item: QueuedPrompt): { phase: 'requested' | 
         ...(state.heldAt !== undefined ? { heldAt: state.heldAt } : {}),
         ...(state.kind ? { kind: state.kind } : {}),
         ...(state.tool ? { tool: state.tool } : {}),
+        ...(state.unlimited ? { unlimited: true as const } : {}),
     };
 }
 

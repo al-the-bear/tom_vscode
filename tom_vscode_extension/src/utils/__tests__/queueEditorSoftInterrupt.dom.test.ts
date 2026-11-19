@@ -9,8 +9,12 @@
  *   SE-2 the precedence held > ❓ > ⏳ > sending > paused > waiting > idle
  *   SE-3 the row: INTERRUPTING with a spinning icon and the seconds left; HELD with the disconnect icon; ❓ ANSWER
  *        NEEDED; ⏳ WAITING UNTIL …; a hard-interrupted item keeps INTERRUPTED
- *   SE-4 the button: after the first click codicon-debug-stop and "Soft interrupt requested — click again for a hard
- *        interrupt now" (toolbar and row); before it the soft-first tooltip; a Copilot item's says it has no hold point
+ *   SE-4 the button shows what the next press does: before it the soft-first tooltip (disconnect icon); after the
+ *        first click "click again to wait … without a limit" (watch icon); waiting without a limit or held "click
+ *        again for a hard interrupt now" (stop icon) — toolbar and row; a Copilot item's says it has no hold point
+ *   SE-6 the soft interrupt panel on the item: "Waiting for a moment to interrupt softly" — up to 15 s, or no limit
+ *        — and when held its hold; Hard interrupt now and Cancel interruption post hardInterruptNow /
+ *        cancelSoftInterrupt; the row label says (NO LIMIT); none without a soft interrupt
  *   SE-5 the host builds the views: softInterruptViewOf (requested / held, on a sending item only)
  */
 
@@ -127,16 +131,37 @@ describe('Prompt Queue editor — interrupt for continuation', () => {
     test('SE-4: the button', (t) => {
         const requested = setup(t, [sending({ id: 'a', softInterruptView: REQUESTED })]);
         const btn = requested.document.getElementById('interruptForContinuationBtn');
-        assert.equal(btn.title, 'Soft interrupt requested — click again for a hard interrupt now');
-        assert.ok(btn.querySelector('.codicon-debug-stop'));
-        const rowIcon = requested.document.querySelector('.status-icons .codicon-debug-stop');
-        assert.equal(rowIcon?.getAttribute('title'), 'Soft interrupt requested — click again for a hard interrupt now');
+        assert.equal(btn.title, 'Soft interrupt requested (waits up to 15 s) — click again to wait for the hold point without a limit; a third click is the hard interrupt');
+        assert.ok(btn.querySelector('.codicon-watch'));
+        const rowIcon = requested.document.querySelector('.status-icons .codicon-watch');
+        assert.equal(rowIcon?.getAttribute('title'), btn.title);
+        const unlimited = setup(t, [sending({ id: 'u', softInterruptView: { ...REQUESTED, unlimited: true } })]);
+        const ubtn = unlimited.document.getElementById('interruptForContinuationBtn');
+        assert.equal(ubtn.title, 'Waiting without a limit for the hold point — click again for a hard interrupt now');
+        assert.ok(ubtn.querySelector('.codicon-debug-stop'));
+        const held = setup(t, [sending({ id: 'h', softInterruptView: HELD })]);
+        assert.equal(held.document.getElementById('interruptForContinuationBtn').title, 'Held for continuation — click again for a hard interrupt now');
         const fresh = setup(t, [sending({ id: 'b' })]);
         const freshBtn = fresh.document.getElementById('interruptForContinuationBtn');
         assert.ok(freshBtn.querySelector('.codicon-debug-disconnect'));
-        assert.match(freshBtn.title, /soft first — the next tool result is held.*hard interrupt after 15 s without a hold point, or on a second click/);
+        assert.match(freshBtn.title, /soft first — the next tool result is held.*hard interrupt after 15 s without a hold point\. A second click waits for the hold point without a limit, a third is the hard interrupt/);
         const copilot = setup(t, [sending({ id: 'c', transport: 'copilot', interruptTransport: 'copilot', lastDispatched: { kind: 'main', expandedText: 'x', transport: 'copilot' } })]);
         assert.match(copilot.document.getElementById('interruptForContinuationBtn').title, /Copilot prompt has no hold point — it is interrupted at once \(hard\)/);
+    });
+
+    test('SE-6: the soft interrupt panel', (t) => {
+        const panelOf = (w: Win): Win => w.document.querySelector('.soft-interrupt-panel');
+        const req = setup(t, [sending({ id: 'a', softInterruptView: REQUESTED })]);
+        assert.match(panelOf(req).querySelector('.soft-interrupt-line').textContent, /^Waiting for a moment to interrupt softly — up to 15 s, then the hard interrupt/);
+        assert.match(panelOf(req).querySelector('[data-soft="hard"]').getAttribute('onclick'), /hardInterruptNow\('a'\)/);
+        assert.match(panelOf(req).querySelector('[data-soft="cancel"]').getAttribute('onclick'), /cancelSoftInterrupt\('a'\)/);
+        assert.deepEqual([...panelOf(req).querySelectorAll('button')].map((b: Win) => b.textContent), ['Hard interrupt now', 'Cancel interruption']);
+        const unl = setup(t, [sending({ id: 'b', softInterruptView: { ...REQUESTED, unlimited: true } })]);
+        assert.match(panelOf(unl).querySelector('.soft-interrupt-line').textContent, /— no limit: the turn is held at its next tool result/);
+        assert.match(unl.document.querySelector('.soft-interrupt-label').textContent, /INTERRUPTING \(NO LIMIT\)/);
+        const held = setup(t, [sending({ id: 'c', softInterruptView: HELD })]);
+        assert.match(panelOf(held).querySelector('.soft-interrupt-line').textContent, /^Held for continuation: held since .* at the result of Bash\.$/);
+        assert.equal(panelOf(setup(t, [sending({ id: 'd' })])), null, 'none without a soft interrupt');
     });
 
     test('SE-5: the host builds the views', async (t) => {
@@ -147,5 +172,6 @@ describe('Prompt Queue editor — interrupt for continuation', () => {
         assert.deepEqual(softInterruptViewOf(item), { phase: 'held', requestedAt: 5, timeoutMs: 15000, heldAt: 9, kind: 'tool', tool: 'Bash' });
         assert.deepEqual(softInterruptViewOf({ id: 'y', status: 'sending', softInterrupt: { requestedAt: 5 } } as never), { phase: 'requested', requestedAt: 5, timeoutMs: 15000 });
         assert.equal(softInterruptViewOf({ id: 'x', status: 'interrupted', softInterrupt: { requestedAt: 5 } } as never), undefined, 'a sending item only');
+        assert.deepEqual(softInterruptViewOf({ id: 'w', status: 'sending', softInterrupt: { requestedAt: 5, unlimited: true } } as never), { phase: 'requested', requestedAt: 5, timeoutMs: 15000, unlimited: true });
     });
 });

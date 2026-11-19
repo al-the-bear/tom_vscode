@@ -386,7 +386,7 @@ function renderEntry(item, idx) {
           (isSending ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Interrupt and move to Staged"></span>' : '') +
           // Interrupt for continuation — the disconnect icon: stop now, but hold
           // this exact rep and resend it when auto-send is re-enabled.
-          (isSending ? '<span class="codicon ' + (item.softInterruptView ? 'codicon-debug-stop' : 'codicon-debug-disconnect') + '" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="' + escapeHtml(interruptButtonTitle(item)) + '"></span>' : '') +
+          (isSending ? '<span class="codicon ' + interruptButtonIcon(item) + '" style="cursor:pointer;color:#000;" onclick="interruptForContinuation(\'' + safeId + '\')" title="' + escapeHtml(interruptButtonTitle(item)) + '"></span>' : '') +
           (isInterrupted ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Abandon the continuation and move back to Staged"></span>' : '') +
           (isSent ? '<span class="codicon codicon-arrow-left" style="cursor:pointer;color:#000;" onclick="setItemStatus(\'' + safeId + '\', \'staged\')" title="Stage again"></span>' : '') +
           ((isPending || isStaged) ? '<span class="codicon codicon-play" style="cursor:pointer;color:#000;" onclick="sendNow(\'' + safeId + '\')" title="Send Now"></span>' : '') +
@@ -556,6 +556,8 @@ function renderEntry(item, idx) {
     // Waiting for its background work: always visible, with the ? list and the three choices.
     renderBackgroundWait(item, safeId) +
     renderWaitFor(item, safeId) +
+    // A soft interrupt waits for its hold point (or holds): what it waits for, Hard interrupt now, Cancel interruption.
+    renderSoftInterruptPanel(item, safeId) +
     // The speech bubble's message box: a message into the running prompt.
     renderRunningMessageBox(item, safeId) +
     // What the user wrote to the turn (a wait, the running prompt), with the answers, while no wait panel shows (vscimpb173).
@@ -1520,6 +1522,9 @@ function softClockSeconds(ms) {
 /** What a sending item's soft interrupt says: the request (seconds left) or the hold (since when, at what). */
 function softInterruptText(view, now) {
   if (!view) { return ''; }
+  if (view.phase === 'requested' && view.unlimited) {
+    return 'Soft interrupt requested ' + softClock(view.requestedAt) + ': it waits without a limit for the next tool result to hold (or the answer); no hard interrupt by itself';
+  }
   if (view.phase === 'requested') {
     var hardAt = view.requestedAt + (view.timeoutMs || 15000);
     var left = Math.max(0, Math.ceil((hardAt - (now === undefined ? Date.now() : now)) / 1000));
@@ -1549,7 +1554,7 @@ function waitForText(view) {
 function softInterruptRowLabel(item) {
   var view = item.softInterruptView;
   if (view && view.phase === 'requested') {
-    return '<span class="soft-interrupt-label" title="' + escapeHtml(softInterruptText(view)) + '"><span class="codicon codicon-loading codicon-modifier-spin"></span> INTERRUPTING</span>';
+    return '<span class="soft-interrupt-label" title="' + escapeHtml(softInterruptText(view)) + '"><span class="codicon codicon-loading codicon-modifier-spin"></span> INTERRUPTING' + (view.unlimited ? ' (NO LIMIT)' : '') + '</span>';
   }
   if (view && view.phase === 'held') {
     return '<span class="soft-interrupt-label held" title="' + escapeHtml(softInterruptText(view) + ' — resume (auto-send on, or Continue → Resume) to go on') + '"><span class="codicon codicon-debug-disconnect"></span> HELD</span>';
@@ -1563,12 +1568,42 @@ function softInterruptRowLabel(item) {
   return '';
 }
 
+/** The Interrupt for continuation button's icon for `item`: the next press's — soft, wait without a limit, hard. */
+function interruptButtonIcon(item) {
+  var view = item && item.softInterruptView;
+  if (!view) { return 'codicon-debug-disconnect'; }
+  return view.phase === 'requested' && !view.unlimited ? 'codicon-watch' : 'codicon-debug-stop';
+}
+
+/**
+ * The panel of a soft interrupt (vscimpb112): it waits for its hold point (15 s, or without a limit) or holds;
+ * Hard interrupt now ends the turn at once, Cancel interruption lets it go on as before the press.
+ */
+function renderSoftInterruptPanel(item, safeId) {
+  var view = item.softInterruptView;
+  if (!view || item.status !== 'sending') { return ''; }
+  var waiting = view.phase === 'requested';
+  var line = waiting
+    ? (view.unlimited ? 'Waiting for a moment to interrupt softly — no limit: the turn is held at its next tool result, however long its running tool call takes.'
+      : 'Waiting for a moment to interrupt softly — up to 15 s, then the hard interrupt (click the interrupt button again to wait without a limit).')
+    : 'Held for continuation: ' + softInterruptText(view) + '.';
+  return '<div class="soft-interrupt-panel" data-qid="' + escapeHtml(String(item.id)) + '" onclick="event.stopPropagation()">'
+    + '<span class="codicon ' + (waiting ? 'codicon-loading codicon-modifier-spin' : 'codicon-debug-disconnect') + '"></span> '
+    + '<span class="soft-interrupt-line">' + escapeHtml(line) + '</span>'
+    + '<span class="soft-interrupt-actions">'
+    + '<button type="button" class="wait-msg-btn" data-soft="hard" onclick="event.stopPropagation();hardInterruptNow(\'' + safeId + '\')" title="End the turn now: the item is interrupted and resent with a note when its run is resumed">Hard interrupt now</button>'
+    + ' <button type="button" class="wait-msg-btn" data-soft="cancel" onclick="event.stopPropagation();cancelSoftInterrupt(\'' + safeId + '\')" title="' + escapeHtml(waiting ? 'Withdraw the interruption: the turn goes on, and the run sends again if the press had paused it' : 'Let the held turn go on (as Resume), and the run sends again if the press had paused it') + '">Cancel interruption</button>'
+    + '</span></div>';
+}
+
 /** The Interrupt for continuation button's tooltip for `item` (toolbar and row). */
 function interruptButtonTitle(item) {
-  if (item && item.softInterruptView) { return 'Soft interrupt requested — click again for a hard interrupt now'; }
+  var view = item && item.softInterruptView;
+  if (view && view.phase === 'requested' && !view.unlimited) { return 'Soft interrupt requested (waits up to 15 s) — click again to wait for the hold point without a limit; a third click is the hard interrupt'; }
+  if (view) { return (view.unlimited && view.phase === 'requested' ? 'Waiting without a limit for the hold point' : 'Held for continuation') + ' — click again for a hard interrupt now'; }
   var transport = item && (item.interruptTransport || (item.lastDispatched && item.lastDispatched.transport) || item.transport);
   if (transport !== 'anthropic') {
     return 'Interrupt for continuation: a Copilot prompt has no hold point — it is interrupted at once (hard) and resent when auto-send is re-enabled';
   }
-  return 'Interrupt for continuation: soft first — the next tool result is held and the turn goes on where it stopped when auto-send is re-enabled; a hard interrupt after 15 s without a hold point, or on a second click';
+  return 'Interrupt for continuation: soft first — the next tool result is held and the turn goes on where it stopped when auto-send is re-enabled; a hard interrupt after 15 s without a hold point. A second click waits for the hold point without a limit, a third is the hard interrupt';
 }

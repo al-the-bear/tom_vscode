@@ -24,6 +24,10 @@
  *         Hard interrupt interrupts it
  *   SQ-12 a reload while soft-interrupted: crash recovery makes the item interrupted with the note and pauses its run
  *   SQ-13 Move back to Staged on an interrupted item: a fresh restart, the note and the held result dropped
+ *   SQ-14 three presses: the second while it still waits for its hold point waits without a limit (no hard
+ *         interrupt by the timer; the result is held whenever it comes); the third is the hard interrupt
+ *   SQ-15 Cancel interruption: a request still waiting is withdrawn and the run sends again (the press had paused
+ *         it); a held turn goes on; a run that was already off stays off; nothing to cancel answers false
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- config keys */
@@ -394,6 +398,82 @@ describe('interrupt for continuation — soft first', () => {
         assert.equal(live(item).interruptNote, undefined, 'a fresh restart carries no note');
         assert.equal(live(item).softInterrupt, undefined);
         await wait(60);
+    });
+
+    test('SQ-14: the second press waits without a limit, the third is the hard interrupt', async () => {
+        const item = await startItem('long task');
+        soft.timeoutMs = 120;
+        queue().interruptActiveItemForContinuation(item.id);
+        assert.equal(queue().interruptActiveItemForContinuation(item.id), true, 'the second press');
+        assert.equal(soft.stateOf(item.id)?.unlimited, true);
+        await wait(300);
+        assert.equal(live(item).status, 'sending', 'no hard interrupt by the timer');
+        assert.ok(!turns[0].cancelled, 'not cancelled');
+        let released: HoldRelease | undefined;
+        void turns[0].tool('Bash', 'the long build').then((r) => { released = r; });
+        await wait(50);
+        assert.equal(released, undefined, 'held whenever its result comes');
+        assert.equal(soft.stateOf(item.id)?.tool, 'Bash');
+        assert.equal(soft.stateOf(item.id)?.unlimited, true, 'kept once held');
+        assert.equal(live(item).softInterrupt?.unlimited, true, 'in the queue file');
+        // A press while held: the hard interrupt.
+        assert.equal(queue().interruptActiveItemForContinuation(item.id), true, 'the third press');
+        assert.equal(live(item).status, 'interrupted');
+        assert.equal(turns[0].cancelled, true);
+        queue().autoSendEnabled = true;
+        await wait(150);
+        turns[1].end('done');
+        await wait(150);
+        // Three presses before any hold point: unlimited, then hard.
+        const again = await startItem('another long task');
+        queue().interruptActiveItemForContinuation(again.id);
+        queue().interruptActiveItemForContinuation(again.id);
+        assert.equal(queue().interruptActiveItemForContinuation(again.id), true);
+        assert.equal(live(again).status, 'interrupted', 'the third press while waiting without a limit');
+        queue().autoSendEnabled = true;
+        await wait(150);
+        turns[1].end('done');
+        await wait(150);
+    });
+
+    test('SQ-15: cancel the interruption', async () => {
+        const item = await startItem('cancel me');
+        queue().interruptActiveItemForContinuation(item.id);
+        assert.equal(queue().autoSendEnabled, false);
+        assert.equal(soft.stateOf(item.id)?.pausedAutoSend, true);
+        assert.equal(queue().cancelSoftInterrupt(item.id), true);
+        assert.equal(soft.stateOf(item.id), undefined, 'withdrawn');
+        assert.equal(queue().autoSendEnabled, true, 'the run sends again');
+        let released: HoldRelease | undefined;
+        void turns[0].tool('Bash', 'r').then((r) => { released = r; });
+        await wait(50);
+        assert.deepEqual(released, {}, 'nothing is held any more');
+        turns[0].end('done');
+        await wait(150);
+        assert.equal(live(item).status, 'sent');
+        // Held, then cancelled: the turn goes on.
+        const held = await startItem('held then cancelled');
+        queue().interruptActiveItemForContinuation(held.id);
+        let r2: HoldRelease | undefined;
+        void turns[0].tool('Read', 'x').then((r) => { r2 = r; });
+        await wait(50);
+        assert.equal(r2, undefined);
+        assert.equal(queue().cancelSoftInterrupt(held.id), true);
+        await wait(50);
+        assert.deepEqual(r2, {}, 'released');
+        assert.equal(queue().autoSendEnabled, true);
+        turns[0].end('done');
+        await wait(150);
+        // The run was already off before the press: it stays off.
+        const off = await startItem('run already off');
+        queue().autoSendEnabled = false;
+        queue().interruptActiveItemForContinuation(off.id);
+        assert.equal(soft.stateOf(off.id)?.pausedAutoSend, undefined);
+        assert.equal(queue().cancelSoftInterrupt(off.id), true);
+        assert.equal(queue().autoSendEnabled, false, 'stays off');
+        assert.equal(queue().cancelSoftInterrupt(off.id), false, 'nothing to cancel');
+        turns[0].end('done');
+        await wait(150);
     });
 
     test('SQ-12: a reload while soft-interrupted', () => {

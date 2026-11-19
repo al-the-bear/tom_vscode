@@ -540,7 +540,7 @@ function render() {
       : 'Interrupt for continuation — no prompt is currently running';
     const icon = interruptBtn.querySelector('.codicon');
     if (icon) {
-      icon.className = 'codicon ' + (sendingItem && sendingItem.softInterruptView ? 'codicon-debug-stop' : 'codicon-debug-disconnect');
+      icon.className = 'codicon ' + (sendingItem ? interruptButtonIcon(sendingItem) : 'codicon-debug-disconnect');
     }
   }
   document.getElementById('countLabel').textContent =
@@ -855,6 +855,10 @@ document.addEventListener('click', function(ev) {
   queueAnswerMarkdown(btn.getAttribute('data-qid'), btn.getAttribute('data-qe-md-mode'));
 });
 function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
+// eslint-disable-next-line no-unused-vars -- called by the soft interrupt panel (queueEntryRenderFunctions.js)
+function hardInterruptNow(id) { vscode.postMessage({ type: 'hardInterruptNow', id }); }
+// eslint-disable-next-line no-unused-vars -- called by the soft interrupt panel (queueEntryRenderFunctions.js)
+function cancelSoftInterrupt(id) { vscode.postMessage({ type: 'cancelSoftInterrupt', id }); }
 function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id }); }
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
 function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', id }); }

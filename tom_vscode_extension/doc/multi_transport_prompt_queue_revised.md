@@ -870,8 +870,16 @@ first** (vscimpb112):
   a minute starts with `[This result was held for <duration> by the user's
   interrupt for continuation.]` (`heldForLine`; on the Agent SDK's built-ins it
   goes to the model as the hook's additional context).
-- **Hard interrupt** — a second click (toolbar or row, within the wait or once
-  held), Continue's **Hard interrupt**, the wait running out, or a Copilot item
+- **Waiting without a limit** — a second click while the request still waits
+  for its hold point (`SoftInterruptRegistry.waitWithoutLimit`): the timer
+  stops, the state records `unlimited`, and the turn is held at its next tool
+  result however long that takes (or ends by itself). **Cancel interruption**
+  (`cancelSoftInterrupt`) withdraws a waiting request or releases a held turn,
+  and switches the run's auto-send back on when the press had switched it off
+  (`pausedAutoSend`).
+- **Hard interrupt** — a third click, or a click once held (toolbar or row), the
+  item panel's **Hard interrupt now**, Continue's **Hard interrupt**, the wait
+  running out (not when waiting without a limit), or a Copilot item
   (no hold point; the button's tooltip says so) — is `_hardInterrupt`: the
   in-flight dispatch is cancelled exactly as Stop does (`_cancelActiveDispatch`
   — epoch bump, CTS cancel, approval awaiters released, the soft interrupt
@@ -929,8 +937,11 @@ one the interrupted rep had claimed.
 The row of a soft-interrupted item says **`INTERRUPTING`** (a spinning icon; the
 tooltip the seconds left to the hard interrupt) and then **`HELD`**
 (`codicon-debug-disconnect`; *held since 14:05 at the result of <tool>*); after
-the first click the button shows `codicon-debug-stop` with *Soft interrupt
-requested — click again for a hard interrupt now*. A hard-interrupted row is
+the first click the button shows `codicon-watch` (*click again to wait for the
+hold point without a limit*), waiting without a limit (`INTERRUPTING (NO
+LIMIT)`) or held `codicon-debug-stop` (*click again for a hard interrupt
+now*). While a soft interrupt waits or holds, the item shows a panel with
+**Hard interrupt now** and **Cancel interruption**. A hard-interrupted row is
 labelled **`INTERRUPTED <KIND> — RESENDS ON RESUME`** and offers **Resend** (replay now,
 without re-arming) and **Move back to Staged** (abandon the continuation — the
 same reset as stopping). Continue on a held item offers **Resume** and **Hard
