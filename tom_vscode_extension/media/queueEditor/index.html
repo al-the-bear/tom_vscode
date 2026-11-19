@@ -26,7 +26,7 @@
 <link rel="stylesheet" href="{{sharedUri}}/queueEntryStyles.css">
 <link rel="stylesheet" href="{{sharedUri}}/mdOverlay.css">
 </head>
-<body>
+<body class="queue-editor-page">
 <h2>Prompt Queue</h2>
 <!-- The compaction and memory-extraction models: the same keys and choices as
      the Status Page's History Compaction dropdowns (compactionPickerState).
@@ -41,6 +41,8 @@
      items. Each tab is that run's queue — its items, its toolbar, its defaults row;
      the tab shows whether the run sends, waits or is paused. Rendered by main.js. -->
 <div class="run-tabs" id="runTabs" role="tablist" aria-label="The process runs' queues"></div>
+<!-- Everything below the run tabs scrolls; the headline, the shared models and the tabs stay in view. -->
+<div class="queue-scroll" id="queueScroll">
 <div class="context-bar">
   <span id="contextSummary" class="context-summary"></span>
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
@@ -154,6 +156,7 @@
   🔄 Quest refresh is running… configure in the Extension Status Page
 </div>
 <div class="queue-list" id="queueList"><div class="empty">Loading…</div></div>
+</div>
 <noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
 
 <script src="{{sharedUri}}/mdOverlay.js"></script>

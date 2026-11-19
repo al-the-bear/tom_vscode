@@ -19,7 +19,7 @@ import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
 import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
 import type { PromptQueueManager } from '../managers/promptQueueManager';
 import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
-import { queuedTodoPatterns, todoIdPatternMatches, todoIdPatternOf, todoQueueMarks, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
+import { queuedTodoPatterns, todoIdPatternMatches, todoIdPatternOf, todoQueueMarkEntries, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
@@ -84,6 +84,16 @@ const _webviewConfigs = new WeakMap<vscode.Webview, QuestTodoViewConfig>();
 
 /** The webviews a todo list was posted to. */
 const _markedWebviews = new Set<vscode.Webview>();
+/** Webviews that did not take the last `qtQueueChanged` (hidden at the time): told again on the next queue change or message. */
+const _missedQueueChange = new Set<vscode.Webview>();
+
+/** Tell `view` the queued todos changed; a view that does not take it now is told again later, a disposed one is dropped. */
+function _postQueueChanged(view: vscode.Webview): void {
+    Promise.resolve(view.postMessage({ type: 'qtQueueChanged' })).then(
+        (delivered) => { if (delivered === false) { _missedQueueChange.add(view); } else { _missedQueueChange.delete(view); } },
+        () => { _markedWebviews.delete(view); _missedQueueChange.delete(view); },
+    );
+}
 let _queueMarksSignature = '';
 let _queueMarksListener: { dispose(): void } | undefined;
 
@@ -106,14 +116,13 @@ function _ensureQueueMarksListener(): void {
         _queueMarksSignature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
         const onQueueChange = (): void => {
             const signature = JSON.stringify(queuedTodoPatterns(_queueItemsForMarks()));
-            if (signature === _queueMarksSignature) { return; }
-            _queueMarksSignature = signature;
-            for (const view of [..._markedWebviews]) {
-                Promise.resolve(view.postMessage({ type: 'qtQueueChanged' })).then(
-                    (delivered) => { if (delivered === false) { _markedWebviews.delete(view); } },
-                    () => _markedWebviews.delete(view),
-                );
+            if (signature === _queueMarksSignature) {
+                // Nothing new, but a view that missed the last change gets it now.
+                for (const view of [..._missedQueueChange]) { _postQueueChanged(view); }
+                return;
             }
+            _queueMarksSignature = signature;
+            for (const view of [..._markedWebviews]) { _postQueueChanged(view); }
         };
         // Bound through whenReady: a todo view restored before the queue manager starts
         // would otherwise subscribe to nothing.
@@ -133,13 +142,16 @@ function _withQueueMarks(m: any, webview: vscode.Webview): any {
     if (!m || m.type !== 'qtTodos' || !Array.isArray(m.todos)) { return m; }
     _markedWebviews.add(webview);
     _ensureQueueMarksListener();
-    const marks = todoQueueMarks(_queueItemsForMarks(), m.todos, { walks: m.questId === WsPaths.getWorkspaceQuestId() });
+    const marks = todoQueueMarkEntries(_queueItemsForMarks(), m.todos, { walks: m.questId === WsPaths.getWorkspaceQuestId() });
     if (marks.size === 0) { return m; }
     return {
         ...m,
         todos: m.todos.map((t: { id: string }) => {
-            const numbers = marks.get(t.id);
-            return numbers ? { ...t, queued: numbers, queuedTitle: todoQueueMarkTitle(numbers) } : t;
+            const entries = marks.get(t.id);
+            // `queued`: the numbers as each run's tab of the queue editor shows them; `queuedRuns`: their runs.
+            return entries
+                ? { ...t, queued: entries.map((e) => e.number), queuedRuns: entries.map((e) => e.run), queuedTitle: todoQueueMarkTitle(entries) }
+                : t;
         }),
     };
 }
@@ -813,6 +825,8 @@ export async function handleQuestTodoMessage(msg: any, webview: vscode.Webview):
 
 async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promise<boolean> {
     const post = (m: any) => webview.postMessage(_withQueueMarks(m, webview));
+    // A view that missed a queue change (hidden then) and talks again: it loads its list anew.
+    if (_missedQueueChange.has(webview) && msg?.type !== 'qtGetTodos') { _postQueueChanged(webview); }
     const cfg = _webviewConfigs.get(webview) || {};
 
     const isSessionMode = cfg.mode === 'session';

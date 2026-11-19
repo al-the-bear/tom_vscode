@@ -719,7 +719,12 @@ function saveRunViewState() {
 }
 
 /** Switch to a run's tab: its items, its toolbar, its settings. */
+/** Where each run tab's list was scrolled to: a tab opens where it was left. */
+const runScrollTops = {};
+
 function selectRunTab(run) {
+  const scroller = document.getElementById('queueScroll');
+  if (scroller) { runScrollTops[selectedRun] = scroller.scrollTop; }
   selectedRun = run || currentRun;
   saveRunViewState();
   postSettingsRun();
@@ -727,6 +732,7 @@ function selectRunTab(run) {
   render();
   updateContextSummary();
   if (typeof populateAddForm === 'function') { populateAddForm(); }
+  if (scroller) { scroller.scrollTop = runScrollTops[selectedRun] || 0; }
 }
 
 /* Editing a pending item's prompt: the draft lives here, the host holds the queue. */

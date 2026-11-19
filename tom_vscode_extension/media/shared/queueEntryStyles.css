@@ -199,6 +199,10 @@
 .queue-run-chip.movable { cursor: pointer; }
 .queue-run-chip.movable:hover { background: rgba(0, 0, 0, 0.28); }
 /* Group by run: a heading per run, chat sends last. */
+/* The Prompt Queue editor: the headline, the shared models and the run tabs stay; the run's part below scrolls. */
+body.queue-editor-page { height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+body.queue-editor-page > * { flex: 0 0 auto; }
+body.queue-editor-page > .queue-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-top: 8px; }
 .run-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin: 6px 0 0; border-bottom: 1px solid var(--vscode-panel-border); }
 .run-tab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 0.9em; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; background: transparent; color: var(--vscode-foreground); cursor: pointer; opacity: 0.8; }
 .run-tab:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }

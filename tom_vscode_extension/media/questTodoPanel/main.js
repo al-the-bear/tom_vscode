@@ -931,7 +931,17 @@ function qtBlockingMark(t) {
  */
 function qtQueuedMark(t) {
     if (!Array.isArray(t.queued) || t.queued.length === 0) return '';
-    return '<span class="qt-queued" title="' + qtEsc(t.queuedTitle || ('Queued: #' + t.queued.join(', #'))) + '">⏵#' + qtEsc(String(t.queued[0])) + '</span>';
+    return '<span class="qt-queued" title="' + qtEsc(t.queuedTitle || ('Queued: #' + t.queued.join(', #'))) + '">⏵' + qtEsc(qtQueuedLabel(t.queued[0], qtQueuedRunAt(t, 0))) + '</span>';
+}
+
+/** The run of the `k`-th queue item that runs todo `t` (`queuedRuns`, set by the host); `default` when unknown. */
+function qtQueuedRunAt(t, k) {
+    return Array.isArray(t.queuedRuns) && t.queuedRuns[k] ? String(t.queuedRuns[k]) : 'default';
+}
+
+/** A queue number as the mark shows it: `#2`, or `chg1 #2` outside the default run (each run tab numbers its own). */
+function qtQueuedLabel(number, run) {
+    return (run && run !== 'default' ? run + ' ' : '') + '#' + number;
 }
 
 /** The 🔁 mark of a repeated todo, its rule (and when it is due again) in the tooltip. */
@@ -1067,18 +1077,24 @@ function qtRenderTodoRow(t) {
  * how many of the group's todos are queued.
  */
 function qtGroupQueuedMark(group) {
-    var numbers = [];
+    var entries = [];
     var queuedTodos = 0;
     group.todos.forEach(function(t) {
         if (!Array.isArray(t.queued) || !t.queued.length) return;
         queuedTodos++;
-        t.queued.forEach(function(n) { if (numbers.indexOf(n) === -1) numbers.push(n); });
+        t.queued.forEach(function(n, k) {
+            var run = qtQueuedRunAt(t, k);
+            if (!entries.some(function(e) { return e.number === n && e.run === run; })) entries.push({ number: n, run: run });
+        });
     });
-    if (!numbers.length) return '';
-    numbers.sort(function(a, b) { return a - b; });
-    var title = 'Queued: ' + numbers.map(function(n, k) { return '#' + n + (k === 0 && numbers.length > 1 ? ' (first)' : ''); }).join(', ') +
+    if (!entries.length) return '';
+    // The default run first, then the others by name; each by number (as the host orders a todo's own).
+    var runKey = function(r) { return r === 'default' ? '' : r; };
+    entries.sort(function(a, b) { return runKey(a.run).localeCompare(runKey(b.run)) || a.number - b.number; });
+    var label = function(e) { return '#' + e.number + (e.run !== 'default' ? ' (run ' + e.run + ')' : ''); };
+    var title = 'Queued: ' + entries.map(function(e, k) { return label(e) + (k === 0 && entries.length > 1 ? ' (first)' : ''); }).join(', ') +
         ' \u2014 ' + queuedTodos + ' of ' + group.todos.length + ' todos';
-    return '<span class="qt-queued qt-group-queued" title="' + qtEsc(title) + '">\u23f5#' + numbers[0] + '</span>';
+    return '<span class="qt-queued qt-group-queued" title="' + qtEsc(title) + '">\u23f5' + qtEsc(qtQueuedLabel(entries[0].number, entries[0].run)) + '</span>';
 }
 
 /** The open decisions of a `decision-needed` todo, as the tooltips list them. */

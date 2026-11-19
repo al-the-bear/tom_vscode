@@ -11,6 +11,10 @@
  *   QM-6 the todo panel: a queued todo's row shows `⏵#N` with the tooltip; a group with queued todos shows the
  *        first number on its header (collapsed groups hide the rows), the tooltip naming every item and how many
  *        of its todos; `qtQueueChanged` loads the list again
+ *   QM-7 each run tab numbers its own items from #1, as the editor does; the marks carry the run, the default
+ *        run's items first; an item finishing moves the numbers behind it up, so the signature the panel is told
+ *        on changes
+ *   QM-8 the todo panel names the run of an item outside the default run (`chg1 #1`), on the row and the group
  */
 
 import test, { describe } from 'node:test';
@@ -21,7 +25,7 @@ import * as vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 
 import {
-    queueDisplayNumbers, statusSortRank, todoIdPatternMatches, todoIdPatternOf, todoQueueMarks, todoQueueMarkTitle,
+    queueDisplayNumbers, queuedTodoPatterns, statusSortRank, todoIdPatternMatches, todoIdPatternOf, todoQueueMarkEntries, todoQueueMarks, todoQueueMarkTitle,
 } from '../todoQueueMarks.js';
 
 const ROOT = join(__dirname, '..', '..', '..');
@@ -143,6 +147,50 @@ describe('queued todos', () => {
             posted.length = 0;
             fire({ type: 'qtQueueChanged' });
             assert.deepEqual(posted.filter((m) => m.type === 'qtGetTodos').length, 1, 'the list is loaded again');
+        } finally {
+            w.close();
+        }
+    });
+
+    test('QM-7: numbers per run, and they move on', () => {
+        const items = [
+            { id: 'a', status: 'sending', todoIdPattern: 't1' },
+            { id: 'b', status: 'pending', todoIdPattern: 't2' },
+            { id: 'r1', status: 'pending', todoIdPattern: 't2', run: 'chg1' },
+            { id: 'r2', status: 'pending', todoIdPattern: 't3', processRun: { run: 'chg1' } },
+        ];
+        assert.deepEqual(Object.fromEntries(queueDisplayNumbers(items)), { a: 1, b: 2, r1: 1, r2: 2 }, 'every run tab from #1');
+        const todos = [{ id: 't1' }, { id: 't2' }, { id: 't3' }];
+        assert.deepEqual(Object.fromEntries(todoQueueMarkEntries(items, todos)), {
+            t1: [{ number: 1, run: 'default' }],
+            t2: [{ number: 2, run: 'default' }, { number: 1, run: 'chg1' }],
+            t3: [{ number: 2, run: 'chg1' }],
+        });
+        assert.equal(todoQueueMarkTitle(todoQueueMarkEntries(items, todos).get('t2')!), 'Queued: #2 (first), #1 (run chg1)');
+        assert.deepEqual(Object.fromEntries(todoQueueMarks(items, todos)), { t1: [1], t2: [2, 1], t3: [2] });
+        // The sending item finishes: the one behind it moves up, and the signature changes.
+        const before = JSON.stringify(queuedTodoPatterns(items));
+        const after = items.map((i) => (i.id === 'a' ? { ...i, status: 'sent' } : i));
+        assert.deepEqual(Object.fromEntries(todoQueueMarks(after, todos)), { t2: [1, 1], t3: [2] });
+        assert.notEqual(JSON.stringify(queuedTodoPatterns(after)), before);
+    });
+
+    test('QM-8: the run on the mark', () => {
+        const html = media('questTodoPanel', 'fragment.html');
+        const w = new JSDOM(`<body>${html}</body>`, { runScripts: 'outside-only' }).window as Win;
+        try {
+            w.vscode = { postMessage: () => undefined, setState: () => undefined, getState: () => undefined };
+            w.eval('var qtViewConfig = {};\n' + media('questTodoPanel', 'grouping.js') + media('questTodoPanel', 'main.js'));
+            w.qtHandleMessage({ type: 'qtTodos', questId: 'q1', file: 'all', todos: [
+                { id: 'chg1', title: 'In a run', status: 'not-started', sourceFile: 'todos.q1.todo.yaml', queued: [1], queuedRuns: ['run7'], queuedTitle: 'Queued: #1 (run run7)' },
+                { id: 'chg2', title: 'Default', status: 'not-started', sourceFile: 'todos.q1.todo.yaml', queued: [3], queuedRuns: ['default'], queuedTitle: 'Queued: #3' },
+            ] });
+            assert.equal(w.document.querySelector('.qt-group-header[data-qt-group="chg"] .qt-group-queued').textContent, '⏵#3', 'the default run first');
+            w.eval("qtExpandedGroups['#chg'] = true;");
+            w.qtRenderList();
+            assert.equal(w.document.querySelector('[data-qt-id="chg1"] .qt-queued').textContent, '⏵run7 #1');
+            assert.equal(w.document.querySelector('[data-qt-id="chg2"] .qt-queued').textContent, '⏵#3');
+            assert.match(w.document.querySelector('.qt-group-header[data-qt-group="chg"] .qt-group-queued').getAttribute('title'), /^Queued: #3 \(first\), #1 \(run run7\) — 2 of 2 todos$/);
         } finally {
             w.close();
         }

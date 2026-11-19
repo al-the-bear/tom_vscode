@@ -4,6 +4,7 @@
  *
  *   TP-1 enqueue keeps a given pattern, takes `<prefix>*` from a walk's repeat count, none otherwise
  *   TP-2 the entry file carries it (`todo-id-pattern`) and a reload reads it back
+ *   TP-3b a view that does not take a queue change (hidden) is told on the next queue change or its next message
  *   TP-3 the todo panel: Add to queue sets the todo's id; a posted list marks the queued todos with the queue
  *        editor's numbers and the tooltip (a walk its open todos only); when the queue changes the webview is
  *        told (qtQueueChanged) and the list it loads again has no stale marks
@@ -152,6 +153,35 @@ describe('the todo id pattern of queue items', () => {
         assert.ok(posted.some((m) => m.type === 'qtQueueChanged'), 'told about the change');
         await handleQuestTodoMessage({ type: 'qtGetTodos', questId: QUEST, file: 'all' }, webview);
         assert.ok(todosOf(posted).every((t) => t.queued === undefined), 'nothing queued any more');
+        clear();
+    });
+
+    test('TP-3b: a view that misses a queue change gets it later', async () => {
+        clear();
+        queue().autoSendEnabled = false;
+        const posted: Array<Record<string, unknown>> = [];
+        let visible = true;
+        const webview = { postMessage: async (m: Record<string, unknown>) => { if (!visible) { return false; } posted.push(JSON.parse(JSON.stringify(m))); return true; } } as never;
+        await handleQuestTodoMessage({ type: 'qtGetTodos', questId: QUEST, file: 'all' }, webview);
+        // Hidden: the change is not taken.
+        visible = false;
+        await queue().enqueue({ originalText: 'one todo', todoIdPattern: 'solo1_akiw-alone', deferSend: true });
+        await wait(50);
+        assert.equal(posted.filter((m) => m.type === 'qtQueueChanged').length, 0);
+        // Visible again: the next queue change, even one that changes no mark, tells it.
+        visible = true;
+        await queue().enqueue({ originalText: 'nothing to mark', deferSend: true });
+        await wait(50);
+        assert.equal(posted.filter((m) => m.type === 'qtQueueChanged').length, 1, 'told after all');
+        // Missed again, then it talks: told at once.
+        visible = false;
+        clear();
+        await wait(50);
+        visible = true;
+        posted.length = 0;
+        await handleQuestTodoMessage({ type: 'qtGetQuests' }, webview);
+        await wait(20);
+        assert.equal(posted.filter((m) => m.type === 'qtQueueChanged').length, 1, 'its next message brings the change');
         clear();
     });
 

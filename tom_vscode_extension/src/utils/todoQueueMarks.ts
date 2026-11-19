@@ -8,11 +8,13 @@
  * `<prefix>*` names the open todos (not completed, not cancelled) whose id
  * starts with the prefix — the ones the walk will reach.
  *
- * The todo panel marks those todos; the mark's tooltip names the queue items by
- * the number the queue editor shows them with (`#1`, `#2`, …): their position in
- * the editor's list, which orders by status (statusSortRank in
+ * The todo panel marks those todos; the mark names the queue items by the
+ * number the queue editor shows them with (`#1`, `#2`, …) and their run: the
+ * editor has one tab per process run, and an item's number is its position in
+ * its run's list, which orders by status (statusSortRank in
  * media/shared/queueEntryUtils.js), then queue order, the finished ones newest
- * first.
+ * first. The numbers change as the queue moves on (an item finishing moves the
+ * ones behind it up); the todo panel is told and shows them anew.
  *
  * vscode-free.
  */
@@ -24,7 +26,18 @@ export interface QueueItemForMarks {
     createdAt?: string;
     repeatCount?: number | string;
     todoIdPattern?: string;
+    /** The process run the item belongs to (its queue editor tab); unset: its Proceed's, else `default`. */
+    run?: string;
+    processRun?: { run?: string };
 }
+
+/** The run tab an item shows in (tabRunOf in media/queueEditor/main.js). */
+export function queueItemRun(item: Pick<QueueItemForMarks, 'run' | 'processRun'>): string {
+    return item.run || item.processRun?.run || 'default';
+}
+
+/** One queue item that will run a todo: its number in its run's list and the run. */
+export interface TodoQueueMarkEntry { number: number; run: string }
 
 /** What this module reads of a todo. */
 export interface TodoForMarks {
@@ -89,28 +102,34 @@ export function statusSortRank(status: string): number {
     }
 }
 
-/** Each item's number in the queue editor's list (`#1` first), by id. */
+/** Each item's number in its run's list of the queue editor (`#1` first in every run tab), by id. */
 export function queueDisplayNumbers(items: readonly QueueItemForMarks[]): Map<string, number> {
     const done = statusSortRank('sent');
-    const order = items
-        .map((item, idx) => ({ item, idx }))
-        .sort((a, b) => {
-            const ra = statusSortRank(a.item.status || 'staged');
-            const rb = statusSortRank(b.item.status || 'staged');
-            if (ra !== rb) { return ra - rb; }
-            if (ra === done) { return new Date(b.item.createdAt || 0).getTime() - new Date(a.item.createdAt || 0).getTime(); }
-            return a.idx - b.idx;
-        });
-    return new Map(order.map((x, k) => [x.item.id, k + 1]));
+    const out = new Map<string, number>();
+    const runs = [...new Set(items.map(queueItemRun))];
+    for (const run of runs) {
+        const order = items
+            .map((item, idx) => ({ item, idx }))
+            .filter((x) => queueItemRun(x.item) === run)
+            .sort((a, b) => {
+                const ra = statusSortRank(a.item.status || 'staged');
+                const rb = statusSortRank(b.item.status || 'staged');
+                if (ra !== rb) { return ra - rb; }
+                if (ra === done) { return new Date(b.item.createdAt || 0).getTime() - new Date(a.item.createdAt || 0).getTime(); }
+                return a.idx - b.idx;
+            });
+        order.forEach((x, k) => out.set(x.item.id, k + 1));
+    }
+    return out;
 }
 
-/** The unfinished items that name todos: each item's pattern and number, in queue order. */
-export function queuedTodoPatterns(items: readonly QueueItemForMarks[]): Array<{ pattern: string; number: number }> {
+/** The unfinished items that name todos: each item's pattern, number and run, in queue order. */
+export function queuedTodoPatterns(items: readonly QueueItemForMarks[]): Array<{ pattern: string; number: number; run: string }> {
     const numbers = queueDisplayNumbers(items);
     return items
         .filter((i) => !FINISHED.has(i.status))
-        .map((i) => ({ pattern: todoIdPatternOf(i), number: numbers.get(i.id) ?? 0 }))
-        .filter((x): x is { pattern: string; number: number } => !!x.pattern);
+        .map((i) => ({ pattern: todoIdPatternOf(i), number: numbers.get(i.id) ?? 0, run: queueItemRun(i) }))
+        .filter((x): x is { pattern: string; number: number; run: string } => !!x.pattern);
 }
 
 /**
@@ -119,21 +138,40 @@ export function queuedTodoPatterns(items: readonly QueueItemForMarks[]): Array<{
  * the queue's: a walk only walks its own quest) counts exact ids only.
  */
 export function todoQueueMarks(items: readonly QueueItemForMarks[], todos: readonly TodoForMarks[], opts: { walks?: boolean } = {}): TodoQueueMarks {
+    const marks: TodoQueueMarks = new Map();
+    for (const [id, entries] of todoQueueMarkEntries(items, todos, opts)) { marks.set(id, entries.map((e) => e.number)); }
+    return marks;
+}
+
+/**
+ * The same with each item's run: the default run's items first, then the
+ * others by run name, each by number.
+ */
+export function todoQueueMarkEntries(items: readonly QueueItemForMarks[], todos: readonly TodoForMarks[], opts: { walks?: boolean } = {}): Map<string, TodoQueueMarkEntry[]> {
     const walks = opts.walks !== false;
     const naming = queuedTodoPatterns(items)
         .map((x) => ({ ...x, pattern: walks ? x.pattern : x.pattern.split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*')).join(',') }))
         .filter((x) => x.pattern);
-    const marks: TodoQueueMarks = new Map();
+    const marks = new Map<string, TodoQueueMarkEntry[]>();
     if (naming.length === 0) { return marks; }
+    const runOrder = (run: string): string => (run === 'default' ? '' : run);
     for (const todo of todos) {
-        const by = naming.filter((x) => todoIdPatternMatches(x.pattern, todo)).map((x) => x.number).sort((a, b) => a - b);
+        const by = naming.filter((x) => todoIdPatternMatches(x.pattern, todo))
+            .map((x) => ({ number: x.number, run: x.run }))
+            .sort((a, b) => runOrder(a.run).localeCompare(runOrder(b.run)) || a.number - b.number);
         if (by.length) { marks.set(todo.id, by); }
     }
     return marks;
 }
 
+/** An entry as the mark writes it: `#2`, or `#2 (run chg1)` outside the default run. */
+export function todoQueueMarkLabel(entry: TodoQueueMarkEntry): string {
+    return entry.run === 'default' ? `#${entry.number}` : `#${entry.number} (run ${entry.run})`;
+}
+
 /** The mark's tooltip: `Queued: #2` or `Queued: #2 (first), #5`. */
-export function todoQueueMarkTitle(numbers: readonly number[]): string {
-    if (numbers.length === 1) { return `Queued: #${numbers[0]}`; }
-    return `Queued: #${numbers[0]} (first), ${numbers.slice(1).map((n) => `#${n}`).join(', ')}`;
+export function todoQueueMarkTitle(numbers: ReadonlyArray<number | TodoQueueMarkEntry>): string {
+    const labels = numbers.map((n) => (typeof n === 'number' ? `#${n}` : todoQueueMarkLabel(n)));
+    if (labels.length === 1) { return `Queued: ${labels[0]}`; }
+    return `Queued: ${labels[0]} (first), ${labels.slice(1).join(', ')}`;
 }
