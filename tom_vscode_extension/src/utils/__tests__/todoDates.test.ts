@@ -14,7 +14,10 @@
  *   TD-3 '' and undefined are "no value", passed through for the writers to clear or skip
  *   TD-4 today's date is the LOCAL date (the writers used the UTC date, which is yesterday after
  *        local midnight east of Greenwich)
- *   TD-5 the field lists match the schema
+ *   TD-5 the field lists match the schema: the `format: date` fields, and `created` / `updated`, whose pattern
+ *        also takes a timestamp with its zone
+ *   TD-6 `created` / `updated` keep a timestamp the schema takes (the item model's, tom_todo_model 4.0); one it
+ *        does not take (no zone, `+0200`, a blank) is written as its date; the other date fields stay dates
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- field names are the todo schema's YAML keys (snake_case) */
@@ -26,6 +29,7 @@ import * as path from 'path';
 import {
     TODO_DATE_FIELDS,
     TODO_ORCHESTRATION_FIELDS,
+    TODO_TIMESTAMP_FIELDS,
     localDateOf,
     toTodoDate,
 } from '../todoDates.js';
@@ -35,7 +39,7 @@ describe('todoDates', () => {
         assert.equal(toTodoDate('completed_date', '2026-10-20'), '2026-10-20');
         assert.equal(toTodoDate('completed_date', '2026-10-20T12:37:25+0200'), '2026-10-20');
         assert.equal(toTodoDate('completed_date', '2026-10-21T00:30:00+02:00'), '2026-10-21', 'the date in its own offset, not UTC (2026-10-20)');
-        assert.equal(toTodoDate('updated', '2026-10-04T22:59:31Z'), '2026-10-04');
+        assert.equal(toTodoDate('completed_date', '2026-10-04T22:59:31Z'), '2026-10-04');
         assert.equal(toTodoDate('created', '2026-10-05 14:00'), '2026-10-05');
         assert.equal(toTodoDate('due', '  2026-11-01 '), '2026-11-01');
     });
@@ -58,6 +62,16 @@ describe('todoDates', () => {
         assert.equal(localDateOf(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
     });
 
+    test('TD-6: created and updated keep the item model\'s timestamps', () => {
+        assert.equal(toTodoDate('updated', '2026-10-04T22:59:31Z'), '2026-10-04T22:59:31Z');
+        assert.equal(toTodoDate('created', '2026-11-19T10:00:00.250+01:00'), '2026-11-19T10:00:00.250+01:00');
+        assert.equal(toTodoDate('created', '2026-11-19T10:00'), '2026-11-19', 'no zone: the schema refuses it, so the date');
+        assert.equal(toTodoDate('updated', '2026-10-20T12:37:25+0200'), '2026-10-20', '+0200 is not the schema\'s form');
+        assert.equal(toTodoDate('created', '2026-10-05 14:00'), '2026-10-05');
+        assert.equal(toTodoDate('start', '2026-11-19T10:00:00Z'), '2026-11-19', 'start is a date');
+        assert.throws(() => toTodoDate('updated', '2026-02-30T10:00:00Z'));
+    });
+
     test('TD-5: the fields are the schema\'s', () => {
         const schemaPath = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '_ai', 'schemas', 'yaml', 'todo.schema.json');
         if (!fs.existsSync(schemaPath)) { return; } // a checkout without the _ai layer
@@ -73,8 +87,11 @@ describe('todoDates', () => {
         };
         walk(schema);
         assert.ok(props, 'the todo item properties');
-        const dates = Object.entries(props!).filter(([, v]) => v.format === 'date').map(([k]) => k).sort();
-        assert.deepEqual([...TODO_DATE_FIELDS].sort(), dates);
+        const dates = Object.entries(props!).filter(([, v]) => v.format === 'date').map(([k]) => k);
+        const timestamps = Object.entries(props! as Record<string, { pattern?: string }>)
+            .filter(([, v]) => typeof v.pattern === 'string' && v.pattern.startsWith('^\\d{4}-\\d{2}-\\d{2}(T')).map(([k]) => k);
+        assert.deepEqual([...TODO_TIMESTAMP_FIELDS].sort(), [...timestamps].sort(), 'the date-or-timestamp fields');
+        assert.deepEqual([...TODO_DATE_FIELDS].sort(), [...dates, ...timestamps].sort());
         for (const f of TODO_ORCHESTRATION_FIELDS) { assert.ok(props![f], `${f} is in the schema`); }
     });
 });

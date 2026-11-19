@@ -2,8 +2,10 @@
  * The todo schema's date fields, and the six orchestration fields, as the
  * extension writes them (wonetestd7).
  *
- * `_ai/schemas/yaml/todo.schema.json` types `due`, `created`, `updated`,
- * `completed_date`, `archived` and `deleted` as `format: date`. The writers
+ * `_ai/schemas/yaml/todo.schema.json` types `due`, `start`, `completed_date`,
+ * `archived` and `deleted` as `format: date`; `created` and `updated` are dates
+ * too, or — written by the item model (tom_todo_model 4.0) with a time of day —
+ * a timestamp with its zone (`2026-11-19T10:00:00Z`), which is kept. The writers
  * took a caller's value verbatim, so timestamps such as
  * `2026-10-20T12:37:25+0200` reached the corpus, and the shared todo model
  * (Worktracker's TomTodo, which the Webwork todo-file editor uses too) refuses
@@ -14,9 +16,15 @@
  * vscode-free.
  */
 
-/** Every field the todo schema declares `format: date`. */
-export const TODO_DATE_FIELDS = ['due', 'created', 'updated', 'completed_date', 'archived', 'deleted'] as const;
+/** Every date field of the todo schema: the `format: date` ones and the two that may carry a timestamp. */
+export const TODO_DATE_FIELDS = ['due', 'start', 'created', 'updated', 'completed_date', 'archived', 'deleted'] as const;
 export type TodoDateField = (typeof TODO_DATE_FIELDS)[number];
+
+/** The date fields whose schema pattern also takes a timestamp with its zone (the item model's). */
+export const TODO_TIMESTAMP_FIELDS: readonly TodoDateField[] = ['created', 'updated'];
+
+/** The schema's pattern for those fields: a date, or a date with `THH:MM[:SS[.fff]]` and `Z` or `±HH:MM`. */
+const SCHEMA_TIMESTAMP = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
 
 /**
  * The orchestration fields the schema gained for Worktracker (optional strings):
@@ -48,6 +56,8 @@ export function toTodoDate(field: string, value: string | undefined): string | u
         const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
         const probe = new Date(Date.UTC(year, month - 1, day));
         if (probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day) {
+            // `created` / `updated` keep a timestamp the schema takes (the item model's); the others are dates.
+            if ((TODO_TIMESTAMP_FIELDS as readonly string[]).includes(field) && SCHEMA_TIMESTAMP.test(text)) { return text; }
             return `${m[1]}-${m[2]}-${m[3]}`;
         }
     }
