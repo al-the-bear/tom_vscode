@@ -6,15 +6,24 @@
 //
 // The shared document-picker script (getDocumentPickerScript()) used to be
 // concatenated into the middle of this script; it is now a separate inline
-// <script> after this file. Both reference the global `vscode` handle: this
-// file acquires it once and publishes it as window.vscode so the picker IIFE
-// (which uses a bare `vscode`) resolves to the same handle. marked + mermaid are
-// loaded as external <script>s before this file and used as globals.
+// <script> after this file. marked + mermaid are loaded as external <script>s
+// before this file and used as globals.
+//
+// THE HOST. The page talks to whatever shows it through one object, the host:
+// `window.__tomVscodeApi`, with `postMessage(msg)` (the page's messages to the
+// host), and `getState()` / `setState(state)` (a small state the host keeps for
+// the page; both optional). The host answers by posting `message` events to the
+// window. In VS Code no host object is published beforehand, so the page takes
+// VS Code's (`acquireVsCodeApi()`), here and nowhere else; a page that embeds
+// this renderer (the QUEST NOTES side panel) or another host (a test page, an
+// application's webview) publishes its own before this file loads. Either way
+// this file publishes the host as `window.__tomVscodeApi`, and the page's other
+// scripts (askBar.js, assistOverlay.js, the document picker) read it there.
+// The host may also give first-paint data in `window.__INIT__`: `content`, an
+// `mdContent` message rendered before the first round trip.
 (function () {
-    // A page that embeds this renderer (the QUEST NOTES side panel) has
-    // acquired the API already and published it.
     var vscode = window.__tomVscodeApi || acquireVsCodeApi();
-    window.vscode = vscode; // shared with the document-picker inline <script>
+    window.__tomVscodeApi = vscode; // the page's other scripts take the host from here
     var __mdBrowserBooted = false;
 
     try {
@@ -3511,6 +3520,10 @@
                 }
             }
         });
+
+        // First-paint data from the host (window.__INIT__.content: an `mdContent` message).
+        var firstPaint = window.__INIT__ && window.__INIT__.content;
+        if (firstPaint && typeof firstPaint === 'object') { handleContent(firstPaint); }
 
         __mdBrowserBooted = true;
     } catch (err) {

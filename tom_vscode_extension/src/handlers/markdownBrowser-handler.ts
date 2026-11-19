@@ -64,7 +64,8 @@ export async function disposeMarkdownBrowser(): Promise<void> {
 
 /** How the OS user is written as a comment author: the first name of the account's full name. */
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
-import { readMediaText } from '../utils/webviewLoader.js';
+import { generateNonce, readMediaText } from '../utils/webviewLoader.js';
+import { renderMdBrowserPage } from '../utils/mdBrowserPage.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { reviewMemberId } from '../utils/reviewAuthors.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
@@ -1675,35 +1676,24 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
         showGroupSelector: true,
     });
 
-    // This panel COMPOSES the shared documentPicker fragment (HTML/CSS/JS),
-    // which is owned elsewhere and consumed by other panels too — so it uses
-    // the readMediaText escape hatch (raw media text, no loader rewriting) and
-    // substitutes its own {{tokens}} here, rather than loadWebviewHtml.
-    const baseUri = webview
-        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'markdownBrowser'))
+    // The page names nothing of VS Code: this host supplies every location and the
+    // picker's pieces, and the webview loader's renderer fills the placeholders it
+    // owns (cspSource, baseUri, sharedUri) — utils/mdBrowserPage.ts.
+    const mediaUrl = (dir: string): string => webview
+        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', dir))
         .toString()
         .replace(/\/$/, '');
 
-    const sharedUri = webview
-        .asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'shared'))
-        .toString()
-        .replace(/\/$/, '');
-
-    const tokens: Record<string, string> = {
-        '{{cspSource}}': webview.cspSource,
-        '{{sharedUri}}': sharedUri,
-        '{{codiconsUri}}': codiconsUri.toString(),
-        '{{markedUri}}': markedUri.toString(),
-        '{{mermaidUri}}': mermaidUri.toString(),
-        '{{baseUri}}': baseUri,
-        '{{pickerHtml}}': pickerHtml,
-        '{{pickerCss}}': pickerCss,
-        '{{pickerScript}}': pickerScript,
-    };
-
-    let html = readMediaText('markdownBrowser', 'index.html');
-    for (const [token, value] of Object.entries(tokens)) {
-        html = html.split(token).join(value);
-    }
-    return html;
+    return renderMdBrowserPage(readMediaText('markdownBrowser', 'index.html'), {
+        cspSource: webview.cspSource,
+        nonce: generateNonce(),
+        baseUri: mediaUrl('markdownBrowser'),
+        sharedUri: mediaUrl('shared'),
+        codiconsUri: codiconsUri.toString(),
+        markedUri: markedUri.toString(),
+        mermaidUri: mermaidUri.toString(),
+        pickerHtml,
+        pickerCss,
+        pickerScript,
+    });
 }

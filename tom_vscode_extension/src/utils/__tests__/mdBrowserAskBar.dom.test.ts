@@ -28,7 +28,7 @@ function setup(t: { after(fn: () => void): void }) {
     t.after(() => w.close());
     const posted: Array<Record<string, unknown>> = [];
     // Copied out of the window's realm, so deepEqual compares plain objects.
-    w.vscode = { postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) };
+    w.__tomVscodeApi = { postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) };
     w.eval(media('markdownBrowser', 'askBar.js'));
     const send = (data: Record<string, unknown>) => w.dispatchEvent(new w.MessageEvent('message', { data }));
     const bar = () => w.document.getElementById('askBar');
@@ -42,7 +42,7 @@ describe('MD Browser: the ask bar', () => {
         const shell = media('markdownBrowser', 'index.html');
         assert.ok(shell.indexOf('id="askBar"') > 0 && shell.indexOf('id="askBar"') < shell.indexOf('class="action-bar"'), 'above the action bar');
         assert.match(shell, /<div class="ask-bar" id="askBar" hidden><\/div>/);
-        assert.ok(shell.indexOf('/askBar.js') > shell.indexOf('/main.js'), 'after main.js, which publishes window.vscode');
+        assert.ok(shell.indexOf('/askBar.js') > shell.indexOf('/main.js'), 'after main.js, which publishes the host object');
     });
 
     test('AB-2: shown as sent', (t) => {

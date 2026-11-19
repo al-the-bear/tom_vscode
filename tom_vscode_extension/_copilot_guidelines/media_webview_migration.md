@@ -278,3 +278,38 @@ inline script by hand instead of going through the loader.
    npm run lint:media && npm run typecheck:media`.
 6. **Verify (manual):** `!reinstall_extension` + reload; confirm the panel
    renders, its actions work, and completion (if any) works.
+
+## The MD Browser page and its host
+
+The MD Browser's page (`media/markdownBrowser/` with `media/shared/mdQuestions.js`, `mdOverlay.js` and `assistOverlay.js`) names nothing of the host that shows it, so another host than VS Code can load it.
+
+**The host object.** The page talks to its host through one object, `window.__tomVscodeApi`:
+
+| Member | Use |
+| --- | --- |
+| `postMessage(msg)` | Every message of the page to the host (`webviewReady` first, then navigation, edits, picker requests …). |
+| `getState()` / `setState(state)` | A small state the host keeps for the page (the file shown, live mode). Optional. |
+
+The host answers by posting `message` events to the page's window (`mdContent`, `navState`, …), as VS Code's `webview.postMessage` does. `main.js` takes the object in exactly one statement — `window.__tomVscodeApi || acquireVsCodeApi()` — and publishes it as `window.__tomVscodeApi`; `askBar.js`, `assistOverlay.js` and the document picker's script read it there. No other line of the page asks for VS Code. A host that is not VS Code publishes `window.__tomVscodeApi` before the page's scripts run.
+
+**What the host supplies when it composes the page** (`src/utils/mdBrowserPage.ts`, `renderMdBrowserPage`):
+
+| Token / data | What |
+| --- | --- |
+| `{{baseUri}}`, `{{sharedUri}}` | Where `media/markdownBrowser/` and `media/shared/` are loaded from. |
+| `{{markedUri}}`, `{{mermaidUri}}`, `{{codiconsUri}}` | The vendored `marked` (UMD), `mermaid` (minified) and the codicons stylesheet. |
+| `{{cspSource}}` | What the page's content security policy admits styles, scripts, fonts and images from. |
+| `{{pickerHtml}}`, `{{pickerCss}}`, `{{pickerScript}}` | The document picker (`src/handlers/documentPicker.ts`, vscode-free). |
+| `window.__INIT__` | Optional first-paint data: `content`, an `mdContent` message the page renders before its first round trip. |
+
+`renderMdBrowserPage` fills the page's own tokens and hands `cspSource`, `baseUri`, `sharedUri` and `window.__INIT__` to the webview loader's renderer (`renderWebviewHtml`), which is how the VS Code host (`buildHtml` in `markdownBrowser-handler.ts`) supplies them. VS Code gives no first-paint data: it sends the document after `webviewReady`.
+
+**Theme.** The page's styles read the editor's theme variables (`--vscode-*`). A host that is not the editor defines the ones it wants in its own stylesheet.
+
+**The test host.** `src/handlers/mdBrowserTestHost.ts` builds one plain HTML file that is such a host: it publishes the host object, loads the page's files from the extension folder by `file:` URL, logs every message the page posts (on the page, on the console, in `window.__tomHostMessages`), and answers `webviewReady` with a document. After `npm run compile`:
+
+```bash
+node scripts/md-browser-test-host.cjs --out <file.html> [--doc <file.md>] [--first-paint]
+```
+
+Open the file in a browser. `mdBrowserTestHost.dom.test.ts` opens it in a JSDOM that runs its scripts and loads its files by URL, without any VS Code API, and checks that the document is rendered and `webviewReady` is posted. The test host answers nothing else: navigation, editing and the picker need a host that implements those messages (`markdownBrowser-handler.ts` is the reference).

@@ -1,8 +1,8 @@
 // The tomAi_askInMdBrowser bar: an agent's buttons and a "Keep this file"
 // checkbox in the MD Browser's top area. The host sends `askBar` (show it) and
 // `askBarClear` (take it off, leaving a note); a click posts `askAnswer` with the
-// button id and the checkbox, a change of the checkbox `askKeepFile`. Uses the
-// `window.vscode` main.js publishes.
+// button id and the checkbox, a change of the checkbox `askKeepFile`. Posts
+// through the host object main.js publishes (`window.__tomVscodeApi`).
 (function () {
     'use strict';
     /**
@@ -18,9 +18,9 @@
 
     /** @param {Record<string, unknown>} msg */
     function post(msg) {
-        /** @type {{ vscode?: { postMessage(m: unknown): void } }} */
+        /** @type {{ __tomVscodeApi?: { postMessage(m: unknown): void } }} */
         var w = /** @type {any} */ (window);
-        if (w.vscode) { w.vscode.postMessage(msg); }
+        if (w.__tomVscodeApi) { w.__tomVscodeApi.postMessage(msg); }
     }
 
     /**

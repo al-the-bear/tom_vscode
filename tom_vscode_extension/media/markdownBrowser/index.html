@@ -4,20 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!--
-      Markdown Browser shell — extracted from buildHtml() in
-      src/handlers/markdownBrowser-handler.ts (Phase B.21 webview restructuring).
+      The Markdown Browser's page. It names nothing of the host that shows it:
+      every location, the content security policy's source, the document
+      picker's three pieces and optional first-paint data are tokens the host
+      fills when it composes the page (src/utils/mdBrowserPage.ts lists them;
+      the editor's host is buildHtml in src/handlers/markdownBrowser-handler.ts,
+      through the webview loader's renderer).
 
-      This panel COMPOSES the shared documentPicker fragment (HTML/CSS/JS) — a
-      component owned elsewhere and consumed by other panels too — so it is built
-      with the readMediaText escape hatch rather than loadWebviewHtml: buildHtml
-      reads this file and substitutes the {{tokens}} below (cspSource, the
-      marked/mermaid/codicons webview URIs, baseUri, and the picker pieces).
-
-      The CSP is hand-written and uses 'unsafe-inline' (no nonce-source, so it is
-      honored): it admits the external marked/mermaid bundles + main.js (all
-      served from cspSource) and the inlined picker <style>/<script>. main.js
-      acquires the vscode API once and publishes window.vscode; the picker IIFE
-      (a separate inline <script>) reads that global.
+      The policy admits inline styles and scripts (the picker's are inlined) and
+      the external bundles from the host's source. main.js takes the host object
+      once and publishes it as window.__tomVscodeApi; the page's other scripts
+      and the picker read it there.
     -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; img-src {{cspSource}} data: https:;">
     <link href="{{codiconsUri}}" rel="stylesheet" />

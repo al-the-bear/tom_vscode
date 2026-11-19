@@ -182,6 +182,9 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
 // Document Picker: ${p}
 // ============================================================================
 (function() {
+    // The host the picker posts to: the one the page published (the MD Browser's
+    // host object), else the panel's own \`vscode\` handle.
+    function _${p}_host() { return window.__tomVscodeApi || vscode; }
     var _${p}_groups = [];
     var _${p}_projects = [];
     var _${p}_quests = [];
@@ -279,7 +282,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         _${p}_selectedFile = '';
         _${p}_updateUI();
         if (_${p}_selectedGroup !== 'project' && _${p}_selectedGroup !== 'quests' && _${p}_selectedGroup !== 'other') {
-            vscode.postMessage({ type: '${p}GetFiles', group: _${p}_selectedGroup });
+            _${p}_host().postMessage({ type: '${p}GetFiles', group: _${p}_selectedGroup });
         }
     }
 
@@ -288,7 +291,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         _${p}_selectedFile = '';
         _${p}_updateUI();
         if (_${p}_selectedProject) {
-            vscode.postMessage({ type: '${p}GetFiles', group: _${p}_selectedProject });
+            _${p}_host().postMessage({ type: '${p}GetFiles', group: _${p}_selectedProject });
         }
     }
 
@@ -297,14 +300,14 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         _${p}_selectedFile = '';
         _${p}_updateUI();
         if (_${p}_selectedQuest) {
-            vscode.postMessage({ type: '${p}GetFiles', group: _${p}_selectedQuest });
+            _${p}_host().postMessage({ type: '${p}GetFiles', group: _${p}_selectedQuest });
         }
     }
 
     function _${p}_selectFile(file) {
         _${p}_selectedFile = file || '';
         if (_${p}_selectedFile) {
-            vscode.postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: _${p}_effectiveGroup() });
+            _${p}_host().postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: _${p}_effectiveGroup() });
         }
     }
 
@@ -321,7 +324,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
         else if (_${p}_files.length > 0 && !_${p}_selectedFile) _${p}_selectedFile = _${p}_files[0];
         _${p}_updateUI();
         if (_${p}_selectedFile) {
-            vscode.postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: _${p}_effectiveGroup() });
+            _${p}_host().postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: _${p}_effectiveGroup() });
         }
     }
 
@@ -351,13 +354,13 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
             otherInput.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
                     _${p}_selectedFile = otherInput.value;
-                    vscode.postMessage({ type: '${p}LoadFile', file: otherInput.value, group: 'other' });
+                    _${p}_host().postMessage({ type: '${p}LoadFile', file: otherInput.value, group: 'other' });
                 }
             });
         }
         var otherBrowse = document.getElementById('${p}-other-browse');
         if (otherBrowse) otherBrowse.addEventListener('click', function() {
-            vscode.postMessage({ type: '${p}BrowseFile' });
+            _${p}_host().postMessage({ type: '${p}BrowseFile' });
         });
         ` : ''}
     }, 0);
@@ -375,7 +378,7 @@ export function getDocumentPickerScript(config: DocumentPickerConfig): string {
             if (otherInput) otherInput.value = msg.file || '';
             _${p}_selectedFile = msg.file || '';
             if (_${p}_selectedFile) {
-                vscode.postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: 'other' });
+                _${p}_host().postMessage({ type: '${p}LoadFile', file: _${p}_selectedFile, group: 'other' });
             }
         }` : ''}
     });
