@@ -37,6 +37,11 @@ export interface OpenInteraction {
     data: Record<string, unknown>;
     /** Answer it from the panel (kind-specific response); not posted to the webview. */
     respond?: (response: Record<string, unknown>) => void;
+    /**
+     * A stand-in for an ask of another window (USER NOTIFICATIONS › Answer): the window and the ask's id
+     * there. Its answer is sent to that window (services/windowRequests.ts); it is not this window's ask.
+     */
+    proxyOf?: { windowId: string; id: string };
 }
 
 /** An interaction that was settled, and how (the answer, the choice, or why it closed), when its source said. */
@@ -47,6 +52,11 @@ export interface ClosedInteraction {
 
 /** An interaction as the webview gets it (no callback). */
 export type InteractionView = Omit<OpenInteraction, 'respond'>;
+
+/** The window's own interactions (not stand-ins for another window's asks). */
+export function ownInteractions(list: readonly OpenInteraction[]): OpenInteraction[] {
+    return list.filter((i) => !i.proxyOf);
+}
 
 export class UserInteractions {
     private readonly open = new Map<string, OpenInteraction>();

@@ -17,7 +17,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import type { WindowActivity } from '../utils/questWindowStatus';
 import { summarizeQueue } from '../utils/windowActivity';
 import { runActivityEntries, type RunActivityItem } from '../utils/runActivity';
-import { userInteractions } from '../services/userInteractions';
+import { ownInteractions, userInteractions } from '../services/userInteractions';
 import { chatSessionFor } from './sessionPicker';
 
 /** The panel's session key when none is chosen (anthropic-handler.ts ANTHROPIC_CHAT_SESSION_KEY). */
@@ -80,7 +80,7 @@ export function collectWindowActivity(context: vscode.ExtensionContext): WindowA
             pausedRuns = PromptQueueManager.instance.heldRuns;
         } catch { /* the queue is not initialised: every run idle */ }
         if (runs.length) {
-            activity.runs = runActivityEntries(runs, items, userInteractions.list(), pausedRuns);
+            activity.runs = runActivityEntries(runs, items, ownInteractions(userInteractions.list()), pausedRuns);
         }
     } catch { /* the process store is not initialised */ }
     return activity;

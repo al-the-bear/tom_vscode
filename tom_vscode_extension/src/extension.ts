@@ -119,6 +119,8 @@ import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation
 import { markShuttingDown, setOpenAskChatSender } from './services/openAskRecord';
 import { startUserNotificationEmitter } from './services/userNotificationEmitter';
 import { userInteractions } from './services/userInteractions';
+import { configureWindowRequests, publishInteractions, startWindowRequests } from './services/windowRequests';
+import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
 import { initAnswersPanel } from './handlers/answersPanel-handler';
 
@@ -902,6 +904,27 @@ export async function activate(context: vscode.ExtensionContext) {
             queue: { onDidChange: (l) => PromptQueueManager.instance.onDidChange(l), holdingItems: () => PromptQueueManager.instance.holdingItems() },
         });
         context.subscriptions.push({ dispose: stop });
+    }
+    // USER NOTIFICATIONS › Answer / Continue the queue from any window: this window publishes its open asks and
+    // carries out what other windows ask of it (services/windowRequests.ts); another window's ask answered here
+    // is a stand-in that leaves once its window has settled it (services/remoteAsks.ts).
+    {
+        configureWindowRequests(path.join(context.globalStorageUri.fsPath, 'windows'), `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`);
+        publishInteractions(userInteractions.views());
+        const unpublish = userInteractions.onChange(() => publishInteractions(userInteractions.views()));
+        const stopRequests = startWindowRequests({
+            answerAsk: (id, response) => {
+                const interaction = userInteractions.get(id);
+                if (!interaction?.respond) { return false; }
+                interaction.respond(response);
+                return true;
+            },
+            resumeRun: (run) => {
+                PromptQueueManager.instance.setRunAutoSend(run, true);
+                return true;
+            },
+        }, () => { syncRemoteAsks(userInteractions); });
+        context.subscriptions.push({ dispose: () => { unpublish(); stopRequests(); publishInteractions([]); } });
     }
     // A completed todo's `on_done`: carried out by the extension (ww_a_collab-5).
     installTodoOnDone();

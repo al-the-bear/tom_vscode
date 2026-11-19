@@ -160,6 +160,8 @@ export interface HoldingItem {
     error?: string;
     /** A `todo-blocked` item: the todo it is held at and what that waits for. */
     blockedOn?: string;
+    /** A `decision-needed` item: the todo whose decisions it waits for. */
+    decisionTodo?: { quest: string; id: string };
     preview: string;
 }
 
@@ -188,6 +190,8 @@ export function queueHoldingDraft(i: HoldingItem, state: string): NotificationDr
             ],
             queueItemId: i.id,
         },
+        // The todo the item waits at: USER NOTIFICATIONS offers to continue this run once its decisions are answered.
+        ...(state === 'decision-needed' && i.decisionTodo ? { todo: { id: i.decisionTodo.id, quest: i.decisionTodo.quest, fields: [] } } : {}),
         who: { kind: 'extension', label: 'the queue' },
     };
 }
@@ -221,8 +225,9 @@ export function startUserNotificationEmitter(src: UserNotificationSources): () =
     const emit = src.emit ?? ((d: NotificationDraft[]) => emitNotifications(d));
     const stops: Array<() => void> = [];
     stops.push(src.interactions.onChange((added, closed) => {
-        if (added) { emit([askOpenedDraft(added)]); }
-        if (closed) { emit([askClosedDraft(closed)]); }
+        // A stand-in for another window's ask (answered here, settled there) is that window's to report.
+        if (added && !added.proxyOf) { emit([askOpenedDraft(added)]); }
+        if (closed && !closed.interaction.proxyOf) { emit([askClosedDraft(closed)]); }
     }));
     if (src.process) {
         const process = src.process;

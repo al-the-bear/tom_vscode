@@ -51,3 +51,5 @@ body {
     border-radius: 2px;
     cursor: pointer;
 }
+.row-action { margin-left: 6px; padding: 0 6px; font-size: 11px; border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border-radius: 3px; cursor: pointer; flex-shrink: 0; }
+.row-action:hover { background: var(--vscode-button-secondaryHoverBackground); }

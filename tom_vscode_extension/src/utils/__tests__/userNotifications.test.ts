@@ -91,14 +91,14 @@ describe('USER NOTIFICATIONS', () => {
         ];
         const rows = userNotificationRows(events);
         assert.deepEqual(rows.map((r) => [r.title, r.state]), [
-            ['Queue item error: "x"', 'notice'], ['Decision needed in todo t1', 'notice'], ['Same key, other window', 'open'], ['Pick', 'open'], ['Q one', 'answered'],
-        ], 'one row per event, newest first; asks paired per window and key; queue and todo events not shown');
+            ['Queue item error: "x"', 'notice'], ['Decision needed in todo t1', 'open'], ['Same key, other window', 'open'], ['Pick', 'open'], ['Q one', 'answered'],
+        ], 'one row per event, newest first; asks paired per window and key; a decision open until answered; queue and todo events not shown');
         const q = rows.find((r) => r.title === 'Q one')!;
         assert.equal(q.outcome, 'answered: (b)');
         assert.ok(q.details.includes('Answer: answered: (b)') && q.details.includes('Queue item: item-7') && q.details.includes('1. Which?'));
         assert.ok(q.details.includes('From: session default, transport anthropic'));
         assert.ok(rows.find((r) => r.type === 'userTodo')!.details.includes('Todo: q/t1'));
-        assert.equal(openAskCount(rows), 2);
+        assert.equal(openAskCount(rows), 3, 'the open asks and the decision waiting');
         assert.deepEqual(rows.map((r) => r.icon), ['debug-pause', 'person', 'comment-discussion', 'comment-discussion', 'comment-discussion']);
     });
 
@@ -239,13 +239,15 @@ describe('USER NOTIFICATIONS', () => {
         const mineId = row('Mine, open').getAttribute('data-id');
         assert.equal(mineId, rows.find((r) => r.title === 'Mine, open')!.id);
         assert.deepEqual(posted.pop(), { type: 'openAsk', id: mineId });
-        row('Mine, open').querySelector('[data-open]').click();
-        assert.equal(posted.pop().type, 'openAsk');
-        // Another window's open ask: details only.
+        row('Mine, open').querySelector('[data-answer]').click();
+        assert.deepEqual(posted.pop(), { type: 'answer', id: mineId });
+        // Another window's open ask: details, and Answer shows it here.
         const before = posted.length;
         row('Theirs, open').querySelector('.title').click();
-        assert.equal(posted.length, before, 'no openAsk for another window');
-        assert.match(row('Theirs, open').querySelector('.details').textContent, /In another window \(other\)/);
+        assert.equal(posted.length, before, 'no openAsk for another window on a click');
+        assert.match(row('Theirs, open').querySelector('.details').textContent, /From another window \(other\): Answer shows it here/);
+        assert.match(row('Theirs, open').querySelector('[data-answer]').getAttribute('title'), /^Answer it here: the ask is shown in this window, the answer goes to other$/);
+        assert.equal(row('Answered pick').querySelector('[data-answer]'), null, 'no Answer on an answered ask');
         row('Answered pick').querySelector('[data-dismiss]').click();
         assert.deepEqual(posted.pop(), { type: 'dismiss', id: row('Answered pick').getAttribute('data-id') });
         doc.querySelector('[data-action="dismissAnswered"]').click();

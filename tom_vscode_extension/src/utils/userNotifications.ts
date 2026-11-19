@@ -5,6 +5,14 @@
  * first. An ask (`askOpened`) is shown as open, with how long, until its
  * `askClosed` arrives; then as answered, with the answer or why it closed.
  *
+ * A todo waiting for the user's decisions is one row too, whatever wrote it:
+ * from the todo events every window writes (`todoCreated` with status
+ * `decision-needed`, `todoChanged` into it) and the `userTodo` event of the
+ * windows that emit one, merged. It is open until a later `todoChanged` takes
+ * the todo out of `decision-needed`; then it is answered ("now not-started"),
+ * and when a queue item was held at that todo (`queueHolding`, kind
+ * `decision-needed`, naming the todo) it offers to continue that run.
+ *
  * Dismissing a row hides it here only: the user list keeps its own set of
  * dismissed event ids (a file in the extension's global storage, so every
  * window shares it); the NOTIFICATIONS log is not touched.
@@ -41,6 +49,100 @@ export interface UserNotificationRow {
     key?: string;
     /** What it asks or says, and the context, as lines. */
     details: string[];
+    /** A decision row: the todo whose decisions it is about. */
+    todo?: { quest: string; id: string };
+    /** A decision row whose todo held a queue item: the window, run and item to continue. */
+    continueQueue?: { windowId: string; run: string; itemId?: string };
+}
+
+/** How close a `userTodo` event and the todo event of the same change are (one write, two events). */
+const SAME_CHANGE_MS = 10_000;
+
+/** The status a todo event sets: `{old, new}` of its status field, when it has one. */
+function statusChange(e: NotificationEvent): { old?: string; new?: string } | undefined {
+    const f = e.todo?.fields.find((x) => x.field === 'status');
+    return f ? { old: f.old, new: f.new } : undefined;
+}
+
+/** Does event `e` put a todo into `decision-needed` (filed so, or changed into it)? */
+export function entersDecisionNeeded(e: NotificationEvent): boolean {
+    if (e.type === 'userTodo') { return e.user?.kind === 'decision-needed'; }
+    if (e.type !== 'todoCreated' && e.type !== 'todoChanged') { return false; }
+    const s = statusChange(e);
+    return !!s && s.new === 'decision-needed' && s.old !== 'decision-needed';
+}
+
+/** Does event `e` take a todo out of `decision-needed`? Answers the new status. */
+export function leavesDecisionNeeded(e: NotificationEvent): string | undefined {
+    if (e.type !== 'todoChanged') { return undefined; }
+    const s = statusChange(e);
+    return s && s.old === 'decision-needed' && s.new !== 'decision-needed' ? (s.new ?? 'changed') : undefined;
+}
+
+/**
+ * The decision rows: one per time a todo went into `decision-needed` (the
+ * `userTodo` event and the todo event of the same change merged, the
+ * `userTodo` preferred for its title and open decisions), open until it left.
+ */
+export function decisionRows(events: readonly NotificationEvent[], dismissed: ReadonlySet<string> = new Set()): UserNotificationRow[] {
+    const sorted = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const rows: UserNotificationRow[] = [];
+    type Episode = { start: NotificationEvent; user?: NotificationEvent; end?: { at: string; status: string } };
+    const open = new Map<string, Episode>();
+    const episodes: Array<{ key: string; ep: Episode }> = [];
+    for (const e of sorted) {
+        if (!e.todo) { continue; }
+        const key = `${e.todo.quest}/${e.todo.id}`;
+        if (entersDecisionNeeded(e)) {
+            const cur = open.get(key);
+            if (cur && Math.abs(Date.parse(e.at) - Date.parse(cur.start.at)) <= SAME_CHANGE_MS) {
+                // The other event of the same change.
+                if (e.type === 'userTodo') { cur.user = e; }
+                continue;
+            }
+            if (cur) { continue; } // still waiting since the earlier one
+            const ep: Episode = { start: e, ...(e.type === 'userTodo' ? { user: e } : {}) };
+            open.set(key, ep);
+            episodes.push({ key, ep });
+            continue;
+        }
+        const left = leavesDecisionNeeded(e);
+        if (left) {
+            const cur = open.get(key);
+            if (cur) { cur.end = { at: e.at, status: left }; open.delete(key); }
+        }
+    }
+    const holds = sorted.filter((e) => e.type === 'queueHolding' && e.user?.kind === 'decision-needed' && e.todo);
+    for (const { key, ep } of episodes) {
+        const first = ep.start;
+        if (dismissed.has(first.id) || (ep.user && dismissed.has(ep.user.id))) { continue; }
+        const todo = { quest: first.todo!.quest, id: first.todo!.id };
+        const title = ep.user?.user?.title ?? `Decision needed in todo ${todo.id}${first.todo!.title ? `: ${first.todo!.title}` : ''}`;
+        const hold = [...holds].reverse().find((h) => `${h.todo!.quest}/${h.todo!.id}` === key && Date.parse(h.at) >= Date.parse(first.at) - SAME_CHANGE_MS);
+        const continueQueue = ep.end && hold ? { windowId: hold.windowId, run: hold.run, ...(hold.user?.queueItemId ? { itemId: hold.user.queueItemId } : {}) } : undefined;
+        rows.push({
+            id: first.id,
+            type: 'userTodo',
+            icon: NOTIFICATION_TYPE_INFO.userTodo.icon,
+            kind: 'decision-needed',
+            title,
+            windowId: first.windowId,
+            quest: first.quest,
+            run: first.run,
+            at: first.at,
+            state: ep.end ? 'answered' : 'open',
+            ...(ep.end ? { closedAt: ep.end.at, outcome: `now ${ep.end.status}` } : {}),
+            details: [
+                ...(ep.user?.user?.details ?? []),
+                ...(ep.end ? [`Answered: the todo is now ${ep.end.status}`] : []),
+                ...(hold ? [`Held queue item ${hold.user?.queueItemId ?? ''} in run ${hold.run} (${hold.quest || hold.windowId})`] : []),
+                `Todo: ${todo.quest}/${todo.id}`,
+            ],
+            todo,
+            ...(continueQueue ? { continueQueue } : {}),
+        });
+    }
+    return rows;
 }
 
 /** The types that make a row (an `askClosed` only marks its ask answered). */
@@ -67,6 +169,8 @@ export function userNotificationRows(events: readonly NotificationEvent[], dismi
     const rows: UserNotificationRow[] = [];
     for (const e of events) {
         if (!ROW_TYPES.has(e.type) || dismissed.has(e.id)) { continue; }
+        // A todo waiting for decisions is one row, open until answered (decisionRows).
+        if (e.type === 'userTodo' && e.user?.kind === 'decision-needed') { continue; }
         const u = e.user;
         const close = e.type === 'askOpened' && u?.key ? closes.get(`${e.windowId}|${u.key}`) : undefined;
         const state: UserRowState = e.type !== 'askOpened' ? 'notice' : close ? 'answered' : 'open';
@@ -98,6 +202,7 @@ export function userNotificationRows(events: readonly NotificationEvent[], dismi
             details,
         });
     }
+    rows.push(...decisionRows(events, dismissed));
     return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 

@@ -4,7 +4,8 @@
 // {type: 'state', rows, open, thisWindow} whenever the shared log or the
 // dismissed set changes. One row per event, newest first; an open ask shows how
 // long it waits. A click opens the details; Dismiss (row) and Dismiss answered
-// (bar) post back; Open (an open ask of this window) posts openAsk; a click on
+// (bar) post back; Answer (an open ask, a todo waiting for decisions) posts answer, Continue queue (an answered
+// decision whose todo held a queue) posts continueQueue; a click on an open ask of this window posts openAsk; a click on
 // an answer (tomAi_answerUser) posts openAnswer.
 /* global acquireVsCodeApi */
 (function () {
@@ -44,7 +45,7 @@
     }
     function stateBadge(r) {
         if (r.state === 'open') { return '<span class="state state-open" title="Waiting for your answer">open · ' + esc(since(r.at)) + '</span>'; }
-        if (r.state === 'answered') { return '<span class="state state-answered" title="' + esc(r.outcome || 'answered') + '">answered</span>'; }
+        if (r.state === 'answered') { return '<span class="state state-answered" title="' + esc(r.outcome || 'answered') + '">' + (r.todo ? 'decided' : 'answered') + '</span>'; }
         return '';
     }
 
@@ -64,14 +65,24 @@
             var mine = r.windowId === state.thisWindow;
             var details = expanded[r.id]
                 ? '<div class="details">' + esc(r.details.join('\n'))
-                    + (r.state === 'open' && mine && r.key ? '<div class="actions"><button class="open-ask" data-open="' + esc(r.id) + '">Open</button></div>' : '')
-                    + (r.state === 'open' && !mine ? '<div class="actions muted">In another window (' + esc(r.quest || r.windowId) + ').</div>' : '')
+                    + (r.state === 'open' && !mine && r.key ? '<div class="actions muted">From another window (' + esc(r.quest || r.windowId) + '): Answer shows it here.</div>' : '')
                     + '</div>'
+                : '';
+            // Answer: an open ask (of any window) or a todo waiting for decisions; Continue: the queue an answered decision held.
+            var canAnswer = r.state === 'open' && (r.key || r.todo);
+            var answerBtn = canAnswer
+                ? '<button class="row-action" data-answer="' + esc(r.id) + '" title="' + esc(r.todo
+                    ? 'Answer the decisions of todo ' + r.todo.quest + '/' + r.todo.id + ' in the Quest TODO panel (bottom panel)'
+                    : (mine ? 'Answer it (where it waits in this window)' : 'Answer it here: the ask is shown in this window, the answer goes to ' + (r.quest || r.windowId))) + '">Answer</button>'
+                : '';
+            var continueBtn = r.state !== 'open' && r.continueQueue
+                ? '<button class="row-action" data-continue="' + esc(r.id) + '" title="' + esc('The decisions are answered: continue run ' + r.continueQueue.run + ' of ' + (r.quest || r.continueQueue.windowId) + ', whose queue waited for them') + '">Continue queue</button>'
                 : '';
             return '<div class="row ' + esc(r.state) + '" data-id="' + esc(r.id) + '">'
                 + '<div class="row-line"><span class="codicon codicon-' + esc(r.icon) + ' type-' + esc(r.type) + '"></span>'
                 + '<span class="title" title="' + esc(r.title) + '">' + esc(r.title) + '</span>'
                 + stateBadge(r)
+                + answerBtn + continueBtn
                 + '<button class="icon dismiss" data-dismiss="' + esc(r.id) + '" title="Dismiss (it stays in NOTIFICATIONS)"><span class="codicon codicon-close"></span></button></div>'
                 + '<div class="row-meta"><span>' + esc(time(r.at)) + '</span><span>' + esc(r.quest || r.windowId) + (mine ? ' (this window)' : '') + '</span><span>run ' + esc(r.run) + '</span>'
                 + (r.kind ? '<span>' + esc(r.kind) + '</span>' : '') + '</div>'
@@ -94,8 +105,10 @@
     list.addEventListener('click', function (ev) {
         var dismiss = ev.target.closest('[data-dismiss]');
         if (dismiss) { vscode.postMessage({ type: 'dismiss', id: dismiss.getAttribute('data-dismiss') }); return; }
-        var openBtn = ev.target.closest('[data-open]');
-        if (openBtn) { vscode.postMessage({ type: 'openAsk', id: openBtn.getAttribute('data-open') }); return; }
+        var answer = ev.target.closest('[data-answer]');
+        if (answer) { vscode.postMessage({ type: 'answer', id: answer.getAttribute('data-answer') }); return; }
+        var cont = ev.target.closest('[data-continue]');
+        if (cont) { vscode.postMessage({ type: 'continueQueue', id: cont.getAttribute('data-continue') }); return; }
         var row = ev.target.closest('.row');
         if (!row) { return; }
         var id = row.getAttribute('data-id');

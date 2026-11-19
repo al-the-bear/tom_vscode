@@ -37,7 +37,7 @@ import { recordingAsk } from '../services/openAskRecord';
 
 /** The questions shown in the user-input panel (tests, diagnostics). */
 export function openQuestionIds(): string[] {
-    return userInteractions.list().filter((i) => i.kind === 'question').map((i) => i.id);
+    return userInteractions.list().filter((i) => i.kind === 'question' && !i.proxyOf).map((i) => i.id);
 }
 
 /** Whether question `requestId` is still open. */
@@ -116,7 +116,7 @@ function syncQuestions(): void {
         if (!userInteractions.get(p.requestId)) { openQuestion(p); }
     }
     for (const i of userInteractions.list()) {
-        if (i.kind === 'question' && !ids.has(i.id)) { userInteractions.remove(i.id); }
+        if (i.kind === 'question' && !i.proxyOf && !ids.has(i.id)) { userInteractions.remove(i.id); }
     }
 }
 AskUserRegistry.instance.onDidChange(syncQuestions);

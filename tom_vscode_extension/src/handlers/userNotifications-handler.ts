@@ -14,6 +14,15 @@
  * an open ask of this window opens it: the MD Browser of an MD Browser ask,
  * else the user-input panel on its run. A click on an answer (tomAi_answerUser)
  * opens it in the Answers page. The view's badge counts the open asks.
+ *
+ * **Answer** (an open ask or a todo waiting for decisions, from any window):
+ * an ask of this window opens where it is answered; an ask of another window
+ * is shown in this window's user-input panel as a stand-in, whose answer goes
+ * to that window (services/remoteAsks.ts); a todo waiting for decisions opens
+ * in the bottom panel's Quest TODO section (@WS), its quest switched to the
+ * todo's — the sidebar's QUEST TODOS keeps its own view. **Continue the queue**
+ * (a decision answered whose todo held a queue item) switches that run's
+ * auto-send on, in its own window (services/windowRequests.ts).
  */
 
 import * as fs from 'fs';
@@ -27,6 +36,8 @@ import { notificationLogFile, readNotificationEvents } from '../services/notific
 import { addDismissed, dismissibleAnsweredIds, openAskCount, readDismissed, userNotificationRows, type UserNotificationRow } from '../utils/userNotifications';
 import { userInteractions } from '../services/userInteractions';
 import { SHOW_USER_INTERACTION_COMMAND } from './userInteractionPanel';
+import { openRemoteAsk, syncRemoteAsks } from '../services/remoteAsks';
+import { sendWindowRequest } from '../services/windowRequests';
 
 export const USER_NOTIFICATIONS_VIEW_ID = 'tomAi.userNotifications';
 /** The Answers page's command (handlers/answersPanel-handler.ts), by id: the two handlers do not import each other. */
@@ -69,6 +80,41 @@ export async function openAskOfRow(row: Pick<UserNotificationRow, 'key' | 'windo
     return true;
 }
 
+/**
+ * Answer row `row` from this window: its ask (this window's where it waits, another window's as a stand-in
+ * here), or its todo's decisions in the bottom panel's Quest TODO section. Answers what happened, for a message.
+ */
+export async function answerRow(row: UserNotificationRow, me = thisWindowId()): Promise<{ ok: boolean; message?: string }> {
+    if (row.todo) {
+        const { selectTodoInBottomPanel } = await import('./questTodoPanel-handler.js');
+        const shown = await selectTodoInBottomPanel(row.todo.id, undefined, row.todo.quest);
+        return shown ? { ok: true } : { ok: false, message: `Todo ${row.todo.quest}/${row.todo.id} could not be shown in the Quest TODO panel.` };
+    }
+    if (row.state !== 'open' || !row.key) { return { ok: false, message: 'This ask is no longer open.' }; }
+    if (row.windowId === me) {
+        return await openAskOfRow(row, me) ? { ok: true } : { ok: false, message: 'This ask is no longer open.' };
+    }
+    const label = row.quest || row.windowId;
+    const opened = openRemoteAsk(userInteractions, row.windowId, row.key, label);
+    if (!opened.ok) { return { ok: false, message: `It cannot be answered here: ${opened.reason}.` }; }
+    await vscode.commands.executeCommand(SHOW_USER_INTERACTION_COMMAND, { run: opened.run });
+    return { ok: true };
+}
+
+/** Continue the queue row `row`'s todo held: its run's auto-send on, in its window. */
+export async function continueQueueOfRow(row: UserNotificationRow, me = thisWindowId()): Promise<{ ok: boolean; message: string }> {
+    const target = row.continueQueue;
+    if (!target) { return { ok: false, message: 'No queue waits for this decision.' }; }
+    if (target.windowId === me) {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        PromptQueueManager.instance.setRunAutoSend(target.run, true);
+        return { ok: true, message: `Run ${target.run} continues.` };
+    }
+    return sendWindowRequest(target.windowId, { type: 'resumeRun', run: target.run })
+        ? { ok: true, message: `Run ${target.run} continues in its window (${row.quest || target.windowId}).` }
+        : { ok: false, message: 'The request could not be written.' };
+}
+
 class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
     private watcher?: fs.FSWatcher;
@@ -100,6 +146,8 @@ class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
 
     /** Post the rows; the badge follows even while the view is hidden. */
     post(): void {
+        // A stand-in for another window's ask leaves once that window has settled it.
+        try { syncRemoteAsks(userInteractions); } catch { /* best effort */ }
         if (!this.view) { return; }
         try {
             const rows = currentUserRows();
@@ -151,6 +199,13 @@ class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
                 // An answer (tomAi_answerUser): shown in the Answers page; the store is the machine's, so any window's answer opens.
                 const row = currentUserRows().find((r) => r.id === msg.id);
                 if (row?.key) { await vscode.commands.executeCommand(SHOW_ANSWERS_COMMAND, { id: row.key }); }
+                return;
+            }
+            if ((msg.type === 'answer' || msg.type === 'continueQueue') && typeof msg.id === 'string') {
+                const row = currentUserRows().find((r) => r.id === msg.id);
+                if (!row) { return; }
+                const result = msg.type === 'answer' ? await answerRow(row) : await continueQueueOfRow(row);
+                if (result.message) { void (result.ok ? vscode.window.showInformationMessage(result.message) : vscode.window.showWarningMessage(result.message)); }
                 return;
             }
             if (msg.type === 'openAsk' && typeof msg.id === 'string') {

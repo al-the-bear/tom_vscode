@@ -43,7 +43,7 @@ import {
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
-import { applyQueueDefaultTransportToItem, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoWalk, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, blockHoldingWalk, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
+import { applyQueueDefaultTransportToItem, collectWalkTodos, applyRepeatEditToItem, applyRepetitionAffixes, buildNextTemplateIterationParams, computeRemovalEffect, computeRepeatEditability, convertStagedToPending, decideAdvanceAfterCompletion, emptyTodoIterationReason, isEmptyTodoIterationError, parseTodoWalk, pickNextTodoForIteration, planMainStageDispatch, todoPrefixPatternError, walkableRepeatIds, releaseResolvedDecisionItems, releaseUnblockedTodos, blockHoldingWalk, resolveResendText, resolveTodoPrefixRepeatCount, shouldAutoPauseOnEmpty, type TodoIterationSource, type TodoUnblockPort } from '../utils/queueStep3Utils';
 import { todoForStage, todoYamlBlock, withTodoYaml, type IterationStage } from '../utils/todoIterationRecord';
 import { runMainStageWithRefresh } from '../utils/questRefreshDispatch.js';
 import { applyCrashRecovery } from '../utils/queueCrashRecoveryUtils';
@@ -2093,15 +2093,40 @@ export class PromptQueueManager {
 
     /** The items as USER NOTIFICATIONS reads their holding state (vscimpb170). */
     holdingItems(): HoldingItem[] {
-        return this._items.map((i) => ({
-            id: i.id,
-            status: i.status,
-            run: itemRun(i),
-            ...(i.needsAttention ? { needsAttention: i.needsAttention } : {}),
-            ...(i.error ? { error: i.error } : {}),
-            ...(i.blockedOn ? { blockedOn: i.blockedOn } : {}),
-            preview: (i.originalText ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || i.id,
-        }));
+        return this._items.map((i) => {
+            const decisionTodo = i.status === 'decision-needed' ? this._decisionTodoOf(i) : undefined;
+            return {
+                id: i.id,
+                status: i.status,
+                run: itemRun(i),
+                ...(i.needsAttention ? { needsAttention: i.needsAttention } : {}),
+                ...(i.error ? { error: i.error } : {}),
+                ...(i.blockedOn ? { blockedOn: i.blockedOn } : {}),
+                ...(decisionTodo ? { decisionTodo } : {}),
+                preview: (i.originalText ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || i.id,
+            };
+        });
+    }
+
+    /**
+     * The todo a `decision-needed` item waits at (USER NOTIFICATIONS offers to continue the queue once its
+     * decisions are answered): a walk's first todo still `decision-needed`, else the first of its
+     * `todoIdPattern` todos that is. Undefined when none is found.
+     */
+    private _decisionTodoOf(item: QueuedPrompt): { quest: string; id: string } | undefined {
+        const questId = this.activeQuestId();
+        if (!questId) { return undefined; }
+        try {
+            const walk = parseTodoWalk(item.repeatCount);
+            if (walk) {
+                const hit = collectWalkTodos(walk, walkEntriesOf(item, questId)).find((e) => e.status === 'decision-needed' && !e.excluded);
+                if (hit) { return { quest: walk.kind === 'prefix' ? questId : walk.quest, id: hit.id }; }
+            }
+            const ids = (item.todoIdPattern ?? '').split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*'));
+            const entries = readQuestTodoEntries(questId);
+            const hit = ids.find((id) => entries.some((e) => e.id === id && e.status === 'decision-needed'));
+            return hit ? { quest: questId, id: hit } : undefined;
+        } catch { return undefined; }
     }
     get pendingCount(): number { return this._items.filter(i => i.status === 'pending').length; }
     /** The window's run's auto-send (settings per run: {@link runQueueSettings}). */
