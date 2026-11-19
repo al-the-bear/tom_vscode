@@ -839,15 +839,17 @@ function qtRenderTodoGroupHeader(g, expanded) {
 }
 
 /**
- * "Queue as todo item" (vscimpb127): a TODO item for a todo, a GROUP item for a
- * group todo — a walk the queue knows, with claim and completion check — to the
- * panel's queue target. Beside it the Queue button still queues a plain prompt.
+ * The queue button of a tile: an individual todo is queued as the detail's Queue
+ * button queues it — a normal prompt with the todo in the Todo buttons template,
+ * the todo's id on the item — and a group todo as a GROUP item that walks its
+ * members (vscimpb127). Both ask where (quest, run, session; next or end as the
+ * Next toggle says).
  */
 function qtQueueItemButton(t) {
     var group = t.status === 'group' || (Array.isArray(t.comprised_of) && t.comprised_of.length > 0);
-    return '<button class="qt-queue-item-btn" data-qt-queue-item="' + qtEsc(t.id) + '" title="' +
-        (group ? 'Queue as todo item: a GROUP item that walks the group\'s members in order' : 'Queue as todo item: a TODO item with claim and completion check') +
-        ', to the panel\'s session and run">\u23e9</button>';
+    return '<button class="qt-queue-item-btn" data-qt-queue-item="' + qtEsc(t.id) + '"' + (group ? ' data-qt-queue-group="1"' : '') + ' title="' +
+        (group ? 'Queue as group: a GROUP item that walks the group\'s members in order' : 'Queue this todo: a prompt with the todo in the Todo buttons template (as the detail\'s Queue button)') +
+        '; asks the quest, run and session">\u23e9</button>';
 }
 
 /** Queue todo `id` as a TODO item (a GROUP item for a group todo). */
@@ -1435,7 +1437,13 @@ function qtRenderList() {
                 e.stopPropagation();
                 if (queueItem.disabled) return;
                 qtPauseButton(queueItem);
-                qtQueueAsTodoItem(queueItem.getAttribute('data-qt-queue-item') || '');
+                var queueId = queueItem.getAttribute('data-qt-queue-item') || '';
+                if (queueItem.getAttribute('data-qt-queue-group') === '1') {
+                    qtQueueAsTodoItem(queueId);
+                } else {
+                    // An individual todo: as the detail's Queue button queues it (qtHandleTodoButtonClick).
+                    vscode.postMessage({ type: 'qtTodoButton', target: 'queue', questId: qtCurrentQuestId, todoId: queueId, sourceFile: qtSourceFileForId(queueId) });
+                }
                 return;
             }
             if (e.target.closest('.qt-move-btn') || e.target.closest('.qt-move-ws-btn') || e.target.closest('.qt-trash-btn') || e.target.closest('.qt-reopen-btn') || e.target.closest('.qt-restore-btn')) return;
