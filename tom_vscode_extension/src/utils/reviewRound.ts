@@ -63,11 +63,12 @@ export interface ReviewRound {
     merged?: { at: string; file: string; report: string };
 }
 
-/** A document's file extension as the copies take it: `.tomspecs.yaml`, `.tomspecs.md`, `.yaml`, `.md`. */
+/** A document's file extension as the copies take it: `.tomspecs.yaml`, `.tomspecs.md`, `.docspecs.md` (a DocSpecs document), `.yaml`, `.md`. */
 export function documentExtension(file: string): string {
     const lower = file.toLowerCase();
     if (lower.endsWith('.tomspecs.yaml')) { return '.tomspecs.yaml'; }
     if (lower.endsWith('.tomspecs.md')) { return '.tomspecs.md'; }
+    if (lower.endsWith('.docspecs.md')) { return file.slice(-'.docspecs.md'.length); }
     const m = /\.[^./\\]+$/.exec(file);
     return m ? m[0] : '';
 }
