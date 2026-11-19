@@ -8,7 +8,7 @@ tsconfig.json
 .vscode/**
 
 # Development files
-_copilot_guidelines/**
+_agent_guidelines/**
 doc/**
 .npmrc
 

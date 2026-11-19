@@ -6,7 +6,7 @@
 // before main.js; the declarations below are globals main.js calls. The question
 // and answer parser is media/shared/mdQuestions.js, loaded before this file and
 // shared with the extension host (src/utils/mdQuestions.ts).
-/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel */
+/* exported mdbCriticMark, mdbEditInlineComment, mdbChangeQuote, mdbChangeWithComment, mdbQuoteMatches, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, mdbSplitForLexing, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, MDB_LONG_COMMENT, MDB_CHECK_HERE, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentHeader, mdbCommentBody, mdbAttribution, MDB_CHANGE_TIME, MDB_CHANGE_TIMES, mdbLatestChangeTime, mdbChangeTimeLabel, MDB_READING_KINDS, mdbReadingFence, mdbReadingDivEnd, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode */
 //
 // The browser renders the backend's transformed text. Without the CR/LF
 // conversion that transform keeps every line where it is (it only rewrites
@@ -16,7 +16,7 @@
  * Block types that get edit / insert buttons in edit mode.
  * @type {Record<string, boolean>}
  */
-var MDB_EDITABLE_TYPES = { paragraph: true, list: true, blockquote: true, table: true, code: true };
+var MDB_EDITABLE_TYPES = { paragraph: true, list: true, blockquote: true, table: true, code: true, readingDiv: true };
 
 /**
  * The top-level blocks of `text` with their line ranges.
@@ -894,3 +894,232 @@ function mdbAttribution(src) {
     });
     return { raw: m[0], authors: authors, voters: voters, votes: votes, changedAt: changedAt };
 }
+
+// ---- The reading notation (DocSpecs specification § Reading Notation) ----
+// A fenced div marks a block with a kind (`::: {.provenance}` … `:::`), a
+// bracketed span an inline run (`[text]{.aside}`), and the citation shapes
+// `(-> ids)` / `(<- source)` / `(<~ source)` an inline citation. The browser
+// renders them as one element each and shows them by the kind's mode
+// (main.js); the scanning is here.
+
+/**
+ * The registered kinds, their modes and defaults (the kind table of the
+ * reading notation). `block` / `span`: the modes a block or a span of the
+ * kind can be in, the default first; one mode only means the kind is not
+ * collapsible. There is no hidden mode: the marker is the least a reader sees.
+ * An unknown kind is shown (fences and braces hidden, content shown).
+ * @type {Record<string, {block: string[], span: string[], title: string}>}
+ */
+var MDB_READING_KINDS = {
+    provenance: { block: ['collapsed', 'shown'], span: ['marker', 'dimmed', 'shown'], title: 'where the statement came from' },
+    trace: { block: ['collapsed', 'shown'], span: ['marker', 'dimmed', 'shown'], title: 'what the statement rests on' },
+    editorial: { block: ['collapsed', 'shown'], span: ['marker', 'dimmed', 'shown'], title: 'a note for authors and checkers' },
+    aside: { block: ['collapsed', 'shown'], span: ['marker', 'dimmed', 'shown'], title: 'secondary text' },
+    refs: { block: ['compact'], span: ['compact'], title: 'a reference list' },
+    records: { block: ['compact'], span: ['compact'], title: 'a table of records' },
+    rejected: { block: ['collapsed', 'shown'], span: ['marker', 'shown'], title: 'text an import could not place' },
+};
+
+/**
+ * The mode of `kind` for a block (`span` false) or a span: the reader's choice
+ * in `modes` (`{kind: {block, span}}`) when the kind has it, else the kind's
+ * default; an unknown kind is always `shown`.
+ * @param {Record<string, {block?: string, span?: string}>|null|undefined} modes
+ * @param {string} kind
+ * @param {boolean} span
+ * @returns {string}
+ */
+function mdbReadingMode(modes, kind, span) {
+    var known = Object.prototype.hasOwnProperty.call(MDB_READING_KINDS, kind) ? MDB_READING_KINDS[kind] : null;
+    if (!known) { return 'shown'; }
+    var list = span ? known.span : known.block;
+    var chosen = modes && modes[kind] ? (span ? modes[kind].span : modes[kind].block) : undefined;
+    return chosen && list.indexOf(chosen) >= 0 ? chosen : list[0];
+}
+
+/**
+ * The attribute braces of a fence or span, `{.kind .more #id key="value"}`
+ * (without the braces): its first class is the kind; everything is kept.
+ * @param {string} inner
+ * @returns {{kind: string, classes: string[], id: string, attrs: Record<string, string>}}
+ */
+function mdbReadingAttrs(inner) {
+    /** @type {{kind: string, classes: string[], id: string, attrs: Record<string, string>}} */
+    var out = { kind: '', classes: [], id: '', attrs: {} };
+    var re = /\s*(?:\.([\w-]+)|#([\w:.-]+)|([\w-]+)=(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)))/g;
+    var m;
+    while ((m = re.exec(inner)) !== null) {
+        if (m[0].trim() === '') { break; }
+        if (m[1]) { out.classes.push(m[1]); } else if (m[2]) { out.id = m[2]; } else if (m[3]) {
+            out.attrs[m[3]] = m[4] !== undefined ? m[4].replace(/\\(.)/g, '$1') : m[5] !== undefined ? m[5] : m[6];
+        }
+    }
+    out.kind = out.classes[0] || '';
+    return out;
+}
+
+/**
+ * An opening fence: at most three spaces, three or more colons, then the
+ * attribute braces or a bare kind word (`::: provenance` reads as
+ * `{.provenance}`). Null for any other line (a closing fence included).
+ * @param {string} line
+ * @returns {{colons: number, kind: string, classes: string[], id: string, attrs: Record<string, string>}|null}
+ */
+function mdbReadingFence(line) {
+    var m = /^ {0,3}(:{3,})[ \t]*(?:\{([^}\n]*)\}|([A-Za-z][\w-]*))[ \t]*$/.exec(String(line));
+    if (!m) { return null; }
+    var a = m[2] !== undefined ? mdbReadingAttrs(m[2]) : { kind: m[3], classes: [m[3]], id: '', attrs: {} };
+    return { colons: m[1].length, kind: a.kind, classes: a.classes, id: a.id, attrs: a.attrs };
+}
+
+/** A closing fence: at most three spaces, three or more colons and nothing else. */
+var MDB_READING_CLOSE = /^ {0,3}:{3,}[ \t]*$/;
+/** An ATX heading, or a styled-div heading line, outside code: a div never crosses one. */
+var MDB_READING_HEADING = /^ {0,3}(?:#{1,6}(?:\s|$)|<div class="heading\d+")/;
+
+/**
+ * Where the div opened on line `open` of `lines` ends: the index of its
+ * closing fence (`close`), or, unclosed, -1 with `stop` the line it stopped
+ * before (the next heading, or the end). A nested opening fence needs its own
+ * closing fence first; a fence inside fenced code is literal.
+ * @param {string[]} lines
+ * @param {number} open
+ * @returns {{close: number, stop: number, unclosed: boolean}}
+ */
+function mdbReadingDivEnd(lines, open) {
+    var depth = 0;
+    var fence = null;
+    for (var i = open + 1; i < lines.length; i++) {
+        var line = lines[i];
+        var code = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (fence) {
+            if (code && code[1].charAt(0) === fence.charAt(0) && code[1].length >= fence.length && /^ {0,3}[`~]+[ \t]*$/.test(line)) { fence = null; }
+            continue;
+        }
+        if (code) { fence = code[1]; continue; }
+        if (MDB_READING_HEADING.test(line)) { return { close: -1, stop: i, unclosed: true }; }
+        if (mdbReadingFence(line)) { depth++; continue; }
+        if (MDB_READING_CLOSE.test(line)) {
+            if (depth === 0) { return { close: i, stop: i + 1, unclosed: false }; }
+            depth--;
+        }
+    }
+    return { close: -1, stop: lines.length, unclosed: true };
+}
+
+/**
+ * The block token of a div (or a stray closing fence) at the start of `src`,
+ * for marked's block extension `readingDiv`; undefined when `src` does not
+ * start with a fence. `lexer` lexes the content (marked's `blockTokens`), so
+ * lists, tables, code, nested divs, comments and questions inside render as
+ * anywhere else.
+ * @param {string} src
+ * @param {{blockTokens: function(string, Array<unknown>=): Array<unknown>}} lexer
+ * @returns {object|undefined}
+ */
+function mdbReadingDivToken(src, lexer) {
+    var nl = src.indexOf('\n');
+    var first = nl < 0 ? src : src.slice(0, nl);
+    var open = mdbReadingFence(first);
+    if (!open) {
+        if (!MDB_READING_CLOSE.test(first)) { return undefined; }
+        return { type: 'readingDiv', raw: nl < 0 ? src : src.slice(0, nl + 1), stray: true, kind: '', tokens: [] };
+    }
+    var lines = src.split('\n');
+    var end = mdbReadingDivEnd(lines, 0);
+    var contentLines = lines.slice(1, end.unclosed ? end.stop : end.close);
+    var rawLines = lines.slice(0, end.stop);
+    var raw = rawLines.join('\n');
+    // The newline after the last line belongs to the token, as marked's own blocks keep theirs.
+    if (src.length > raw.length && src.charAt(raw.length) === '\n') { raw += '\n'; }
+    // An unclosed div keeps the blank lines before the heading out of its content.
+    while (end.unclosed && contentLines.length && contentLines[contentLines.length - 1].trim() === '') { contentLines.pop(); }
+    var text = contentLines.join('\n');
+    return {
+        type: 'readingDiv', raw: raw, text: text, kind: open.kind, classes: open.classes, id: open.id, attrs: open.attrs,
+        unclosed: end.unclosed, stray: false, tokens: lexer.blockTokens(text, []),
+    };
+}
+
+/**
+ * The `start` of the block extension: where in `src` (marked passes the
+ * source after the current position) a fence line begins, looked for only up
+ * to the end of the current paragraph — its first blank line. A search through
+ * the whole remaining text would be O(n) per paragraph and the render
+ * quadratic (marked asks every block extension before each paragraph). The
+ * answer is the index of the newline before the fence line, so the paragraph
+ * ends at the line before it.
+ * @param {string} src
+ * @returns {number|undefined}
+ */
+function mdbReadingBlockStart(src) {
+    var end = src.indexOf('\n\n');
+    var part = end < 0 ? src : src.slice(0, end);
+    var m = /\n {0,3}:{3}/.exec(part);
+    return m ? m.index : undefined;
+}
+
+/**
+ * A bracketed span at the start of `src`: `[text]` directly followed by
+ * attribute braces with a class. The closing `]` is found with bracket
+ * nesting, skipping code spans and escaped characters; `]\{.` is not a span.
+ * @param {string} src
+ * @returns {{raw: string, text: string, kind: string, classes: string[], id: string, attrs: Record<string, string>}|null}
+ */
+function mdbReadingSpan(src) {
+    if (src.charAt(0) !== '[') { return null; }
+    var depth = 0;
+    for (var i = 0; i < src.length; i++) {
+        var c = src.charAt(i);
+        if (c === '\\') { i++; continue; }
+        if (c === '`') {
+            var run = (/^`+/.exec(src.slice(i)) || ['`'])[0];
+            var close = src.indexOf(run, i + run.length);
+            if (close < 0) { i += run.length - 1; continue; }
+            i = close + run.length - 1;
+            continue;
+        }
+        if (c === '\n' && src.charAt(i + 1) === '\n') { return null; }
+        if (c === '[') { depth++; continue; }
+        if (c !== ']') { continue; }
+        depth--;
+        if (depth > 0) { continue; }
+        if (src.charAt(i + 1) !== '{') { return null; }
+        var shut = src.indexOf('}', i + 2);
+        if (shut < 0 || src.slice(i + 2, shut).indexOf('\n') >= 0) { return null; }
+        var a = mdbReadingAttrs(src.slice(i + 2, shut));
+        if (!a.kind) { return null; }
+        return { raw: src.slice(0, shut + 1), text: src.slice(1, i), kind: a.kind, classes: a.classes, id: a.id, attrs: a.attrs };
+    }
+    return null;
+}
+
+/**
+ * A citation shape at the start of `src`: `(-> ids)` (backed by: kind
+ * `trace`), `(<- source)` (taken from) or `(<~ source)` (extrapolated from),
+ * both kind `provenance`. The arrow is followed by one space; the content
+ * holds no unbalanced parenthesis.
+ * @param {string} src
+ * @returns {{raw: string, arrow: string, content: string, kind: string}|null}
+ */
+function mdbCitation(src) {
+    var m = /^\((->|<-|<~) ((?:[^()\n]|\([^()\n]*\))+)\)/.exec(src);
+    if (!m) { return null; }
+    return { raw: m[0], arrow: m[1], content: m[2], kind: m[1] === '->' ? 'trace' : 'provenance' };
+}
+
+/**
+ * The per-element key of a reading element: its kind, the first 80
+ * characters of its text (whitespace folded) and its occurrence, counted in
+ * `seen` — kept like a fold state across a re-render of the same file.
+ * @param {string} kind
+ * @param {string} text
+ * @param {Record<string, number>} seen
+ * @returns {string}
+ */
+function mdbReadingKey(kind, text, seen) {
+    var base = kind + '|' + String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    seen[base] = (seen[base] || 0) + 1;
+    return base + '#' + seen[base];
+}
+

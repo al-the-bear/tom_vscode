@@ -948,9 +948,14 @@ function qtQueuedRunAt(t, k) {
     return Array.isArray(t.queuedRuns) && t.queuedRuns[k] ? String(t.queuedRuns[k]) : 'default';
 }
 
+/** The longest run name a queue mark shows; a longer one is cut with … (the tooltip names it in full). */
+var QT_QUEUED_RUN_MAX = 15;
+
 /** A queue number as the mark shows it: `#2`, or `chg1 #2` outside the default run (each run tab numbers its own). */
 function qtQueuedLabel(number, run) {
-    return (run && run !== 'default' ? run + ' ' : '') + '#' + number;
+    if (!run || run === 'default') return '#' + number;
+    var name = String(run);
+    return (name.length > QT_QUEUED_RUN_MAX ? name.slice(0, QT_QUEUED_RUN_MAX - 1) + '\u2026' : name) + ' #' + number;
 }
 
 /** The 🔁 mark of a repeated todo, its rule (and when it is due again) in the tooltip. */
@@ -960,6 +965,12 @@ function qtRepeatMark(t) {
         ? (t.next_repeat ? ' — next ' + t.next_repeat.replace('T', ' ') : ' — waiting to be repeated by hand')
         : '');
     return '<span class="qt-repeat" title="' + qtEsc(title) + '">🔁</span>';
+}
+
+/** The 🔔 mark of a todo with reminders: its schedule and its one-shot reminders still to ring, in the tooltip. */
+function qtRemindMark(t) {
+    if (!t.reminders || !t.reminders.length) return '';
+    return '<span class="qt-remind" title="' + qtEsc('Reminders: ' + t.reminders.join('; ')) + '">🔔</span>';
 }
 
 /**
@@ -1066,6 +1077,7 @@ function qtRenderTodoRow(t) {
         '<span class="status-icon">' + icon + '</span>' +
         (t.user_action === true ? '<span class="qt-user-action" title="Your to do: a prefix* queue walk passes it">👤</span>' : '') +
         qtRepeatMark(t) +
+        qtRemindMark(t) +
         qtQueuedMark(t) +
         qtBlockingMark(t) +
         qtDueMark(t) +
@@ -1927,6 +1939,8 @@ function qtRenderDetail(todo) {
         qtTodoButtonsRow(todo) +
         qtUserActionRow(todo.user_action === true, true) +
         qtRepeatSection(todo) +
+        qtRemindSection(todo) +
+        qtRemindersSection(todo) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
             '<div class="qt-tag-chips" id="qt-d-tags">' + qtRenderTagChipsHtml(qtFormTags) + '</div>' +
             '<input class="qt-tag-input" id="qt-d-tag-input" placeholder="Add tag...">' +
@@ -1960,11 +1974,15 @@ function qtRenderDetail(todo) {
     qtAttachOnDoneHandlers(todo);
     qtRepeatFormSync();
     // A rule is saved once it is complete (a weekly rule needs a weekday).
-    document.getElementById('qt-rp').addEventListener('change', function() {
-        var r = qtReadRepeatForm();
-        if (r && r.rule === 'weekly' && (!r.weekdays || r.weekdays.length === 0)) return;
-        qtAutoSave();
+    ['rp', 'rm'].forEach(function(k) {
+        document.getElementById('qt-' + k).addEventListener('change', function() {
+            // The add row of the Reminders section is not part of a rule.
+            var r = qtReadRuleForm(k);
+            if (r && r.rule === 'weekly' && (!r.weekdays || r.weekdays.length === 0)) return;
+            qtAutoSave();
+        });
     });
+    qtAttachRemindersHandlers();
     document.getElementById('qt-btn-delete').addEventListener('click', function() {
         var delQuestId = (todo._resolvedQuestId) || qtCurrentQuestId;
         vscode.postMessage({ type: 'qtDeleteTodo', questId: delQuestId, todoId: todo.id, sourceFile: todo._sourceFile });
@@ -3017,6 +3035,9 @@ function qtCollectFormData() {
         user_action: document.getElementById('qt-d-user-action') ? document.getElementById('qt-d-user-action').checked : undefined,
         // null clears a rule; absent (no Repeat section) leaves it as it is.
         repeat: qtReadRepeatForm(),
+        // The same for the reminder schedule and the one-shot reminders.
+        remind: qtReadRemindForm(),
+        reminders: qtReadRemindersForm(),
         // null removes it; absent (no After done group: the new-todo form) leaves it.
         on_done: qtReadOnDoneForm(),
     };
@@ -3220,101 +3241,232 @@ var QT_RP_MONTHS = ['January','February','March','April','May','June','July','Au
  * repetition instead of completing (the next moment is computed by the host).
  */
 function qtRepeatSection(todo) {
-    var r = (todo && todo.repeat) || null;
-    var rule = r ? r.rule : '';
-    var opt = function(v, label, cur) { return '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + label + '</option>'; };
-    var dayMode = !r ? 'day' : r.day === 'last' ? 'last' : r.nth !== undefined ? 'nth' : r.working_day === 'first' ? 'first-working' : r.working_day === 'last' ? 'last-working' : 'day';
-    var wds = (r && r.weekdays) || [];
     var info = '';
     if (todo && todo.repeat) {
-        info = '<div class="qt-rp-info">' + (todo.repeat_count ? 'Done ' + todo.repeat_count + ' time' + (todo.repeat_count === 1 ? '' : 's') + '. ' : '') +
-            (todo.status === 'waiting-for-repeat' ? (todo.next_repeat ? 'Next: ' + qtEsc(String(todo.next_repeat).replace('T', ' ')) : 'Waits to be repeated by hand.') : '') + '</div>';
+        info = (todo.repeat_count ? 'Done ' + todo.repeat_count + ' time' + (todo.repeat_count === 1 ? '' : 's') + '. ' : '') +
+            (todo.status === 'waiting-for-repeat' ? (todo.next_repeat ? 'Next: ' + String(todo.next_repeat).replace('T', ' ') : 'Waits to be repeated by hand.') : '');
     }
-    return qtFormRow('Repeat', '<div class="qt-repeat-form" id="qt-rp">' +
-        '<select id="qt-rp-rule" title="Done, a repeated todo waits for its next repetition instead of completing">' +
-            opt('', '(not repeated)', rule) + opt('manual', 'by hand', rule) + opt('after', 'after it is done', rule) +
+    return qtRuleSection('rp', 'Repeat', (todo && todo.repeat) || null, info);
+}
+
+/**
+ * The Remind section (🔔): the same rule editor without "by hand" — while the
+ * todo is open it rings at each moment the rule names; `after` counts from the
+ * reminder before. The host keeps `next_remind` and `remind_count`.
+ */
+function qtRemindSection(todo) {
+    var info = '';
+    if (todo && todo.remind) {
+        info = (todo.remind_count ? 'Sent ' + todo.remind_count + ' reminder' + (todo.remind_count === 1 ? '' : 's') + '. ' : '') +
+            (todo.next_remind ? 'Next: ' + String(todo.next_remind).replace('T', ' ') : 'The schedule has ended.');
+    }
+    return qtRuleSection('rm', '🔔 Remind', (todo && todo.remind) || null, info);
+}
+
+/** A rule editor (`rp` the repeat rule, `rm` the reminder schedule), its fields' ids `qt-<k>-…`. */
+function qtRuleSection(k, label, r, infoText) {
+    var rule = r ? r.rule : '';
+    var opt = function(v, text, cur) { return '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + text + '</option>'; };
+    var dayMode = !r ? 'day' : r.day === 'last' ? 'last' : r.nth !== undefined ? 'nth' : r.working_day === 'first' ? 'first-working' : r.working_day === 'last' ? 'last-working' : 'day';
+    var wds = (r && r.weekdays) || [];
+    var id = function(name) { return 'qt-' + k + '-' + name; };
+    var remind = k === 'rm';
+    return qtFormRow(label, '<div class="qt-repeat-form" id="qt-' + k + '" data-rule-kind="' + k + '">' +
+        '<select id="' + id('rule') + '" title="' + (remind
+            ? 'While the todo is open it rings at each moment the rule names'
+            : 'Done, a repeated todo waits for its next repetition instead of completing') + '">' +
+            opt('', remind ? '(no reminders)' : '(not repeated)', rule) + (remind ? '' : opt('manual', 'by hand', rule)) +
+            opt('after', remind ? 'after the reminder before' : 'after it is done', rule) +
             opt('daily', 'daily', rule) + opt('weekly', 'weekly', rule) + opt('monthly', 'monthly', rule) + opt('yearly', 'yearly', rule) +
         '</select>' +
-        '<span data-rp="every"> every <input type="number" id="qt-rp-every" min="1" value="' + qtEsc(String((r && r.every) || 1)) + '" style="width:48px"></span>' +
-        '<select id="qt-rp-unit" data-rp="unit">' + ['days','weeks','months','years'].map(function(u) { return opt(u, u, (r && r.unit) || 'days'); }).join('') + '</select>' +
+        '<span data-rp="every"> every <input type="number" id="' + id('every') + '" min="1" value="' + qtEsc(String((r && r.every) || 1)) + '" style="width:48px"></span>' +
+        '<select id="' + id('unit') + '" data-rp="unit">' + ['days','weeks','months','years'].map(function(u) { return opt(u, u, (r && r.unit) || 'days'); }).join('') + '</select>' +
         '<span data-rp="weekdays" class="qt-rp-weekdays">' + QT_RP_WEEKDAYS.map(function(w) {
             return '<label><input type="checkbox" data-rp-wd="' + w[0] + '"' + (wds.indexOf(w[0]) >= 0 ? ' checked' : '') + '>' + w[1] + '</label>';
         }).join('') + '</span>' +
-        '<span data-rp="month"> in <select id="qt-rp-month">' + QT_RP_MONTHS.map(function(m, i) { return opt(i + 1, m, (r && r.month) || 1); }).join('') + '</select></span>' +
-        '<span data-rp="daymode"> on <select id="qt-rp-daymode">' +
+        '<span data-rp="month"> in <select id="' + id('month') + '">' + QT_RP_MONTHS.map(function(m, i) { return opt(i + 1, m, (r && r.month) || 1); }).join('') + '</select></span>' +
+        '<span data-rp="daymode"> on <select id="' + id('daymode') + '">' +
             opt('day', 'day', dayMode) + opt('last', 'the last day', dayMode) + opt('nth', 'the nth weekday', dayMode) +
             opt('first-working', 'the first working day', dayMode) + opt('last-working', 'the last working day', dayMode) +
         '</select></span>' +
-        '<input type="number" id="qt-rp-day" data-rp="day" min="1" max="31" value="' + qtEsc(String(r && typeof r.day === 'number' ? r.day : 1)) + '" style="width:48px">' +
-        '<span data-rp="nth"><select id="qt-rp-nth">' + opt(1, 'first', r && r.nth) + opt(2, 'second', r && r.nth) + opt(3, 'third', r && r.nth) + opt(4, 'fourth', r && r.nth) + opt(5, 'fifth', r && r.nth) + opt('last', 'last', r && r.nth) + '</select>' +
-            '<select id="qt-rp-weekday">' + QT_RP_WEEKDAYS.map(function(w) { return opt(w[0], w[1], (r && r.weekday) || 'mon'); }).join('') + '</select></span>' +
-        '<span data-rp="time"> at <input type="time" id="qt-rp-time" value="' + qtEsc((r && r.time) || '') + '"></span>' +
-        '<span data-rp="end"> until <input type="date" id="qt-rp-until" value="' + qtEsc((r && r.until) || '') + '"> or <input type="number" id="qt-rp-count" min="1" placeholder="∞" value="' + qtEsc(r && r.count ? String(r.count) : '') + '" style="width:48px"> times</span>' +
-        info +
+        '<input type="number" id="' + id('day') + '" data-rp="day" min="1" max="31" value="' + qtEsc(String(r && typeof r.day === 'number' ? r.day : 1)) + '" style="width:48px">' +
+        '<span data-rp="nth"><select id="' + id('nth') + '">' + opt(1, 'first', r && r.nth) + opt(2, 'second', r && r.nth) + opt(3, 'third', r && r.nth) + opt(4, 'fourth', r && r.nth) + opt(5, 'fifth', r && r.nth) + opt('last', 'last', r && r.nth) + '</select>' +
+            '<select id="' + id('weekday') + '">' + QT_RP_WEEKDAYS.map(function(w) { return opt(w[0], w[1], (r && r.weekday) || 'mon'); }).join('') + '</select></span>' +
+        '<span data-rp="time"> at <input type="time" id="' + id('time') + '" value="' + qtEsc((r && r.time) || '') + '"></span>' +
+        '<span data-rp="end"> until <input type="date" id="' + id('until') + '" value="' + qtEsc((r && r.until) || '') + '"> or <input type="number" id="' + id('count') + '" min="1" placeholder="∞" value="' + qtEsc(r && r.count ? String(r.count) : '') + '" style="width:48px"> times</span>' +
+        (infoText ? '<div class="qt-rp-info">' + qtEsc(infoText) + '</div>' : '') +
         '</div>');
 }
 
-/** Show the fields the chosen rule takes. */
-function qtRepeatFormSync() {
-    var form = document.getElementById('qt-rp');
-    if (!form) return;
-    var rule = document.getElementById('qt-rp-rule').value;
-    var dm = document.getElementById('qt-rp-daymode').value;
-    var show = {
-        every: rule === 'after' || rule === 'daily' || rule === 'weekly' || rule === 'monthly' || rule === 'yearly',
-        unit: rule === 'after',
-        weekdays: rule === 'weekly',
-        month: rule === 'yearly',
-        daymode: rule === 'monthly' || rule === 'yearly',
-        day: (rule === 'monthly' || rule === 'yearly') && dm === 'day',
-        nth: (rule === 'monthly' || rule === 'yearly') && dm === 'nth',
-        time: !!rule && rule !== 'manual',
-        end: !!rule,
-    };
-    form.querySelectorAll('[data-rp]').forEach(function(el) { el.style.display = show[el.dataset.rp] ? '' : 'none'; });
+/** Show the fields the chosen rule takes (both rule editors, or the one `k` names). */
+function qtRepeatFormSync(k) {
+    (k ? [k] : ['rp', 'rm']).forEach(function(kind) {
+        var form = document.getElementById('qt-' + kind);
+        if (!form) return;
+        var rule = document.getElementById('qt-' + kind + '-rule').value;
+        var dm = document.getElementById('qt-' + kind + '-daymode').value;
+        var show = {
+            every: rule === 'after' || rule === 'daily' || rule === 'weekly' || rule === 'monthly' || rule === 'yearly',
+            unit: rule === 'after',
+            weekdays: rule === 'weekly',
+            month: rule === 'yearly',
+            daymode: rule === 'monthly' || rule === 'yearly',
+            day: (rule === 'monthly' || rule === 'yearly') && dm === 'day',
+            nth: (rule === 'monthly' || rule === 'yearly') && dm === 'nth',
+            time: !!rule && rule !== 'manual',
+            end: !!rule,
+        };
+        form.querySelectorAll('[data-rp]').forEach(function(el) { el.style.display = show[el.dataset.rp] ? '' : 'none'; });
+    });
 }
 
 /**
  * The rule the Repeat section holds: a `repeat` map, null for "not repeated"
  * (clears an existing rule), undefined when the form has no Repeat section.
  */
-function qtReadRepeatForm() {
-    var ruleEl = document.getElementById('qt-rp-rule');
+function qtReadRepeatForm() { return qtReadRuleForm('rp'); }
+
+/** The rule the Remind section holds: a `remind` map, null for "no reminders", undefined without the section. */
+function qtReadRemindForm() { return qtReadRuleForm('rm'); }
+
+function qtReadRuleForm(k) {
+    var ruleEl = document.getElementById('qt-' + k + '-rule');
     if (!ruleEl) return undefined;
+    var el = function(name) { return document.getElementById('qt-' + k + '-' + name); };
     var rule = ruleEl.value;
     if (!rule) return null;
     var r = { rule: rule };
-    var num = function(id) { var v = parseInt(document.getElementById(id).value, 10); return isNaN(v) ? undefined : v; };
-    var every = num('qt-rp-every');
+    var num = function(name) { var v = parseInt(el(name).value, 10); return isNaN(v) ? undefined : v; };
+    var every = num('every');
     if (rule !== 'manual' && every && every > 1) r.every = every;
-    if (rule === 'after') r.unit = document.getElementById('qt-rp-unit').value;
+    if (rule === 'after') r.unit = el('unit').value;
     if (rule === 'weekly') {
-        r.weekdays = Array.prototype.map.call(document.querySelectorAll('#qt-rp [data-rp-wd]:checked'), function(b) { return b.dataset.rpWd; });
+        r.weekdays = Array.prototype.map.call(document.querySelectorAll('#qt-' + k + ' [data-rp-wd]:checked'), function(b) { return b.dataset.rpWd; });
     }
-    if (rule === 'yearly') r.month = num('qt-rp-month');
+    if (rule === 'yearly') r.month = num('month');
     if (rule === 'monthly' || rule === 'yearly') {
-        var dm = document.getElementById('qt-rp-daymode').value;
-        if (dm === 'day') r.day = num('qt-rp-day') || 1;
+        var dm = el('daymode').value;
+        if (dm === 'day') r.day = num('day') || 1;
         if (dm === 'last') r.day = 'last';
         if (dm === 'nth') {
-            var nth = document.getElementById('qt-rp-nth').value;
+            var nth = el('nth').value;
             r.nth = nth === 'last' ? 'last' : parseInt(nth, 10);
-            r.weekday = document.getElementById('qt-rp-weekday').value;
+            r.weekday = el('weekday').value;
         }
         if (dm === 'first-working') r.working_day = 'first';
         if (dm === 'last-working') r.working_day = 'last';
     }
-    var time = document.getElementById('qt-rp-time').value;
+    var time = el('time').value;
     if (time && rule !== 'manual') r.time = time;
-    var until = document.getElementById('qt-rp-until').value;
+    var until = el('until').value;
     if (until) r.until = until;
-    var count = num('qt-rp-count');
+    var count = num('count');
     if (count && count > 0) r.count = count;
     return r;
 }
 document.addEventListener('change', function(e) {
-    if (e.target && e.target.closest && e.target.closest('#qt-rp')) qtRepeatFormSync();
+    var form = e.target && e.target.closest && e.target.closest('[data-rule-kind]');
+    if (form) qtRepeatFormSync(form.dataset.ruleKind);
 });
+
+// ── One-shot reminders: the Reminders section of the detail form ──
+
+/** The `reminders` list the form edits (a copy of the todo's), or null without the section. */
+var qtFormReminders = null;
+
+/** A one-shot reminder in words (as the host's describeReminderEntry). */
+function qtReminderEntryText(e) {
+    if (e.at) return 'at ' + String(e.at).replace('T', ' ');
+    var m = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(e.before || '');
+    var names = ['year', 'month', 'week', 'day', 'hour', 'minute', 'second'];
+    var parts = [];
+    if (m) { names.forEach(function(n, i) { var v = m[i + 1] ? parseInt(m[i + 1], 10) : 0; if (v) parts.push(v + ' ' + n + (v === 1 ? '' : 's')); }); }
+    return (parts.join(' ') || (e.before || '?')) + ' before the due date' + (e.time ? ' at ' + e.time : '');
+}
+
+/** The local offset of `date` as ±HH:MM. */
+function qtOffsetOf(date) {
+    var off = -date.getTimezoneOffset();
+    var p = function(n) { return String(Math.abs(n)).padStart(2, '0'); };
+    return (off >= 0 ? '+' : '-') + p(Math.trunc(off / 60)) + ':' + p(off % 60);
+}
+
+/**
+ * The Reminders section: the one-shot reminders, each ringing once — at an
+ * instant, or a span before the due date (at a time of day) — with the ones
+ * that rang marked; add one, remove one.
+ */
+function qtRemindersSection(todo) {
+    qtFormReminders = ((todo && todo.reminders) || []).map(function(e) { return Object.assign({}, e); });
+    return qtFormRow('🔔 Reminders', '<div class="qt-reminders" id="qt-rmd">' + qtRemindersListHtml() +
+        '<div class="qt-rmd-add">' +
+            '<select id="qt-rmd-kind"><option value="at">at</option><option value="before">before the due date</option></select>' +
+            '<span data-rmd="at"> <input type="datetime-local" id="qt-rmd-at"></span>' +
+            '<span data-rmd="before" style="display:none"> <input type="number" id="qt-rmd-n" min="1" value="1" style="width:48px">' +
+                '<select id="qt-rmd-unit"><option value="M">minutes</option><option value="H" selected>hours</option><option value="D">days</option><option value="W">weeks</option></select>' +
+                ' before, counted from <input type="time" id="qt-rmd-time" title="The time of day on the due date (empty: its start)"></span>' +
+            ' <button class="qt-edit-btn" type="button" id="qt-rmd-add" title="Add this reminder">➕</button>' +
+        '</div></div>');
+}
+
+function qtRemindersListHtml() {
+    return '<div id="qt-rmd-list">' + (qtFormReminders || []).map(function(e, i) {
+        var rang = e.acknowledged ? ' <span class="qt-rmd-rang" title="Rang or dismissed ' + qtEsc(String(e.acknowledged)) + '">✓ rang</span>' : '';
+        var snoozed = e.snoozed_until ? ' <span title="Snoozed">💤 ' + qtEsc(String(e.snoozed_until).replace('T', ' ')) + '</span>' : '';
+        return '<div class="qt-rmd-row">' + qtEsc(qtReminderEntryText(e)) + rang + snoozed +
+            ' <button class="qt-edit-btn" type="button" data-rmd-remove="' + i + '" title="Remove this reminder">🗑️</button></div>';
+    }).join('') + '</div>';
+}
+
+/** The entry the add row describes, or null when it is incomplete. */
+function qtReadReminderAddRow() {
+    var kind = document.getElementById('qt-rmd-kind').value;
+    if (kind === 'at') {
+        var v = document.getElementById('qt-rmd-at').value; // YYYY-MM-DDTHH:MM, local
+        if (!v) return null;
+        var d = new Date(v);
+        if (isNaN(d.getTime())) return null;
+        return { at: v.slice(0, 16) + qtOffsetOf(d) };
+    }
+    var n = parseInt(document.getElementById('qt-rmd-n').value, 10);
+    if (!n || n < 1) return null;
+    var unit = document.getElementById('qt-rmd-unit').value;
+    var entry = { before: (unit === 'H' || unit === 'M') ? 'PT' + n + unit : 'P' + n + unit };
+    var time = document.getElementById('qt-rmd-time').value;
+    if (time) entry.time = time;
+    return entry;
+}
+
+/** The list the Reminders section holds (null: none), undefined without the section. */
+function qtReadRemindersForm() {
+    if (!document.getElementById('qt-rmd') || qtFormReminders === null) return undefined;
+    return qtFormReminders.length ? qtFormReminders : null;
+}
+
+/** Wire the Reminders section: kind switch, add, remove (each change saves). */
+function qtAttachRemindersHandlers() {
+    var box = document.getElementById('qt-rmd');
+    if (!box) return;
+    document.getElementById('qt-rmd-kind').addEventListener('change', function() {
+        var before = this.value === 'before';
+        box.querySelector('[data-rmd="at"]').style.display = before ? 'none' : '';
+        box.querySelector('[data-rmd="before"]').style.display = before ? '' : 'none';
+    });
+    document.getElementById('qt-rmd-add').addEventListener('click', function() {
+        var entry = qtReadReminderAddRow();
+        if (!entry) return;
+        qtFormReminders.push(entry);
+        document.getElementById('qt-rmd-list').outerHTML = qtRemindersListHtml();
+        qtAutoSave();
+    });
+    box.addEventListener('click', function(e) {
+        var btn = e.target && e.target.closest && e.target.closest('[data-rmd-remove]');
+        if (!btn) return;
+        qtFormReminders.splice(parseInt(btn.dataset.rmdRemove, 10), 1);
+        document.getElementById('qt-rmd-list').outerHTML = qtRemindersListHtml();
+        qtAutoSave();
+    });
+}
 
 function qtUserActionRow(checked, withGuide) {
     var guide = withGuide

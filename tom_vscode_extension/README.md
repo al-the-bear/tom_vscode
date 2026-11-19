@@ -798,7 +798,7 @@ Run the extension host for manual testing: open this project in VS Code, press
 ## Further documentation
 
 User-facing guides live in [`doc/`](doc/). Contributors also have the
-extension's development guidelines, the `_copilot_guidelines/` folder in the
+extension's development guidelines, the `_agent_guidelines/` folder in the
 source tree; they are not part of this documentation.
 
 | Document | Covers |

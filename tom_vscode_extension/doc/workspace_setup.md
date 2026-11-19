@@ -234,5 +234,5 @@ Chat variables allow dynamic prompt expansion. Configure them in
 ## Need Help?
 
 - Check the extension's quick reference: `@T: Extension Status Page` command
-- Review `_copilot_guidelines/` for workspace conventions
+- Review `_agent_guidelines/` for workspace conventions
 - Consult [quick_reference.md](quick_reference.md) in the extension folder

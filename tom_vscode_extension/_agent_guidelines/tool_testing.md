@@ -391,6 +391,6 @@ start of the answer). It runs in about two seconds.
 ## Why this lives in the local guidelines
 
 The infrastructure is TypeScript-specific to the VS Code extension. The
-workspace-level `_copilot_guidelines/dart/test_tracking.md` is the Dart
+workspace-level `_agent_guidelines/dart/test_tracking.md` is the Dart
 sibling (testkit baselines), but coupling the Node/TS audit to that doc
 would mix two unrelated test ecosystems. Local guideline wins.

@@ -13,7 +13,7 @@ import { PromptQueueManager } from './promptQueueManager';
 import { readPanelYamlSync, writePanelYaml } from '../utils/panelYamlStore';
 import { logTimed, logTimedError } from '../utils/queueLogger';
 import { liveRepeatedTodoPort, releaseDueRepeatedTodos } from '../services/repeatedTodoController';
-import { liveDueReminderPort, sendDueReminders } from '../services/todoDueReminders';
+import { liveDueReminderPort, sendTodoReminders } from '../services/todoDueReminders';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { WsPaths } from '../utils/workspacePaths';
 import { isTimedItemOf } from '../utils/timedQueueItems';
@@ -173,20 +173,22 @@ export class TimerEngine {
     }
 
     /**
-     * On the same tick: the one reminder of every todo of this window's quest
-     * whose `due` reminder moment has come (services/todoDueReminders.ts,
-     * vscimpb152aa). Only the window of the todo's quest sends; the todo
-     * records it, so it goes out once.
+     * On the same tick: the reminders of this window's quest's todos that are
+     * due — a `due` date's one reminder, a `remind` schedule's moment, a
+     * one-shot `reminders` entry — one notification per todo
+     * (services/todoDueReminders.ts, vscimpb152aa / vscimpb152ab). Only the
+     * window of the todo's quest sends; the todo records each, so it goes out
+     * once.
      */
     private runDueReminders(now: Date): void {
         const quest = WsPaths.getWorkspaceQuestId();
         if (!quest || quest === 'default') { return; }
         let time: string | undefined;
         try { time = loadSendToChatConfig()?.todoPanel?.dueReminderTime; } catch { time = undefined; }
-        void sendDueReminders(liveDueReminderPort(), [quest], now, time).then((result) => {
-            for (const r of result.sent) { logTimed(`Todo due reminder sent: ${r.questId}/${r.todoId} (due ${r.due})`); }
-            for (const f of result.failed) { logTimed(`Todo due reminder not sent (failed): ${f}`); }
-        }, (err) => logTimedError('todo due reminders', err));
+        void sendTodoReminders(liveDueReminderPort(), [quest], now, time).then((result) => {
+            for (const r of result.sent) { logTimed(`Todo reminder sent: ${r.questId}/${r.todoId} (${r.kinds.join(', ')}${r.due ? `, due ${r.due}` : ''})`); }
+            for (const f of result.failed) { logTimed(`Todo reminder not sent (failed): ${f}`); }
+        }, (err) => logTimedError('todo reminders', err));
     }
 
     static get instance(): TimerEngine {

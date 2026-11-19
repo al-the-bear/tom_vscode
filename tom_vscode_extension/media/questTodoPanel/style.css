@@ -25,7 +25,8 @@
 .qt-group-header:hover { color: var(--vscode-foreground); }
 .qt-group-header .codicon { font-size: 12px; flex-shrink: 0; transition: transform 0.15s; }
 .qt-group-header.collapsed .codicon { transform: rotate(-90deg); }
-.qt-group-header .qt-group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The prefix keeps its room: the queue mark beside it shrinks first (a long run name), then the label. */
+.qt-group-header .qt-group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 4em; }
 .qt-group-header .qt-group-count { font-weight: 400; flex-shrink: 0; }
 .qt-group-header .qt-group-move-btn, .qt-group-header .qt-group-walk-btn, .qt-group-header .qt-group-rename-btn { order: 2; background: transparent; border: none; cursor: pointer; padding: 0 2px; font-size: 11px; opacity: 0.6; flex-shrink: 0; }
 .qt-group-header .qt-group-move-btn:hover, .qt-group-header .qt-group-walk-btn:hover, .qt-group-header .qt-group-rename-btn:hover { opacity: 1; }
@@ -225,7 +226,7 @@
 .qt-trash-btn:hover { opacity: 1; color: var(--vscode-errorForeground); }
 .qt-reopen-btn:hover { opacity: 1; color: var(--vscode-testing-iconPassed); }
 .qt-todo-item .qt-user-action { flex-shrink: 0; font-size: 0.9em; }
-.qt-todo-item .qt-queued { flex-shrink: 0; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); cursor: default; }
+.qt-todo-item .qt-queued { flex-shrink: 0; max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); cursor: default; }
 /* A todo that blocks open todos (its `blocking`): ⛓️ beside the status icon. */
 .qt-todo-item .qt-blocking { flex-shrink: 0; font-size: 0.9em; }
 /* The user's own todos (user_action: true): 👤 before the title and a purple title,
@@ -238,7 +239,7 @@
 .qt-todo-item.overdue .ttitle { color: var(--vscode-errorForeground, #f14c4c); }
 .qt-overdue-input { border-color: var(--vscode-errorForeground, #f14c4c) !important; color: var(--vscode-errorForeground, #f14c4c); }
 .qt-due-reminded { margin-left: 6px; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
-.qt-group-header .qt-group-queued { margin-left: 6px; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.qt-group-header .qt-group-queued { margin-left: 6px; font-size: 0.8em; padding: 0 4px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: 0 100 auto; min-width: 2.5em; max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-id-row { display: flex; align-items: center; gap: 4px; flex: 1; }
 .qt-id-row input { flex: 1; }
 .qt-id-edit-btn { flex-shrink: 0; }
@@ -249,6 +250,11 @@
 .qt-repeat-form { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .qt-repeat-form .qt-rp-weekdays label { display: inline-flex; align-items: center; gap: 1px; margin-right: 3px; }
 .qt-repeat-form .qt-rp-info { width: 100%; font-size: 0.9em; opacity: 0.8; }
+.qt-remind { margin-right: 3px; }
+.qt-reminders { display: flex; flex-direction: column; gap: 3px; }
+.qt-reminders .qt-rmd-row { display: flex; align-items: center; gap: 4px; }
+.qt-reminders .qt-rmd-rang { opacity: 0.7; font-size: 0.9em; }
+.qt-reminders .qt-rmd-add { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 
 /* SESSION TODOS: the session switch */
 .qt-session-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--vscode-panel-border); }

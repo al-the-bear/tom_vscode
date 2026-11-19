@@ -83,6 +83,15 @@
                 <option value="8">8 sp</option>
             </select>
             <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
+            <!-- Reading: how the reading notation's marked text is shown (DocSpecs § Reading Notation). -->
+            <button class="icon-btn" id="readAllBtn" title="Show all marked text (every kind in its fullest mode)">
+                <span class="codicon codicon-eye"></span>
+            </button>
+            <span class="nav-kind">
+                <button class="nav-kind-btn" id="readKindBtn" title="How each kind of marked text is shown: collapsed, as a marker, dimmed or shown">Reading</button>
+                <div class="nav-kind-pop read-kind-pop" id="readKindPop" hidden></div>
+            </span>
+            <span style="width:1px; height:16px; background:var(--vscode-panel-border); margin:0 2px;"></span>
             <button class="icon-btn" id="navPrevBtn" title="Previous (of the kinds chosen beside)">
                 <span class="codicon codicon-arrow-up"></span>
             </button>

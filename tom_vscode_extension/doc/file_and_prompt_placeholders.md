@@ -77,16 +77,16 @@ Two shortcuts for the most common case — the active role / quest from the Chat
 
 `${guidelines-<name>}` reads a single file from the workspace guidelines folder:
 
-1. `_copilot_guidelines/<name>.md` (primary — matches the project convention)
+1. `_agent_guidelines/<name>.md` (primary — matches the project convention)
 2. `_guidelines/<name>.md` (fallback when no `_copilot_` prefix is used)
 
 `<name>` can either include the `.md` extension or omit it. Examples:
 
 | Placeholder | File read |
 | --- | --- |
-| `${guidelines-index}` or `${guidelines-index.md}` | `_copilot_guidelines/index.md` |
-| `${guidelines-project_guidelines}` | `_copilot_guidelines/project_guidelines.md` |
-| `${guidelines-dart/coding_guidelines}` | `_copilot_guidelines/dart/coding_guidelines.md` (subfolder paths work too) |
+| `${guidelines-index}` or `${guidelines-index.md}` | `_agent_guidelines/index.md` |
+| `${guidelines-project_guidelines}` | `_agent_guidelines/project_guidelines.md` |
+| `${guidelines-dart/coding_guidelines}` | `_agent_guidelines/dart/coding_guidelines.md` (subfolder paths work too) |
 
 ### Specific roles
 

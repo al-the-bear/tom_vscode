@@ -15,6 +15,7 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import { describeRepeat, repeatRuleError, type TodoRepeat } from './todoRepeat';
+import { describeRemind, describeReminderEntry, remindRuleError, type TodoReminderEntry } from './todoRemind';
 import { isTodoOverdue, localDate } from './todoDue';
 
 /** What a list row is built from: a todo as the todo manager reads it. */
@@ -36,6 +37,9 @@ export interface TodoListSource {
     comprised_of?: string[];
     repeat?: TodoRepeat;
     next_repeat?: string;
+    remind?: TodoRepeat;
+    next_remind?: string;
+    reminders?: TodoReminderEntry[];
     /** The questions behind a `decision-needed` status; one without a `decision` is open. */
     decisions?: Array<{ summary?: string; decision?: string }>;
 }
@@ -63,6 +67,8 @@ export interface TodoListItem {
     repeat_manual?: true;
     /** When a waiting repeated todo is due again. */
     next_repeat?: string;
+    /** The reminders it has, in words (the row's 🔔 mark and its tooltip): its `remind` schedule and its one-shot reminders still to ring. */
+    reminders?: string[];
     /** A `decision-needed` todo: the summaries of its open decisions (the row's and its group's yellow chip). */
     open_decisions?: string[];
     /** A group todo (status `group`): its members as written (vscimpb126). */
@@ -140,6 +146,14 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
         if (todo.repeat.rule === 'manual') { row.repeat_manual = true; }
     }
     if (todo.next_repeat) { row.next_repeat = todo.next_repeat; }
+    const reminders: string[] = [];
+    if (todo.remind && !remindRuleError(todo.remind)) {
+        reminders.push(`${describeRemind(todo.remind)}${todo.next_remind ? ` — next ${todo.next_remind.replace('T', ' ')}` : ' — ended'}`);
+    }
+    for (const entry of todo.reminders ?? []) {
+        if (!(entry.acknowledged ?? '').trim()) { reminders.push(describeReminderEntry(entry)); }
+    }
+    if (reminders.length) { row.reminders = reminders; }
     if (todo.status === 'decision-needed') {
         row.open_decisions = (todo.decisions ?? [])
             .filter((d) => !(typeof d?.decision === 'string' && d.decision.trim()))

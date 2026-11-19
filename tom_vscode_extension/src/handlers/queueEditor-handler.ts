@@ -1014,6 +1014,18 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             sendState();
             break;
         }
+        case 'skipBlockedTodo': {
+            // A held walk or GROUP item's Continue: the todo it waits at is skipped, the walk goes on.
+            if (!qm.skipBlockedTodo(String(msg.id ?? ''))) { vscode.window.showInformationMessage('Nothing to continue: the item is no longer held at a blocked todo, or it runs a single todo.'); }
+            sendState();
+            break;
+        }
+        case 'runBlockedTodoAnyway': {
+            // A held item's Run anyway: the todo it waits at runs without waiting for its blockers.
+            if (!qm.runBlockedTodoAnyway(String(msg.id ?? ''))) { vscode.window.showInformationMessage('Nothing to run: the item is no longer held at a blocked todo.'); }
+            sendState();
+            break;
+        }
         case 'cancelSoftInterrupt': {
             // The interruption panel's Cancel interruption: the turn goes on, as before the press.
             if (!qm.cancelSoftInterrupt(String(msg.id ?? ''))) { vscode.window.showInformationMessage('No interruption to cancel.'); }
@@ -1716,6 +1728,8 @@ function buildState(): Record<string, unknown> {
                 // Interrupt for continuation (vscimpb112): the soft interrupt's request or hold, the question its
                 // turn waits in (the ❓ tooltip), and the transport (a Copilot item has no hold point).
                 ...(softInterruptViewOf(item) ? { softInterruptView: softInterruptViewOf(item) } : {}),
+                // A held item (todo-blocked): Continue (a walk or GROUP item) and Run anyway.
+                ...(item.status === 'todo-blocked' ? { blockedActions: PromptQueueManager.instance.blockedItemActions(item.id) } : {}),
                 ...(questionViewOf(item) ? { questionView: questionViewOf(item) } : {}),
                 ...(item.status === 'sending' ? { interruptTransport: stageTransportOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.

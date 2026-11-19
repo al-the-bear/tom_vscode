@@ -10,7 +10,7 @@ tsconfig.media.json
 .vscode/**
 
 # Development files
-_copilot_guidelines/**
+_agent_guidelines/**
 doc/**
 !doc/quick_reference.md
 !doc/workspace_setup.md

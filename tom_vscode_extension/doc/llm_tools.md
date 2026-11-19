@@ -255,6 +255,19 @@ repeated todo set to `completed` is written as `waiting-for-repeat` with
 Timed Requests list's repeated-todo controller (`TimedRequest.kind:
 repeated-todos`) moves due ones back to `not-started`.
 
+**Reminders.** Create and update take `remind` (a reminder schedule: the
+`repeat` rule forms but `manual`; `null` removes it) and `reminders` (one-shot
+`{at}` / `{before, time}` entries, the whole list replaced; `null` or `[]`
+removes it). The writers keep `next_remind` and `remind_count` (a new or
+changed rule starts again from now; a tool that sets them is refused) and
+compute `next_remind` again when `repeat` brings the todo back. The same
+controller tick that releases repeated todos sends, in a window of the todo's
+quest, what each todo has due — the `due` date's reminder, a `remind` moment,
+`reminders` entries — as one notification, each recorded first with a
+check-and-set under the todo file's lock (`markDueReminded`, `markRemindSent`,
+`markReminderEntrySent`; `services/todoDueReminders.ts`,
+`utils/todoRemind.ts`).
+
 Archive/delete naming rule: the sibling file is derived by suffixing the
 **first dot-segment** of the source name (`todos.myquest.todo.yaml` →
 `todos-archived.myquest.todo.yaml` / `todos-deleted.myquest.todo.yaml`).
@@ -264,7 +277,7 @@ segment already ends in `-archived`/`-deleted` are terminal and refuse both
 operations. Both moves are **idempotent by id**: archiving a todo already
 present in the target replaces it in place rather than adding a second copy,
 and the result reports those ids under `replaced`. See
-`_copilot_guidelines/todo_files_and_panel.md`.
+`_agent_guidelines/todo_files_and_panel.md`.
 
 **Dates are dates.** The todo schema declares `due`, `created`, `updated`,
 `completed_date`, `archived` and `deleted` as `format: date`, and the shared

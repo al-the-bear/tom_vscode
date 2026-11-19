@@ -24,8 +24,8 @@ k) The activeProject edit field in the chat variable editor should have the same
 
 l) Add a dropdown to the guidelines panel, which allows to switch between guidelines groups, the groups are:
 
-- global: in _copilot_guidelines in workspace root
-- projects: in _copilot_guidelines in the project folders. When I choose this another dropdown to pick the project appear before showing me files.
+- global: in _agent_guidelines in workspace root
+- projects: in _agent_guidelines in the project folders. When I choose this another dropdown to pick the project appear before showing me files.
 - roles: in _ai/roles
 - agent instructions: the root's and the workspace folder's `AGENTS.md` (the Copilot file in .github only while one is still there)
 

@@ -519,25 +519,30 @@ function render() {
 
   const stopBtn = document.getElementById('stopActiveBtn');
   if (stopBtn) {
-    const hasSending = sending > 0;
+    // A held item (blocked at a todo) is stopped too: back to staged.
+    const hasSending = sending > 0 || todoBlocked > 0;
     stopBtn.disabled = !hasSending;
     stopBtn.style.opacity = hasSending ? '1' : '0.4';
     stopBtn.style.cursor = hasSending ? 'pointer' : 'not-allowed';
-    stopBtn.title = hasSending
+    stopBtn.title = sending > 0
       ? 'Stop currently running prompt (revert to staged)'
-      : 'Stop — no prompt is currently running';
+      : todoBlocked > 0
+        ? 'Stop the item held at a blocked todo (revert to staged)'
+        : 'Stop — no prompt is currently running';
   }
   const interruptBtn = document.getElementById('interruptForContinuationBtn');
   if (interruptBtn) {
-    const canInterrupt = sending > 0;
+    const canInterrupt = sending > 0 || todoBlocked > 0;
     // The tab's sending item (vscimpb112): after the first click it shows the stop icon — a second click is the hard interrupt.
     const sendingItem = runItems.find(i => i.status === 'sending');
     interruptBtn.disabled = !canInterrupt;
     interruptBtn.style.opacity = canInterrupt ? '1' : '0.4';
     interruptBtn.style.cursor = canInterrupt ? 'pointer' : 'not-allowed';
-    interruptBtn.title = canInterrupt
+    interruptBtn.title = sendingItem
       ? interruptButtonTitle(sendingItem)
-      : 'Interrupt for continuation — no prompt is currently running';
+      : canInterrupt
+        ? 'Interrupt the item held at a blocked todo (it has no turn running: it goes back to staged)'
+        : 'Interrupt for continuation — no prompt is currently running';
     const icon = interruptBtn.querySelector('.codicon');
     if (icon) {
       icon.className = 'codicon ' + (sendingItem ? interruptButtonIcon(sendingItem) : 'codicon-debug-disconnect');
@@ -855,6 +860,10 @@ document.addEventListener('click', function(ev) {
   queueAnswerMarkdown(btn.getAttribute('data-qid'), btn.getAttribute('data-qe-md-mode'));
 });
 function interruptForContinuation(id) { vscode.postMessage({ type: 'interruptForContinuation', id }); }
+// eslint-disable-next-line no-unused-vars -- called by a held item's Continue button (queueEntryRenderFunctions.js)
+function skipBlockedTodo(id) { vscode.postMessage({ type: 'skipBlockedTodo', id }); }
+// eslint-disable-next-line no-unused-vars -- called by a held item's Run anyway button (queueEntryRenderFunctions.js)
+function runBlockedTodoAnyway(id) { vscode.postMessage({ type: 'runBlockedTodoAnyway', id }); }
 // eslint-disable-next-line no-unused-vars -- called by the soft interrupt panel (queueEntryRenderFunctions.js)
 function hardInterruptNow(id) { vscode.postMessage({ type: 'hardInterruptNow', id }); }
 // eslint-disable-next-line no-unused-vars -- called by the soft interrupt panel (queueEntryRenderFunctions.js)

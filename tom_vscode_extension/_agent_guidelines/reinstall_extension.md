@@ -160,7 +160,7 @@ the starting quest `tomai_introduction`, plus `.tom/workspace_template.json`
 (type `dart`, version 2, both parts' files, the `{{root}}` token).
 `workspace/`, from the workspace folder (`--workspace`, default the
 container): an empty `.tom/`, AGENTS.md, CLAUDE.md (its import of the shared
-file written as `@{{root}}/…`) and `_copilot_guidelines/` without this
+file written as `@{{root}}/…`) and `_agent_guidelines/` without this
 workspace's projects and checks guidelines, the ones that only point into its
 packages, and the transition copies of root guidelines (links to them point to
 the root's copy through the token). `.github/copilot-instructions.md` is not

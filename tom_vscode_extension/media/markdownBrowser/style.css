@@ -641,3 +641,85 @@ body.mdb-no-navigation .picker-area,
 body.mdb-no-navigation #backBtn,
 body.mdb-no-navigation #forwardBtn,
 body.mdb-no-navigation .mdb-link-popup { display: none !important; }
+
+/* ---- The reading notation (DocSpecs § Reading Notation): one element per marked block or span ----
+   The kind's mode is a class on the content area (main.js readingClasses); these rules do the rest, so a
+   mode change writes one attribute. Shown: the content as around it, with a thin muted rule for a block. */
+.mdb-rd { border-left: 2px solid var(--vscode-textBlockQuote-border, rgba(128, 128, 128, 0.35)); padding-left: 8px; margin: 4px 0; }
+.mdb-rd > .mdb-rd-body > :first-child { margin-top: 0; }
+.mdb-rd > .mdb-rd-body > :last-child { margin-bottom: 0; }
+.mdb-rd-toggle, .mdb-rd-tag {
+    display: none; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-align: left;
+    color: var(--vscode-descriptionForeground);
+}
+.mdb-rd-toggle:hover, .mdb-rd-tag:hover { color: var(--vscode-textLink-foreground); }
+.mdb-rd-toggle .mdb-rd-kind { font-style: italic; }
+.mdb-rd-toggle .mdb-rd-preview { opacity: 0.8; }
+.mdb-rd-tag { font-size: 0.85em; margin-bottom: 2px; }
+.mdb-rd-source { font-size: 0.85em; color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
+.mdb-rs-marker { display: none; cursor: pointer; color: var(--vscode-textLink-foreground); padding: 0 1px; user-select: none; }
+.mdb-rs-marker:focus { outline: 1px solid var(--vscode-focusBorder); }
+/* An unclosed div is shown whatever its kind's mode: where it ends is not sure. */
+.mdb-rd-unclosed { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
+.mdb-rd-stray { color: var(--vscode-descriptionForeground); opacity: 0.7; font-family: var(--vscode-editor-font-family, monospace); }
+/* Compact kinds (content, never collapsed): a reference list on one wrapped line, a records table scrolling sideways. */
+.mdb-read-refs-compact .mdb-rd[data-kind="refs"] > .mdb-rd-body p { display: inline; margin: 0 0.6em 0 0; }
+.mdb-read-refs-compact .mdb-rd[data-kind="refs"] > .mdb-rd-body ul { display: inline; padding: 0; margin: 0; }
+.mdb-read-refs-compact .mdb-rd[data-kind="refs"] > .mdb-rd-body li { display: inline; margin-right: 0.6em; }
+.mdb-read-records-compact .mdb-rd[data-kind="records"] > .mdb-rd-body { overflow-x: auto; }
+.mdb-read-records-compact .mdb-rd[data-kind="records"] > .mdb-rd-body table { white-space: nowrap; }
+/* The kinds popup. */
+.read-kind-pop { min-width: 260px; }
+.read-kind-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 12px; white-space: nowrap; }
+.read-kind-row .read-kind-name { flex: 1; }
+.read-kind-row .read-kind-count { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+.read-kind-row select { font-size: 11px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); }
+.read-kind-fixed { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.read-kind-actions { padding: 4px 8px 2px; }
+.read-kind-reset { font-size: 11px; padding: 2px 8px; cursor: pointer; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 2px; }
+.read-kind-reset:hover { background: var(--vscode-button-secondaryHoverBackground); }
+/* provenance */
+.mdb-read-provenance-collapsed .mdb-rd[data-kind="provenance"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-body { display: none; }
+.mdb-read-provenance-collapsed .mdb-rd[data-kind="provenance"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
+.mdb-read-provenance-collapsed .mdb-rd[data-kind="provenance"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
+.mdb-read-provenance-collapsed .mdb-rd[data-kind="provenance"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-read-provenance-marker .mdb-rs[data-kind="provenance"] > .mdb-rs-marker { display: inline; }
+.mdb-read-provenance-marker .mdb-rs[data-kind="provenance"]:not(.mdb-open) > .mdb-rs-body { display: none; }
+.mdb-read-provenance-marker .mdb-rs[data-kind="provenance"].mdb-open > .mdb-rs-body,
+.mdb-read-provenance-dimmed .mdb-rs[data-kind="provenance"] > .mdb-rs-body { opacity: 0.65; font-size: 0.9em; }
+/* trace */
+.mdb-read-trace-collapsed .mdb-rd[data-kind="trace"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-body { display: none; }
+.mdb-read-trace-collapsed .mdb-rd[data-kind="trace"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
+.mdb-read-trace-collapsed .mdb-rd[data-kind="trace"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
+.mdb-read-trace-collapsed .mdb-rd[data-kind="trace"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-read-trace-marker .mdb-rs[data-kind="trace"] > .mdb-rs-marker { display: inline; }
+.mdb-read-trace-marker .mdb-rs[data-kind="trace"]:not(.mdb-open) > .mdb-rs-body { display: none; }
+.mdb-read-trace-marker .mdb-rs[data-kind="trace"].mdb-open > .mdb-rs-body,
+.mdb-read-trace-dimmed .mdb-rs[data-kind="trace"] > .mdb-rs-body { opacity: 0.65; font-size: 0.9em; }
+/* editorial */
+.mdb-read-editorial-collapsed .mdb-rd[data-kind="editorial"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-body { display: none; }
+.mdb-read-editorial-collapsed .mdb-rd[data-kind="editorial"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
+.mdb-read-editorial-collapsed .mdb-rd[data-kind="editorial"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
+.mdb-read-editorial-collapsed .mdb-rd[data-kind="editorial"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-read-editorial-marker .mdb-rs[data-kind="editorial"] > .mdb-rs-marker { display: inline; }
+.mdb-read-editorial-marker .mdb-rs[data-kind="editorial"]:not(.mdb-open) > .mdb-rs-body { display: none; }
+.mdb-read-editorial-marker .mdb-rs[data-kind="editorial"].mdb-open > .mdb-rs-body,
+.mdb-read-editorial-dimmed .mdb-rs[data-kind="editorial"] > .mdb-rs-body { opacity: 0.65; font-size: 0.9em; }
+/* aside */
+.mdb-read-aside-collapsed .mdb-rd[data-kind="aside"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-body { display: none; }
+.mdb-read-aside-collapsed .mdb-rd[data-kind="aside"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
+.mdb-read-aside-collapsed .mdb-rd[data-kind="aside"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
+.mdb-read-aside-collapsed .mdb-rd[data-kind="aside"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-read-aside-marker .mdb-rs[data-kind="aside"] > .mdb-rs-marker { display: inline; }
+.mdb-read-aside-marker .mdb-rs[data-kind="aside"]:not(.mdb-open) > .mdb-rs-body { display: none; }
+.mdb-read-aside-marker .mdb-rs[data-kind="aside"].mdb-open > .mdb-rs-body,
+.mdb-read-aside-dimmed .mdb-rs[data-kind="aside"] > .mdb-rs-body { opacity: 0.65; font-size: 0.9em; }
+/* rejected */
+.mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-body { display: none; }
+.mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
+.mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
+.mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-read-rejected-marker .mdb-rs[data-kind="rejected"] > .mdb-rs-marker { display: inline; }
+.mdb-read-rejected-marker .mdb-rs[data-kind="rejected"]:not(.mdb-open) > .mdb-rs-body { display: none; }
+.mdb-read-rejected-marker .mdb-rs[data-kind="rejected"].mdb-open > .mdb-rs-body,
+.mdb-read-rejected-dimmed .mdb-rs[data-kind="rejected"] > .mdb-rs-body { opacity: 0.65; font-size: 0.9em; }

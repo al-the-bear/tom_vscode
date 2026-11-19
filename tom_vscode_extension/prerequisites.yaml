@@ -1,5 +1,5 @@
 # What the Tom AI extension needs before it builds or runs: the secrets it reads (never their values)
-# and the software it expects. Format: _copilot_guidelines/prerequisites_yaml.md; schema:
+# and the software it expects. Format: _agent_guidelines/prerequisites_yaml.md; schema:
 # src/config/prerequisites.schema.json. The @TOM VSC › PREREQUISITES view checks it.
 formatVersion: 1
 sections:

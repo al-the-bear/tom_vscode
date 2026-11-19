@@ -103,7 +103,7 @@ files are terminal (never a move source). This replaces the earlier
 `*.backup.todo.yaml` mechanism (removed in TRA03). Session todos are one file per
 session in its storage root, `history/sessions/<session>/session-todos.todo.yaml`
 (unversioned, deleted with the session). See
-`_copilot_guidelines/todo_files_and_panel.md`.
+`_agent_guidelines/todo_files_and_panel.md`.
 
 **Tools:**
 - `dartscript_listTodos` — List todos from a quest, optionally filtered by status, file, or tags
@@ -134,7 +134,7 @@ session in its storage root, `history/sessions/<session>/session-todos.todo.yaml
 > **Current storage:** session todos belong to one session of the quest and
 > live in that session's storage root
 > (`_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml`,
-> unversioned, deleted with the session; `_copilot_guidelines/todo_files_and_panel.md` § 3).
+> unversioned, deleted with the session; `_agent_guidelines/todo_files_and_panel.md` § 3).
 > The original window-scoped design below is kept for historical context.
 
 **Rationale:** The LLM often postpones actions ("I'll fix this after completing X") or identifies follow-up items during work. Without a persistent self-reminder, these get lost when the context window fills up or the conversation is summarized. This tool gives the LLM a memory scratchpad that survives within a session.

@@ -60,6 +60,7 @@ import type { RetryWait } from '../utils/retryBudgetLoop';
 import { questTodoUnblockPort } from '../utils/questTodoUnblockPort';
 import { todoBlockState } from '../utils/todoBlockState';
 import { questStatusIndex } from '../utils/todoBlockingCascade';
+import { effectiveBlock, walkBlockView, type ViewTodo, type WalkBlockContext } from '../utils/walkBlockView';
 import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { queuedByFrom, queuedByToYaml, type QueuedBy } from '../utils/queuedBy';
 import { onDoneDueAtSettle } from '../utils/todoOnDoneRun';
@@ -425,6 +426,12 @@ export interface QueuedPrompt {
     needsAttention?: string;
     /** While the item is `todo-blocked`: the todo it is held at and what that waits for. Persisted as `blocked-on`. */
     blockedOn?: string;
+    /** While the item is `todo-blocked`: the id of the todo it is held at. Persisted as `blocked-todo`. */
+    blockedTodo?: string;
+    /** Todos the user skipped on this held item (Continue): its walk passes them. Persisted as `skipped-todos`. */
+    skippedTodos?: string[];
+    /** Todos the user runs anyway on this held item: their blockers do not hold. Persisted as `ignore-block-todos`. */
+    ignoreBlockTodos?: string[];
     /**
      * "Pause after this": when set, the queue stops once this item has
      * finished its **last** stage / repetition — the item itself always runs
@@ -1217,6 +1224,8 @@ export class PromptQueueManager {
             m._reloadFromDisk();
         });
         PromptQueueManager._inst = m;
+        // What the walk view reads of the queue: the todos items ahead run, the todos running items claim.
+        walkQueueFacts = (item, questId) => m._walkQueueFacts(item, questId);
         PromptQueueManager._readyResolve?.(m);
         // An open ask is recorded on its item; asks a reload left open are shown again (vscimpb166).
         setOpenAskStore({ record: (itemId, call) => m._recordOpenAsk(itemId, call), clear: (itemId) => m._clearOpenAsk(itemId) });
@@ -2180,6 +2189,7 @@ export class PromptQueueManager {
             if (questId && this._todoBlockOf(item, questId)) { continue; }
             item.status = 'pending';
             delete item.blockedOn;
+            delete item.blockedTodo;
             released.push(item.id);
         }
         if (!released.length) { return; }
@@ -2195,15 +2205,16 @@ export class PromptQueueManager {
      * the first of them that is blocked. Blockers completed in the meantime
      * never block: a todo still marked `blocked` is set back to `not-started`.
      */
-    private _todoBlockOf(item: QueuedPrompt, questId: string): string | undefined {
+    private _todoBlockOf(item: QueuedPrompt, questId: string): { id: string; why: string } | undefined {
         if (parseTodoWalk(item.repeatCount) !== undefined) {
             releaseUnblockedTodos(item.repeatCount, questId, QUEST_TODO_UNBLOCK_PORT);
             const blocked = blockHoldingWalk(item.repeatCount, walkEntriesOf(item, questId));
-            return blocked.length ? `todo ${blocked[0].id} ${blocked[0].blockedReason}` : undefined;
+            return blocked.length ? { id: blocked[0].id, why: `todo ${blocked[0].id} ${blocked[0].blockedReason}` } : undefined;
         }
         const ids = (item.todoIdPattern ?? '').split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*'));
         if (!ids.length) { return undefined; }
-        const states = questTodoBlockStates(questId, new Set(ids));
+        const { states, todos } = questTodoBlockData(questId, new Set(ids));
+        const ctx = walkBlockContextOf(item, questId);
         for (const id of ids) {
             const state = states.get(id);
             if (!state) { continue; }
@@ -2213,21 +2224,121 @@ export class PromptQueueManager {
                 QUEST_TODO_UNBLOCK_PORT.writeStatus(questId, id, 'not-started');
                 continue;
             }
-            if (state.blocked) { return `todo ${id} ${state.reason}`; }
+            const todo = todos.get(id);
+            const block = effectiveBlock({ id, status: todo?.status, blockedBy: todo?.blocked_by, blockedUntil: todo?.blocked_until }, state, ctx);
+            if (block.blocked) { return { id, why: `todo ${id} ${block.reason}` }; }
         }
         return undefined;
     }
 
     /** Hold `item` as `todo-blocked` (`why`: the todo and what it waits for) and pause its run, as an open decision does. */
-    private _holdTodoBlocked(item: QueuedPrompt, why: string): void {
+    private _holdTodoBlocked(item: QueuedPrompt, why: string, todoId?: string): void {
         logQueue(`Item ${item.id}: held, ${why}`);
         item.status = 'todo-blocked';
         item.blockedOn = why;
+        if (todoId) { item.blockedTodo = todoId; } else { delete item.blockedTodo; }
         item.awaitingAnswer = false;
         item.inFlightRepetition = undefined;
         this._pauseRunOf(item, `item ${item.id} is blocked: ${why}`);
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * What the walk view (utils/walkBlockView.ts) reads of the queue for `item`:
+     * the todos the items ahead of it run — the single todos they name, the open
+     * todos of their walks and groups — and the todos another running item holds
+     * a claim on. Ahead: before it in the queue and not finished (sent, failed
+     * and chat sends do not count).
+     */
+    private _walkQueueFacts(item: QueuedPrompt, questId: string): { queuedAhead(quest: string, id: string): boolean; claimedElsewhere(id: string): boolean } {
+        let ahead: Set<string> | undefined;
+        const aheadSet = (): Set<string> => {
+            if (ahead) { return ahead; }
+            ahead = new Set<string>();
+            const at = this._items.indexOf(item);
+            const before = at < 0 ? [] : this._items.slice(0, at).filter((i) => !['sent', 'error', 'chat', 'chat-sent'].includes(i.status));
+            let entries: TodoIterationSource[] | undefined;
+            for (const i of before) {
+                for (const id of (i.todoIdPattern ?? '').split(',').map((p) => p.trim()).filter((p) => p && !p.endsWith('*'))) { ahead.add(id); }
+                const walk = parseTodoWalk(i.repeatCount);
+                if (!walk) { continue; }
+                entries ??= readQuestTodoEntries(questId);
+                for (const e of collectWalkTodos(walk, entries)) {
+                    if (e.status !== 'completed' && e.status !== 'cancelled') { ahead.add(e.id); }
+                }
+            }
+            return ahead;
+        };
+        return {
+            queuedAhead: (quest, id) => quest === questId && aheadSet().has(id),
+            claimedElsewhere: (id) => this._items.some((i) => i !== item && i.status === 'sending' && !!i.todoClaim && !i.todoClaim.released
+                && i.todoClaim.questId === questId && i.todoClaim.todoId === id),
+        };
+    }
+
+    /** The todo a held (`todo-blocked`) item waits at: `blockedTodo`, else read from `blockedOn` (an item held by an older build). */
+    private _blockedTodoOf(item: QueuedPrompt): string | undefined {
+        if (item.blockedTodo) { return item.blockedTodo; }
+        const m = /^todo (\S+) /.exec(item.blockedOn ?? '');
+        return m ? m[1] : undefined;
+    }
+
+    /** Which actions a held item offers (the queue editor's buttons): Continue only for a walk or a GROUP item. */
+    blockedItemActions(id: string): { canSkip: boolean; canRunAnyway: boolean } {
+        const item = this._items.find((i) => i.id === id);
+        if (!item || item.status !== 'todo-blocked') { return { canSkip: false, canRunAnyway: false }; }
+        return { canSkip: parseTodoWalk(item.repeatCount) !== undefined && parseTodoWalk(item.repeatCount)?.kind !== 'todo', canRunAnyway: !!this._blockedTodoOf(item) };
+    }
+
+    /**
+     * Continue past the todo a held walk or GROUP item waits at: the todo is
+     * skipped for this item (its walk passes it), the item goes back to
+     * `pending` and its run's auto-send comes on, so the walk goes on with its
+     * next todo. A single-todo item has no next todo: refused.
+     */
+    skipBlockedTodo(id: string): boolean {
+        const item = this._items.find((i) => i.id === id);
+        if (!item || item.status !== 'todo-blocked') { return false; }
+        const walk = parseTodoWalk(item.repeatCount);
+        const todoId = this._blockedTodoOf(item);
+        if (!walk || walk.kind === 'todo' || !todoId) { return false; }
+        item.skippedTodos = [...new Set([...(item.skippedTodos ?? []), todoId])];
+        logQueue(`Item ${item.id}: todo ${todoId} skipped by the user — the walk goes on`);
+        this._releaseHeldByUser(item);
+        return true;
+    }
+
+    /**
+     * Run the todo a held item waits at anyway (its blocking information may be
+     * out of date): its blockers no longer hold it for this item, a todo still
+     * marked `blocked` is set to `not-started`, the item goes back to `pending`
+     * and its run's auto-send comes on.
+     */
+    runBlockedTodoAnyway(id: string): boolean {
+        const item = this._items.find((i) => i.id === id);
+        if (!item || item.status !== 'todo-blocked') { return false; }
+        const todoId = this._blockedTodoOf(item);
+        if (!todoId) { return false; }
+        item.ignoreBlockTodos = [...new Set([...(item.ignoreBlockTodos ?? []), todoId])];
+        const questId = this.activeQuestId();
+        if (questId) {
+            const raw = questTodoBlockData(questId, new Set([todoId])).todos.get(todoId);
+            if (raw?.status === 'blocked') { QUEST_TODO_UNBLOCK_PORT.writeStatus(questId, todoId, 'not-started'); }
+        }
+        logQueue(`Item ${item.id}: todo ${todoId} run anyway by the user (its blockers are not waited for)`);
+        this._releaseHeldByUser(item);
+        return true;
+    }
+
+    /** A held item the user released: `pending`, the hold's record gone, its run's auto-send on. */
+    private _releaseHeldByUser(item: QueuedPrompt): void {
+        item.status = 'pending';
+        delete item.blockedOn;
+        delete item.blockedTodo;
+        this.persist();
+        this._onDidChange.fire();
+        this.setRunAutoSend(itemRun(item), true);
     }
 
     /**
@@ -3591,6 +3702,7 @@ export class PromptQueueManager {
         // `interrupted` -> `pending` would re-dispatch with the counter one ahead
         // and skip the interrupted rep; its only exits are resume or staged.
         if (item.status === 'interrupted') { return false; }
+        if (item.status === 'todo-blocked') { delete item.blockedOn; delete item.blockedTodo; }
         item.status = status;
         logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
         this.persist();
@@ -3696,6 +3808,13 @@ export class PromptQueueManager {
             : run === undefined && this._activeAnthropicCts.size > 0;
 
         if (!sending && !hasActiveCts) {
+            // A held item of the run (todo-blocked) is stopped too: back to staged, so its todos can be rearranged
+            // and the item restarted.
+            const held = this._heldTodoBlockedItem(id, run);
+            if (held) {
+                logQueue(`stopActiveItem: ${held.id} was held at a blocked todo — back to staged`);
+                return this.setStatus(held.id, 'staged');
+            }
             logQueue('stopActiveItem: no sending item and no active dispatch to stop');
             return false;
         }
@@ -3748,6 +3867,12 @@ export class PromptQueueManager {
             ? this._items.find(i => i.id === id && i.status === 'sending')
             : this._items.find(i => i.status === 'sending' && this._inRun(i, run));
         if (!sending) {
+            // A held item (todo-blocked) has no turn to interrupt: it is stopped (back to staged), as Stop does.
+            const held = this._heldTodoBlockedItem(id, run);
+            if (held) {
+                logQueue(`interruptActiveItemForContinuation: ${held.id} was held at a blocked todo — back to staged`);
+                return this.setStatus(held.id, 'staged');
+            }
             logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
             return false;
         }
@@ -3782,6 +3907,13 @@ export class PromptQueueManager {
         this._onDidChange.fire();
         logQueue(`interruptActiveItemForContinuation: ${sending.id} soft interrupt requested — its next tool result is held; hard interrupt in 15 s unless held`);
         return true;
+    }
+
+    /** The item held at a blocked todo: `id`'s, else the first of `run`. */
+    private _heldTodoBlockedItem(id: string | undefined, run: string | undefined): QueuedPrompt | undefined {
+        return id
+            ? this._items.find((i) => i.id === id && i.status === 'todo-blocked')
+            : this._items.find((i) => i.status === 'todo-blocked' && this._inRun(i, run));
     }
 
     /** The hard interrupt (vscimpb112): cancel the turn now; the item is `interrupted` and its run paused. */
@@ -6585,7 +6717,7 @@ export class PromptQueueManager {
             const plainQuest = this.activeQuestId();
             const blockedOn = plainQuest ? this._todoBlockOf(item, plainQuest) : undefined;
             if (blockedOn) {
-                this._holdTodoBlocked(item, blockedOn);
+                this._holdTodoBlocked(item, blockedOn.why, blockedOn.id);
                 return 'paused';
             }
         }
@@ -6599,7 +6731,7 @@ export class PromptQueueManager {
             // The todo the walk would take next waits for a todo that is not completed: hold the item there
             // (the todos before it have run), as at an open decision.
             const t = plan.todos[0];
-            this._holdTodoBlocked(item, `todo ${t.id} ${t.blockedReason ?? 'is blocked'}`);
+            this._holdTodoBlocked(item, `todo ${t.id} ${t.blockedReason ?? 'is blocked'}`, t.id);
             return 'paused';
         }
         if (plan.mode === 'decision-needed') {
@@ -7767,6 +7899,9 @@ export class PromptQueueManager {
                 ...(validContinuations(main['walk-continuations']) !== undefined ? { walkContinuations: validContinuations(main['walk-continuations']) } : {}),
                 ...(typeof main['needs-attention'] === 'string' && main['needs-attention'] ? { needsAttention: main['needs-attention'] } : {}),
                 ...(typeof main['blocked-on'] === 'string' && main['blocked-on'] ? { blockedOn: main['blocked-on'] } : {}),
+                ...(typeof main['blocked-todo'] === 'string' && main['blocked-todo'] ? { blockedTodo: main['blocked-todo'] } : {}),
+                ...(Array.isArray(main['skipped-todos']) ? { skippedTodos: main['skipped-todos'].filter((t): t is string => typeof t === 'string') } : {}),
+                ...(Array.isArray(main['ignore-block-todos']) ? { ignoreBlockTodos: main['ignore-block-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
             };
             // What the item holds: stored, else derived (an item written before vscimpb127).
@@ -7936,6 +8071,9 @@ export class PromptQueueManager {
             ...(item.walkContinuations !== undefined ? { 'walk-continuations': item.walkContinuations } : {}),
             ...(item.needsAttention ? { 'needs-attention': item.needsAttention } : {}),
             ...(item.blockedOn ? { 'blocked-on': item.blockedOn } : {}),
+            ...(item.blockedTodo ? { 'blocked-todo': item.blockedTodo } : {}),
+            ...(item.skippedTodos?.length ? { 'skipped-todos': [...item.skippedTodos] } : {}),
+            ...(item.ignoreBlockTodos?.length ? { 'ignore-block-todos': [...item.ignoreBlockTodos] } : {}),
         };
 
         // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
@@ -8188,33 +8326,61 @@ function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoI
 function walkEntriesOf(item: QueuedPrompt, questId: string): TodoIterationSource[] {
     const ran = walkableRepeatIds(item);
     const entries = withSelectionFlags(readQuestTodoEntries(questId, ran), item.groupSelection, ran);
-    // What blocks each todo now (utils/todoBlockState.ts): the walk holds at a blocked one.
-    const states = questTodoBlockStates(questId);
-    return entries.map((e) => {
-        const state = states.get(e.id);
-        return state?.blocked ? { ...e, blockedReason: state.reason } : e;
+    // What blocks each todo now (utils/todoBlockState.ts), as the item sees it (utils/walkBlockView.ts): a blocker
+    // the item or an item ahead runs first does not hold, stale in-progress todos run, the user's skips are passed.
+    const { states, todos } = questTodoBlockData(questId);
+    const viewed: ViewTodo[] = entries.map((e) => {
+        const raw = todos.get(e.id);
+        return raw ? { ...e, blockedBy: raw.blocked_by, blockedUntil: raw.blocked_until } : e;
     });
+    return walkBlockView(item.repeatCount, viewed, states, walkBlockContextOf(item, questId, ran, states.size > 0));
 }
 
+/** What the queue knows that the walk view needs (the items ahead, the claims); set by the manager. */
+let walkQueueFacts: ((item: QueuedPrompt, questId: string) => { queuedAhead(quest: string, id: string): boolean; claimedElsewhere(id: string): boolean }) | undefined;
+
+/** The context the walk view reads for `item` (utils/walkBlockView.ts). */
+function walkBlockContextOf(item: QueuedPrompt, questId: string, ran: ReadonlySet<string> = walkableRepeatIds(item), withIndex = true): WalkBlockContext {
+    // The status index reads every quest: only when a todo carries a block to judge.
+    let index: { statusOf: (quest: string, id: string) => string | undefined; quests: Set<string> } = { statusOf: () => undefined, quests: new Set<string>() };
+    const root = withIndex ? (todoQuestsRoot() ?? WsPaths.ai('quests')) : undefined;
+    try { if (root) { index = questStatusIndex(root); } } catch { /* nothing known */ }
+    const facts = walkQueueFacts?.(item, questId);
+    return {
+        questId,
+        quests: index.quests,
+        statusOf: index.statusOf,
+        queuedAhead: (quest, id) => facts?.queuedAhead(quest, id) ?? false,
+        claimedElsewhere: (id) => facts?.claimedElsewhere(id) ?? false,
+        ran,
+        skipped: new Set(item.skippedTodos ?? []),
+        ignoreBlock: new Set(item.ignoreBlockTodos ?? []),
+    };
+}
+
+// eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
+type BlockRawTodo = { id: string; status?: string; blocked_by?: string[]; blocked_until?: string[] };
+
 /**
- * The block state of the live todos of `questId` that carry a block (`blocked_by`, or status `blocked`);
- * `only`: of these ids. Blockers are looked up in every quest, live and archived.
+ * The block state of the live todos of `questId` that carry a block (`blocked_by`, or status `blocked`), with
+ * the raw todos read (their `blocked_by` / `blocked_until`); `only`: of these ids. Blockers are looked up in every
+ * quest, live and archived.
  */
-function questTodoBlockStates(questId: string, only?: ReadonlySet<string>): Map<string, ReturnType<typeof todoBlockState>> {
+function questTodoBlockData(questId: string, only?: ReadonlySet<string>): { states: Map<string, ReturnType<typeof todoBlockState>>; todos: Map<string, BlockRawTodo> } {
     const out = new Map<string, ReturnType<typeof todoBlockState>>();
+    const raw = new Map<string, BlockRawTodo>();
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readAllTodos } = require('../managers/questTodoManager');
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
-        const todos = (readAllTodos(questId) as Array<{ id: string; status?: string; blocked_by?: string[]; blocked_until?: string[] }>)
+        const todos = (readAllTodos(questId) as BlockRawTodo[])
             .filter((t) => (!only || only.has(t.id)) && ((t.blocked_by?.length ?? 0) > 0 || t.status === 'blocked'));
-        if (!todos.length) { return out; }
+        if (!todos.length) { return { states: out, todos: raw }; }
         // The quests folder: the todo writers', else the workspace's (nothing was written yet in this window).
         const root = todoQuestsRoot() ?? WsPaths.ai('quests');
         const index = root ? questStatusIndex(root) : { statusOf: () => undefined, quests: new Set<string>() };
-        for (const t of todos) { out.set(t.id, todoBlockState(t, questId, index.statusOf, index.quests)); }
+        for (const t of todos) { out.set(t.id, todoBlockState(t, questId, index.statusOf, index.quests)); raw.set(t.id, t); }
     } catch { /* unreadable todos block nothing */ }
-    return out;
+    return { states: out, todos: raw };
 }
 
 /** A todo's record as the block a todo iteration appends; undefined when it cannot be read. */

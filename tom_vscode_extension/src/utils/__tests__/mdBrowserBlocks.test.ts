@@ -40,6 +40,15 @@
  *         it, previous the last one before it, wrapping around; targets without a position are passed over
  *   MB-20 revealing a target: its context (the question) at the top of the view, unless that would push
  *         the part that must stay visible (the answer editor) out at the bottom
+ *   MB-23 the reading notation's opening fence: braces or a bare kind word, up to three spaces of indent, the
+ *         first class as the kind, `#id` and `key="value"` kept; a closing fence, four spaces and `\:::` are none;
+ *         the registered kinds and their default modes, an unknown kind always shown
+ *   MB-24 the closing fence: nesting, a fence inside fenced code, a heading stop (ATX or styled div), unclosed at
+ *         the end; the block extension's `start` looks only up to the paragraph's end
+ *   MB-25 spans and citation shapes: nesting, code spans, `]\{.` is none, no blank line inside, a class needed;
+ *         `(-> ids)` trace, `(<- …)` / `(<~ …)` provenance, balanced parentheses only; the per-element key
+ *   MB-26 a div is one block from its opening to its closing fence, editable, its content lexed inside it; a
+ *         stray closing fence is a block of its own
  */
 
 import test, { describe } from 'node:test';
@@ -47,7 +56,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { marked } from 'marked';
+import { marked, Marked } from 'marked';
 
 interface Block { index: number; type: string; startLine: number; endLine: number; editable: boolean }
 interface BlocksApi {
@@ -79,6 +88,16 @@ interface BlocksApi {
     mdbEditInlineComment(source: string, raw: string, occurrence: number, comment: string): { text: string } | { error: string };
     mdbChangeQuote(text: string): { kind: string; oldText: string; newText: string; outcome: string | null; comment: string } | null;
     mdbChangeWithComment(src: string): { mark: { raw: string }; token: string; comment: { raw: string; text: string } | null; raw: string } | null;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- blocks.js's global
+    MDB_READING_KINDS: Record<string, { block: string[]; span: string[]; title: string }>;
+    mdbReadingFence(line: string): { colons: number; kind: string; classes: string[]; id: string; attrs: Record<string, string> } | null;
+    mdbReadingDivEnd(lines: string[], open: number): { close: number; stop: number; unclosed: boolean };
+    mdbReadingDivToken(src: string, lexer: unknown): Record<string, unknown> | undefined;
+    mdbReadingBlockStart(src: string): number | undefined;
+    mdbReadingSpan(src: string): { raw: string; text: string; kind: string; classes: string[]; id: string; attrs: Record<string, string> } | null;
+    mdbCitation(src: string): { raw: string; arrow: string; content: string; kind: string } | null;
+    mdbReadingKey(kind: string, text: string, seen: Record<string, number>): string;
+    mdbReadingMode(modes: Record<string, { block?: string; span?: string }> | null, kind: string, span: boolean): string;
 }
 
 function load(): BlocksApi {
@@ -482,5 +501,91 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(api.mdbRevealDelta(500, 700, 400, 8), 492, 'the question at the top, the editor below it in view');
         assert.equal(api.mdbRevealDelta(500, 1100, 400, 8), 708, 'a long question: the editor at the bottom of the view');
         assert.equal(api.mdbRevealDelta(-300, 50, 400, 8), -308, 'upwards too');
+    });
+
+    test('MB-23: the opening fence and the kinds', () => {
+        const plain = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+        assert.deepEqual(plain(api.mdbReadingFence('::: {.provenance .extra #p1 label="Where it came from" source=notes.md}')),
+            { colons: 3, kind: 'provenance', classes: ['provenance', 'extra'], id: 'p1', attrs: { label: 'Where it came from', source: 'notes.md' } });
+        assert.equal(api.mdbReadingFence('   :::: aside')?.kind, 'aside', 'a bare kind word, up to three spaces, more colons');
+        assert.equal(api.mdbReadingFence('::: {#x}')?.kind, '', 'no class: a div without a kind');
+        assert.equal(api.mdbReadingFence(':::'), null, 'a closing fence opens nothing');
+        assert.equal(api.mdbReadingFence('    ::: aside'), null, 'four spaces are an indented code block');
+        assert.equal(api.mdbReadingFence('\\::: aside'), null, 'an escaped fence is text');
+        assert.equal(api.mdbReadingFence(':: aside'), null);
+        assert.deepEqual(Object.keys(api.MDB_READING_KINDS), ['provenance', 'trace', 'editorial', 'aside', 'refs', 'records', 'rejected']);
+        const mode = (kind: string, span: boolean, modes: Record<string, { block?: string; span?: string }> | null = null): string => api.mdbReadingMode(modes, kind, span);
+        assert.deepEqual(['provenance', 'editorial', 'aside'].map((k) => [mode(k, false), mode(k, true)]), [['collapsed', 'marker'], ['collapsed', 'marker'], ['collapsed', 'marker']]);
+        assert.equal(mode('trace', true), 'marker');
+        assert.deepEqual([mode('refs', false), mode('records', false)], ['compact', 'compact']);
+        assert.equal(mode('mystery', false), 'shown', 'an unknown kind is shown');
+        assert.equal(mode('aside', true, { aside: { span: 'dimmed' } }), 'dimmed', 'the reader\'s choice');
+        assert.equal(mode('aside', true, { aside: { span: 'hidden' } }), 'marker', 'no hidden mode: an unknown choice falls back');
+        assert.equal(mode('refs', false, { refs: { block: 'collapsed' } }), 'compact', 'content is never collapsed');
+    });
+
+    test('MB-24: the closing fence', () => {
+        const end = (lines: string[]): unknown => JSON.parse(JSON.stringify(api.mdbReadingDivEnd(lines, 0)));
+        assert.deepEqual(end(['::: aside', 'a', ':::', 'b']), { close: 2, stop: 3, unclosed: false });
+        assert.deepEqual(end([':::: {.provenance}', 'a', '::: trace', 'b', ':::', 'c', '::::']), { close: 6, stop: 7, unclosed: false }, 'a nested div closes first');
+        assert.deepEqual(end(['::: aside', '```', ':::', '```', ':::']), { close: 4, stop: 5, unclosed: false }, 'a fence inside code is literal');
+        assert.deepEqual(end(['::: aside', '~~~~', ':::', '~~~', ':::', '~~~~', ':::']), { close: 6, stop: 7, unclosed: false }, 'a shorter fence does not close the code');
+        assert.deepEqual(end(['::: aside', 'a', '', '## Next', ':::']), { close: -1, stop: 3, unclosed: true }, 'a heading stops it');
+        assert.deepEqual(end(['::: aside', 'a', '<div class="heading7" id="X"><!--[X]--> Deep</div>']), { close: -1, stop: 2, unclosed: true }, 'a styled-div heading too');
+        assert.deepEqual(end(['::: aside', 'a']), { close: -1, stop: 2, unclosed: true }, 'unclosed at the end');
+        // `start`: the newline before a fence line, looked for only up to the paragraph's end.
+        assert.equal(api.mdbReadingBlockStart('ext\nmore\n::: aside\n'), 'ext\nmore'.length);
+        assert.equal(api.mdbReadingBlockStart('ext\n\n::: aside\n'), undefined, 'not past the blank line');
+        assert.equal(api.mdbReadingBlockStart('ext and more'), undefined);
+    });
+
+    test('MB-25: spans, citations and keys', () => {
+        const span = (src: string): unknown => { const m = api.mdbReadingSpan(src); return m ? JSON.parse(JSON.stringify(m)) : null; };
+        assert.deepEqual(span('[an aside]{.aside} rest'), { raw: '[an aside]{.aside}', text: 'an aside', kind: 'aside', classes: ['aside'], id: '', attrs: {} });
+        assert.equal((span('[a [b]{.trace} c]{.provenance label="L"}') as { text: string; attrs: { label: string } }).text, 'a [b]{.trace} c', 'nesting');
+        assert.equal((span('[code `]{.x}` in it]{.aside}') as { text: string }).text, 'code `]{.x}` in it', 'a code span is skipped');
+        assert.equal((span('[a \\] b]{.aside}') as { text: string }).text, 'a \\] b', 'an escaped bracket is skipped');
+        assert.equal(span('[a]\\{.aside}'), null, '`]\\{.` is no span');
+        assert.equal(span('[a](http://x)'), null, 'a link is no span');
+        assert.equal(span('[a]{#only-id}'), null, 'a span needs a class');
+        assert.equal(span('[a\n\nb]{.aside}'), null, 'no blank line inside');
+        assert.equal((span('[a\nb]{.aside}') as { text: string }).text, 'a\nb', 'it may wrap a line');
+        const cite = (src: string): unknown => { const m = api.mdbCitation(src); return m ? JSON.parse(JSON.stringify(m)) : null; };
+        assert.deepEqual(cite('(-> C2.1, TR-07) and'), { raw: '(-> C2.1, TR-07)', arrow: '->', content: 'C2.1, TR-07', kind: 'trace' });
+        assert.equal((cite('(<- tom_uam.sbp.tomspecs.md#FRE-REQU-LST)') as { kind: string }).kind, 'provenance');
+        assert.equal((cite('(<~ iterations/sbpa21_notes.md)') as { arrow: string }).arrow, '<~');
+        assert.equal((cite('(-> f(x) and g)') as { content: string }).content, 'f(x) and g', 'balanced parentheses');
+        assert.equal(cite('(-> f(x)'), null, 'unbalanced');
+        assert.equal(cite('(->C2.1)'), null, 'one space after the arrow');
+        assert.equal(cite('(C2.1)'), null, 'a plain parenthesis is no shape');
+        const seen: Record<string, number> = {};
+        assert.equal(api.mdbReadingKey('trace', '(-> C2.1)', seen), 'trace|(-> C2.1)#1');
+        assert.equal(api.mdbReadingKey('trace', '(-> C2.1)', seen), 'trace|(-> C2.1)#2', 'its occurrence');
+        assert.equal(api.mdbReadingKey('aside', `${'x'.repeat(100)}\n  y`, {}), `aside|${'x'.repeat(80)}#1`, 'the first 80 characters');
+    });
+
+    test('MB-26: a div is one editable block', () => {
+        const m = new Marked();
+        m.use({ extensions: [{
+            name: 'readingDiv', level: 'block',
+            start: (src: string) => api.mdbReadingBlockStart(src),
+            tokenizer(this: { lexer: unknown }, src: string) { return api.mdbReadingDivToken(src, this.lexer) as never; },
+            renderer: () => '',
+        }] });
+        const text = ['Before', '', '::: {.provenance}', 'note *one*', '', '- a list', ':::', '', ':::', '', 'After', 'still after'].join('\n');
+        const tokens = m.lexer(text);
+        const b = JSON.parse(JSON.stringify(api.mdbBlocks(text, tokens))) as Block[];
+        assert.deepEqual(b.map((x) => [x.type, x.startLine, x.endLine, x.editable]), [
+            ['paragraph', 0, 1, true], ['readingDiv', 2, 7, true], ['readingDiv', 8, 9, true], ['paragraph', 10, 12, true],
+        ]);
+        const div = tokens.find((t: { type: string }) => t.type === 'readingDiv') as unknown as { kind: string; tokens: Array<{ type: string }>; unclosed: boolean; stray: boolean };
+        assert.equal(div.kind, 'provenance');
+        assert.deepEqual(JSON.parse(JSON.stringify(div.tokens.filter((t) => t.type !== 'space').map((t) => t.type))), ['paragraph', 'list'], 'its content lexed inside it');
+        assert.equal(div.unclosed, false);
+        assert.equal((tokens.filter((t: { type: string }) => t.type === 'readingDiv')[1] as unknown as { stray: boolean }).stray, true, 'a stray closing fence');
+        // A fence line ends the paragraph before it (the start), and an escaped one is text.
+        const cut = m.lexer('text\n::: aside\nnote\n:::\n');
+        assert.deepEqual(cut.filter((t: { type: string }) => t.type !== 'space').map((t: { type: string }) => t.type), ['paragraph', 'readingDiv']);
+        assert.deepEqual(m.lexer('\\::: aside\n').filter((t: { type: string }) => t.type !== 'space').map((t: { type: string }) => t.type), ['paragraph']);
     });
 });
