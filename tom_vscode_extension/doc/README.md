@@ -15,6 +15,7 @@ User-facing documentation for the `tom_vscode_extension` plugin. Implementation 
 - [copilot_chat_tools.md](copilot_chat_tools.md) — Copilot chat tooling reference.
 - [llm_tools.md](llm_tools.md) — the LLM tool surface, per transport.
 - [chat_log_custom_editor.md](chat_log_custom_editor.md) — Markdown Browser + live-trail follow-tail behavior.
+- [md_browser_page_protocol.md](md_browser_page_protocol.md) — the Markdown Browser page's message protocol as a versioned contract: the version, the capabilities a host declares, every message with its fields and answer, and the decisions that are the host's.
 - [multi_transport_prompt_queue_revised.md](multi_transport_prompt_queue_revised.md) — prompt queue model across transports.
 
 ## Editors + visual tools

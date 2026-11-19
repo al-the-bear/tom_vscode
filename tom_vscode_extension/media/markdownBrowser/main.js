@@ -19,12 +19,83 @@
 // application's webview) publishes its own before this file loads. Either way
 // this file publishes the host as `window.__tomVscodeApi`, and the page's other
 // scripts (askBar.js, assistOverlay.js, the document picker) read it there.
-// The host may also give first-paint data in `window.__INIT__`: `content`, an
-// `mdContent` message rendered before the first round trip.
+//
+// THE PROTOCOL (doc/md_browser_page_protocol.md; src/utils/mdBrowserProtocol.ts
+// holds the same version, capabilities and table for a host). The host gives
+// first-paint data in `window.__INIT__`: `protocolVersion` (the page refuses
+// one that is not its own, with a visible message), `capabilities` (what the
+// host answers: the page hides the controls of a capability not declared and
+// posts none of its messages) and optionally `content`, an `mdContent` message
+// rendered before the first round trip. A page given no `protocolVersion` is
+// embedded by its own build (the QUEST NOTES side panel): every capability.
 (function () {
+    /** The protocol version this page speaks. */
+    var MDB_PROTOCOL_VERSION = 1;
+    /** What a host may declare it answers. */
+    var MDB_CAPABILITIES = ['editing', 'reviewMarks', 'teamReview', 'assists', 'askBar', 'navigation'];
+    /** The capability each page → host message belongs to (one not listed goes to every host). */
+    var MDB_MESSAGE_CAPABILITY = {
+        applyEdit: 'editing', editState: 'editing',
+        reviewMark: 'reviewMarks', reviewAllChanges: 'reviewMarks',
+        reviewAuthorChanges: 'teamReview',
+        assistQuestion: 'assists', assistCancel: 'assists',
+        askAnswer: 'askBar', askKeepFile: 'askBar',
+        navigateLink: 'navigation', goBack: 'navigation', goForward: 'navigation', readingPosition: 'navigation',
+        mdBrowserGetGroups: 'navigation', mdBrowserGetFiles: 'navigation', mdBrowserLoadFile: 'navigation', mdBrowserBrowseFile: 'navigation',
+    };
+    var mdbInit = window.__INIT__ || {};
+    var mdbDeclared = mdbInit.protocolVersion === undefined ? MDB_CAPABILITIES
+        : (Array.isArray(mdbInit.capabilities) ? mdbInit.capabilities : []);
+    /** Whether the host answers capability `cap`. */
+    function mdbCan(cap) { return mdbDeclared.indexOf(cap) >= 0; }
+
     var vscode = window.__tomVscodeApi || acquireVsCodeApi();
+    // The host as the page uses it: a message of a capability the host did not declare is not posted.
+    vscode = (function (host) {
+        return {
+            postMessage: function (msg) {
+                var cap = msg && MDB_MESSAGE_CAPABILITY[msg.type];
+                if (cap && !mdbCan(cap)) { return; }
+                host.postMessage(msg);
+            },
+            getState: function () { return host.getState ? host.getState() : undefined; },
+            setState: function (state) { return host.setState ? host.setState(state) : undefined; },
+        };
+    })(vscode);
     window.__tomVscodeApi = vscode; // the page's other scripts take the host from here
+    window.__mdbProtocol = { version: MDB_PROTOCOL_VERSION, capabilities: mdbDeclared.slice(), can: mdbCan };
     var __mdBrowserBooted = false;
+
+    // A host of another protocol version: refused, visibly, before anything is wired.
+    if (mdbInit.protocolVersion !== undefined && mdbInit.protocolVersion !== MDB_PROTOCOL_VERSION) {
+        var refusal = 'The MD Browser page speaks protocol version ' + MDB_PROTOCOL_VERSION + ', its host version ' + String(mdbInit.protocolVersion)
+            + '. The page and its host come from different builds: install one build of both.';
+        document.body.innerHTML = '';
+        var refusalBox = document.createElement('div');
+        refusalBox.id = 'mdbProtocolMismatch';
+        refusalBox.setAttribute('style', 'padding:20px;color:var(--vscode-errorForeground, #f14c4c);');
+        refusalBox.textContent = refusal;
+        document.body.appendChild(refusalBox);
+        vscode.postMessage({ type: 'webviewReady', protocolVersion: MDB_PROTOCOL_VERSION });
+        return;
+    }
+    // The controls of a capability the host did not declare are hidden (style.css reads the classes).
+    MDB_CAPABILITIES.forEach(function (cap) {
+        if (!mdbCan(cap)) { document.body.classList.add('mdb-no-' + cap); }
+    });
+    var MDB_CAPABILITY_CONTROLS = {
+        editing: ['#editModeBtn'],
+        reviewMarks: ['#acceptAllBtn', '#rejectAllBtn'],
+        teamReview: ['#teamReview'],
+        askBar: ['#askBar'],
+        navigation: ['.picker-area', '#backBtn', '#forwardBtn'],
+    };
+    Object.keys(MDB_CAPABILITY_CONTROLS).forEach(function (cap) {
+        if (mdbCan(cap)) { return; }
+        MDB_CAPABILITY_CONTROLS[cap].forEach(function (sel) {
+            Array.prototype.forEach.call(document.querySelectorAll(sel), function (el) { el.hidden = true; });
+        });
+    });
 
     try {
         var backBtn = document.getElementById('backBtn');
@@ -160,7 +231,7 @@
         // ---- Notify backend that webview is ready ----
         // (Backend will send groups and initial file content)
         setTimeout(function() {
-            vscode.postMessage({ type: 'webviewReady' });
+            vscode.postMessage({ type: 'webviewReady', protocolVersion: MDB_PROTOCOL_VERSION });
             vscode.postMessage({ type: 'editState', openEditors: 0 });
         }, 10);
 
@@ -1510,6 +1581,8 @@
          * each runs its Assist prompt in the ANTHROPIC panel (the host builds it).
          */
         function addAssistButtons(after, where) {
+            // A host that does not answer assists gets no assist buttons.
+            if (!mdbCan('assists')) { return; }
             var defs = [
                 ['grillMe', 'flame', 'Grill me — the agent asks you narrowing questions until this can be answered, then proposes the answer'],
                 ['explainInDetail', 'book', 'Explain in detail — the agent explains the question and each option in a note beside this document'],
@@ -2945,6 +3018,11 @@
                 }
                 var href = link.getAttribute('href') || '';
                 if (!href || /^(https?:|mailto:)/.test(href)) { return; }
+                // Without a host that navigates, a link into this document is followed here; others stay.
+                if (!mdbCan('navigation')) {
+                    if (href.charAt(0) === '#') { scrollToAnchor(decodeURIComponent(href.slice(1)), true); }
+                    return;
+                }
                 vscode.postMessage({ type: 'navigateLink', href: href, filePath: currentFilePath, position: readingPosition() });
             });
         }

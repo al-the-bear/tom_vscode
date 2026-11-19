@@ -93,6 +93,8 @@
     window.addEventListener('message', function (e) {
         var msg = e.data;
         if (!msg) { return; }
+        // A host that did not declare the ask bar has none (main.js marks the body).
+        if (document.body.classList.contains('mdb-no-askBar')) { return; }
         if (msg.type === 'askBar' && msg.bar) { show(msg.bar); }
         else if (msg.type === 'askBarClear') { clear(msg.requestId, msg.note); }
     });

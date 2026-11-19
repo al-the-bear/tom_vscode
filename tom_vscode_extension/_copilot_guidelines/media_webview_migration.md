@@ -300,16 +300,18 @@ The host answers by posting `message` events to the page's window (`mdContent`, 
 | `{{markedUri}}`, `{{mermaidUri}}`, `{{codiconsUri}}` | The vendored `marked` (UMD), `mermaid` (minified) and the codicons stylesheet. |
 | `{{cspSource}}` | What the page's content security policy admits styles, scripts, fonts and images from. |
 | `{{pickerHtml}}`, `{{pickerCss}}`, `{{pickerScript}}` | The document picker (`src/handlers/documentPicker.ts`, vscode-free). |
-| `window.__INIT__` | Optional first-paint data: `content`, an `mdContent` message the page renders before its first round trip. |
+| `window.__INIT__` | The protocol's first-paint data (`mdBrowserInit` in `src/utils/mdBrowserProtocol.ts`): `protocolVersion`, `capabilities` (what the host answers: the page hides the controls of the others and posts none of their messages) and optionally `content`, an `mdContent` message the page renders before its first round trip. |
 
-`renderMdBrowserPage` fills the page's own tokens and hands `cspSource`, `baseUri`, `sharedUri` and `window.__INIT__` to the webview loader's renderer (`renderWebviewHtml`), which is how the VS Code host (`buildHtml` in `markdownBrowser-handler.ts`) supplies them. VS Code gives no first-paint data: it sends the document after `webviewReady`.
+`renderMdBrowserPage` fills the page's own tokens and hands `cspSource`, `baseUri`, `sharedUri` and `window.__INIT__` to the webview loader's renderer (`renderWebviewHtml`), which is how the VS Code host (`buildHtml` in `markdownBrowser-handler.ts`) supplies them. VS Code declares the version and every capability and gives no document at first paint: it sends it after `webviewReady`.
+
+**The messages.** The contract — the version, the capabilities, every page → host and host → page message with its fields and answer, and the decisions that are the host's — is `doc/md_browser_page_protocol.md`. A message added, renamed or removed in `main.js`, `askBar.js`, `assistOverlay.js`, the picker or the handler is entered there and in `src/utils/mdBrowserProtocol.ts` (and, for a page → host message of a capability, in `MDB_MESSAGE_CAPABILITY` of `main.js`); `mdBrowserProtocol.dom.test.ts` fails until the three agree. A change the other side has to follow raises the version in all three places.
 
 **Theme.** The page's styles read the editor's theme variables (`--vscode-*`). A host that is not the editor defines the ones it wants in its own stylesheet.
 
 **The test host.** `src/handlers/mdBrowserTestHost.ts` builds one plain HTML file that is such a host: it publishes the host object, loads the page's files from the extension folder by `file:` URL, logs every message the page posts (on the page, on the console, in `window.__tomHostMessages`), and answers `webviewReady` with a document. After `npm run compile`:
 
 ```bash
-node scripts/md-browser-test-host.cjs --out <file.html> [--doc <file.md>] [--first-paint]
+node scripts/md-browser-test-host.cjs --out <file.html> [--doc <file.md>] [--first-paint] [--capabilities <a,b,…|none>]
 ```
 
 Open the file in a browser. `mdBrowserTestHost.dom.test.ts` opens it in a JSDOM that runs its scripts and loads its files by URL, without any VS Code API, and checks that the document is rendered and `webviewReady` is posted. The test host answers nothing else: navigation, editing and the picker need a host that implements those messages (`markdownBrowser-handler.ts` is the reference).

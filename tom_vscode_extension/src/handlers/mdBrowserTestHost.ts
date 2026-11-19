@@ -12,7 +12,9 @@
  *   - logs every message the page posts: in `window.__tomHostMessages`, on the
  *     console, and in a small list at the bottom of the page;
  *   - answers `webviewReady` with the fixture document as an `mdContent`
- *     message, the way a host answers.
+ *     message, the way a host answers;
+ *   - declares the protocol version and its capabilities in `window.__INIT__`
+ *     (utils/mdBrowserProtocol.ts).
  *
  * The page's styles read the editor's theme variables (`--vscode-*`); a host
  * that is not the editor defines the ones it wants, as this one does with a
@@ -32,6 +34,7 @@ import { pathToFileURL } from 'url';
 
 import { getDocumentPickerCss, getDocumentPickerHtml, getDocumentPickerScript } from './documentPicker';
 import { renderMdBrowserPage } from '../utils/mdBrowserPage';
+import { MD_BROWSER_CAPABILITIES, MD_BROWSER_PICKER_PREFIX, mdBrowserInit } from '../utils/mdBrowserProtocol';
 
 /** The document the test host shows when none is given. */
 export const MD_BROWSER_TEST_FIXTURE = [
@@ -88,6 +91,12 @@ export interface MdBrowserTestHostOptions {
     documentPath?: string;
     /** Also give the document as first-paint data (`window.__INIT__.content`). Default false. */
     firstPaint?: boolean;
+    /**
+     * The capabilities this host declares (doc/md_browser_page_protocol.md). Default: every one — the page
+     * then shows all its controls, although this host answers none of their messages; declare fewer to see
+     * the page without them.
+     */
+    capabilities?: readonly string[];
 }
 
 /** The host script: the host object, the message log, the answer to `webviewReady`. Runs before the page's scripts. */
@@ -144,7 +153,7 @@ export function buildMdBrowserTestHostHtml(options: MdBrowserTestHostOptions): s
         crlf: false,
         lineMap: null,
     };
-    const picker = { idPrefix: 'mdBrowser', allowOtherFile: true, showGroupSelector: true };
+    const picker = { idPrefix: MD_BROWSER_PICKER_PREFIX, allowOtherFile: true, showGroupSelector: true };
     const page = renderMdBrowserPage(fs.readFileSync(path.join(root, 'media', 'markdownBrowser', 'index.html'), 'utf8'), {
         cspSource: 'file:',
         nonce: 'md-browser-test-host',
@@ -156,7 +165,8 @@ export function buildMdBrowserTestHostHtml(options: MdBrowserTestHostOptions): s
         pickerHtml: getDocumentPickerHtml({ ...picker, groupLabel: 'Type:', fileLabel: 'File:' }),
         pickerCss: getDocumentPickerCss(),
         pickerScript: getDocumentPickerScript(picker),
-        ...(options.firstPaint ? { init: { content } } : {}),
+        // The protocol's first-paint data: the version, the capabilities, the document when asked for.
+        init: { ...mdBrowserInit(options.capabilities ?? MD_BROWSER_CAPABILITIES, options.firstPaint ? content : undefined) },
     });
     // The host script goes first in <head>: the host object exists before any page script runs.
     const host = `<style id="tomHostTheme">\n${MD_BROWSER_TEST_HOST_THEME}\n</style>\n    <script nonce="md-browser-test-host">\n${mdBrowserTestHostScript(content)}\n</script>`;

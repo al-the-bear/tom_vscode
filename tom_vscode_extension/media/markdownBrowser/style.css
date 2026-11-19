@@ -621,3 +621,23 @@ span.mdb-own { box-shadow: none; outline: 1px dashed var(--vscode-charts-green, 
     transition: background-color 0.3s;
     background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
 }
+
+/* Capabilities (doc/md_browser_page_protocol.md): the controls of a capability the host did not declare. */
+body.mdb-no-editing #editModeBtn,
+body.mdb-no-editing .mdb-block-actions,
+body.mdb-no-editing .mdb-answer-btn,
+body.mdb-no-editing .mdb-comment-edit-btn,
+body.mdb-no-editing .mdb-keep-open-btn,
+body.mdb-no-editing .mdb-proposal-btn,
+body.mdb-no-editing .mdb-conflict-bar,
+body.mdb-no-editing .mdb-editor,
+body.mdb-no-reviewMarks #acceptAllBtn,
+body.mdb-no-reviewMarks #rejectAllBtn,
+body.mdb-no-reviewMarks .mdb-rm-actions,
+body.mdb-no-teamReview #teamReview,
+body.mdb-no-assists .mdb-assist-btn,
+body.mdb-no-askBar #askBar,
+body.mdb-no-navigation .picker-area,
+body.mdb-no-navigation #backBtn,
+body.mdb-no-navigation #forwardBtn,
+body.mdb-no-navigation .mdb-link-popup { display: none !important; }

@@ -77,7 +77,7 @@ describe('the MD Browser page behind the host object', () => {
         // The host logs what the page posts: in the list on the page and on the console.
         const logged = [...w.document.querySelectorAll('#tomHostLog li')].map((li: Win) => JSON.parse(li.textContent).type);
         assert.deepEqual(logged, JSON.parse(JSON.stringify(messages)).map((m: Win) => m.type));
-        assert.ok(page.logs.some((l) => l.includes('[md-browser host] page posted {"type":"webviewReady"}')));
+        assert.ok(page.logs.some((l) => l.includes('[md-browser host] page posted {"type":"webviewReady","protocolVersion":1}')));
         // The page's state goes through the host object too.
         assert.deepEqual(JSON.parse(JSON.stringify(w.__tomVscodeApi.getState())), { filePath: 'fixture.md', liveMode: false });
         // The page's stylesheets and scripts came from the folder, by URL.
@@ -91,7 +91,7 @@ describe('the MD Browser page behind the host object', () => {
         // A host that never answers: the document can only come from window.__INIT__.
         const html = buildMdBrowserTestHostHtml({ extensionRoot: EXT, document: doc, documentPath: 'notes/first.md', firstPaint: true })
             .replace("if (msg && msg.type === 'webviewReady') {", 'if (false) {');
-        assert.match(html, /window\.__INIT__ = \{"content":\{"type":"mdContent","content":"# From the first paint/);
+        assert.match(html, /window\.__INIT__ = \{"protocolVersion":1,"capabilities":\[[^\]]+\],"content":\{"type":"mdContent","content":"# From the first paint/);
         const file = path.join(SANDBOX, 'first.html');
         fs.writeFileSync(file, html);
         const page = await open(file);
@@ -99,8 +99,8 @@ describe('the MD Browser page behind the host object', () => {
         await until(() => !!page.w.document.querySelector('#contentArea h1') && page.w.__tomHostMessages.length > 0);
         assert.equal(page.w.document.querySelector('#contentArea h1').textContent.trim(), 'From the first paint');
         assert.ok(page.w.__tomHostMessages.some((m: Win) => m.type === 'webviewReady'), 'and it still reports ready');
-        // Without first-paint data the page has no window.__INIT__ at all.
-        assert.doesNotMatch(buildMdBrowserTestHostHtml({ extensionRoot: EXT }), /__INIT__/);
+        // Without it the first-paint data holds the protocol's version and capabilities only.
+        assert.match(buildMdBrowserTestHostHtml({ extensionRoot: EXT }), /window\.__INIT__ = \{"protocolVersion":1,"capabilities":\["editing","reviewMarks","teamReview","assists","askBar","navigation"\]\};/);
     });
 
     test('MH-3: VS Code is named in one place', () => {
@@ -151,7 +151,7 @@ describe('the MD Browser page behind the host object', () => {
         const handler = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'markdownBrowser-handler.ts'), 'utf8');
         const build = handler.slice(handler.indexOf('function buildHtml('));
         assert.match(build, /return renderMdBrowserPage\(readMediaText\('markdownBrowser', 'index\.html'\), \{\s*cspSource: webview\.cspSource,\s*nonce: generateNonce\(\),\s*baseUri: mediaUrl\('markdownBrowser'\),\s*sharedUri: mediaUrl\('shared'\),/);
-        assert.doesNotMatch(build, /init:/, 'VS Code sends the document after webviewReady, as before');
+        assert.doesNotMatch(build, /content/, 'VS Code gives no document at first paint: it sends it after webviewReady, as before');
         assert.match(fs.readFileSync(path.join(EXT, 'src', 'utils', 'mdBrowserPage.ts'), 'utf8'), /import \{ renderWebviewHtml \} from '\.\/webviewLoader';/);
         assert.equal(MD_BROWSER_TEST_FIXTURE.startsWith('# The MD Browser outside VS Code'), true);
     });

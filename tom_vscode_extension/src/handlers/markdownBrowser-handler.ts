@@ -66,6 +66,7 @@ export async function disposeMarkdownBrowser(): Promise<void> {
 const COMMENT_AUTHOR_FORM: CommentAuthorForm = 'first';
 import { generateNonce, readMediaText } from '../utils/webviewLoader.js';
 import { renderMdBrowserPage } from '../utils/mdBrowserPage.js';
+import { MD_BROWSER_PICKER_PREFIX, mdBrowserInit, mdBrowserVersionProblem } from '../utils/mdBrowserProtocol.js';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig.js';
 import { reviewMemberId } from '../utils/reviewAuthors.js';
 import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
@@ -93,7 +94,7 @@ import { AGENTS_MD, AGENTS_MD_GROUP_PREFIX, agentsMdGroupDir, agentsMdGroups } f
 
 const PANEL_VIEW_TYPE = 'tomAi.markdownBrowser';
 const PANEL_TITLE = 'MD Browser';
-const PICKER_PREFIX = 'mdBrowser';
+const PICKER_PREFIX = MD_BROWSER_PICKER_PREFIX;
 
 /**
  * Polling interval (ms) for the mtime-based fallback that backs up the VS Code
@@ -683,7 +684,14 @@ class MdBrowserPanel {
                 case 'askKeepFile':
                     mdBrowserAskSlot.setKeepFile(String(msg.requestId || ''), msg.keepFile !== false);
                     break;
-                case 'webviewReady':
+                case 'webviewReady': {
+                    // A page of another protocol version (a stale webview after an install) is refused, visibly.
+                    const mismatch = mdBrowserVersionProblem(msg.protocolVersion);
+                    if (mismatch) {
+                        void this._panel.webview.postMessage({ type: 'mdContent', content: '', error: mismatch });
+                        void vscode.window.showErrorMessage(`Markdown Browser: ${mismatch}`);
+                        break;
+                    }
                     this._webviewReady = true;
                     if (this._askBar) { void this._panel.webview.postMessage({ type: 'askBar', bar: this._askBar }); }
                     this._sendAssistOverlay();
@@ -694,6 +702,7 @@ class MdBrowserPanel {
                         this._pendingInitialFile = undefined;
                     }
                     break;
+                }
 
                 case PICKER_PREFIX + 'GetGroups':
                     this._sendGroups();
@@ -1695,5 +1704,7 @@ function buildHtml(webview: vscode.Webview, context: vscode.ExtensionContext): s
         pickerHtml,
         pickerCss,
         pickerScript,
+        // The protocol's first-paint data: this host's version, and every capability (it answers them all).
+        init: { ...mdBrowserInit() },
     });
 }
