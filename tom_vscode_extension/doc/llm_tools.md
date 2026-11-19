@@ -277,7 +277,7 @@ segment already ends in `-archived`/`-deleted` are terminal and refuse both
 operations. Both moves are **idempotent by id**: archiving a todo already
 present in the target replaces it in place rather than adding a second copy,
 and the result reports those ids under `replaced`. See
-`_copilot_guidelines/todo_files_and_panel.md`.
+`_agent_guidelines/todo_files_and_panel.md`.
 
 **Dates are dates.** The todo schema declares `due`, `created`, `updated`,
 `completed_date`, `archived` and `deleted` as `format: date`, and the shared

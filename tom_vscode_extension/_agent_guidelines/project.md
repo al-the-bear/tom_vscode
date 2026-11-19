@@ -37,7 +37,7 @@ User-facing (`doc/`):
 - [doc/chat_log_custom_editor.md](../doc/chat_log_custom_editor.md) — Markdown Browser + live trail.
 - [doc/file_and_prompt_placeholders.md](../doc/file_and_prompt_placeholders.md) — placeholder reference.
 
-Maintainer (`_copilot_guidelines/`):
+Maintainer (`_agent_guidelines/`):
 
 - [vscode_extension_overview.md](vscode_extension_overview.md) — canonical map.
 - [architecture.md](architecture.md) — layering + data flow.

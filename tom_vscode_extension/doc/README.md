@@ -1,6 +1,6 @@
 # @Tom VS Code Extension Documentation
 
-User-facing documentation for the `tom_vscode_extension` plugin. Implementation guidelines for contributors are kept apart from it, in the extension's `_copilot_guidelines/` folder in the source tree.
+User-facing documentation for the `tom_vscode_extension` plugin. Implementation guidelines for contributors are kept apart from it, in the extension's `_agent_guidelines/` folder in the source tree.
 
 ## Start here
 

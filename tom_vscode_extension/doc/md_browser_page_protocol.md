@@ -4,7 +4,7 @@
 
 The MD Browser's page (`media/markdownBrowser/` with `media/shared/mdQuestions.js`, `mdOverlay.js` and `assistOverlay.js`) renders a Markdown document and lets a reader navigate, answer, edit and review it. The page changes no file and decides nothing about a document's text by itself: it asks its **host**, and the host answers. This document is the contract between the two, so that a second host can show the same page. The Tom AI extension's host is `src/handlers/markdownBrowser-handler.ts`.
 
-In code the version, the capabilities and the capability of every message are in `src/utils/mdBrowserProtocol.ts` (for a host) and at the top of `media/markdownBrowser/main.js` (the page). How a host composes the page and publishes the host object is in `_copilot_guidelines/media_webview_migration.md` § The MD Browser page and its host.
+In code the version, the capabilities and the capability of every message are in `src/utils/mdBrowserProtocol.ts` (for a host) and at the top of `media/markdownBrowser/main.js` (the page). How a host composes the page and publishes the host object is in `_agent_guidelines/media_webview_migration.md` § The MD Browser page and its host.
 
 ## 1. Transport
 

@@ -95,7 +95,7 @@ The panel shows a 🤖 dot next to the 🔑 dot whenever any configuration has `
 
 A quick summary of every configuration (name, model, transport, permission mode, cache, history) is available on the **Status Page → Anthropic/LLM — Configurations** section.
 
-> **Not the same as the Dart-side Agent SDK mirror.** Both backends above are the *in-extension* ANTHROPIC/LLM panel path: profile-gated, trailed, and approval-gated. The `tom_vscode_scripting_api` package also ships a **low-level 1:1 Dart mirror** of `@anthropic-ai/claude-agent-sdk` (`AgentSdkClient.query({prompt, options})`) reachable over the CLI bridge. That mirror is a *separate* surface — **no profiles, allow-lists, trail, or approval gate**; the script owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. It is **not** the `transport: "agentSdk"` configuration documented here. See [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) and `_copilot_guidelines/bridge_scripting_guide.md`.
+> **Not the same as the Dart-side Agent SDK mirror.** Both backends above are the *in-extension* ANTHROPIC/LLM panel path: profile-gated, trailed, and approval-gated. The `tom_vscode_scripting_api` package also ships a **low-level 1:1 Dart mirror** of `@anthropic-ai/claude-agent-sdk` (`AgentSdkClient.query({prompt, options})`) reachable over the CLI bridge. That mirror is a *separate* surface — **no profiles, allow-lists, trail, or approval gate**; the script owns the SDK `Options` and the bridge relays raw `SDKMessage`s verbatim. It is **not** the `transport: "agentSdk"` configuration documented here. See [agent_sdk_scripting_mirror.md](agent_sdk_scripting_mirror.md) and `_agent_guidelines/bridge_scripting_guide.md`.
 
 ## 3. Create a profile
 

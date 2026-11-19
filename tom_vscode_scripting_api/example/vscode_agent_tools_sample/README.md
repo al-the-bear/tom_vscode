@@ -75,7 +75,7 @@ runs any one by name. The project depends on exactly one package —
 The choice of these seven is deliberate breadth across the extension surface:
 `workspace_metadata` is the window's view of itself as a Tom project tree;
 `todos`, `queue`, and `timed_requests` are the three work-management subsystems;
-`documents` is the `_ai/` and `_copilot_guidelines/` document store; `tools` is
+`documents` is the `_ai/` and `_agent_guidelines/` document store; `tools` is
 the LLM tool registry the chat transports use; and `send_to_chat` drives the
 chat transport end to end — including the wrinkle that it *has a real
 side-effect*, which is why one concept is flagged interactive and skipped by the
@@ -469,7 +469,7 @@ only fire when it is on.
 ### `documents.dart` — guidelines and the prompt/answer trail
 
 `TomDocumentApi` is the extension's typed view of the `_ai/` and
-`_copilot_guidelines/` document tree. The concept lists the guidelines with their
+`_agent_guidelines/` document tree. The concept lists the guidelines with their
 categories, reads the first one to prove content round-trips, and lists the most
 recent trail entries:
 

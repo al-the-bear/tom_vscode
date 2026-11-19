@@ -23,7 +23,7 @@ Resolves a finding from the code review: the extension used to ship **five paral
 > [utils/webviewLoader.ts](../src/utils/webviewLoader.ts), unrelated to the AI
 > placeholder engines above. That path additionally **strips HTML comments
 > before substitution** (`stripHtmlComments`); the AI engines here do **not**.
-> The contributor guide `_copilot_guidelines/media_webview_migration.md` (§9.2)
+> The contributor guide `_agent_guidelines/media_webview_migration.md` (§9.2)
 > in the extension source covers that path.
 
 ### 1.1 Expressions: `${{ … }}`

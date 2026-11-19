@@ -226,11 +226,11 @@ MCP_ALL_TOOLS_REPORT=1 node --test out/tools/__tests__/mcp-all-tools.test.js   #
 ```
 
 It does not reach the server of a running window; that stays a live check
-(`../_copilot_guidelines/tool_testing.md` has the details of the suite).
+(`../_agent_guidelines/tool_testing.md` has the details of the suite).
 
 ## 9. Related references
 
 - `_ai/quests/vscode_extension/mcp_server_implementation_plan.md` — the full design record (todos 1–23) and the remaining-work list.
 - `anthropic_handler.md` — the in-SDK MCP server used by the Agent SDK transport (§2b there).
 - `llm_tools.md` — the shared tool registry the MCP server exposes.
-- `../_copilot_guidelines/tom_status_page.md` — the Status-Page MCP card (controls + Start/Stop wiring).
+- `../_agent_guidelines/tom_status_page.md` — the Status-Page MCP card (controls + Start/Stop wiring).
