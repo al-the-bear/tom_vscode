@@ -26,6 +26,10 @@ import { ALL_TODO_FILES, deletedTodoFileName, matchesTodoFileScope, type TodoFil
 import { normaliseTodoDecisions, type TodoDecision } from '../utils/todoDecisions';
 import { loadTodoYaml } from '../utils/todoYamlDocument';
 import { parseRepeatMoment, repeatOnDone, repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
+import {
+    acknowledgedStamp, advanceRemind, firstRemind, isRemindDue, isReminderEntryDue, remindersError, remindRuleError, ringsAtAll, sameReminderEntry,
+    type TodoReminderEntry,
+} from '../utils/todoRemind';
 import { groupInsertIndex, todoIdInputError, todoIdPrefix, validateTodoPrefix } from '../utils/todoDestinationPicker';
 import { setTodoQuestsRoot, todoQuestsRoot, writeTodoFileText } from '../utils/todoBlockingSync';
 import { emitNotifications } from '../services/notificationLog';
@@ -166,6 +170,16 @@ export interface QuestTodoItem {
     /** How many times the repeated todo has been done. */
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     repeat_count?: number;
+    /** A reminder schedule (utils/todoRemind.ts): while the todo is open it rings at each moment the rule names. */
+    remind?: TodoRepeat;
+    /** When the `remind` schedule rings next (local time with offset); absent once it has ended. */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    next_remind?: string;
+    /** How many reminders the `remind` schedule has sent. */
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+    remind_count?: number;
+    /** One-shot reminders (utils/todoRemind.ts): `{at}` or `{before}` the due date, each ringing once. */
+    reminders?: TodoReminderEntry[];
     /**
      * The target completion date, `YYYY-MM-DD`. Past it, a todo not completed
      * or cancelled is overdue (utils/todoDue.ts); on it, the user gets one
@@ -536,6 +550,7 @@ const VERIFIED_TODO_FIELDS = new Set<string>([
     'completed_date', 'completed_by', 'last_answer',
     'tags', 'dependencies', 'blocked_by', 'comprised_of', 'blocked_until', 'references',
     'decisions', 'scope', 'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by',
+    'remind', 'next_remind', 'remind_count', 'reminders',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -687,6 +702,17 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     if (nextRepeat) { item.next_repeat = nextRepeat; }
     const repeatCount = get('repeat_count');
     if (typeof repeatCount === 'number') { item.repeat_count = repeatCount; }
+    const remindNode = node.get('remind', true);
+    if (isMap(remindNode)) { item.remind = (remindNode as YAMLMap).toJSON() as TodoRepeat; }
+    const nextRemind = getStr('next_remind');
+    if (nextRemind) { item.next_remind = nextRemind; }
+    const remindCount = get('remind_count');
+    if (typeof remindCount === 'number') { item.remind_count = remindCount; }
+    const remindersNode = node.get('reminders', true);
+    if (isSeq(remindersNode) && remindersNode.items.length) {
+        item.reminders = (remindersNode.toJSON() as unknown[]).filter((e): e is TodoReminderEntry => !!e && typeof e === 'object' && !Array.isArray(e))
+            .map((e) => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, String(v)])) as TodoReminderEntry);
+    }
     const onDoneNode = node.get('on_done', true);
     if (isMap(onDoneNode)) { item.on_done = (onDoneNode as YAMLMap).toJSON() as TodoOnDone; }
     const filedByNode = node.get('filed_by', true);
@@ -867,6 +893,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'dependencies', 'blocked_by', 'blocking', 'comprised_of', 'part_of', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by', 'due', 'due_reminded',
+    'remind', 'next_remind', 'remind_count', 'reminders',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -927,6 +954,20 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.repeat) { plain.repeat = todo.repeat; }
     if (todo.next_repeat) { plain.next_repeat = todo.next_repeat; }
     if (todo.repeat_count !== undefined) { plain.repeat_count = todo.repeat_count; }
+    if (todo.remind) {
+        const why = remindRuleError(todo.remind);
+        if (why) { throw new Error(`remind: ${why}`); }
+        plain.remind = todo.remind;
+        // A new schedule starts now, unless the todo carries its moment (a move).
+        const next = todo.next_remind ?? firstRemind(todo.remind, new Date(), todo.remind_count ?? 0);
+        if (next) { plain.next_remind = next; }
+        if (todo.remind_count !== undefined) { plain.remind_count = todo.remind_count; }
+    }
+    if (todo.reminders && todo.reminders.length) {
+        const why = remindersError(todo.reminders);
+        if (why) { throw new Error(why); }
+        plain.reminders = todo.reminders;
+    }
     if (todo.due && todo.due_reminded) { plain.due_reminded = todo.due_reminded; }
     const onDone = normaliseOnDone(todo.on_done);
     if (onDone) { plain.on_done = onDone; }
@@ -975,9 +1016,21 @@ function applyTodoUpdates(
     updates: Partial<Omit<QuestTodoItem, 'id' | '_sourceFile'>>,
 ): Record<string, unknown> {
     const completedDate = toTodoDate('completed_date', updates.completed_date);
+    const wasWaitingForRepeat = String(item.get('status') ?? '') === 'waiting-for-repeat';
     if (updates.repeat) {
         const why = repeatRuleError(updates.repeat);
         if (why) { throw new Error(`repeat: ${why}`); }
+    }
+    if (updates.remind) {
+        const why = remindRuleError(updates.remind);
+        if (why) { throw new Error(`remind: ${why}`); }
+    }
+    if (updates.next_remind && !parseRepeatMoment(updates.next_remind)) {
+        throw new Error(`next_remind must read YYYY-MM-DDTHH:MM with Z or an offset, not "${updates.next_remind}"`);
+    }
+    if (updates.reminders) {
+        const why = remindersError(updates.reminders);
+        if (why) { throw new Error(why); }
     }
     if (updates.next_repeat && !parseRepeatMoment(updates.next_repeat)) {
         throw new Error(`next_repeat must read YYYY-MM-DDTHH:MM with Z or an offset, not "${updates.next_repeat}"`);
@@ -998,6 +1051,8 @@ function applyTodoUpdates(
             item.delete('due_reminded');
             applied.due_reminded = undefined;
         }
+        // The reminders counted back from the due date move with it: each rings again for the new date.
+        if (due !== beforeDate && updates.reminders === undefined) { reopenRelativeReminders(item); }
     }
     if (updates.due_reminded !== undefined) {
         setOrDelete(item, 'due_reminded', updates.due_reminded || undefined);
@@ -1065,6 +1120,14 @@ function applyTodoUpdates(
     }
     if (updates.next_repeat !== undefined) { setOrDelete(item, 'next_repeat', updates.next_repeat); applied.next_repeat = updates.next_repeat || undefined; }
     if (updates.repeat_count !== undefined) { setOrDelete(item, 'repeat_count', updates.repeat_count); applied.repeat_count = updates.repeat_count; }
+    if (updates.remind !== undefined) { applyRemindRule(doc, item, updates.remind || undefined, applied); }
+    if (updates.next_remind !== undefined) { setOrDelete(item, 'next_remind', updates.next_remind || undefined); applied.next_remind = updates.next_remind || undefined; }
+    if (updates.remind_count !== undefined) { setOrDelete(item, 'remind_count', updates.remind_count); applied.remind_count = updates.remind_count; }
+    if (updates.reminders !== undefined) {
+        const list = updates.reminders && updates.reminders.length ? updates.reminders : undefined;
+        setOrDelete(item, 'reminders', list ? doc.createNode(list) : undefined);
+        applied.reminders = list;
+    }
     if (updates.on_done !== undefined) {
         // Replaced as a whole, like every other field; null or {} removes it.
         const onDone = normaliseOnDone(updates.on_done);
@@ -1081,6 +1144,11 @@ function applyTodoUpdates(
     // next repetition (utils/todoRepeat.ts). One place for every writer — the
     // todo panel, the tools, a queue walk completing its todo.
     if (updates.status === 'completed') { applyRepeatOnDone(item, applied); }
+    // Brought back by `repeat` (the controller, Repeat now, a writer reopening
+    // it): the reminder schedule starts again from now (utils/todoRemind.ts).
+    if (updates.status !== undefined && wasWaitingForRepeat && ringsAtAll(String(item.get('status'))) && updates.remind === undefined && updates.next_remind === undefined) {
+        restartRemind(item, applied);
+    }
     // A date already on the item that an earlier writer stored as a timestamp
     // is written as a date while the item is being rewritten anyway.
     for (const field of ['created', 'archived', 'deleted', 'due'] as const) {
@@ -1123,6 +1191,51 @@ function applyRepeatOnDone(item: YAMLMap, applied: Record<string, unknown>): voi
     const text = (notes === undefined || notes === null ? '' : String(notes)).replace(/\s+$/, '');
     item.set('notes', text ? `${text}\n\n${outcome.note}` : outcome.note);
     if ('notes' in applied) { applied.notes = String(item.get('notes')); }
+}
+
+/**
+ * Set (or remove, `rule` undefined) a todo's reminder schedule: a new or
+ * changed rule starts again from now — `next_remind` its first moment,
+ * `remind_count` gone; an unchanged rule is left as it runs. Removing it
+ * removes its moment and count.
+ */
+function applyRemindRule(doc: Document, item: YAMLMap, rule: TodoRepeat | undefined, applied: Record<string, unknown>): void {
+    if (!rule) {
+        for (const key of ['remind', 'next_remind', 'remind_count'] as const) {
+            if (item.has(key)) { item.delete(key); }
+            applied[key] = undefined;
+        }
+        return;
+    }
+    const current = item.get('remind', true);
+    const same = isMap(current) && canonicalJson((current as YAMLMap).toJSON()) === canonicalJson(rule);
+    item.set('remind', doc.createNode(rule));
+    applied.remind = rule;
+    if (same && item.has('next_remind')) { return; }
+    if (item.has('remind_count')) { item.delete('remind_count'); }
+    applied.remind_count = undefined;
+    restartRemind(item, applied);
+}
+
+/** The schedule starts again at now: `next_remind` its first moment after now (none once `count` is reached). */
+function restartRemind(item: YAMLMap, applied: Record<string, unknown>): void {
+    const node = item.get('remind', true);
+    if (!isMap(node)) { return; }
+    const count = item.get('remind_count');
+    const next = firstRemind((node as YAMLMap).toJSON() as TodoRepeat, new Date(), typeof count === 'number' ? count : 0);
+    setOrDelete(item, 'next_remind', next);
+    applied.next_remind = next;
+}
+
+/** `due` changed: the `before` reminders lose their acknowledgement and snooze, so each rings for the new date. */
+function reopenRelativeReminders(item: YAMLMap): void {
+    const list = item.get('reminders', true);
+    if (!isSeq(list)) { return; }
+    for (const entry of list.items) {
+        if (!isMap(entry) || entry.get('before') === undefined) { continue; }
+        entry.delete('acknowledged');
+        entry.delete('snoozed_until');
+    }
 }
 
 /**
@@ -2214,6 +2327,74 @@ const DUE_REMINDER_LOCK_STALE_MS = 60_000;
  */
 export function markDueReminded(questId: string, todoId: string, due: string, stamp: string): boolean {
     if (!parseRepeatMoment(stamp)) { throw new Error(`due_reminded must read YYYY-MM-DDTHH:MM with Z or an offset, not "${stamp}"`); }
+    return checkAndSetTodo(questId, todoId, 'markDueReminded', (item) => {
+        const current = item.get('due');
+        const currentDue = current === undefined || current === null ? '' : String(current).slice(0, 10);
+        const reminded = item.get('due_reminded');
+        if (currentDue !== due || (reminded !== undefined && reminded !== null && String(reminded).trim())) { return undefined; }
+        item.set('due_reminded', stamp);
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
+        return { due_reminded: stamp };
+    });
+}
+
+/**
+ * Record a reminder of the todo's `remind` schedule at `now`, as a
+ * check-and-set under the same lock (utils/todoRemind.ts): true when the
+ * schedule still had `expected` as its `next_remind` and rang at `now` — then
+ * `next_remind` moves on (or goes, once the rule has ended) and
+ * `remind_count` counts it, and this caller sends the reminder. Of two
+ * controllers, the second finds `next_remind` moved and sends nothing.
+ */
+export function markRemindSent(questId: string, todoId: string, expected: string, now: Date): boolean {
+    return checkAndSetTodo(questId, todoId, 'markRemindSent', (item) => {
+        const remind = item.get('remind', true);
+        const next = item.get('next_remind');
+        const count = item.get('remind_count');
+        const todo = {
+            status: String(item.get('status') ?? 'not-started'),
+            remind: isMap(remind) ? (remind as YAMLMap).toJSON() as TodoRepeat : undefined,
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
+            next_remind: next === undefined || next === null ? undefined : String(next),
+            // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
+            remind_count: typeof count === 'number' ? count : undefined,
+        };
+        if (todo.next_remind !== expected || !isRemindDue(todo, now)) { return undefined; }
+        const advance = advanceRemind(todo, now);
+        setOrDelete(item, 'next_remind', advance.next_remind);
+        item.set('remind_count', advance.remind_count);
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML keys
+        return { next_remind: advance.next_remind, remind_count: advance.remind_count };
+    });
+}
+
+/**
+ * Record that `reminders[index]` rang at `now`: its `acknowledged` set, as a
+ * check-and-set under the same lock — true when the entry there is still the
+ * one read (`entry`) and still due, so this caller sends it.
+ */
+export function markReminderEntrySent(questId: string, todoId: string, index: number, entry: TodoReminderEntry, now: Date): boolean {
+    return checkAndSetTodo(questId, todoId, 'markReminderEntrySent', (item) => {
+        const list = item.get('reminders', true);
+        if (!isSeq(list)) { return undefined; }
+        const node = list.items[index];
+        if (!isMap(node)) { return undefined; }
+        const current = Object.fromEntries(Object.entries((node as YAMLMap).toJSON() as Record<string, unknown>).map(([k, v]) => [k, String(v)])) as TodoReminderEntry;
+        const due = item.get('due');
+        if (!sameReminderEntry(current, entry) || !isReminderEntryDue(current, String(item.get('status') ?? 'not-started'), due === undefined || due === null ? undefined : String(due), now)) { return undefined; }
+        node.set('acknowledged', acknowledgedStamp(now));
+        return { reminders: (list.toJSON() as unknown[]) };
+    });
+}
+
+/**
+ * The check-and-set the reminder writers share: find the todo's file, take its
+ * reminder lock (a directory; a stale one is taken over), read the file again
+ * inside it and let `apply` decide on the fresh record — it changes the item
+ * and answers what it wrote, or answers undefined to refuse (nothing written).
+ * True when it wrote.
+ */
+function checkAndSetTodo(questId: string, todoId: string, operation: string, apply: (item: YAMLMap) => Record<string, unknown> | undefined): boolean {
     const folder = questFolder(questId);
     for (const fileName of listTodoFiles(questId)) {
         const filePath = path.join(folder, fileName);
@@ -2239,14 +2420,11 @@ export function markDueReminded(questId: string, todoId: string, due: string, st
             if (!isSeq(seq)) { return false; }
             for (const item of seq.items) {
                 if (!isMap(item) || String(item.get('id')) !== todoId) { continue; }
-                const current = item.get('due');
-                const currentDue = current === undefined || current === null ? '' : String(current).slice(0, 10);
-                const reminded = item.get('due_reminded');
-                if (currentDue !== due || (reminded !== undefined && reminded !== null && String(reminded).trim())) { return false; }
                 const before = nodeToTodo(item as YAMLMap, fileName);
-                item.set('due_reminded', stamp);
+                const written = apply(item as YAMLMap);
+                if (!written) { return false; }
                 saveDocument(filePath, fresh);
-                assertTodoFieldsPersisted(filePath, todoId, { due_reminded: stamp }, 'markDueReminded');
+                assertTodoFieldsPersisted(filePath, todoId, written, operation);
                 notifyTodoUpdated(questId, before, nodeToTodo(item as YAMLMap, fileName));
                 return true;
             }

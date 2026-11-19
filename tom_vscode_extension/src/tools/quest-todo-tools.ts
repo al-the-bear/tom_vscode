@@ -57,6 +57,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
 import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
+import { remindersError, remindRuleError, type TodoReminderEntry } from '../utils/todoRemind';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { onDoneShapeError, onDoneTargetRefusal, TODO_ON_DONE_ACTIONS, type TodoFiledBy, type TodoOnDone } from '../utils/todoOnDone';
 
@@ -112,6 +113,12 @@ export interface QuestTodoFull {
     repeat?: TodoRepeat | null;
     next_repeat?: string;
     repeat_count?: number;
+    /** A reminder schedule (utils/todoRemind.ts): the repeat rule forms but manual. */
+    remind?: TodoRepeat | null;
+    next_remind?: string;
+    remind_count?: number;
+    /** One-shot reminders: `{at}` or `{before}` the due date. */
+    reminders?: TodoReminderEntry[] | null;
     /** What happens when the todo is completed (utils/todoOnDone.ts). */
     on_done?: TodoOnDone | null;
     /** Who filed the todo; written by the manager, read-only here. */
@@ -297,6 +304,18 @@ function validateRepeat(repeat: unknown): string | undefined {
     return why ? `repeat: ${why}` : undefined;
 }
 
+/** Why a `remind` / `reminders` value is not what the schema allows, or undefined (none given, or null: removing it). */
+function validateRemind(todo: { remind?: unknown; reminders?: unknown; next_remind?: unknown; remind_count?: unknown } | undefined): string | undefined {
+    if (!todo) { return undefined; }
+    if (todo.next_remind !== undefined || todo.remind_count !== undefined) { return '`next_remind` and `remind_count` are kept by the extension: set or change `remind` and it computes them'; }
+    if (todo.remind !== undefined && todo.remind !== null) {
+        const why = remindRuleError(todo.remind);
+        if (why) { return `remind: ${why}`; }
+    }
+    if (todo.reminders !== undefined && todo.reminders !== null) { return remindersError(todo.reminders) ?? undefined; }
+    return undefined;
+}
+
 /** `user_action` and the repeat rule, shared by create and update. */
 const USER_ACTION_SCHEMA = {
     user_action: {
@@ -305,7 +324,23 @@ const USER_ACTION_SCHEMA = {
     },
     repeat: {
         type: ['object', 'null'],
-        description: 'A repeated todo\'s rule (marked 🔁): set to `completed`, it goes to `waiting-for-repeat` with `next_repeat` instead, and the Timed Requests list\'s repeated-todo controller moves it back to `not-started` when due. `{rule: manual}` (repeated by hand; a walk runs it again), `{rule: after, every, unit: days|weeks|months|years}`, `{rule: daily, every}`, `{rule: weekly, every, weekdays: [mon…sun]}`, `{rule: monthly|yearly, every, day: 1-31|last | nth: 1-5|last + weekday | working_day: first|last}` (yearly adds `month` 1-12); optional `time` HH:MM, `until` YYYY-MM-DD, `count`. null removes it.',
+        description: 'A repeated todo\'s rule (marked 🔁): set to `completed`, it goes to `waiting-for-repeat` with `next_repeat` instead, and the Timed Requests list\'s repeated-todo controller moves it back to `not-started` when due. It does not ring: reminders are `remind` / `reminders` / `due`. `{rule: manual}` (repeated by hand; a walk runs it again), `{rule: after, every, unit: days|weeks|months|years}`, `{rule: daily, every}`, `{rule: weekly, every, weekdays: [mon…sun]}`, `{rule: monthly|yearly, every, day: 1-31|last | nth: 1-5|last + weekday | working_day: first|last}` (yearly adds `month` 1-12); optional `time` HH:MM, `until` YYYY-MM-DD, `count`. null removes it.',
+    },
+    remind: {
+        type: ['object', 'null'],
+        description: 'A reminder schedule (marked 🔔): while the todo is open it rings at each moment the rule names, through tomAi_notifyUser (the quest\'s Telegram, else a VS Code message), independent of `repeat`. The rule forms of `repeat` but manual: `{rule: after, every, unit: days|weeks|months|years}` (from the reminder before), `{rule: daily, every}`, `{rule: weekly, every, weekdays: [mon…sun]}`, `{rule: monthly|yearly, every, day: 1-31|last | nth: 1-5|last + weekday | working_day: first|last}` (yearly adds `month` 1-12); optional `time` HH:MM, `until` YYYY-MM-DD, `count` (reminders). The extension keeps `next_remind` and `remind_count`; a new or changed rule starts again from now. Completed, cancelled and waiting-for-repeat todos ring nothing; missed moments ring once. null removes it.',
+    },
+    reminders: {
+        type: ['array', 'null'],
+        description: 'One-shot reminders, each ringing once: `{at: "2026-11-20T09:00+01:00"}` (an instant with its offset) or `{before: "PT1H", time: "17:00"}` (an ISO-8601 duration before the `due` date at `time`, the start of the day without one); `snoozed_until` holds it back, `acknowledged` (written when it rang) stops it. A changed `due` lets the `before` ones ring again. Replaces the whole list; null or [] removes it.',
+        items: {
+            type: 'object',
+            properties: {
+                at: { type: 'string' }, before: { type: 'string' }, time: { type: 'string' },
+                snoozed_until: { type: 'string' }, acknowledged: { type: 'string' },
+            },
+            additionalProperties: false,
+        },
     },
 } as const;
 
@@ -329,7 +364,7 @@ const ON_DONE_SCHEMA = {
 
 /** The sentence both write tools' descriptions carry about dates and the orchestration fields. */
 const DATES_AND_ORCHESTRATION_DOC =
-    ' Dates are written as YYYY-MM-DD (a timestamp as the date it names; anything else is refused). `user_action: true` marks the user\'s todo (a walk passes it); `blocked_until` takes `<package> >= <x.y.z>` conditions.';
+    ' Dates are written as YYYY-MM-DD (a timestamp as the date it names; anything else is refused). `user_action: true` marks the user\'s todo (a walk passes it); `blocked_until` takes `<package> >= <x.y.z>` conditions. Reminders: `due` (once), `remind` (a schedule, the `repeat` rule forms but manual), `reminders` (one-shot); `repeat` does not ring.';
 
 // ===========================================================================
 // listQuestTodos
@@ -500,6 +535,8 @@ export interface CreateQuestTodoInput {
         feedback_source?: string;
         user_action?: boolean;
         repeat?: TodoRepeat | null;
+        remind?: TodoRepeat | null;
+        reminders?: TodoReminderEntry[] | null;
         on_done?: TodoOnDone | null;
     };
 }
@@ -667,7 +704,7 @@ export function createQuestTodoProblem(deps: QuestTodoToolsDeps, input: CreateQu
         return '`todo.id` is required — there are NO auto-id rules for quest todos. Pick a stable lowercase id like `add-auth-flow`.';
     }
     if (!input.todo?.description) { return '`todo.description` is required.'; }
-    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateOnDone(deps, input.questId, input.todo.on_done);
+    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateRemind(input.todo as never) ?? validateOnDone(deps, input.questId, input.todo.on_done);
     if (shapeError) { return shapeError; }
     const idRefused = deps.idRefusal?.(String(input.todo.id));
     if (idRefused) { return idRefused; }
@@ -773,6 +810,8 @@ export interface UpdateQuestTodoInput {
         feedback_source?: string;
         user_action?: boolean;
         repeat?: TodoRepeat | null;
+        remind?: TodoRepeat | null;
+        reminders?: TodoReminderEntry[] | null;
         /** Replaces the block as a whole; null removes it. */
         on_done?: TodoOnDone | null;
     };
@@ -832,7 +871,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateRemind(input.updates as never) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }

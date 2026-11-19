@@ -249,6 +249,11 @@
 .qt-repeat-form { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .qt-repeat-form .qt-rp-weekdays label { display: inline-flex; align-items: center; gap: 1px; margin-right: 3px; }
 .qt-repeat-form .qt-rp-info { width: 100%; font-size: 0.9em; opacity: 0.8; }
+.qt-remind { margin-right: 3px; }
+.qt-reminders { display: flex; flex-direction: column; gap: 3px; }
+.qt-reminders .qt-rmd-row { display: flex; align-items: center; gap: 4px; }
+.qt-reminders .qt-rmd-rang { opacity: 0.7; font-size: 0.9em; }
+.qt-reminders .qt-rmd-add { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 
 /* SESSION TODOS: the session switch */
 .qt-session-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--vscode-panel-border); }
