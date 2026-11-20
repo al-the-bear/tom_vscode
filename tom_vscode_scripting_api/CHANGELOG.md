@@ -1,3 +1,16 @@
+## 6.0.0
+
+- Requires `tom_todo_model` ^4.1.0, the item model: a todo file with the 4.x
+  fields (`remind`, `next_remind`, `remind_count`, `reminders`, the item
+  fields) is read instead of refused. `TomTodoApi` hands out `TomItem`
+  (`TomTodo` is its 3.x name, kept by the model); the workflow fields are on
+  `item.workflow`.
+- A session todo's `source` (`copilot` / `user`, who made it) stays among its
+  unknown fields: 4.x has an item field of that name with another meaning
+  (an external anchor).
+- **Breaking:** the exported model types are tom_todo_model 4.x's (an
+  exhaustive `switch` over `TomTodoStatus` needs a case for `none`).
+
 ## 5.0.0
 
 - Requires `tom_todo_model` ^3.0.0: todo groups. A todo with the `group`

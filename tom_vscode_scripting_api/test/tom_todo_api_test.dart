@@ -4,7 +4,7 @@
 /// YAML fields plus `_sourceFile` / `_extra` (fields its reader does not
 /// enumerate), session todos as `{id, title, details, status: pending|done,
 /// createdAt, ...}`; `todo.listAllVce` adds `_scope`. [TodoWire] maps both
-/// onto [TomTodo] and back.
+/// onto [TomItem] and back.
 ///
 ///   TODOAPI-1 a quest todo: every schema field, `_sourceFile` kept beside it
 ///   TODOAPI-2 `_extra`: schema fields merged into the todo, others kept apart
@@ -78,16 +78,16 @@ void main() {
       final entry = TodoWire.fromBridge(_questJson());
       final todo = entry.todo;
       expect(todo.id, 'vex1_ajug-add-retry');
-      expect(todo.title, 'Add retry');
+      expect(todo.headline, 'Add retry');
       expect(todo.status, TomTodoStatus.decisionNeeded);
       expect(todo.priority, TomTodoPriority.high);
-      expect(todo.scope!.files, ['src/a.ts']);
-      expect(todo.references.single.lines, '1-4');
+      expect(todo.workflow!.scope!.files, ['src/a.ts']);
+      expect(todo.links.external.single.lines, '1-4');
       expect(todo.blockedBy, ['vex2']);
-      expect(todo.decisions.single.isOpen, isTrue);
-      expect(todo.executionRole, 'software_engineer');
-      expect(todo.bundleId, 'b1');
-      expect(TomTodo.encodeDate(todo.created!), '2026-10-20');
+      expect(todo.workflow!.decisions.single.isOpen, isTrue);
+      expect(todo.workflow!.executionRole, 'software_engineer');
+      expect(todo.workflow!.bundleId, 'b1');
+      expect(TomItem.encodeDate(todo.created!), '2026-10-20');
       expect(entry.sourceFile, 'todos.vscode_extension.todo.yaml');
       expect(entry.level, isNull);
       expect(entry.unknownFields, isEmpty);
@@ -159,7 +159,7 @@ void main() {
           'my_own_key': 42,
         };
       final entry = TodoWire.fromBridge(json);
-      expect(TomTodo.encodeDate(entry.todo.due!), '2026-11-01');
+      expect(TomItem.encodeDate(entry.todo.due!), '2026-11-01');
       expect(entry.todo.estimate, 'PT2H');
       expect(entry.todo.blockedUntil, ['tom_todo_model >= 1.1.0']);
       expect(entry.todo.author, 'me');
@@ -171,8 +171,8 @@ void main() {
         ..['created'] = '2026-10-20T13:45:00.000Z'
         ..['completed_date'] = '2026-10-21';
       final todo = TodoWire.fromBridge(json).todo;
-      expect(TomTodo.encodeDate(todo.created!), '2026-10-20');
-      expect(TomTodo.encodeDate(todo.completedDate!), '2026-10-21');
+      expect(TomItem.encodeDate(todo.created!), '2026-10-20');
+      expect(TomItem.encodeDate(todo.completedDate!), '2026-10-21');
       final bad = TodoWire.fromBridge(_questJson()..['updated'] = 'yesterday');
       expect(bad.todo.updated, isNull);
       expect(bad.unknownFields, {'updated': 'yesterday'});
@@ -180,7 +180,7 @@ void main() {
 
     test('TODOAPI-4: no title: the id stands in', () {
       final json = _questJson()..remove('title');
-      expect(TodoWire.fromBridge(json).todo.title, 'vex1_ajug-add-retry');
+      expect(TodoWire.fromBridge(json).todo.headline, 'vex1_ajug-add-retry');
     });
 
     test('TODOAPI-5: a session todo', () {
@@ -199,8 +199,8 @@ void main() {
       expect(entry.level, TodoLevel.session);
       expect(entry.todo.description, 'after the build');
       expect(entry.todo.status, TomTodoStatus.completed);
-      expect(TomTodo.encodeDate(entry.todo.created!), '2026-10-19');
-      expect(TomTodo.encodeDate(entry.todo.updated!), '2026-10-21');
+      expect(TomItem.encodeDate(entry.todo.created!), '2026-10-19');
+      expect(TomItem.encodeDate(entry.todo.updated!), '2026-10-21');
       expect(entry.unknownFields, {'source': 'copilot'});
       final pending = TodoWire.fromBridge({
         'id': 'wt-4',
@@ -224,9 +224,9 @@ void main() {
       expect(map, todo.toMap());
       expect(map.containsKey('_sourceFile'), isFalse);
 
-      final session = TomTodo(
+      final session = TomItem(
         id: 'wt-5',
-        title: 'Check',
+        headline: 'Check',
         description: 'the queue',
         status: TomTodoStatus.completed,
         priority: TomTodoPriority.high,
@@ -292,7 +292,7 @@ void main() {
 
       final created = _FakeAdapter(_questJson());
       TomTodoApi.setAdapter(created);
-      final todo = TomTodo(id: 'n1', title: 'New', description: 'd');
+      final todo = TomItem(id: 'n1', headline: 'New', description: 'd');
       final entry = await TomTodoApi.createQuestTodo(
         'vscode_extension',
         todo,

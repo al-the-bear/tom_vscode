@@ -1,6 +1,6 @@
 /// Tom TODO API for scripting access to workspace todos.
 ///
-/// Todos are the shared model of `tom_todo_model` ([TomTodo]); [TodoWire]
+/// Todos are the shared model of `tom_todo_model` ([TomItem]); [TodoWire]
 /// maps the extension's answers onto it. Provides CRUD operations for todos
 /// at different levels:
 /// - Quest todos (persistent or session-scoped)
@@ -15,7 +15,7 @@ import 'vscode_adapter.dart';
 
 export 'package:tom_todo_model/tom_todo_model.dart'
     show
-        TomTodo,
+        TomItem,
         TomTodoDecision,
         TomTodoPriority,
         TomTodoReference,
@@ -42,11 +42,11 @@ enum TodoLevel {
   }
 }
 
-/// A todo as the extension answered it: the shared [TomTodo] plus what the
+/// A todo as the extension answered it: the shared [TomItem] plus what the
 /// bridge says about it and what the model has no field for.
 class TodoEntry {
   /// The todo.
-  final TomTodo todo;
+  final TomItem todo;
 
   /// The file it was read from (`_sourceFile`): a file name, or
   /// `<quest>/<file>` / a workspace-relative path in aggregated lists.
@@ -69,7 +69,7 @@ class TodoEntry {
   }) : unknownFields = Map.unmodifiable(unknownFields);
 }
 
-/// A todo in a list answer that could not be read as a [TomTodo].
+/// A todo in a list answer that could not be read as a [TomItem].
 class InvalidTodo {
   /// Its id, when it had one.
   final String? id;
@@ -89,7 +89,7 @@ class InvalidTodo {
 /// YAML fields, plus `_sourceFile` and `_extra` (the keys its reader does not
 /// enumerate — some of them schema fields such as `due` or `blocked_until`).
 /// Session todos are `{id, title, details, priority, tags, status:
-/// pending|done, createdAt, updatedAt, source}`. [TomTodo.fromMap] accepts the
+/// pending|done, createdAt, updatedAt, source}`. [TomItem.fromMap] accepts the
 /// schema's fields only, so this is where the two meet.
 abstract final class TodoWire {
   static final RegExp _date = RegExp(r'^(\d{4}-\d{2}-\d{2})(T.*)?$');
@@ -120,7 +120,7 @@ abstract final class TodoWire {
     final unknown = <String, Object?>{};
     void take(String key, Object? value) {
       if (value == null) return;
-      if (!TomTodo.fields.contains(key)) {
+      if (!TomItem.fields.contains(key)) {
         unknown[key] = value;
       } else if (_dateFields.contains(key)) {
         final match = value is String ? _date.firstMatch(value) : null;
@@ -146,6 +146,10 @@ abstract final class TodoWire {
           take('updated', value);
         case 'status' when isSession:
           take('status', value == 'done' ? 'completed' : 'not-started');
+        // Who made a session todo (`copilot` / `user`): not the item's
+        // `source` (an external anchor `<scheme>:<rest>`, tom_todo_model 4).
+        case 'source' when isSession:
+          if (value != null) unknown[key] = value;
         default:
           take(key, value);
       }
@@ -160,7 +164,7 @@ abstract final class TodoWire {
     fields['title'] ??= fields['id'];
 
     return TodoEntry(
-      todo: TomTodo.fromMap(fields),
+      todo: TomItem.fromMap(fields),
       sourceFile: json['_sourceFile'] as String?,
       level: level ?? (isSession ? TodoLevel.session : null),
       unknownFields: unknown,
@@ -168,15 +172,15 @@ abstract final class TodoWire {
   }
 
   /// A quest or workspace todo as the extension writes it: its schema map.
-  static Map<String, Object?> toBridge(TomTodo todo) => todo.toMap();
+  static Map<String, Object?> toBridge(TomItem todo) => todo.toMap();
 
   /// A session todo as the extension writes it: the description becomes its
   /// details, a completed todo is `done` and any other `pending` (a session
   /// todo has no repeat and no groups: `waiting-for-repeat` and `group` are
   /// pending too).
-  static Map<String, Object?> toSessionBridge(TomTodo todo) => {
+  static Map<String, Object?> toSessionBridge(TomItem todo) => {
     'id': todo.id,
-    'title': todo.title,
+    'title': todo.headline,
     if (todo.description != null) 'details': todo.description,
     'status': todo.status == TomTodoStatus.completed ? 'done' : 'pending',
     if (todo.priority != null) 'priority': todo.priority!.wire,
@@ -208,7 +212,7 @@ class TodoListResult {
   });
 
   /// The todos themselves.
-  List<TomTodo> get todos => [for (final e in entries) e.todo];
+  List<TomItem> get todos => [for (final e in entries) e.todo];
 
   factory TodoListResult.fromJson(Map<String, dynamic> json) {
     final entries = <TodoEntry>[];
@@ -312,7 +316,7 @@ abstract class TomTodoApi {
   /// Create a new todo in a quest file.
   static Future<TodoEntry> createQuestTodo(
     String questId,
-    TomTodo todo, {
+    TomItem todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest('todo.createQuestVce', {
@@ -326,7 +330,7 @@ abstract class TomTodoApi {
   /// Update an existing todo in a quest.
   static Future<TodoEntry> updateQuestTodo(
     String questId,
-    TomTodo todo, {
+    TomItem todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest('todo.updateQuestVce', {
@@ -386,7 +390,7 @@ abstract class TomTodoApi {
 
   /// Create a new todo in workspace-level file.
   static Future<TodoEntry> createWorkspaceTodo(
-    TomTodo todo, {
+    TomItem todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest(
@@ -398,7 +402,7 @@ abstract class TomTodoApi {
 
   /// Update an existing todo in workspace-level.
   static Future<TodoEntry> updateWorkspaceTodo(
-    TomTodo todo, {
+    TomItem todo, {
     String? file,
   }) async {
     final result = await _requireAdapter.sendRequest(
@@ -436,7 +440,7 @@ abstract class TomTodoApi {
   }
 
   /// Create a new session todo.
-  static Future<TodoEntry> createSessionTodo(TomTodo todo) async {
+  static Future<TodoEntry> createSessionTodo(TomItem todo) async {
     final result = await _requireAdapter.sendRequest('todo.createSessionVce', {
       'todo': TodoWire.toSessionBridge(todo),
     });
@@ -444,7 +448,7 @@ abstract class TomTodoApi {
   }
 
   /// Update an existing session todo.
-  static Future<TodoEntry> updateSessionTodo(TomTodo todo) async {
+  static Future<TodoEntry> updateSessionTodo(TomItem todo) async {
     final result = await _requireAdapter.sendRequest('todo.updateSessionVce', {
       'todo': TodoWire.toSessionBridge(todo),
     });
