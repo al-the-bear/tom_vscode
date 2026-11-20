@@ -40,6 +40,7 @@ import { cleanupSummaryText } from '../utils/todoDependencyCleanup';
 import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, listWorkspaceTodoFiles, scanWorkspaceProjects, collectScopeValues } from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
+import { listRoleNames } from '../utils/roleNames';
 import { storedQueueTarget, storedSendTarget, TODO_PANEL_FRESH_KEY, TODO_PANEL_QUEUE_NEXT_KEY, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey, todoPanelQueuePosition } from '../utils/todoPanelRunSession';
 import { busySessionsOfEntries, defaultTargetQuest, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueuePosition, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
 import { runSessionName } from '../utils/runSessions';
@@ -2108,6 +2109,11 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             const testPath = path.join(wsRootChk, 'test.yaml');
             const extApp = getExternalApplicationForFile(testPath);
             post({ type: 'qtExtAppAvailable', available: !!extApp });
+            return true;
+        }
+        case 'qtGetRoles': {
+            // The Role field's choices (gsel3): the roles under _ai/roles.
+            post({ type: 'qtRoles', roles: listRoleNames(WsPaths.ai('roles')) });
             return true;
         }
         case 'qtGetUserName': {

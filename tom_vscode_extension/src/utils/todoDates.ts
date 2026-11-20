@@ -27,12 +27,14 @@ export const TODO_TIMESTAMP_FIELDS: readonly TodoDateField[] = ['created', 'upda
 const SCHEMA_TIMESTAMP = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
 
 /**
- * The orchestration fields the schema gained for Worktracker (optional strings):
- * who executes, who checks, who orchestrates, the execution bundle, the todo it
- * was derived from, the feedback that raised it.
+ * The optional string fields of how a todo runs: the orchestration fields the
+ * schema gained for Worktracker (who executes, who checks, who orchestrates,
+ * the execution bundle, the todo it was derived from, the feedback that
+ * raised it) and `role`, the role the todo runs in (a folder of `_ai/roles/`;
+ * tom_todo_model 4.2.0, gsel3), in the model's order.
  */
 export const TODO_ORCHESTRATION_FIELDS = [
-    'execution_role', 'qa_role', 'orchestration_role', 'bundle_id', 'derived_from', 'feedback_source',
+    'execution_role', 'qa_role', 'orchestration_role', 'bundle_id', 'role', 'derived_from', 'feedback_source',
 ] as const;
 export type TodoOrchestrationField = (typeof TODO_ORCHESTRATION_FIELDS)[number];
 

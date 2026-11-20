@@ -76,6 +76,8 @@ export interface InboxItem {
     /** An existing session of the target quest. */
     session?: string;
     newSession?: InboxNewSession;
+    /** The role the item runs as there (a folder of `_ai/roles/`; gsel3). */
+    role?: string;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** The item's repeat count in the target queue: a number, a chat variable, or `<prefix>*` (a todo walk there). */
@@ -155,6 +157,7 @@ export function serializeInboxItem(item: InboxItem): string {
     if (item.transport) { doc.transport = item.transport; }
     if (item.queuedBy) { doc['queued-by'] = queuedByToYaml(item.queuedBy); }
     if (item.session) { doc.session = item.session; }
+    if (item.role) { doc.role = item.role; }
     if (item.newSession) {
         const n = item.newSession;
         doc['new-session'] = {
@@ -201,6 +204,11 @@ export function parseInboxItem(content: string): ParsedInboxItem {
     if (r.transport === 'anthropic') { item.transport = 'anthropic'; }
     const queuedBy = queuedByFrom(r['queued-by']);
     if (queuedBy) { item.queuedBy = queuedBy; }
+    if (r.role !== undefined) {
+        const role = str(r.role);
+        if (!role || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(role)) { return { ok: false, error: `"${String(r.role)}" is not a role name` }; }
+        item.role = role;
+    }
     if (r.session !== undefined) {
         const session = str(r.session);
         if (!session || !isValidSessionName(session)) { return { ok: false, error: `"${String(r.session)}" is not a session name` }; }
@@ -321,6 +329,8 @@ export interface InboxConversion {
         transport?: 'anthropic';
         anthropicProfileId?: string;
         session?: string;
+        /** The role the item runs as. */
+        role?: string;
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
         doneNotificationQuest?: string;
@@ -373,6 +383,7 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
         ...(item.position === 'next' ? { queueNext: true as const } : {}),
         ...(item.transport ? { transport: item.transport } : {}),
         ...(item.queuedBy ? { queuedBy: item.queuedBy } : {}),
+        ...(item.role ? { role: item.role } : {}),
         from: item.from,
     };
     if (item.run && ctx.runExists && !ctx.runExists(item.run)) {

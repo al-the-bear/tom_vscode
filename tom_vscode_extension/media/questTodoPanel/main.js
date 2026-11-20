@@ -36,6 +36,8 @@ var SORTABLE_FIELDS = ['id','quest','status','priority','title','created','updat
 /** Group the list by id prefix (the sort picker's Group checkbox; default on). */
 var qtGroupByPrefix = true;
 var qtUserName = '';
+/** The roles under _ai/roles (the host answers qtRoles): the detail form's Role choices (gsel3). */
+var qtRoles = [];
 var qtNavHistory = [];
 var qtNavIndex = -1;
 var qtNavPushing = true;
@@ -481,6 +483,8 @@ function qtNavPush(todoId) {
     // Send config + request initial data
     vscode.postMessage({ type: 'qtInitConfig', config: qtViewConfig });
     vscode.postMessage({ type: 'qtGetTemplates' });
+    // The roles under _ai/roles for the Role field (gsel3): the host answers qtRoles.
+    vscode.postMessage({ type: 'qtGetRoles' });
     // The quest scope (vscimpb137): the host answers qtScope.
     vscode.postMessage({ type: 'qtGetScope' });
     // The Done notification toggle's state: the host answers qtDoneNotification, and again on every change.
@@ -1935,6 +1939,7 @@ function qtRenderDetail(todo) {
                 .map(function(d) { return d && d.summary ? String(d.summary) : '(a decision)'; }),
         })) +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
+        qtFormRow('Role', '<select id="qt-d-role" title="' + qtEsc(QT_ROLE_TITLE) + '">' + qtRoleOptions(todo.role) + '</select>') +
         '</div>' +
         qtTodoButtonsRow(todo) +
         qtUserActionRow(todo.user_action === true, true) +
@@ -1970,6 +1975,7 @@ function qtRenderDetail(todo) {
     });
 
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
+    document.getElementById('qt-d-role').addEventListener('change', qtAutoSave);
     document.getElementById('qt-d-user-action').addEventListener('change', qtAutoSave);
     qtAttachOnDoneHandlers(todo);
     qtRepeatFormSync();
@@ -3014,6 +3020,8 @@ function qtCollectFormData() {
         title: document.getElementById('qt-d-title') ? document.getElementById('qt-d-title').value : '',
         status: document.getElementById('qt-d-status') ? document.getElementById('qt-d-status').value : '',
         priority: document.getElementById('qt-d-priority') ? document.getElementById('qt-d-priority').value || undefined : undefined,
+        // The role the todo runs in; '' (Default role) clears it on an existing todo, writes nothing on a new one.
+        role: document.getElementById('qt-d-role') ? document.getElementById('qt-d-role').value : undefined,
         description: document.getElementById('qt-d-desc') ? document.getElementById('qt-d-desc').value : '',
         tags: tags.length ? tags : undefined,
         dependencies: deps.length ? deps : undefined,
@@ -3064,6 +3072,7 @@ function qtShowNewTodoForm(id) {
         '<div class="qt-inline-row">' +
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions('not-started') + '</select>') +
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions('medium') + '</select>') +
+        qtFormRow('Role', '<select id="qt-d-role" title="' + qtEsc(QT_ROLE_TITLE) + '">' + qtRoleOptions('') + '</select>') +
         '</div>' +
         qtUserActionRow(false) +
         qtFormRow('Tags', '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
@@ -3701,6 +3710,20 @@ function qtStatusOptions(cur) {
     var opts = ['not-started','in-progress','blocked','decision-needed','waiting-for-repeat','group','completed','cancelled'];
     return opts.map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
 }
+/** The Role select's hover help (gsel3). */
+var QT_ROLE_TITLE = 'The role the todo runs in: a queued prompt for it runs as this role (its tools, ${role}, the role text), before the queue item\'s, the process step\'s, the run\'s default and the chat variable role. Default role: none of its own.';
+
+/** The Role select's options: Default role (none), the roles under _ai/roles, and a stored role that is not among them. */
+function qtRoleOptions(cur) {
+    var current = cur || '';
+    var roles = qtRoles.slice();
+    if (current && roles.indexOf(current) < 0) { roles.push(current); }
+    return '<option value=""' + (current ? '' : ' selected') + '>Default role</option>' + roles.map(function(r) {
+        var unknown = qtRoles.indexOf(r) < 0;
+        return '<option value="' + qtEsc(r) + '"' + (r === current ? ' selected' : '') + '>' + qtEsc(r) + (unknown ? ' (not in _ai/roles)' : '') + '</option>';
+    }).join('');
+}
+
 function qtPriorityOptions(cur) {
     var opts = ['','low','medium','high','critical'];
     return '<option value="">(none)</option>' + opts.filter(Boolean).map(function(o) { return '<option value="' + o + '"' + (o === cur ? ' selected' : '') + '>' + o + '</option>'; }).join('');
@@ -3953,6 +3976,13 @@ function qtHandleMessage(msg) {
         case 'qtUserNameResult':
             if (msg.userName) qtUserName = msg.userName;
             break;
+        case 'qtRoles': {
+            qtRoles = Array.isArray(msg.roles) ? msg.roles.slice() : [];
+            // A form already open gets the choices it was drawn without.
+            var roleSel = document.getElementById('qt-d-role');
+            if (roleSel) { roleSel.innerHTML = qtRoleOptions(roleSel.value); }
+            break;
+        }
         case 'qtExtAppAvailable':
             var extBtn = document.getElementById('qt-btn-open-ext');
             if (extBtn) extBtn.style.display = msg.available ? '' : 'none';

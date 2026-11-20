@@ -1,7 +1,8 @@
 /**
- * A send's tools by the role it runs as (vscimpb87): the process step's role
- * while a Proceed prompt runs (`ProcessStateStore.runRole()`), else the chat
- * variable `role`. When that role's type selects tools (`_ai/role-types/<type>/role-type.yaml`,
+ * A send's tools by the role it runs as (vscimpb87): the role
+ * `services/queueRoleContext.livePromptRole()` answers — the queue stage's todo
+ * or item role, the running Proceed's step role, the run's default role, else
+ * the chat variable `role` (utils/promptRole.ts, gsel3). When that role's type selects tools (`_ai/role-types/<type>/role-type.yaml`,
  * mode `selected`), they replace the profile's selection — with the
  * extension's always-on tools — on every transport; `profileDefault`, a role
  * without `role-config.yaml` and a run without a role keep the profile's tools.
@@ -13,6 +14,7 @@
 import * as path from 'path';
 import { resolveRoleTools, type RoleToolsResolution } from '../utils/roleTypes';
 import { WsPaths } from '../utils/workspacePaths';
+import { livePromptRole } from './queueRoleContext';
 
 export interface RoleToolsDeps {
     /** The role the send runs as ('' or 'default': none). */
@@ -21,20 +23,9 @@ export interface RoleToolsDeps {
     aiRoot(): string | undefined;
 }
 
-/** The live role: the running Proceed's step role, else the chat variable `role`. */
+/** The live role: the one every reader asks (services/queueRoleContext.ts). */
 export const liveRoleToolsDeps: RoleToolsDeps = {
-    role: () => {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pss = (require('../managers/processStateStore') as typeof import('../managers/processStateStore')).ProcessStateStore.instance;
-            const fromRun = pss?.runRole();
-            if (fromRun) { return fromRun; }
-        } catch { /* no process store */ }
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            return (require('../managers/chatVariablesStore') as typeof import('../managers/chatVariablesStore')).ChatVariablesStore.instance?.role;
-        } catch { return undefined; }
-    },
+    role: () => livePromptRole().role || undefined,
     aiRoot: () => {
         const roles = WsPaths.ai('roles');
         return roles ? path.dirname(roles) : undefined;

@@ -20,6 +20,7 @@ import { isValidSessionName, normalizeSessionMode, type SessionRecord } from '..
 import type { InboxItem, InboxNewSession } from '../utils/questInbox';
 import type { QueuedBy } from '../utils/queuedBy';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
+import { roleRefusal } from '../utils/roleNames';
 
 export interface SendItemToQuestInput {
     quest: string;
@@ -34,6 +35,8 @@ export interface SendItemToQuestInput {
     pauseAfter?: boolean;
     session?: string;
     newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
+    /** The role the item runs as in the target quest (a folder of `_ai/roles/`). */
+    role?: string;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** How often the target repeats the item: a number, a chat variable there, or `<prefix>*` (a walk over the target quest's todos). */
@@ -65,6 +68,8 @@ export interface QuestSendAccess {
     profileExists(id: string): boolean;
     /** The target quest's sessions (its history folder). */
     listSessions(quest: string): SessionRecord[];
+    /** The roles folder (`_ai/roles/`, shared by every quest) a role is checked against; undefined: only its form. */
+    rolesDir?(): string | undefined;
     /** The windows of the quest with a live heartbeat. */
     liveWindows(quest: string): TargetWindow[];
     /** This window, as the item names its sender. */
@@ -96,6 +101,8 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
         if (input.anthropicProfileId && !access.profileExists(input.anthropicProfileId)) {
             return err(`There is no Anthropic profile "${input.anthropicProfileId}" in this workspace.`, { code: 'unknownProfile' });
         }
+        const badRole = roleRefusal(input.role, access.rolesDir?.());
+        if (badRole) { return err(badRole, { code: 'unknownRole' }); }
         if (input.session && input.newSession) {
             return err('Give `session` or `newSession`, not both.', { code: 'invalidSession' });
         }
@@ -167,6 +174,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             ...(input.pauseAfter ? { pauseAfter: true } : {}),
             ...(input.session ? { session: input.session } : {}),
             ...(newSession ? { newSession } : {}),
+            ...(input.role ? { role: input.role } : {}),
             ...(run ? { run } : {}),
             ...(walk.repeatCount !== undefined ? { repeatCount: walk.repeatCount } : {}),
             ...(walk.todoIdPattern ? { todoIdPattern: walk.todoIdPattern } : {}),
@@ -265,6 +273,7 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
             group: { type: 'string', description: 'A GROUP item: a group todo of the target quest; it walks its members there in `comprised_of` order. Refused for an unknown todo or one that is no group.' },
             pauseAfter: { type: 'boolean' },
             session: { type: 'string', description: 'An existing session of the target quest.' },
+            role: { type: 'string', description: 'The role the item runs as there: a folder of `_ai/roles/` (shared by every quest). Its stages run as this role unless the todo it runs names its own. An unknown role is refused (`unknownRole`).' },
             newSession: {
                 type: 'object',
                 properties: {

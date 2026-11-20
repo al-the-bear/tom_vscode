@@ -233,6 +233,10 @@ function pickItemProfile(id) {
   // (every profile, whatever its transport) and gives the item the one chosen.
   vscode.postMessage({ type: 'pickItemProfile', id: id });
 }
+function editItemRole(id) {
+  // Pick the role the item runs as (the roles under _ai/roles, or none).
+  vscode.postMessage({ type: 'editItemRole', id: id });
+}
 function editItemSession(id) {
   // Pick the item's Agent SDK session in VS Code's picker (existing, new,
   // based on another, or the queue default).

@@ -336,6 +336,7 @@ export const liveQuestTodoDeps: QuestTodoToolsDeps = {
     onMutate: () => refreshSessionPanel(),  // shared panel updates both session + quest views
     partOf: (questId, todoId) => questTodo.todoPartOf(questId, todoId),
     idRefusal: (id) => questTodo.todoIdRefusal(id),
+    rolesDir: () => WsPaths.ai('roles'),
 };
 
 /** Every todo of a quest, the `-archived` / `-deleted` siblings included. */
@@ -763,6 +764,11 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemSession(id, session);
     },
+    updateItemRole(id, role) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemRole(id, role);
+    },
+    rolesDir: () => WsPaths.ai('roles'),
     questExists(quest) {
         const folder = WsPaths.ai('quests', quest);
         return !!folder && fs.existsSync(folder) && fs.statSync(folder).isDirectory();
@@ -912,6 +918,7 @@ export const liveQuestSendAccess: QuestSendAccess = {
         const { lookupProfile } = require('../utils/sessionSpecs') as typeof import('../utils/sessionSpecs');
         return !!lookupProfile(loadSendToChatConfig()?.anthropic as import('../utils/sessionSpecs').ProfileSection | undefined, id);
     },
+    rolesDir: () => WsPaths.ai('roles'),
     listSessions: (quest) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');

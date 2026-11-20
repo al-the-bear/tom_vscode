@@ -57,6 +57,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
 import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
+import { roleRefusal } from '../utils/roleNames';
 import { remindersError, remindRuleError, type TodoReminderEntry } from '../utils/todoRemind';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { onDoneShapeError, onDoneTargetRefusal, TODO_ON_DONE_ACTIONS, type TodoFiledBy, type TodoOnDone } from '../utils/todoOnDone';
@@ -105,6 +106,8 @@ export interface QuestTodoFull {
     qa_role?: string;
     orchestration_role?: string;
     bundle_id?: string;
+    /** The role the todo runs in (a folder of `_ai/roles/`). */
+    role?: string;
     derived_from?: string;
     feedback_source?: string;
     /** The todo is the user's to do: a `<prefix>*` walk passes it. */
@@ -165,6 +168,8 @@ export interface QuestTodoToolsDeps {
     today?(): string;
     /** Why `id` is no todo id by the todo schema's id pattern, or undefined (a dry-run check; the writer checks it again). */
     idRefusal?(id: string): string | undefined;
+    /** The roles folder (`_ai/roles/`) a todo's `role` is checked against; undefined: only its form is checked. */
+    rolesDir?(): string | undefined;
 }
 
 /** Today for the overdue state: the deps' clock, else the local date now. */
@@ -208,6 +213,7 @@ const ORCHESTRATION_SCHEMA = {
     qa_role: { type: 'string', description: 'Worktracker: the role that checks it.' },
     orchestration_role: { type: 'string', description: 'Worktracker: the role orchestrating its bundle.' },
     bundle_id: { type: 'string', description: 'Worktracker: its execution bundle.' },
+    role: { type: 'string', description: 'The role the todo runs in: a folder of `_ai/roles/`. A queued prompt for the todo runs as this role, before its queue item\'s, the process step\'s and the chat variable `role`. "" removes it.' },
     derived_from: { type: 'string', description: 'Worktracker: the todo it was derived from.' },
     feedback_source: { type: 'string', description: 'Worktracker: the feedback that raised it.' },
 } as const;
@@ -531,6 +537,7 @@ export interface CreateQuestTodoInput {
         qa_role?: string;
         orchestration_role?: string;
         bundle_id?: string;
+        role?: string;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
@@ -704,7 +711,7 @@ export function createQuestTodoProblem(deps: QuestTodoToolsDeps, input: CreateQu
         return '`todo.id` is required — there are NO auto-id rules for quest todos. Pick a stable lowercase id like `add-auth-flow`.';
     }
     if (!input.todo?.description) { return '`todo.description` is required.'; }
-    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateRemind(input.todo as never) ?? validateOnDone(deps, input.questId, input.todo.on_done);
+    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateRemind(input.todo as never) ?? roleRefusal(input.todo.role, deps.rolesDir?.()) ?? validateOnDone(deps, input.questId, input.todo.on_done);
     if (shapeError) { return shapeError; }
     const idRefused = deps.idRefusal?.(String(input.todo.id));
     if (idRefused) { return idRefused; }
@@ -806,6 +813,7 @@ export interface UpdateQuestTodoInput {
         qa_role?: string;
         orchestration_role?: string;
         bundle_id?: string;
+        role?: string;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
@@ -871,7 +879,7 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateRemind(input.updates as never) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateRemind(input.updates as never) ?? roleRefusal(input.updates?.role, deps.rolesDir?.()) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }

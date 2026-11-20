@@ -406,6 +406,35 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           return;
         }
 
+        case 'pickQueueDefaultRole':
+        case 'editItemRole': {
+          // The role of one item (its chip), or the run's default role (the context bar), gsel3.
+          const pqm = PromptQueueManager.instance;
+          const roles = listRoleNames(WsPaths.ai('roles'));
+          const isDefault = msg.type === 'pickQueueDefaultRole';
+          const run = isDefault ? settingsRunOf(msg) : undefined;
+          const id = !isDefault && typeof msg.id === 'string' ? msg.id : '';
+          const item = id ? pqm.getById(id) : undefined;
+          if (!isDefault && !item) { return; }
+          const current = isDefault ? (pqm.runQueueSettings(run).defaultRole ?? '') : (item?.role ?? '');
+          const picked = await vscode.window.showQuickPick(
+            [
+              { label: isDefault ? '$(circle-slash) No default role' : '$(circle-slash) Default role', role: '',
+                description: isDefault ? 'the step\'s role, else the chat variable role' : 'the todo\'s, the step\'s, the run\'s default or the chat variable role' },
+              ...roles.map((r) => ({ label: r, role: r, description: r === current ? '(current)' : '' })),
+            ],
+            { title: isDefault ? `Default role of run ${run ?? 'default'} in the prompt queue` : 'Role of this queue item', placeHolder: `Current: ${current || '(none)'}` },
+          );
+          if (!picked) { return; }
+          if (isDefault) {
+            pqm.setDefaultRole(picked.role, run);
+          } else if (!pqm.updateItemRole(id, picked.role)) {
+            void vscode.window.showWarningMessage('Only a staged or pending item can change its role.');
+          }
+          sendState();
+          return;
+        }
+
         case 'pickQueueDefaultSession':
         case 'editItemSession': {
           // The session of one item (its chip), or the queue's default (the context bar).

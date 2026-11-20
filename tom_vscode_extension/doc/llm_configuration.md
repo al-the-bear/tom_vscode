@@ -538,7 +538,7 @@ The numbers are an example of the shape, not current prices: take them from Anth
 What tools a send offers is decided in this order (`AnthropicHandler.sendMessageOwned`, before the external MCP tools and the tool plan; `src/services/roleTools.ts`, `src/utils/roleTypes.ts`):
 
 1. **The caller's list.** The chat panel and Send to Chat use the profile's selection (`resolveProfileTools`: `toolsEnabled !== false` → every tool; else `enabledTools` with the always-on tools; an empty list → none). The prompt queue passes every tool. A sub-agent passes its own list.
-2. **The role's type replaces it** when it selects tools. The role is the running Proceed's step role (`ProcessStateStore.runRole()`), else the chat variable `role`. Its folder's `role-config.yaml` names the type (`roleType`), and `_ai/role-types/<type>/role-type.yaml` gives:
+2. **The role's type replaces it** when it selects tools. The role is the one the send runs as (`services/queueRoleContext.livePromptRole()`, `utils/promptRole.ts`). The first that names one decides: the todo a queue stage runs (its `role`), the queue item's `role`, the running Proceed's step role (`ProcessStateStore.runRole()`, for the Proceed prompt and what it queued), the run's queue default role (`queue-settings.yaml` `default-role`), else the chat variable `role`. `${role}` and `${role-description}` follow the same role. Its folder's `role-config.yaml` names the type (`roleType`), and `_ai/role-types/<type>/role-type.yaml` gives:
 
    ```yaml
    # yaml-language-server: $schema=../../../.tom/json-schema/roles/role-type.schema.json

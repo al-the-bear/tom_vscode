@@ -165,24 +165,17 @@ export function liveDeps(): SpecToolDeps {
 }
 
 /**
- * `agent_<role>`: the role of the process position the prompt runs for, else
- * the window's `role` chat variable. Loaded on first use (the stores import
- * vscode and the whole manager layer).
+ * `agent_<role>`: the role the prompt runs as (services/queueRoleContext.ts:
+ * the queue stage's todo or item role, the process position's, the run's
+ * default, else the window's `role` chat variable). Loaded on first use (the
+ * stores import vscode and the whole manager layer).
  */
 function liveAgentAuthor(): string {
     let role = '';
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const process = require('../managers/processStateStore') as typeof import('../managers/processStateStore');
-        role = process.ProcessStateStore.instance?.runRole() ?? '';
-    } catch { /* no process store: the chat variable decides */ }
-    if (!role) {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const chat = require('../managers/chatVariablesStore') as typeof import('../managers/chatVariablesStore');
-            role = chat.ChatVariablesStore.instance.role;
-        } catch { /* no chat variables yet: unsigned role */ }
-    }
+        role = (require('../services/queueRoleContext') as typeof import('../services/queueRoleContext')).livePromptRole().role;
+    } catch { /* no stores yet: unsigned role */ }
     return agentAuthorId(role);
 }
 

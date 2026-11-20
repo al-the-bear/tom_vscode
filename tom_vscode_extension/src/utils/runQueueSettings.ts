@@ -41,6 +41,11 @@ export interface RunQueueSettings {
     defaultAgentSdkSession?: string;
     /** The prompt template new items take. */
     defaultMessageTemplateId?: string;
+    /**
+     * The role the run's items run as when neither their todo nor they name
+     * one and no process step does (gsel3; utils/promptRole.ts).
+     */
+    defaultRole?: string;
 }
 
 /** The settings of a run when neither the file nor its old top-level keys say otherwise. */
@@ -68,6 +73,7 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     defaultAnthropicConfigId: 'default-anthropic-config-id',
     defaultAgentSdkSession: 'default-agent-sdk-session',
     defaultMessageTemplateId: 'default-message-template-id',
+    defaultRole: 'default-role',
 });
 
 /** Every setting, in the file's key order. */
@@ -75,6 +81,7 @@ const ALL_FIELDS = Object.keys(RUN_QUEUE_SETTING_KEYS) as Array<keyof RunQueueSe
 
 const OPTIONAL_TEXT: ReadonlyArray<keyof RunQueueSettings> = [
     'defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId',
+    'defaultRole',
 ];
 
 /** `base` with what the file keys in `raw` say (unknown or ill-typed values are ignored). */
@@ -112,7 +119,7 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
 /**
  * The settings "Make default" copies from a run into the top-level keys: every
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
- * / -Continue, the default transport, profile, configuration, session and
+ * / -Continue, the default transport, profile, configuration, session, role and
  * prompt template, the Copilot answer timeout and reminder template. The walk
  * continuations (not shown in a tab) keep their top-level value.
  */

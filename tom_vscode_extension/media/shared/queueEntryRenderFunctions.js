@@ -495,6 +495,19 @@ function renderEntry(item, idx) {
               + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
               + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
             : '') +
+          // The role the item runs as (gsel3): shown when it has one; a staged or
+          // pending item can set, change or clear it (a todo's own role still wins).
+          (!isChat && (item.role || isStaged || isPending)
+            ? '<span class="queue-role-chip" style="' + ((isStaged || isPending) ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;' + (item.role ? '' : 'opacity:0.45;') + '"'
+              + ((isStaged || isPending) ? ' onclick="editItemRole(\'' + safeId + '\')"' : '')
+              + ' title="' + escapeHtml(item.role
+                ? 'Runs as role ' + item.role + ' (unless the todo it runs names its own); the chat variable role shows it while it sends'
+                : 'No role of its own: the todo\'s, the process step\'s, the run\'s default or the chat variable role')
+              + ((isStaged || isPending) ? ' — click to ' + (item.role ? 'change' : 'set') : '') + '">'
+              + '<span class="codicon codicon-person"></span>'
+              + (item.role ? '<span style="font-size:0.85em;">' + escapeHtml(item.role) + '</span>' : '')
+              + '</span>'
+            : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\'' + safeId + '\')" title="Open YAML file"></span>' +
           // A chat send is always removable: a send still running is stopped with its entry; a stale one is only removed.
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="' + (isChat

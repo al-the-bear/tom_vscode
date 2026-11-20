@@ -15,6 +15,8 @@ import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueue
 import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
+import { livePromptRole, runWithQueueRole } from '../services/queueRoleContext';
+import { RoleOverrides, rolesShownInChatVariable, type QueueRoleSource } from '../utils/promptRole';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -467,6 +469,12 @@ export interface QueuedPrompt {
      */
     session?: string;
     /**
+     * The role the item's stages run as (a folder of `_ai/roles/`; gsel3):
+     * after its todo's role, before the process step's, the run's default and
+     * the chat variable (utils/promptRole.ts). Unset: none of its own.
+     */
+    role?: string;
+    /**
      * How to create `session` when it is missing at dispatch (the item's
      * session was given as a spec `{name, basedOn, mode, profile}`); absent
      * for a bare name, which creates a fresh `continue` session.
@@ -899,6 +907,26 @@ export class PromptQueueManager {
     private _takingInbox = false;
 
     private readonly _onDidChange = new vscode.EventEmitter<void>();
+    /**
+     * The chat variable `role` while items whose role comes from their todo,
+     * themselves or their run's default send (gsel3; utils/promptRole.ts):
+     * held per item id by {@link _holdStageRole}, released when the item stops
+     * sending ({@link _syncRoleHolds}, on every queue change).
+     */
+    private readonly _roleHolds = new RoleOverrides(
+        () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                return (require('./chatVariablesStore') as typeof import('./chatVariablesStore')).ChatVariablesStore.instance?.role ?? '';
+            } catch { return ''; }
+        },
+        (role) => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                (require('./chatVariablesStore') as typeof import('./chatVariablesStore')).ChatVariablesStore.instance?.set('role', role, 'anthropic');
+            } catch { /* no chat variables */ }
+        },
+    );
     public readonly onDidChange = this._onDidChange.event;
 
     private readonly _onPromptSent = new vscode.EventEmitter<QueuedPrompt>();
@@ -1027,6 +1055,66 @@ export class PromptQueueManager {
         const wasDeferred = takeDeferredTodoOnDone(claim.questId, claim.todoId);
         if (onDoneDueAtSettle(wasDeferred, readQuestTodoStatus(claim.questId, claim.todoId))) {
             this._runTodoOnDone(claim.questId, claim.todoId, item.run, item.queuedBy);
+        }
+    }
+
+    /**
+     * The roles a stage of `item` runs with (gsel3; utils/promptRole.ts): the
+     * todo it runs — for a `<prefix>*` walk the todo the stage's record names
+     * (src/utils/todoIterationRecord.ts: a pre-prompt the todo its iteration is
+     * about to run, the main prompt the claimed one, a follow-up the
+     * iteration's); for another item its claimed todo or the one it ran
+     * (a TODO item) — the item's own role and its run's default role.
+     */
+    stageRoleSource(item: QueuedPrompt | undefined, stage: 'prePrompt' | 'main' | 'followUp', todoId?: string): QueueRoleSource | undefined {
+        if (!item) { return undefined; }
+        const questId = item.todoClaim?.questId ?? this.activeQuestId();
+        const isTodoIteration = parseTodoWalk(item.repeatCount) !== undefined;
+        const id = todoId ?? (isTodoIteration
+            ? todoForStage(stage, {
+                isTodoIteration,
+                claimedId: item.todoClaim?.todoId ?? item.repeatTodoId,
+                nextId: stage === 'prePrompt' && questId ? pickNextTodoForIteration(item.repeatCount, walkEntriesOf(item, questId))?.id : undefined,
+                lastId: item.repeatTodoId,
+            })
+            : (item.todoClaim?.todoId ?? item.repeatTodoId));
+        let todoRole: string | undefined;
+        if (id && questId) {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { findTodoById } = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
+                todoRole = findTodoById(questId, id)?.role || undefined;
+            } catch { /* no todo store */ }
+        }
+        const runDefaultRole = this._settingsOf(itemRun(item)).defaultRole;
+        return {
+            ...(todoRole ? { todoRole } : {}),
+            ...(item.role ? { itemRole: item.role } : {}),
+            ...(runDefaultRole ? { runDefaultRole } : {}),
+        };
+    }
+
+    /**
+     * The chat variable `role` while `item`'s stage sends: held at the role the
+     * stage runs as when that role is the queue's own (its todo's, the item's,
+     * the run default's), else released (gsel3).
+     */
+    private async _holdStageRole(item: QueuedPrompt | undefined, processRun: ProcessRun | undefined, source: QueueRoleSource | undefined): Promise<void> {
+        if (!item) { return; }
+        const decided = await runInProcessPosition(processRun, () => runWithQueueRole(source, async () => livePromptRole()));
+        if (rolesShownInChatVariable(decided.from)) {
+            this._roleHolds.hold(item.id, decided.role);
+            logQueue(`Item ${item.id}: runs as role ${decided.role} (${decided.from}); the chat variable role shows it while it sends`);
+        } else {
+            this._roleHolds.release(item.id);
+        }
+    }
+
+    /** Release the chat-variable role of every item that no longer sends (gsel3). */
+    private _syncRoleHolds(): void {
+        for (const key of this._roleHolds.keys()) {
+            const item = this._items.find((i) => i.id === key);
+            if (!item || item.status !== 'sending') { this._roleHolds.release(key); }
         }
     }
 
@@ -1232,6 +1320,9 @@ export class PromptQueueManager {
         setOpenAskStore({ record: (itemId, call) => m._recordOpenAsk(itemId, call), clear: (itemId) => m._clearOpenAsk(itemId) });
         ctx.subscriptions?.push({ dispose: () => setOpenAskStore(undefined) });
         m._scheduleOpenAskRestore();
+        // An item that stops sending (done, failed, interrupted, stopped, removed) gives the chat variable role back (gsel3).
+        const stopRoleHolds = m._onDidChange.event(() => m._syncRoleHolds());
+        ctx.subscriptions?.push(stopRoleHolds);
         // A prompt starts or stops waiting for the user: the editor shows it on the item.
         const stopWaits = onUserWaitsChanged(() => m._onDidChange.fire());
         ctx.subscriptions?.push({ dispose: stopWaits });
@@ -2488,6 +2579,8 @@ export class PromptQueueManager {
         anthropicConfigId?: string;
         /** The named session the item runs in: a name, or a spec `{name, basedOn?, mode?, profile?}`. */
         session?: string | Record<string, unknown>;
+        /** The role the item runs as (a folder of `_ai/roles/`); unset or "": none of its own. */
+        role?: string;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
         /** The process run the item belongs to; default the Proceed's, else the window's current run. */
@@ -2627,6 +2720,7 @@ export class PromptQueueManager {
             anthropicConfigId: opts.anthropicConfigId,
             ...(sessionSpec ? { session: sessionSpec.name } : {}),
             ...(sessionSpec && specExtras(sessionSpec) ? { sessionCreate: specExtras(sessionSpec) } : {}),
+            ...(opts.role && opts.role.trim() ? { role: opts.role.trim() } : {}),
             // A prompt queued while a Proceed prompt runs (a planning step queuing
             // its todo walks) belongs to the same position.
             ...(inherited ? { processRun: inherited } : {}),
@@ -5587,6 +5681,13 @@ export class PromptQueueManager {
         // downstream chat-variable / TODO side-effects.
         propagateAnswer = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
+        // The role this stage runs as (gsel3): its todo's (none for a pre-prompt),
+        // the item's, the step's, the run default's; the chat variable shows the
+        // queue's own while the item sends. The Quest Refresh dispatch has none.
+        const stageItem = resolved.item;
+        const isPrePrompt = !!stageItem && !!stageForAnswer && (stageItem.prePrompts ?? []).some((pp) => pp === stageForAnswer);
+        const roleSource = stageForAnswer ? this.stageRoleSource(stageItem, isPrePrompt ? 'prePrompt' : 'main') : undefined;
+        await this._holdStageRole(stageItem, resolved.processRun, roleSource);
         if (resolved.transport === 'copilot') {
             // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
             await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(unescapePlaceholders(expandedText)) });
@@ -5650,7 +5751,7 @@ export class PromptQueueManager {
         try {
             // The prompt runs as the process position it belongs to (processRunContext).
             // Its tool calls run as this item: a wait for the user they open is shown on it (userWaits).
-            const result = await runAsQueueItem(waitItem?.id, () => runInProcessPosition(resolved.processRun, () => AnthropicHandler.instance.sendMessage({
+            const result = await runAsQueueItem(waitItem?.id, () => runInProcessPosition(resolved.processRun, () => runWithQueueRole(roleSource, () => AnthropicHandler.instance.sendMessage({
                 userText: expandedText,
                 profile: coercedProfile,
                 configuration,
@@ -5679,7 +5780,7 @@ export class PromptQueueManager {
                 },
                 ...(resolved.continueSessionId ? { continueSessionId: resolved.continueSessionId } : {}),
                 ...(resolved.resumeConversation ? { resumeConversation: resolved.resumeConversation } : {}),
-            })), waitItem ? itemRun(waitItem) : undefined).catch((err: unknown) => {
+            }))), waitItem ? itemRun(waitItem) : undefined).catch((err: unknown) => {
                 // The turn of a soft-interrupted item ended without our cancel (the SDK process ended):
                 // the item becomes interrupted, its run stays paused (vscimpb112).
                 if (waitItem && waitItem.status === 'sending' && !cts.token.isCancellationRequested
@@ -6628,7 +6729,7 @@ export class PromptQueueManager {
                 // it's a Copilot-only construct (spec §4.7). Pass the
                 // resolved transport so the template lookup hits the
                 // right store (spec §4.16).
-                const prePromptExpanded = await this._buildExpandedText(
+                const prePromptExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'prePrompt'), () => this._buildExpandedText(
                     pp.text,
                     pp.template,
                     resolved.transport === 'copilot',
@@ -6639,7 +6740,7 @@ export class PromptQueueManager {
                         templateRepeatIndex: item.templateRepeatIndex,
                     },
                     this.iterationTodoBlock(item, 'prePrompt'),
-                );
+                )));
                 pp.status = 'sent';
                 pp.repeatIndex = ppSentCount + 1;
                 // Record the advance so a failed send can roll back to re-send
@@ -6816,7 +6917,7 @@ export class PromptQueueManager {
             // Every Copilot stage that waits for an answer carries the Copilot Queue
             // Wrapper; an item opts out with answerWrapper: false (it waits a fixed time).
             const effectiveWrap = copilotWrapFor(resolved.transport, item.answerWrapper);
-            item.expandedText = await this._buildExpandedText(
+            item.expandedText = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'main', iterationTodo?.id), () => this._buildExpandedText(
                 item.originalText,
                 item.template,
                 effectiveWrap,
@@ -6837,7 +6938,7 @@ export class PromptQueueManager {
                     templateRepeatIndex: item.templateRepeatIndex,
                 },
                 this.iterationTodoBlock(item, 'main', iterationTodo?.id),
-            );
+            )));
             const newRequestId = resolved.transport === 'copilot'
                 ? this._extractRequestIdFromExpandedPrompt(item.expandedText)
                 : undefined;
@@ -6923,7 +7024,7 @@ export class PromptQueueManager {
                 if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
                 // A follow-up runs in the iteration it follows (the last).
                 const resolved = { ...this.resolveStageTransport(item, nextFollowUp), iterationKey: iterationKeyFor(item, 'followUp'), item };
-                const followUpExpanded = await this._buildExpandedText(
+                const followUpExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'followUp'), () => this._buildExpandedText(
                     nextFollowUp.originalText,
                     nextFollowUp.template,
                     resolved.transport === 'copilot',
@@ -6934,7 +7035,7 @@ export class PromptQueueManager {
                         templateRepeatIndex: item.templateRepeatIndex,
                     },
                     this.iterationTodoBlock(item, 'followUp'),
-                );
+                )));
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;
                 item.expectedRequestId = resolved.transport === 'copilot'
@@ -7227,7 +7328,7 @@ export class PromptQueueManager {
         const next: RunQueueSettings = { ...before, ...patch };
         if (patch.responseTimeoutMinutes !== undefined) { next.responseTimeoutMinutes = Math.max(5, Math.round(patch.responseTimeoutMinutes || 60)); }
         if (patch.walkContinuations !== undefined) { next.walkContinuations = validContinuations(patch.walkContinuations) ?? before.walkContinuations; }
-        for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId'] as const) {
+        for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'] as const) {
             if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
         }
         this._putRunSettings(name, next);
@@ -7316,6 +7417,26 @@ export class PromptQueueManager {
     /** Set a run's default Agent SDK session (default: the window's run); '' / undefined = the run's own `default`. */
     setDefaultAgentSdkSession(name: string | undefined, run?: string): void {
         this.setRunQueueSettings(run, { defaultAgentSdkSession: name });
+    }
+
+    /** Set a run's default role (default: the window's run); '' / undefined = none (gsel3; utils/promptRole.ts). */
+    setDefaultRole(role: string | undefined, run?: string): void {
+        this.setRunQueueSettings(run, { defaultRole: role && role.trim() ? role.trim() : undefined });
+    }
+
+    /**
+     * The role a staged or pending item runs as (gsel3); `''` / undefined
+     * clears it. False when the item cannot change it (missing, or past
+     * pending); the caller checks the name (utils/roleNames.ts roleRefusal).
+     */
+    updateItemRole(id: string, role: string | undefined): boolean {
+        const item = this._items.find(i => i.id === id);
+        if (!item || !this.canChangeSession(item.status)) { return false; }
+        const next = role && role.trim() ? role.trim() : undefined;
+        if (next) { item.role = next; } else { delete item.role; }
+        this.persist();
+        this._onDidChange.fire();
+        return true;
     }
 
     /**
@@ -7880,6 +8001,7 @@ export class PromptQueueManager {
                 // direct transport's history too); read either, write `session`.
                 // A spec is written as a map ({name, basedOn, mode, profile}).
                 ...readItemSession(main.session ?? main['agent-sdk-session']),
+                ...(typeof main.role === 'string' && main.role.trim() ? { role: main.role.trim() } : {}),
                 runId: typeof main.execution?.['run-id'] === 'string' ? main.execution['run-id'] : undefined,
                 iterationSeq: typeof main.execution?.['iteration-seq'] === 'number' ? main.execution['iteration-seq'] : undefined,
                 processRun: parseProcessRun(main['process-run']),
@@ -8049,6 +8171,7 @@ export class PromptQueueManager {
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
             ...(item.session ? { session: item.sessionCreate ? { name: item.session, ...item.sessionCreate } : item.session } : {}),
+            ...(item.role ? { role: item.role } : {}),
             ...(item.processRun ? { 'process-run': item.processRun } : {}),
             ...(item.run ? { run: item.run } : {}),
             ...(item.processMove ? { 'process-move': item.processMove } : {}),

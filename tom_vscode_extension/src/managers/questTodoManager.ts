@@ -151,6 +151,12 @@ export interface QuestTodoItem {
     orchestration_role?: string;
     /** Worktracker orchestration: the execution bundle the todo is grouped into. */
     bundle_id?: string;
+    /**
+     * The role the todo runs in (a folder of `_ai/roles/`): a queued prompt for
+     * it runs as this role, before its item's, the step's and the chat
+     * variable's (utils/promptRole.ts).
+     */
+    role?: string;
     /** Worktracker orchestration: the todo this one was derived from. */
     derived_from?: string;
     /** Worktracker orchestration: the feedback that raised this todo. */

@@ -118,9 +118,9 @@ describe('the todo record in iteration prompts', () => {
 
     test('TI-5: the queue manager', () => {
         const src = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'src', 'managers', 'promptQueueManager.ts'), 'utf8');
-        assert.match(src, /this\.iterationTodoBlock\(item, 'prePrompt'\),\n\s+\);/);
-        assert.match(src, /this\.iterationTodoBlock\(item, 'main', iterationTodo\?\.id\),\n\s+\);/);
-        assert.match(src, /this\.iterationTodoBlock\(item, 'followUp'\),\n\s+\);/);
+        assert.match(src, /this\.iterationTodoBlock\(item, 'prePrompt'\),\n\s+\)+;/);
+        assert.match(src, /this\.iterationTodoBlock\(item, 'main', iterationTodo\?\.id\),\n\s+\)+;/);
+        assert.match(src, /this\.iterationTodoBlock\(item, 'followUp'\),\n\s+\)+;/);
         assert.match(src, /expandTemplate\(withTodoYaml\(withResolvedAffixes, todoBlock\)/, 'appended before the template passes');
         assert.match(src, /nextId: stage === 'prePrompt' \? pickNextTodoForIteration\(item\.repeatCount, walkEntriesOf\(item, questId\)\)\?\.id/);
         assert.match(src, /lastId: item\.repeatTodoId/);

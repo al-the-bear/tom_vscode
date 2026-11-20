@@ -112,7 +112,7 @@ let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQu
 let startQueueSettings = (__INITIAL__.startQueueSettings && typeof __INITIAL__.startQueueSettings === 'object') ? __INITIAL__.startQueueSettings : null;
 /* The settings Make default copies (utils/runQueueSettings.ts DEFAULT_SETTING_FIELDS): every per-run setting a tab shows. */
 const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'responseTimeoutMinutes', 'defaultReminderTemplateId',
-  'defaultTransport', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId'];
+  'defaultTransport', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'];
 
 /** The shown settings in which the tab's run differs from the start values ([] = Make default has nothing to write). */
 function defaultSettingsDiff() {
@@ -274,6 +274,7 @@ if (__ctxSummary) {
     vscode.postMessage(pick === 'role' ? { type: 'pickRole' }
       : pick === 'position' ? { type: 'openRunStateFile', run: settingsRun() }
       : pick === 'variables' ? { type: 'openChatVariablesEditor', run: settingsRun() }
+      : pick === 'defaultRole' ? { type: 'pickQueueDefaultRole', run: settingsRun() }
       : { type: 'pickQueueDefaultSession', run: settingsRun() });
   });
 }
@@ -439,6 +440,12 @@ function updateContextSummary() {
     roleText.title = 'The role run ' + run + '\'s step names (its Proceed prompts run in it)';
     el.appendChild(roleText);
   }
+  sep();
+  // The run's default role (gsel3): what its items run as when neither their todo, they nor a step name one.
+  const runDefaultRole = (runQueueSettings[settingsRun()] || {}).defaultRole || '';
+  el.appendChild(document.createTextNode('Default role: '));
+  el.appendChild(link('defaultRole', runDefaultRole || '(none)',
+    'The role run ' + settingsRun() + '\'s items run as when neither their todo, the item nor a process step names one — click to choose another'));
   sep();
   el.appendChild(document.createTextNode('Session: '));
   const sessionName = runQueueSessionName(queueDefaultSessionLabel, settingsRun());

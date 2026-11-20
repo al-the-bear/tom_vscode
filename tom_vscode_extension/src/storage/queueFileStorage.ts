@@ -180,6 +180,8 @@ export interface QueuePromptYaml {
     session?: string | { name: string; basedOn?: string; mode?: string; profile?: string };
     /** The older name of `session`; read, never written. */
     'agent-sdk-session'?: string;
+    /** The role the item runs as (a folder of `_ai/roles/`; gsel3). */
+    role?: string;
     /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */
     'process-run'?: unknown;
     /** The process run of the quest the item belongs to (`default` for the quest's own position). */

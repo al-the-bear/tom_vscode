@@ -470,21 +470,23 @@ function addChatValues(values: Record<string, string>): void {
     } catch {
         // ChatVariablesStore not yet initialized — skip
     }
-    // A queued Proceed prompt runs as the step it belongs to, although the
-    // quest may have moved on since it was queued (processRunContext).
-    const runRole = getProcessRunRole();
-    if (runRole) {
-        values['role'] = runRole;
-        values['chat.role'] = runRole;
+    // The role the send runs as (services/queueRoleContext.ts, gsel3): a queue
+    // stage's todo or item role, a queued Proceed prompt's step role (although
+    // the quest may have moved on since it was queued), the run's default role.
+    const promptRole = getPromptRoleOverride();
+    if (promptRole) {
+        values['role'] = promptRole;
+        values['chat.role'] = promptRole;
     }
 }
 
-/** The role of the process position the current send runs for; undefined outside such a send. */
-function getProcessRunRole(): string | undefined {
+/** The role the current send runs as when it is not the chat variable's; undefined otherwise. */
+function getPromptRoleOverride(): string | undefined {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const mod = require('../managers/processStateStore.js');
-        return mod.ProcessStateStore?.instance?.runRole() || undefined;
+        const mod = require('../services/queueRoleContext.js') as typeof import('../services/queueRoleContext');
+        const r = mod.livePromptRole();
+        return r.from === 'chat' || r.from === 'none' ? undefined : r.role;
     } catch {
         return undefined;
     }

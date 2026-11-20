@@ -64,6 +64,7 @@ const ITEM: Required<QueuedPrompt> = {
     resumeAfterWait: true, walkContinuations: 2, needsAttention: 'not completed', pauseAfter: true, sendBetween: true, yieldAfterIteration: true,
     transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c',
     session: 'work', sessionCreate: { basedOn: 'default', mode: 'per-prompt', profile: 'p' },
+    role: 'reviewer',
     runId: 'run-1', iterationSeq: 2,
     processRun: { quest: 'q1', state: { process: 'p', phase: 'a', step: 'b' } as never, proceedId: 'pr-1', level: 0, run: 'chg1' },
     run: 'chg1',

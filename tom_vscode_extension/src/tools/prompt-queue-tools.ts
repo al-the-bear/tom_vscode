@@ -60,6 +60,7 @@ import { todoIdPatternOf } from '../utils/todoQueueMarks';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 import { parseSessionSpec } from '../utils/sessionSpecs';
+import { roleRefusal } from '../utils/roleNames';
 
 // ===========================================================================
 // Shared shapes
@@ -140,6 +141,8 @@ export interface QueueItemSnapshot {
     session?: string;
     /** How the session is created when missing at dispatch (the item's session was given as a spec). */
     sessionCreate?: { basedOn?: string; mode?: string; profile?: string };
+    /** The role the item runs as (a folder of `_ai/roles/`); unset: none of its own. */
+    role?: string;
     /** The process run of the quest the item belongs to (`default` for the quest's own position). */
     run?: string;
     answerText?: string;
@@ -182,7 +185,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
-    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'run',
+    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'role', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
     'queuedBy', 'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
@@ -234,6 +237,8 @@ export interface EnqueueInput {
     anthropicConfigId?: string;
     /** A session name or a spec `{name, basedOn?, mode?, profile?}`. */
     session?: QueueSessionInput;
+    /** The role the item runs as (a folder of `_ai/roles/`). */
+    role?: string;
     /** The process run the item belongs to; default the window's current run. */
     run?: string;
     prePrompts?: PrePromptSpec[];
@@ -326,6 +331,10 @@ export interface PromptQueueAccess {
      * change. Throws when the item's profile cannot continue the session's conversation.
      */
     updateItemSession?(id: string, session: QueueSessionInput): boolean;
+    /** Set the role a staged or pending item runs as ('' = none of its own); false when the item cannot change. */
+    updateItemRole?(id: string, role: string): boolean;
+    /** The roles folder (`_ai/roles/`) a role is checked against; undefined: only its form is checked. */
+    rolesDir?(): string | undefined;
     /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
     updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean; quest?: string; run?: string }): boolean;
 
@@ -420,6 +429,12 @@ const SESSION_SCHEMA = {
     ],
 };
 
+/** The JSON schema of a queue item's `role` (gsel3). */
+const ROLE_SCHEMA = {
+    type: 'string',
+    description: 'The role the item runs as: a folder of `_ai/roles/`. Its stages run as this role (the tools, `${role}`, the role text) unless the todo a walk or TODO item runs names its own; before the process step\'s role, the run\'s default role and the chat variable `role`, which shows it while the item sends. \'\' (update) removes it. An unknown role is refused.',
+} as const;
+
 /** The refusal of a malformed session (name or spec), or null. */
 function sessionRefusal(session: unknown): string | null {
     if (session === undefined || session === '') { return null; }
@@ -466,6 +481,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         anthropicConfigId: i.anthropicConfigId || null,
         session: i.session || null,
         ...(i.sessionCreate ? { sessionSpec: { name: i.session, ...i.sessionCreate } } : {}),
+        ...(i.role ? { role: i.role } : {}),
         // The process run the item belongs to (a chat send: none).
         ...(i.run ? { run: i.run } : {}),
         answerText: i.answerText || null,
@@ -527,6 +543,8 @@ export interface AddQueueItemInput {
     anthropicConfigId?: string;
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
+    /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
+    role?: string;
     doneNotificationPrompt?: string;
     /** The quest the done notification is posted to (its inbox); default this quest. */
     doneNotificationQuest?: string;
@@ -593,6 +611,8 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         if (refused) { return refused; }
         const badSession = sessionRefusal(input.session);
         if (badSession) { return badSession; }
+        const badRole = roleRefusal(input.role, access.rolesDir?.());
+        if (badRole) { return err(badRole); }
         const run = typeof input.run === 'string' && input.run.trim() ? input.run.trim() : undefined;
         if (run && access.runs) {
             const known = access.runs();
@@ -632,6 +652,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
             ...(input.session ? { session: input.session } : {}),
+            ...(input.role ? { role: input.role } : {}),
             ...(input.doneNotificationPrompt ? { doneNotificationPrompt: input.doneNotificationPrompt } : {}),
             ...(input.processItem === true ? { processItem: true } : {}),
             prePrompts: input.prePrompts ?? [],
@@ -705,6 +726,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
+            role: ROLE_SCHEMA,
             run: { type: 'string', description: 'The process run of the quest the item belongs to (tomAi_listProcessRuns): its sessions are the run\'s (`<session>@<run>`). Default: the run of the Proceed prompt it is queued from, else the window\'s run.' },
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
@@ -983,6 +1005,8 @@ export interface UpdateQueueItemInput {
     anthropicConfigId?: string;
     /** The session the item runs in: a name or a spec ('' = the queue default). */
     session?: QueueSessionInput;
+    /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
+    role?: string;
     /** '' removes it. */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
@@ -1051,6 +1075,13 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         if (input.session !== undefined) {
             if (!access.updateItemSession || !access.updateItemSession(input.queueItemId, input.session)) {
                 return err(`The session of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
+            }
+        }
+        if (input.role !== undefined) {
+            const badRole = roleRefusal(input.role, access.rolesDir?.());
+            if (badRole) { return err(badRole); }
+            if (!access.updateItemRole || !access.updateItemRole(input.queueItemId, input.role)) {
+                return err(`The role of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
             }
         }
         if (input.doneNotificationQuest !== undefined || input.doneNotificationRun !== undefined) {
@@ -1161,6 +1192,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
+            role: ROLE_SCHEMA,
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
             doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
