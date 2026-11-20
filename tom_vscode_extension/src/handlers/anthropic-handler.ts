@@ -342,6 +342,12 @@ interface AnthropicSection {
 }
 
 export interface AnthropicSendOptions {
+    /**
+     * The aspect guideline choices of the levels below the section default
+     * (utils/aspectGuidelines.ts): the section defaults always apply; an
+     * isolated send (a sub-agent) gets no aspect text.
+     */
+    aspectGuidelineChoices?: AspectLevelChoices;
     /** Raw text the user typed into the panel. */
     userText: string;
     /**
@@ -460,6 +466,8 @@ import { applyQuestCompactionOverride, SECTION_COMPACTION } from '../utils/compa
 import { localLlmEndpointText } from '../utils/localLlmEndpoint';
 import { prefixedToolResultContent, SoftInterruptRegistry, toolResultText } from '../services/softInterrupt';
 import { readQuestSection } from '../managers/extensionConfigStore';
+import { liveAspectsForSend } from '../services/aspectGuidelinesStore';
+import { placeAspects, type AspectLevelChoices, type AspectTransport } from '../utils/aspectGuidelines';
 import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 export { temperatureField };
 
@@ -2348,6 +2356,15 @@ export class AnthropicHandler {
             const skillsSection = skillsSystemSection(listSkills(WsPaths.wsRoot ?? ''));
             if (skillsSection) { systemSegments.push(skillsSection); }
         }
+        // Aspect guidelines (gsel2): the system sections are one more segment
+        // here; the user sections go before the user content below.
+        const aspects = options.isolated
+            ? undefined
+            : liveAspectsForSend(transport as AspectTransport, { systemSegments, userContent: '' }, options.aspectGuidelineChoices);
+        if (aspects) {
+            systemSegments.splice(0, systemSegments.length, ...aspects.systemSegments);
+            for (const problem of aspects.problems) { debugLog(`[aspects] ${problem}`, 'WARN', 'anthropic'); }
+        }
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
         // Effective history mode for this call. Agent SDK configs may use
         // 'sdk-managed' (SDK session resumption); 'full' / 'trim_and_summary'
@@ -2382,7 +2399,9 @@ export class AnthropicHandler {
         // summary trail (written from finalize) uses `effectiveUserText`
         // directly so it reflects only what the user typed — no
         // injections, templates, or prefixes.
-        let userContent = expandedUser;
+        let userContent = aspects
+            ? placeAspects(transport as AspectTransport, { systemSegments: [], userContent: expandedUser }, { system: '', user: aspects.assembled.user }).userContent
+            : expandedUser;
 
         // Claude Code's SessionStart and UserPromptSubmit hooks (CC-12), on the
         // transports with our own loop (the Agent SDK runs its own). A blocked

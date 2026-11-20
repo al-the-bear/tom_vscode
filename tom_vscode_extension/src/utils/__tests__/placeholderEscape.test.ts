@@ -77,7 +77,7 @@ describe('a literal placeholder', () => {
         assert.equal((user.match(/return /g) ?? []).length, (user.match(/return unescapePlaceholders\(/g) ?? []).length,
             'every way the user message is returned');
         const queue = fs.readFileSync(path.join(SRC, 'managers', 'promptQueueManager.ts'), 'utf8');
-        assert.match(queue, /'workbench\.action\.chat\.open', \{ query: unescapePlaceholders\(expandedText\) \}/, 'the Copilot dispatch');
+        assert.match(queue, /'workbench\.action\.chat\.open', \{ query: withAspectsForCopilot\(unescapePlaceholders\(expandedText\)\) \}/, 'the Copilot dispatch');
 
         const answer = JSON.parse(await getProcessStateImpl({
             activeQuest: () => 'q', state: () => ({}) as never, currentRole: () => '',

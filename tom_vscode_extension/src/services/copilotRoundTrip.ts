@@ -17,6 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { withAspectsForCopilot } from './aspectGuidelinesStore';
 import { copilotQueueWrapper } from '../utils/copilotTemplates';
 import { updateChatResponseValues, loadSendToChatConfig } from '../handlers/handler_shared';
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
@@ -272,7 +273,8 @@ export async function askCopilotForScript(input: CopilotRoundTripInput): Promise
             selectedTemplateId: '__none__',
             answerFileTemplate: copilotQueueWrapper(loadSendToChatConfig()),
         }),
-        opener: { async open(query) { await vscode.commands.executeCommand('workbench.action.chat.open', { query }); } },
+        // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
+        opener: { async open(query) { await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(query) }); } },
         newRequestId: generateShortUUID,
         sinkFor: liveSink,
         expander: { expand: (template, values) => expandTemplate(template, { values }) },

@@ -22,6 +22,7 @@ import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, user
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
+import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
@@ -1507,6 +1508,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             this._notifyAnswerFileStatus();
             expanded = await expandAsRun(fillWrapper(copilotQueueWrapper(config), expanded));
         }
+
+        // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
+        expanded = withAspectsForCopilot(expanded);
 
         // Extract requestId from expanded prompt so trail and answer share the same ID
         const requestId = this._extractRequestIdFromExpandedPrompt(expanded);

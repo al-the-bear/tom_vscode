@@ -3,7 +3,7 @@
  * `userConfigPath` (02_wslayout-8; utils/generatedSchemas.ts, utils/tomAiConfiguration.ts).
  *
  *   GS-1 the top `.tom`: the root's in a root (also from a workspace folder below it), a standalone folder's own;
- *        the four sets written there with their `.generated-by` stamps; a second run changes nothing
+ *        the five sets written there with their `.generated-by` stamps; a second run changes nothing
  *   GS-2 a hand-made schema is never overwritten: an unstamped folder that differs is reported and left as it is;
  *        one whose files are identical is adopted (stamped)
  *   GS-3 a stamped folder is brought up to date (a changed file, a newer build), its other files kept; an older
@@ -76,6 +76,7 @@ describe('the generated schemas in the top .tom', () => {
             const results = syncGeneratedSchemas(top, EXT, STAMP);
             assert.deepEqual(results.map((r) => [r.folder, r.outcome]), [
                 ['json-schema/panels', 'written'], ['json-schema/roles', 'written'], ['json-schema/processes', 'written'], ['json-schema/extension', 'written'],
+                ['json-schema/aspect-guidelines', 'written'],
             ]);
             for (const set of GENERATED_SCHEMA_SETS) {
                 const dir = path.join(top, ...set.folder.split('/'));
@@ -84,7 +85,7 @@ describe('the generated schemas in the top .tom', () => {
             }
             assert.ok(fs.existsSync(path.join(top, 'json-schema', 'processes', 'process.schema.json')));
             assert.ok(fs.existsSync(path.join(top, 'json-schema', 'extension', 'tom_vscode_extension.schema.json')));
-            assert.deepEqual(syncGeneratedSchemas(top, EXT, STAMP).map((r) => r.outcome), ['current', 'current', 'current', 'current'], 'nothing to do');
+            assert.deepEqual(syncGeneratedSchemas(top, EXT, STAMP).map((r) => r.outcome), ['current', 'current', 'current', 'current', 'current'], 'nothing to do');
         }
     });
 
@@ -115,7 +116,7 @@ describe('the generated schemas in the top .tom', () => {
         assert.equal(fs.readFileSync(path.join(dir, 'role-type.schema.json'), 'utf8'), shipped('json-schema/roles', 'role-type.schema.json'));
         assert.equal(fs.readFileSync(path.join(dir, 'notes.md'), 'utf8'), 'mine', 'other files kept');
         const newer = { ...STAMP, build: { commit: 'def', builtAt: '2026-11-19T10:00:00.000Z' } };
-        assert.deepEqual(syncGeneratedSchemas(top, EXT, newer).map((r) => r.outcome), ['updated', 'updated', 'updated', 'updated'], 'a newer build restamps');
+        assert.deepEqual(syncGeneratedSchemas(top, EXT, newer).map((r) => r.outcome), ['updated', 'updated', 'updated', 'updated', 'updated'], 'a newer build restamps');
         assert.equal(readGeneratedBy(dir)?.build?.commit, 'def');
         fs.writeFileSync(path.join(dir, 'role-type.schema.json'), '{"newer":true}');
         assert.equal(syncGeneratedSchemas(top, EXT, STAMP).find((r) => r.folder === 'json-schema/roles')!.outcome, 'current', 'the older build leaves it');

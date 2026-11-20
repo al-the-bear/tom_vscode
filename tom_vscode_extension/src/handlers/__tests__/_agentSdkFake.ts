@@ -13,6 +13,8 @@
 export interface FakeSdk {
     sdk: unknown;
     options: Record<string, unknown>[];
+    /** The prompt of every `query` (a string, or the transport's message stream), in order. */
+    prompts: unknown[];
     /** The MCP tool handlers, by tool name. */
     handlers: Map<string, (args: Record<string, unknown>, extra?: unknown) => Promise<unknown>>;
     /** Every `setPermissionMode` call on a running query, in order. */
@@ -25,6 +27,7 @@ export function fakeSuccessSdk(opts: {
     messages?: unknown[];
 } = {}): FakeSdk {
     const options: Record<string, unknown>[] = [];
+    const prompts: unknown[] = [];
     const handlers: FakeSdk['handlers'] = new Map();
     const modeChanges: string[] = [];
     const sdk = {
@@ -35,6 +38,7 @@ export function fakeSuccessSdk(opts: {
         createSdkMcpServer: () => ({}),
         query: (args: { prompt: unknown; options: Record<string, unknown> }) => {
             options.push(args.options);
+            prompts.push(args.prompt);
             const stream = (async function* () {
                 if (opts.during) { await opts.during(args.options); }
                 for (const m of opts.messages ?? []) { yield m; }
@@ -45,5 +49,5 @@ export function fakeSuccessSdk(opts: {
             });
         },
     };
-    return { sdk, options, handlers, modeChanges };
+    return { sdk, options, prompts, handlers, modeChanges };
 }

@@ -20,6 +20,7 @@
 
 import { resolveBusySession } from './busySessionChoice';
 import * as vscode from 'vscode';
+import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveAnthropicTargets } from '../utils/resolveAnthropicTargets';
 import { resolveProfileTools } from '../tools/tool-executors';
@@ -74,7 +75,8 @@ export function scriptSendTarget(target: unknown): SendToChatTarget {
 export async function openCopilotChat(prompt: string): Promise<void> {
     const refusal = chatSendRefusal();
     if (refusal) { void vscode.window.showWarningMessage(`Not sent: ${refusal}`); return; }
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt });
+    // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(prompt) });
 }
 
 /**

@@ -192,7 +192,7 @@ describe('todo panel sends carry the todo record', () => {
         }
         const handler = fs.readFileSync(path.join(root, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
         assert.equal((handler.match(/_todoPromptFragment\(todo, questId, /g) ?? []).length, 6, 'Send, Add to queue, both stack actions, Guide me in the chat and via the queue (Queue again re-delivers the same entries, vscimpb139)');
-        assert.match(handler, /\{ query: unescapePlaceholders\(expanded\) \}/);
+        assert.match(handler, /\{ query: withAspectsForCopilot\(unescapePlaceholders\(expanded\)\) \}/);
         assert.match(guide!, /comes with its complete YAML/, 'Guide me works from the record');
     });
 });

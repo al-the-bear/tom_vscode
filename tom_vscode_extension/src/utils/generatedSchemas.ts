@@ -12,6 +12,7 @@
  * | `json-schema/roles/`      | `role-config.schema.json`, `role-type.schema.json` |
  * | `json-schema/processes/`  | `process.schema.json`                           |
  * | `json-schema/extension/`  | `tom_vscode_extension.schema.json`              |
+ * | `json-schema/aspect-guidelines/` | `aspect-guideline-section.schema.json` (`_ai/aspect_guidelines/<section>/section.yaml`) |
  *
  * Each folder written gets a `.generated-by` file (extension id, version,
  * build) telling a generated copy apart from a schema under development:
@@ -47,12 +48,13 @@ export interface GeneratedSchemaSet {
 
 const PANEL_SCHEMAS = ['chatvars', 'panels', 'prompt', 'queue', 'timed'];
 
-/** The four sets (TD-17 (a)); sources relative to the extension folder. */
+/** The five sets (TD-17 (a), gsel2); sources relative to the extension folder. */
 export const GENERATED_SCHEMA_SETS: readonly GeneratedSchemaSet[] = [
     { folder: 'json-schema/panels', files: PANEL_SCHEMAS.map((n) => ({ name: `${n}.schema.json`, source: `resources/schemas/panels/${n}.schema.json` })) },
     { folder: 'json-schema/roles', files: ['role-config', 'role-type'].map((n) => ({ name: `${n}.schema.json`, source: `out/config/${n}.schema.json` })) },
     { folder: 'json-schema/processes', files: [{ name: 'process.schema.json', source: 'out/config/process.schema.json' }] },
     { folder: 'json-schema/extension', files: [{ name: 'tom_vscode_extension.schema.json', source: 'out/config/tom_vscode_extension.schema.json' }] },
+    { folder: 'json-schema/aspect-guidelines', files: [{ name: 'aspect-guideline-section.schema.json', source: 'out/config/aspect-guideline-section.schema.json' }] },
 ];
 
 /** Who wrote a generated folder. */

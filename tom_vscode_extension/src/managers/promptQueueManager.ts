@@ -13,6 +13,7 @@ import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSe
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
 import * as vscode from 'vscode';
+import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
 import * as fs from 'fs';
@@ -5587,7 +5588,8 @@ export class PromptQueueManager {
         propagateAnswer = true,
     ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
         if (resolved.transport === 'copilot') {
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: unescapePlaceholders(expandedText) });
+            // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(unescapePlaceholders(expandedText)) });
             this._clearRetryOnDispatchSuccess();
             return { mode: 'polled' };
         }

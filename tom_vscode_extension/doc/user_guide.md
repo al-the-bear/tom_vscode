@@ -703,6 +703,18 @@ Two editors edit them, both in the Extension Tools overview:
 
 Both editors check every file against its JSON schema before writing it (`.tom/json-schema/roles/role-type.schema.json` and `role-config.schema.json`; each file's first line names its schema). The workspace comes with two example types, neither assigned to a role: `document-author` (reading, editing files and documents, questions, specs, todos; no commands, git writes, queue or process control) and `coder` (everything but the process and queue controls). Details: [llm_configuration.md §6.1](llm_configuration.md#61-tools-by-role-role-types).
 
+### Aspect guidelines
+
+A prompt gets the guideline aspects chosen for it, section by section: an answer style, night mode, any section you add.
+
+- **The store:** each section is a folder under `_ai/aspect_guidelines/`. It holds a `section.yaml` (its name, a short label, where the text goes — `system` or `user` — a default option and the options' order) and one `<option>.md` per option, the file name being the option's short name.
+- **Placeholders:** an option's text may use the prompt placeholders (`${guidelines-<name>}`, `${file-<path>}`, …), resolved before the text is sent.
+- **Which option a prompt gets:** the lowest level that chooses wins, per section. The levels are the section default, quest default, window, run, role type, role, queue item and todo. *Remove* on a level sends nothing for the section.
+- **Where it goes:** system sections join the system prompt; user sections go before the prompt text. On Copilot both go before the prompt text.
+- **Today:** a section's default reaches every prompt, on every transport. The selector that sets the other levels follows.
+
+Details: [llm_configuration.md §6.2](llm_configuration.md#62-aspect-guidelines).
+
 ### Send to Anthropic/LLM
 
 The editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session, as if it had been typed there — on an Anthropic or a Local LLM configuration. From the command palette, the editor context menu or the `Ctrl+Shift+L` chord menu:

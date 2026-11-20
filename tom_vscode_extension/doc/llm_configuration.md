@@ -50,8 +50,10 @@ the overlay itself has no effect.
 **The schemas in the top `.tom`:** the extension ships the schemas of the
 files it writes and writes them, at start and when the layout changes, into
 the top `.tom` (the root's, or a standalone workspace folder's own):
-`json-schema/panels/`, `json-schema/roles/`, `json-schema/processes/process.schema.json`
-and `json-schema/extension/tom_vscode_extension.schema.json`. Each folder
+`json-schema/panels/`, `json-schema/roles/`, `json-schema/processes/process.schema.json`,
+`json-schema/extension/tom_vscode_extension.schema.json` and
+`json-schema/aspect-guidelines/aspect-guideline-section.schema.json` (an aspect
+guideline section's `section.yaml`, § Aspect guidelines). Each folder
 carries a `.generated-by` file (extension id, version, build): a stamped folder
 is kept current, never by an older build than the one that stamped it; an
 unstamped folder whose files are the shipped ones is adopted; one that differs
@@ -557,6 +559,71 @@ The same list then reaches every transport: the direct request's `tools`, the Ag
 **Always-on tools:** `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, `tomAi_notifyUser`, `tomAi_answerUser`, `tomAi_getProcessState`, `tomAi_setProcessState`, `tomAi_listQuestTodos`, `tomAi_getQuestTodo`, `tomAi_createQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_waitFor`. A role type cannot switch them off. A profile with a selection of its own gets them too, and the Prompt Template Editor shows them greyed and on.
 
 The two files are validated against `src/config/role-type.schema.json` and `role-config.schema.json`, which are copied into the workspace's `.tom/json-schema/roles/`. The Role Editor and the Role Type Editor (`tomAi.editor.roles`, `tomAi.editor.roleTypes`; `src/handlers/rolesEditor-handler.ts`, `src/services/roleStore.ts`) write only valid files. A `role-config.yaml` holds only `roleType` for now.
+
+### 6.2 Aspect guidelines
+
+A prompt gets the guideline aspects chosen for it, section by section:
+aspect-oriented prompting, where a prompt is given only the guidelines it
+needs. Every prompt the extension sends gets them: on every Anthropic
+transport (direct, Agent SDK, VS Code LM, Local LLM) and on Copilot. A
+sub-agent's isolated send gets none.
+
+**The store** is `_ai/aspect_guidelines/`, shared by every quest and machine.
+It holds one folder per section; the folder name is the section's id:
+
+```text
+_ai/aspect_guidelines/
+  answer_mode/
+    section.yaml
+    answer tool.md
+    trail only.md
+```
+
+`section.yaml` (schema `.tom/json-schema/aspect-guidelines/aspect-guideline-section.schema.json`):
+
+```yaml
+name: Answer mode        # required
+label: Answer            # short label for the selection's hover help; default: the name
+placement: system        # system (default) or user
+default: trail only      # the option used when no level chooses; absent: nothing
+options: [trail only, answer tool]   # the order; option files not listed follow by name
+```
+
+Each `<option>.md` is one option: its file name without `.md` is the option's
+short name, and its content is the text sent. The text may use the usual prompt
+placeholders (`${guidelines-<name>}`, `${file-<path>}`, `${role}`, …); they
+are resolved recursively before the text is sent. `remove` is no option name:
+on a level it is Remove.
+
+**The levels**, the lowest winning per section: the section default < quest
+default < window < run < role type < role < queue item < todo. On each level a
+section is one of three things:
+
+- *Don't add*: no entry. A higher level's choice is inherited.
+- `remove`: nothing is sent for the section, whatever the levels above chose
+  and whatever the default is.
+- An option: its text is sent.
+
+An entry naming an option the section does not have is skipped, and the level
+above it decides. Today a send gets the section defaults and the choices a
+caller passes in `aspectGuidelineChoices`. The queue, the panels, the roles and
+the todos set the other levels.
+
+**Where the text goes.** The chosen options are rendered under one
+`## Aspect guidelines` heading, with a `### <section>: <option>` heading per
+section:
+
+- **System sections:** one segment of the system prompt.
+- **User sections:** before the prompt text, separated from it by `---`.
+- **Copilot:** it has no system prompt of its own, so the system sections and
+  then the user sections go before the prompt text.
+
+The raw prompt trail (`.userprompt.md`) shows the text as it was sent.
+
+A changed system prompt does not start a new conversation; the Agent SDK
+resumes it with the new system prompt. The first turn after a change reads the
+conversation once without the prompt cache. A section placed in the user
+prompt avoids even that.
 
 ## 7. History Compaction (`compaction` section) — defaults & system-wide flags
 

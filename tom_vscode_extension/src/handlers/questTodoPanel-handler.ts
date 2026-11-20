@@ -23,6 +23,7 @@ import { queuedTodoPatterns, todoIdPatternMatches, todoIdPatternOf, todoQueueMar
 import { wireQuestHintMessages } from './questHint-handler';
 import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
+import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { questShortDescription, windowWorkspaceQuests, workspaceQuestChoices } from '../services/aiWorkspaceLive';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -3458,7 +3459,8 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
     const expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner));
 
     // The record's `$${` (escaped against the passes above) become `${` here, where the text leaves.
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: unescapePlaceholders(expanded) });
+    // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(unescapePlaceholders(expanded)) });
 }
 
 /**
