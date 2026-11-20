@@ -97,7 +97,8 @@ export function projectGuidelineDirs(projectAbs: string): string[] {
 export interface GuidelineFile {
     /** Relative to its guidelines folder, with `/`. */
     path: string;
-    level: GuidelineLevelName | 'project';
+    /** `rootDocument`: one of the root's own Markdown documents (`listRootDocuments`). */
+    level: GuidelineLevelName | 'project' | 'rootDocument';
     /** The guidelines folder it was found in. */
     dir: string;
     abs: string;
@@ -191,6 +192,143 @@ export function resolveInFiles(files: readonly GuidelineFile[], relPath: string)
     const rank = (f: GuidelineFile) => (f.level === 'workspace' ? 0 : 1);
     byName.sort((a, b) => rank(a) - rank(b) || a.path.length - b.path.length || a.path.localeCompare(b.path));
     return { file: byName[0], byName: true };
+}
+
+/**
+ * The root's own documents: the `*.md` files directly in the root folder (not
+ * its subfolders), e.g. `repo_skills_userguide.md`. They are the last place a
+ * rule heading's file name is looked up (`workspace_agents.md` § How the rules
+ * are written). Sorted by name.
+ */
+export function listRootDocuments(root: string | undefined): GuidelineFile[] {
+    if (!root) { return []; }
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
+    const out: GuidelineFile[] = [];
+    for (const e of entries) {
+        if (e.name.startsWith('.') || !e.name.endsWith('.md')) { continue; }
+        const abs = path.join(root, e.name);
+        try {
+            const st = fs.statSync(abs);
+            if (st.isFile()) { out.push({ path: e.name, level: 'rootDocument', dir: root, abs, size: st.size }); }
+        } catch { /* gone meanwhile */ }
+    }
+    return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Every file of the given file name, in the order a rule heading's name is
+ * looked up: the workspace folder's guidelines, then the root's (nested
+ * folders included; at each level `_agent_guidelines` before
+ * `_copilot_guidelines`, then the shorter path), then the root's own
+ * documents. The first is the one read; the others are the name's duplicates.
+ * A root guideline at the same relative path as a workspace one is not listed
+ * (the workspace's overrides it, as in `listLevelFiles`), and a file reached
+ * twice (a symlinked folder, root == workspace folder) is listed once.
+ */
+export function filesNamed(levels: readonly GuidelineLevel[], rootDocuments: readonly GuidelineFile[], fileName: string): GuidelineFile[] {
+    const name = fileName.endsWith('.md') ? fileName : `${fileName}.md`;
+    const out: GuidelineFile[] = [];
+    const seen = new Set<string>();
+    const guidelinePaths = new Set<string>();
+    const take = (f: GuidelineFile) => {
+        const key = realOrSelf(f.abs);
+        if (seen.has(key)) { return; }
+        if (f.level !== 'rootDocument') {
+            if (guidelinePaths.has(f.path)) { return; }
+            guidelinePaths.add(f.path);
+        }
+        seen.add(key);
+        out.push(f);
+    };
+    for (const l of [...levels].reverse()) {
+        for (const dir of l.dirs) {
+            const found: Array<{ rel: string; abs: string; size: number }> = [];
+            walk(dir, dir, found);
+            found.filter((x) => path.posix.basename(x.rel) === name)
+                .sort((a, b) => a.rel.length - b.rel.length || a.rel.localeCompare(b.rel))
+                .forEach((x) => take({ path: x.rel, level: l.level, dir, abs: x.abs, size: x.size }));
+        }
+    }
+    rootDocuments.filter((f) => f.path === name).forEach(take);
+    return out;
+}
+
+/**
+ * A rule heading's file reference split into the file name and the section
+ * after `§`: `repo_skills_userguide.md § 5` → `{name: 'repo_skills_userguide.md', section: '5'}`;
+ * `quest_todos.md § Chat Todo List` → section `Chat Todo List`. Square brackets
+ * around the whole (`[file.md § 5]`) are dropped.
+ */
+export function splitSectionRef(input: string): { name: string; section?: string } {
+    let s = (input ?? '').trim();
+    if (s.startsWith('[') && s.endsWith(']')) { s = s.slice(1, -1).trim(); }
+    const i = s.indexOf('§');
+    if (i < 0) { return { name: s }; }
+    const section = s.slice(i + 1).trim();
+    return section ? { name: s.slice(0, i).trim(), section } : { name: s.slice(0, i).trim() };
+}
+
+/** One heading of a Markdown text (outside fenced code). */
+export interface MarkdownHeading {
+    level: number;
+    /** The heading text without its `#` marks and DocSpecs id comment. */
+    text: string;
+    /** 0-based line index. */
+    line: number;
+}
+
+/** The headings of a Markdown text, fenced code skipped. */
+export function markdownHeadings(content: string): MarkdownHeading[] {
+    const out: MarkdownHeading[] = [];
+    let fence: string | undefined;
+    content.split('\n').forEach((raw, i) => {
+        const line = raw.replace(/\r$/, '');
+        const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+        if (f) {
+            if (!fence) { fence = f[1][0]; } else if (f[1][0] === fence) { fence = undefined; }
+            return;
+        }
+        if (fence) { return; }
+        const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+        if (h) { out.push({ level: h[1].length, text: h[2].replace(/<!--.*?-->/g, '').trim(), line: i }); }
+    });
+    return out;
+}
+
+function sectionTitleKey(text: string): string {
+    return text.replace(/[`*_]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * The section a `§` reference names: by number (`5`, `3.1`: the heading
+ * starting with that number, `## 5. Title` / `### 3.1 Title`) or by title
+ * (the heading text without its number, case and emphasis ignored; else the
+ * one heading that starts with it). The section runs to the next heading of
+ * the same or a higher level. Undefined when no heading matches.
+ */
+export function extractSection(content: string, section: string): { heading: string; text: string } | undefined {
+    const headings = markdownHeadings(content);
+    const ref = section.trim().replace(/\.$/, '');
+    let hit: MarkdownHeading | undefined;
+    if (/^\d+(\.\d+)*$/.test(ref)) {
+        hit = headings.find((h) => {
+            const m = /^§?\s*(\d+(?:\.\d+)*)\.?(\s|$)/.exec(h.text);
+            return !!m && m[1] === ref;
+        });
+    } else {
+        const key = sectionTitleKey(ref);
+        const titles = headings.map((h) => ({ h, key: sectionTitleKey(h.text.replace(/^§?\s*\d+(\.\d+)*\.?\s+/, '')) }));
+        hit = titles.find((t) => t.key === key)?.h;
+        if (!hit) {
+            const starts = titles.filter((t) => t.key.startsWith(key));
+            if (starts.length === 1) { hit = starts[0].h; }
+        }
+    }
+    if (!hit) { return undefined; }
+    const lines = content.split('\n');
+    const next = headings.find((h) => h.line > hit!.line && h.level <= hit!.level);
+    return { heading: hit.text, text: lines.slice(hit.line, next ? next.line : lines.length).join('\n').replace(/\s+$/, '') + '\n' };
 }
 
 /** A level's index file: `index_root.md` / `index_workspace.md`, else its `index.md`. */

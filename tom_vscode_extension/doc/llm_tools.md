@@ -209,17 +209,20 @@ repository test).
 Guidelines split into two scopes:
 
 - **Global** — two levels: the root's guidelines, then the workspace folder's (`utils/guidelineFolders.ts`, from the window's layout). A file of the same relative path in the workspace folder wins; the list and search tools name each file once with its `level` (`root` / `workspace`); root == workspace folder is one level. Each level is read under both folder names, `_agent_guidelines/` first, then `_copilot_guidelines/` (a file in both is taken from `_agent_guidelines/`). Each level's index is `index_root.md` / `index_workspace.md`, else its `index.md`; `tomAi_readGlobalGuideline` without a file and its description at activation show both, the root's first.
+- **The root's own documents** — the `*.md` files directly in the root folder (the folder with `.tom/tom_root.yaml`), e.g. `repo_skills_userguide.md`: listed and searched with `level: rootDocument`, and the last place a bare name is looked up.
 - **Project** — `{projectPath}/_agent_guidelines/` and `{projectPath}/_copilot_guidelines/` inside each project folder (recursive, both read, not layered). Discover projectPath values via `tomAi_listProjects`.
 
-A requested path that does not exist is looked up by its file name (the workspace's first); the file is read and a VS Code warning names the requested and the found path, so the stale path can be corrected where it came from. Pattern prompts are looked up in the levels' `pattern_prompts/` (the workspace folder's first, each under both names), then `_copilot_tomai/pattern_prompts/`.
+**Rule headings.** Instruction and guideline files name a rule's detail file in its heading without a path: `## [repo_skills_userguide.md § 5] Reconciles are started by the user` (root `_agent_guidelines/workspace_agents.md` § How the rules are written). `tomAi_readGlobalGuideline` takes that reference as it stands, the brackets included or not: a bare name is looked up in the workspace folder's guidelines, then the root's (nested folders included in both; at each level `_agent_guidelines/` before `_copilot_guidelines/`, then the shorter path), then the root's own documents, and the first match is read (`filesNamed`). A root guideline at the same relative path as a workspace one is overridden, not a duplicate. `§ <n>` (`5`, `3.1`: the heading starting with that number) or `§ <title>` (any case, without its number; else the one heading starting with it) returns only that section, to the next heading of its level, with a line naming the file and the heading; a section that is not there returns the whole file with its headings listed. A name found in more than one place is read from the first, and the answer names the others (file names are meant to be unique across these places).
+
+A requested path (with folders) that does not exist is looked up by its file name (the workspace's first); the file is read and a VS Code warning names the requested and the found path, so the stale path can be corrected where it came from. Pattern prompts are looked up in the levels' `pattern_prompts/` (the workspace folder's first, each under both names), then `_copilot_tomai/pattern_prompts/`.
 
 The legacy `_copilot_tomai/` and `_copilot_local/` folders are no longer supported.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_readGlobalGuideline` | Read a single global guideline (both levels; the workspace's wins). | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_listGlobalGuidelines` | List all global guidelines recursively. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_searchGlobalGuidelines` | Grep inside the global guidelines (both levels, each path once). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_readGlobalGuideline` | Read a guideline or root document — the file a rule heading names, by its bare name and `§` section, on every level in order; a path in both levels (the workspace's wins). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_listGlobalGuidelines` | List all global guidelines recursively, then the root's own documents. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_searchGlobalGuidelines` | Grep inside the global guidelines (both levels, each path once) and the root's own documents. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_readProjectGuideline` | Read a single project guideline. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_listProjectGuidelines` | List a project's guidelines recursively. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_searchProjectGuidelines` | Grep inside one project's guidelines (both folder names). | ✅ | ✅ | ⚪ | ✅ |

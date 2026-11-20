@@ -7,6 +7,9 @@
  *     the root's guidelines, then the workspace folder's; a file of the same
  *     relative path in the workspace folder wins. Each level is read under
  *     both folder names, `_agent_guidelines/` first, then `_copilot_guidelines/`.
+ *     The root's own `*.md` documents come after them: a rule heading's bare
+ *     file name (`## [repo_skills_userguide.md § 5] …`) is looked up in the
+ *     workspace folder's guidelines, the root's, then those (`filesNamed`).
  *   - **Project guidelines** live inside each project folder at
  *     `{projectPath}/_agent_guidelines/` and/or `_copilot_guidelines/` (not layered).
  *
@@ -38,8 +41,13 @@ import {
     GUIDELINE_FOLDER_NAMES,
     type GuidelineFile,
     type GuidelineLevel,
+    extractSection,
+    filesNamed,
     guidelineLevels,
     levelIndexes,
+    listRootDocuments,
+    markdownHeadings,
+    splitSectionRef,
     listLevelFiles,
     listProjectFiles,
     projectGuidelineDirs,
@@ -70,6 +78,11 @@ function readFileSafe(filePath: string): string | undefined {
 export interface GuidelineScope {
     wsRoot?: string;
     levels: GuidelineLevel[];
+    /**
+     * The root (found by `.tom/tom_root.yaml`): its own `*.md` documents are the
+     * last place a bare name is looked up. Unset: none.
+     */
+    root?: string;
     /** A guideline asked for by a path that does not exist was found by its name at `found`. */
     onFoundByName?: (requested: string, found: string) => void;
 }
@@ -86,6 +99,7 @@ function windowScope(): GuidelineScope {
     return {
         wsRoot: wsRoot(),
         levels: guidelineLevels(layout?.guidelineDirs ?? []),
+        root: layout?.root,
         onFoundByName: (requested, found) => {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -150,23 +164,34 @@ interface ReadGlobalGuidelineInput { fileName?: string }
 
 export async function readGlobalGuidelineImpl(root: string | undefined | GuidelineScope, input: ReadGlobalGuidelineInput): Promise<string> {
     const scope = scopeOf(root);
-    if (scope.levels.length === 0) {
+    const rootDocuments = listRootDocuments(scope.root);
+    if (scope.levels.length === 0 && rootDocuments.length === 0) {
         return `Global guidelines folder not found (\`${FOLDER_LABEL}\`, at the root or in the workspace folder).`;
     }
     const files = listLevelFiles(scope.levels);
     if (!input.fileName) {
-        let result = `Available global guideline files (root, then workspace folder; a workspace file of the same path wins):\n\n`;
-        result += files.map((f) => `- ${f.path} (${f.level})`).join('\n');
+        let result = `Available global guideline files (root, then workspace folder; a workspace file of the same path wins), then the root's own documents:\n\n`;
+        result += [...files, ...rootDocuments].map((f) => `- ${f.path} (${f.level})`).join('\n');
         for (const ix of levelIndexes(scope.levels)) {
             result += `\n\n---\n\n${path.basename(ix.file)} (${ix.level}):\n\n${ix.content}`;
         }
         return result;
     }
+    // A rule heading's reference: `name.md § 5`. A bare name is looked up on
+    // every level in the convention's order; the others of that name are named.
+    const ref = splitSectionRef(input.fileName);
+    const bare = normaliseBare(ref.name);
+    if (bare) {
+        const named = filesNamed(scope.levels, rootDocuments, bare);
+        if (named.length > 0) {
+            return readWithSection(scope, named[0], ref.section, named.slice(1));
+        }
+    }
     // An absolute path inside a level's folder; else classify, so a
     // project-style path auto-delegates to the project handler.
-    let relPath = relInLevels(scope, input.fileName);
+    let relPath = relInLevels(scope, ref.name);
     if (relPath === undefined) {
-        const classification = classifyGuidelinePath(input.fileName, scope.wsRoot);
+        const classification = classifyGuidelinePath(ref.name, scope.wsRoot);
         if (classification.kind === 'project') {
             return readProjectGuidelineImpl(scope, {
                 projectPath: classification.projectPath,
@@ -179,12 +204,48 @@ export async function readGlobalGuidelineImpl(root: string | undefined | Guideli
     if (!resolved) {
         const filesPreview = files.map((f) => f.path).slice(0, 30).join('\n  - ');
         return `Global guideline file not found: '${input.fileName}'.\n\n` +
-            `Tried path relative to the guidelines folders: '${relPath}'.\n\n` +
+            `Tried path relative to the guidelines folders: '${relPath}'` +
+            (bare ? `, and the name on every level (the workspace folder's guidelines, the root's, the root's own documents)` : '') + `.\n\n` +
             `If this is a project-level guideline, use tomAi_readProjectGuideline with the correct projectPath. ` +
             `Available global guideline files (first 30):\n  - ${filesPreview}`;
     }
-    if (resolved.byName) { scope.onFoundByName?.(input.fileName, relForDisplay(scope, resolved.file.abs)); }
-    return readFileSafe(resolved.file.abs) ?? `Read error: ${resolved.file.abs}`;
+    if (resolved.byName) { scope.onFoundByName?.(ref.name, relForDisplay(scope, resolved.file.abs)); }
+    return readWithSection(scope, resolved.file, ref.section, []);
+}
+
+/** A bare file name (no folder, not absolute), `.md` added; '' for anything else. */
+function normaliseBare(name: string): string {
+    const s = name.trim().replace(/\\/g, '/');
+    if (!s || s.includes('/') || path.isAbsolute(s)) { return ''; }
+    return s.endsWith('.md') ? s : `${s}.md`;
+}
+
+/**
+ * The file's text, or its `§` section. A header says which file was read when
+ * a section was asked for or the name is in more than one place (the others
+ * listed: names are meant to be unique across the levels).
+ */
+function readWithSection(scope: GuidelineScope, file: GuidelineFile, section: string | undefined, others: readonly GuidelineFile[]): string {
+    const content = readFileSafe(file.abs);
+    if (content === undefined) { return `Read error: ${file.abs}`; }
+    const where = (f: GuidelineFile) => `${relForDisplay(scope, f.abs)} (${f.level})`;
+    const header: string[] = [];
+    let body = content;
+    if (section) {
+        const hit = extractSection(content, section);
+        if (hit) {
+            header.push(`Read ${where(file)}, § ${section}: "${hit.heading}".`);
+            body = hit.text;
+        } else {
+            const headings = markdownHeadings(content).filter((h) => h.level >= 2).map((h) => `  - ${h.text}`).join('\n');
+            header.push(`Read ${where(file)}: it has no section § ${section}; the whole file follows. Its headings:\n${headings}`);
+        }
+    }
+    if (others.length > 0) {
+        if (!section) { header.push(`Read ${where(file)}.`); }
+        header.push(`The name is also in: ${others.map(where).join(', ')} (file names are meant to be unique across the levels).`);
+    }
+    return header.length > 0 ? `${header.join('\n')}\n\n---\n\n${body}` : body;
 }
 
 async function executeReadGlobalGuideline(input: ReadGlobalGuidelineInput): Promise<string> {
@@ -198,17 +259,15 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
         // Description is partially overwritten by `initializeToolDescriptions()`
         // at activation to embed the actual index.md; keep this static copy
         // sensible as a fallback.
-        `Read a WORKSPACE-LEVEL guideline file: from the root's guidelines and the workspace folder's ` +
-        `(\`${FOLDER_LABEL}\`, recursively; a file of the same path in the workspace folder wins). ` +
-        `A path that does not exist is looked up by its file name, and the user is told.\n\n` +
-        `**fileName accepts any of these shapes:**\n` +
-        `  - bare name (with or without .md): "documentation_guidelines" or "documentation_guidelines.md"\n` +
-        `  - subfolder/basename: "dart/coding_guidelines.md"\n` +
-        `  - rooted form: "${GUIDELINE_FOLDER}/dart/coding_guidelines.md"\n\n` +
-        `If the path looks like a PROJECT guideline (e.g. "tom_ai/.../${GUIDELINE_FOLDER}/local_llm.md"), this tool ` +
-        `auto-delegates to tomAi_readProjectGuideline — you don't need to switch tools manually.\n\n` +
-        `Omit fileName to get the file list (with each file's level) and the levels' indexes ` +
-        `(\`index_root.md\`, \`index_workspace.md\`, else \`index.md\`).`,
+        `Read a guideline or root document, in particular **the file a rule heading names**: ` +
+        `\`## [repo_skills_userguide.md § 5] …\` → fileName \`"repo_skills_userguide.md § 5"\`. ` +
+        `A bare name is looked up in the workspace folder's guidelines, the root's (\`${FOLDER_LABEL}\`, nested folders included), ` +
+        `then the root's own \`*.md\` documents; the first match wins and the others of that name are named. ` +
+        `\`§ <n>\` / \`§ <title>\` returns only that section. ` +
+        `A path (\`dart/coding_guidelines.md\`, \`${GUIDELINE_FOLDER}/…\`) is read relative to the guidelines folders ` +
+        `(the workspace folder's file of the same path wins); one that does not exist is looked up by its file name, and the user is told. ` +
+        `A project path ("tom_ai/.../${GUIDELINE_FOLDER}/local_llm.md") is read with tomAi_readProjectGuideline. ` +
+        `Omit fileName for the file list and the levels' indexes. Details: doc/llm_tools.md § 4.10.`,
     tags: ['guidelines', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -217,7 +276,8 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
             fileName: {
                 type: 'string',
                 description:
-                    'Bare filename, subfolder/filename, rooted form, or project-style path. Examples: ' +
+                    'A rule heading\'s reference (bare name, optionally `§ <n>` / `§ <title>`), bare filename, subfolder/filename, rooted form, or project-style path. Examples: ' +
+                    '"repo_skills_userguide.md § 5", ' +
                     '"coding_guidelines.md", "dart/coding_guidelines.md", "_agent_guidelines/coding_guidelines.md", ' +
                     '"tom_ai/vscode/tom_vscode_extension/_copilot_guidelines/local_llm.md". Omit to list all global files.',
             },
@@ -230,12 +290,13 @@ interface ListGlobalGuidelinesInput { subfolder?: string }
 
 export async function listGlobalGuidelinesImpl(root: string | undefined | GuidelineScope, input: ListGlobalGuidelinesInput): Promise<string> {
     const scope = scopeOf(root);
-    if (scope.levels.length === 0) {
+    const rootDocuments = listRootDocuments(scope.root);
+    if (scope.levels.length === 0 && rootDocuments.length === 0) {
         return JSON.stringify({ error: `Global guidelines folder not found (${FOLDER_LABEL}, at the root or in the workspace folder)` });
     }
     const levels = scope.levels.map((l) => ({ level: l.level, dirs: l.dirs.map((d) => relForDisplay(scope, d)) }));
     if (!input.subfolder) {
-        const files = listLevelFiles(scope.levels).map(fileEntry);
+        const files = [...listLevelFiles(scope.levels), ...rootDocuments].map(fileEntry);
         return JSON.stringify({ folder: '.', levels, count: files.length, files }, null, 2);
     }
     // Auto-delegate path-shape project requests (those naming a guidelines folder).
@@ -276,7 +337,8 @@ export const LIST_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<ListGlobalGuideli
     displayName: 'List Global Guidelines',
     description:
         `List the global guideline markdown files (recursive): the root's guidelines and the workspace folder's ` +
-        `(\`${FOLDER_LABEL}\`), each path once with its \`level\` (\`root\` / \`workspace\`; a workspace file of the same path wins).\n\n` +
+        `(\`${FOLDER_LABEL}\`), each path once with its \`level\` (\`root\` / \`workspace\`; a workspace file of the same path wins), ` +
+        `then the root's own \`*.md\` documents (\`level: rootDocument\`) — every place a rule heading's file name is looked up.\n\n` +
         `**subfolder accepts:**\n` +
         `  - a direct subfolder name: "dart" or "cloud"\n` +
         `  - a project-style path: "tom_ai/vscode/tom_vscode_extension" — auto-delegates to tomAi_listProjectGuidelines\n\n` +
@@ -300,12 +362,13 @@ interface SearchGlobalGuidelinesInput { query: string; caseSensitive?: boolean; 
 
 export async function searchGlobalGuidelinesImpl(root: string | undefined | GuidelineScope, input: SearchGlobalGuidelinesInput): Promise<string> {
     const scope = scopeOf(root);
-    if (scope.levels.length === 0) {
+    const rootDocuments = listRootDocuments(scope.root);
+    if (scope.levels.length === 0 && rootDocuments.length === 0) {
         return JSON.stringify({ error: `Global guidelines folder not found (${FOLDER_LABEL}, at the root or in the workspace folder)` });
     }
     if (!input.query) { return JSON.stringify({ error: 'query is required' }); }
     const max = Math.max(1, input.maxMatches ?? 100);
-    const matches = searchFiles(listLevelFiles(scope.levels), input.query, !!input.caseSensitive, max);
+    const matches = searchFiles([...listLevelFiles(scope.levels), ...rootDocuments], input.query, !!input.caseSensitive, max);
     return JSON.stringify({
         query: input.query,
         count: matches.length,
@@ -323,7 +386,7 @@ export const SEARCH_GLOBAL_GUIDELINES_TOOL: SharedToolDefinition<SearchGlobalGui
     displayName: 'Search Global Guidelines',
     description:
         `Substring-search every global guideline \`.md\` file (the root's and the workspace folder's, \`${FOLDER_LABEL}\`; ` +
-        `each path once, the workspace's winning). Returns up to maxMatches \`{file, level, line, text}\` hits, ` +
+        `each path once, the workspace's winning) and the root's own \`*.md\` documents (\`level: rootDocument\`). Returns up to maxMatches \`{file, level, line, text}\` hits, ` +
         `where \`file\` is relative to its guidelines folder.`,
     tags: ['guidelines', 'search', 'tom-ai-chat'],
     readOnly: true,
