@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode, mdbOwnToken, mdbLocateSelection, mdbSelectionMark, mdbTrackedEdit */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -84,7 +84,7 @@
         if (!mdbCan(cap)) { document.body.classList.add('mdb-no-' + cap); }
     });
     var MDB_CAPABILITY_CONTROLS = {
-        editing: ['#editModeBtn'],
+        editing: ['#editModeBtn', '#trackBtn'],
         reviewMarks: ['#acceptAllBtn', '#rejectAllBtn'],
         teamReview: ['#teamReview'],
         askBar: ['#askBar'],
@@ -182,6 +182,7 @@
         // `**Answer:**` markers to lines, and a save sends the line range, the
         // text that was there and the replacement (backend 'applyEdit').
         var editMode = false;
+        var trackingOn = false;         // Track changes: paragraph edits are written as marks
         var shownText = '';
         var shownCrlf = false;          // the CR/LF mode shownText was rendered with
         var openEditors = 0;
@@ -291,6 +292,20 @@
                 editMode = !editMode;
                 editModeBtn.classList.toggle('active', editMode);
                 document.body.classList.toggle('mdb-edit-mode', editMode);
+                hideSelectionMenu();
+            });
+        }
+        // Track changes (this panel, until it is closed): a paragraph edit is
+        // written as marks instead of being made (mdbTrackedEdit).
+        var trackBtn = document.getElementById('trackBtn');
+        if (trackBtn) {
+            trackBtn.addEventListener('click', function() {
+                trackingOn = !trackingOn;
+                trackBtn.classList.toggle('active', trackingOn);
+                trackBtn.setAttribute('aria-pressed', trackingOn ? 'true' : 'false');
+                trackBtn.title = trackingOn
+                    ? 'Track changes: on — an edit of a paragraph is written as marks (added, removed, replaced) to accept or reject'
+                    : 'Track changes: off — an edit of a paragraph changes the text. On: the edit is written as marks (added, removed, replaced) to accept or reject';
             });
         }
         if (indentBtn) {
@@ -2061,7 +2076,7 @@
                 var source = lines.slice(start, block.endLine).join('\n');
                 openEditor(actions, wrapper, source, function(value) {
                     if (value === source) { return null; }
-                    return { startLine: start, endLine: block.endLine, expected: source, replacement: value };
+                    return { startLine: start, endLine: block.endLine, expected: source, replacement: trackedText(source, value) };
                 });
                 return;
             }
@@ -2072,11 +2087,173 @@
                 // A div: the text goes in at the end of its content, before the closing fence.
                 if (block.type === 'readingDiv' && blockLines.length > 1 && /^ {0,3}:{3,}[ \t]*$/.test(blockLines[blockLines.length - 1])) {
                     var inner = blockLines.slice(0, -1).join('\n');
-                    return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: inner + value + '\n' + blockLines[blockLines.length - 1] };
+                    return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: trackedText(inner, inner + value) + '\n' + blockLines[blockLines.length - 1] };
                 }
-                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: source + value };
+                return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: trackedText(source, source + value) };
             });
         }
+
+        /** The attribution token of a mark the user writes: the review member id and the time, or none without an id. */
+        function ownToken() {
+            return mdbOwnToken(reviewMemberId, mdbReviewTime());
+        }
+
+        /** With Track changes on: `value` with its changes against `source` written as marks; else `value`. */
+        function trackedText(source, value) {
+            return trackingOn ? mdbTrackedEdit(source, value, ownToken()).text : value;
+        }
+
+        // ---- Edit mode's right-click menu: marks for the selected text, a comment at the point ----
+        var selectionMenu = null;
+        function hideSelectionMenu() {
+            if (selectionMenu && selectionMenu.parentNode) { selectionMenu.parentNode.removeChild(selectionMenu); }
+            selectionMenu = null;
+        }
+
+        /** How often `needle` (white space flexible) is in `hay`. */
+        function countIn(hay, needle) {
+            if (!needle) { return 0; }
+            var re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'g');
+            return (hay.match(re) || []).length;
+        }
+
+        /**
+         * What a right-click at `e` is about: the block, the selected text (''
+         * for a point) and the rendered text around it, by which the source is
+         * found; or `{error}` saying why no mark can be written there.
+         */
+        function selectionTarget(e) {
+            var sel = window.getSelection();
+            var range = sel && sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0) : null;
+            var point = !range;
+            if (point) {
+                range = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+                if (!range && sel && sel.rangeCount) { range = sel.getRangeAt(0); }
+            }
+            if (!range) { return { error: 'Click or select inside the text of a paragraph.' }; }
+            var el = function(node) { return node.nodeType === 1 ? node : node.parentElement; };
+            var startEl = el(range.startContainer);
+            var endEl = el(range.endContainer);
+            var wrapper = startEl && startEl.closest('.mdb-block');
+            if (!wrapper || !contentArea.contains(wrapper)) { return { error: 'Click or select inside the text of a paragraph.' }; }
+            if (!endEl || endEl.closest('.mdb-block') !== wrapper) { return { error: 'Select within one paragraph: a mark does not span paragraphs.' }; }
+            var block = wrapper.__mdbBlock;
+            if (!block || !blockEditable(block)) { return { error: 'This part of the document cannot be edited here.' }; }
+            if (block.type === 'code' || block.type === 'html' || block.type === 'hr') { return { error: 'A mark cannot be written into code or html.' }; }
+            if (somComments && block.type === 'heading') { return { error: 'A heading of a TomSpecs document cannot carry a mark: comment in the text below it.' }; }
+            if ((startEl.closest('.mdb-rm') || endEl.closest('.mdb-rm'))) { return { error: 'This is inside another mark: marks do not nest. Use the mark\'s own buttons.' }; }
+            if (startEl.closest('code, .mdb-editor, .mdb-block-actions') || endEl.closest('code, .mdb-editor')) { return { error: 'A mark cannot be written into code.' }; }
+            var selected = point ? '' : range.toString();
+            if (!point && !selected.trim()) { return { error: 'Select the text first.' }; }
+            var textOf = function(node, from, to) { return node.nodeType === 3 ? String(node.nodeValue || '').slice(from, to) : ''; };
+            var before = textOf(range.startContainer, Math.max(0, range.startOffset - 40), range.startOffset);
+            var endOffset = point ? range.startOffset : range.endOffset;
+            var after = textOf(point ? range.startContainer : range.endContainer, endOffset, endOffset + 40);
+            var lead = document.createRange();
+            lead.selectNodeContents(wrapper);
+            lead.setEnd(range.startContainer, range.startOffset);
+            return {
+                wrapper: wrapper, block: block, selected: selected, before: before, after: after,
+                occurrence: countIn(lead.toString(), selected.trim()), renderedCount: countIn(wrapper.textContent || '', selected.trim()),
+            };
+        }
+
+        /** The edit that writes a mark of `kind` for `target` into its block, as its lines are now; `{hold}` when it cannot. */
+        function selectionEdit(target, kind, text) {
+            var block = target.block;
+            var source = shownLines().slice(block.startLine, block.endLine).join('\n');
+            var where = mdbLocateSelection(source, target.selected.trim(), target.before, target.after, target.occurrence, target.renderedCount);
+            if (where.error) { return { hold: where.error }; }
+            var written = mdbSelectionMark(source, where, kind, text, ownToken());
+            if (written.error) { return { hold: written.error }; }
+            return { startLine: block.startLine, endLine: block.endLine, expected: source, replacement: written.text };
+        }
+
+        /** Open the editor under the block for a mark that needs text (a comment, a replacement). */
+        function openSelectionEditor(target, kind, hint) {
+            var trigger = document.createElement('span');
+            var box = openEditor(trigger, target.wrapper, '', function(value) { return selectionEdit(target, kind, value); });
+            var area = box.querySelector('textarea');
+            if (area) { area.placeholder = hint; area.rows = 3; }
+        }
+
+        function showSelectionMenu(e) {
+            hideSelectionMenu();
+            var target = selectionTarget(e);
+            var pop = document.createElement('div');
+            pop.className = 'mdb-options-pop mdb-sel-menu';
+            /** One entry: an icon, a label, what a click does. */
+            var item = function(icon, label, title, run) {
+                var entry = document.createElement('div');
+                entry.className = 'mdb-option';
+                entry.dataset.selAction = icon;
+                entry.title = title;
+                entry.innerHTML = '<span class="codicon codicon-' + icon + '"></span>';
+                entry.appendChild(document.createTextNode(label));
+                // The selection stays while the menu is used.
+                entry.addEventListener('mousedown', function(ev) { ev.preventDefault(); });
+                entry.addEventListener('click', function(ev) { ev.stopPropagation(); hideSelectionMenu(); run(); });
+                pop.appendChild(entry);
+            };
+            if (target.error) {
+                var reason = document.createElement('div');
+                reason.className = 'mdb-sel-reason';
+                reason.textContent = target.error;
+                pop.appendChild(reason);
+            } else if (target.selected) {
+                var quoted = target.selected.trim().replace(/\s+/g, ' ');
+                var shown = quoted.length > 32 ? quoted.slice(0, 30) + '…' : quoted;
+                item('comment', 'Comment on “' + shown + '”…', 'Highlight the selection and write a comment on it: {== text ==}{>> comment <<}', function() {
+                    openSelectionEditor(target, 'comment', 'The comment on “' + shown + '”');
+                });
+                item('trash', 'Mark for deletion', 'Suggest deleting the selection: {-- text --}', function() {
+                    var edit = selectionEdit(target, 'delete', '');
+                    if (edit.hold) { showSelectionReason(e, edit.hold); return; }
+                    postEdit(edit);
+                });
+                item('replace', 'Replace with…', 'Suggest a replacement for the selection: {~~ old ~> new ~~}', function() {
+                    openSelectionEditor(target, 'replace', 'The text to replace “' + shown + '” with');
+                });
+            } else {
+                item('comment', 'Insert comment here…', 'Write a comment at this point: {>> comment <<}', function() {
+                    openSelectionEditor(target, 'point', 'The comment at this point');
+                });
+            }
+            pop.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - 240)) + 'px';
+            pop.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - 110)) + 'px';
+            document.body.appendChild(pop);
+            selectionMenu = pop;
+        }
+
+        /** Say why a one-click mark could not be written, where the menu was. */
+        function showSelectionReason(e, text) {
+            hideSelectionMenu();
+            var pop = document.createElement('div');
+            pop.className = 'mdb-options-pop mdb-sel-menu';
+            var reason = document.createElement('div');
+            reason.className = 'mdb-sel-reason';
+            reason.textContent = text;
+            pop.appendChild(reason);
+            pop.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - 240)) + 'px';
+            pop.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - 60)) + 'px';
+            document.body.appendChild(pop);
+            selectionMenu = pop;
+        }
+
+        if (contentArea) {
+            contentArea.addEventListener('contextmenu', function(e) {
+                // Only in edit mode; a text area keeps its own menu (copy, paste).
+                if (!editMode || crlfMode || !mdbCan('editing')) { return; }
+                if (e.target && e.target.closest && e.target.closest('textarea, input, .mdb-editor')) { return; }
+                e.preventDefault();
+                showSelectionMenu(e);
+            });
+            contentArea.addEventListener('scroll', hideSelectionMenu, { passive: true });
+        }
+        document.addEventListener('mousedown', function(e) {
+            if (selectionMenu && !(e.target && e.target.closest && e.target.closest('.mdb-sel-menu'))) { hideSelectionMenu(); }
+        });
+        document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { hideSelectionMenu(); } });
 
         /** `offset` is the marker's line within its block, read again on click. */
         function addAnswerButton(strong, block, offset, column) {

@@ -1123,3 +1123,400 @@ function mdbReadingKey(kind, text, seen) {
     return base + '#' + seen[base];
 }
 
+
+// ---- Writing inline marks from the browser: a selection's mark, tracked edits (SOM §11.9.3) ----
+
+/** Every inline mark, with the attribution token after it. */
+var MDB_MARK_SCAN = /\{\+\+[\s\S]*?\+\+\}|\{--[\s\S]*?--\}|\{~~[\s\S]*?~~\}|\{==[\s\S]*?==\}|\{>>[\s\S]*?<<\}|\{@[^{}\n]*\}/g;
+/** A mark delimiter: text holding one cannot go into a mark (marks do not nest). */
+var MDB_MARK_DELIMITER = /\{>>|<<\}|\{==|==\}|\{\+\+|\+\+\}|\{--|--\}|\{~~|~~\}|~>|\{@/;
+
+/**
+ * The attribution token written after a mark the user makes (`{@alice 2026-11-07T14:05+01:00}`,
+ * SOM §11.9.8, §11.9.10): with a review member id, else none.
+ * @param {string} memberId
+ * @param {string} time
+ * @returns {string}
+ */
+function mdbOwnToken(memberId, time) {
+    return memberId ? '{@' + memberId + (time ? ' ' + time : '') + '}' : '';
+}
+
+/**
+ * Where the text selected in the rendered block is in the block's `source`.
+ * The selection with the text right before and after it (`before`, `after`:
+ * what the rendered text nodes hold around it) is looked for first; else the
+ * selection alone, which must be there once — or as often as in the rendered
+ * text, the `occurrence`-th (0-based) then being it. Runs of white space match
+ * any white space (a hard-wrapped paragraph). `selected` empty: the point
+ * between `before` and `after`.
+ * @param {string} source
+ * @param {string} selected
+ * @param {string} before
+ * @param {string} after
+ * @param {number} occurrence
+ * @param {number} renderedCount  how often the selection is in the rendered block
+ * @returns {{start: number, end: number} | {error: string}}
+ */
+function mdbLocateSelection(source, selected, before, after, occurrence, renderedCount) {
+    var flex = function(/** @type {string} */ s) {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    };
+    /** @type {(pattern: string) => Array<{index: number, text: string}>} */
+    var all = function(pattern) {
+        /** @type {Array<{index: number, text: string}>} */
+        var found = [];
+        if (!pattern) { return found; }
+        var re = new RegExp(pattern, 'g');
+        var m;
+        while ((m = re.exec(source)) !== null) {
+            found.push({ index: m.index, text: m[0] });
+            if (m[0] === '') { re.lastIndex++; }
+        }
+        return found;
+    };
+    var why = 'The selection could not be found in the paragraph\'s source (it may cross formatting): edit the paragraph instead.';
+    if (!selected) {
+        if (!before && !after) { return { error: 'Click inside the text of a paragraph.' }; }
+        var points = all('(' + flex(before) + ')' + flex(after));
+        if (points.length !== 1) { return { error: why.replace('The selection', 'The place') }; }
+        var lead = new RegExp('^' + flex(before)).exec(points[0].text);
+        var at = points[0].index + (lead ? lead[0].length : 0);
+        return { start: at, end: at };
+    }
+    var withContext = (before || after) ? all(flex(before) + '(' + flex(selected) + ')' + flex(after)) : [];
+    if (withContext.length === 1) {
+        var head = before ? new RegExp('^' + flex(before)).exec(withContext[0].text) : null;
+        var start = withContext[0].index + (head ? head[0].length : 0);
+        var body = new RegExp('^' + flex(selected)).exec(source.slice(start));
+        if (body) { return { start: start, end: start + body[0].length }; }
+    }
+    var alone = all(flex(selected));
+    if (alone.length === 1) { return { start: alone[0].index, end: alone[0].index + alone[0].text.length }; }
+    if (alone.length > 1 && alone.length === renderedCount && occurrence >= 0 && occurrence < alone.length) {
+        return { start: alone[occurrence].index, end: alone[occurrence].index + alone[occurrence].text.length };
+    }
+    return { error: alone.length > 1 ? 'The selected text is in this paragraph more than once: select more of it.' : why };
+}
+
+/**
+ * The block's source with a mark written at `range` (mdbLocateSelection):
+ * `comment` a highlight with its comment (`{== text ==}{>> comment <<}`),
+ * `delete` a suggested deletion, `replace` a suggested replacement by `text`,
+ * `point` a comment at an empty range. `token` (mdbOwnToken) follows the mark.
+ * Refused with `error`: an empty selection or text, a mark delimiter in either,
+ * a selection across a blank line, one inside or across another mark.
+ * @param {string} source
+ * @param {{start: number, end: number}} range
+ * @param {string} kind  comment | delete | replace | point
+ * @param {string} text
+ * @param {string} token
+ * @returns {{text: string} | {error: string}}
+ */
+function mdbSelectionMark(source, range, kind, text, token) {
+    var start = range.start;
+    var end = range.end;
+    // The white space at the edges of a selection stays outside the mark.
+    while (start < end && /\s/.test(source.charAt(start))) { start++; }
+    while (end > start && /\s/.test(source.charAt(end - 1))) { end--; }
+    var selected = source.slice(start, end);
+    var note = String(text || '').trim();
+    if (kind !== 'point' && !selected) { return { error: 'Select the text first.' }; }
+    if (/\n[ \t]*\n/.test(selected)) { return { error: 'A mark cannot span a blank line: select within one paragraph.' }; }
+    if (MDB_MARK_DELIMITER.test(selected)) { return { error: 'The selection holds a mark already: marks do not nest.' }; }
+    MDB_MARK_SCAN.lastIndex = 0;
+    var m;
+    while ((m = MDB_MARK_SCAN.exec(source)) !== null) {
+        var mEnd = m.index + m[0].length;
+        if (kind === 'point' ? (start > m.index && start < mEnd) : (start < mEnd && end > m.index)) {
+            return { error: 'This is inside another mark: marks do not nest.' };
+        }
+    }
+    if (kind !== 'delete') {
+        if (!note) { return { error: kind === 'replace' ? 'Write the replacement first.' : 'Write the comment first.' }; }
+        if (MDB_MARK_DELIMITER.test(note)) { return { error: 'The text cannot contain a mark delimiter ({>> {== {++ {-- {~~ ~> <<}).' }; }
+        if (/\n[ \t]*\n/.test(note)) { return { error: 'The text cannot contain a blank line.' }; }
+    }
+    var mark = kind === 'comment' ? '{== ' + selected + ' ==}{>> ' + note + ' <<}'
+        : kind === 'delete' ? '{-- ' + selected + ' --}'
+            : kind === 'replace' ? '{~~ ' + selected + ' ~> ' + note + ' ~~}'
+                : '{>> ' + note + ' <<}';
+    return { text: source.slice(0, start) + mark + (token || '') + source.slice(end) };
+}
+
+/**
+ * The longest common subsequence of `a` and `b` as index pairs; null when the
+ * table would be too large (the caller then does without).
+ * @template T
+ * @param {T[]} a
+ * @param {T[]} b
+ * @param {(x: T, y: T) => boolean} same
+ * @returns {Array<[number, number]> | null}
+ */
+function mdbLcsPairs(a, b, same) {
+    var n = a.length;
+    var m = b.length;
+    if (n * m > 4000000) { return null; }
+    /** @type {Uint32Array[]} */
+    var table = [];
+    for (var i = 0; i <= n; i++) { table.push(new Uint32Array(m + 1)); }
+    for (var x = n - 1; x >= 0; x--) {
+        for (var y = m - 1; y >= 0; y--) {
+            table[x][y] = same(a[x], b[y]) ? table[x + 1][y + 1] + 1 : Math.max(table[x + 1][y], table[x][y + 1]);
+        }
+    }
+    /** @type {Array<[number, number]>} */
+    var pairs = [];
+    var p = 0;
+    var q = 0;
+    while (p < n && q < m) {
+        if (same(a[p], b[q])) { pairs.push([p, q]); p++; q++; }
+        else if (table[p + 1][q] >= table[p][q + 1]) { p++; }
+        else { q++; }
+    }
+    return pairs;
+}
+
+/** The structural start of a line: list markers, task boxes, quote marks, heading hashes. */
+var MDB_LINE_PREFIX = /^(?:\s*(?:(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|>+[ \t]?|#{1,6}\s+))*\s*/;
+
+/**
+ * For each line, whether a mark cannot be written into it: inside a fenced
+ * code block (its fences included), a table row, a div fence, html, a rule.
+ * @param {string[]} lines
+ * @returns {boolean[]}
+ */
+function mdbUnmarkableLines(lines) {
+    var fence = '';
+    return lines.map(function(line) {
+        var f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (fence) {
+            if (f && f[1].charAt(0) === fence.charAt(0) && f[1].length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) { fence = ''; }
+            return true;
+        }
+        if (f) { fence = f[1]; return true; }
+        return /^\s*\|/.test(line) || /^ {0,3}:{3,}/.test(line) || /^\s*<[a-zA-Z/!]/.test(line) || /^ {0,3}([-*_])( *\1){2,} *$/.test(line);
+    });
+}
+
+/**
+ * One line's text split for the word diff: every inline mark (with its
+ * attribution token) one piece, else words, runs of punctuation and runs of
+ * white space.
+ * @param {string} text
+ * @returns {Array<{text: string, mark: boolean}>}
+ */
+function mdbDiffPieces(text) {
+    /** @type {Array<{text: string, mark: boolean}>} */
+    var pieces = [];
+    var words = function(/** @type {string} */ plain) {
+        (plain.match(/\s+|[\p{L}\p{N}_'’-]+|[^\s\p{L}\p{N}_'’-]+/gu) || []).forEach(function(w) { pieces.push({ text: w, mark: false }); });
+    };
+    var last = 0;
+    MDB_MARK_SCAN.lastIndex = 0;
+    var m;
+    while ((m = MDB_MARK_SCAN.exec(text)) !== null) {
+        words(text.slice(last, m.index));
+        pieces.push({ text: m[0], mark: true });
+        last = m.index + m[0].length;
+    }
+    words(text.slice(last));
+    return pieces;
+}
+
+/**
+ * `newBody` with what changed against `oldBody` written as marks, word by
+ * word: removed words `{-- --}`, added `{++ ++}`, a replaced run
+ * `{~~ old ~> new ~~}`; white space around a change stays outside its mark.
+ * A change touching an existing mark, or holding a mark delimiter, is written
+ * as it is (counted in `counter.untracked`).
+ * @param {string} oldBody
+ * @param {string} newBody
+ * @param {string} token
+ * @param {{untracked: number, marks: number}} counter
+ * @returns {string}
+ */
+function mdbTrackedLine(oldBody, newBody, token, counter) {
+    if (oldBody === newBody) { return newBody; }
+    var a = mdbDiffPieces(oldBody);
+    var b = mdbDiffPieces(newBody);
+    var matched = mdbLcsPairs(a, b, function(x, y) { return x.text === y.text; });
+    if (!matched) { counter.untracked++; return newBody; }
+    var all = matched;
+    // A matched run of white space between two changes belongs to one change ("big red" → "small blue").
+    var pairs = all.filter(function(pair, k) {
+        if (/\S/.test(a[pair[0]].text)) { return true; }
+        var prev = k > 0 ? all[k - 1] : [-1, -1];
+        var next = k + 1 < all.length ? all[k + 1] : [a.length, b.length];
+        var changedBefore = pair[0] - prev[0] > 1 || pair[1] - prev[1] > 1;
+        var changedAfter = next[0] - pair[0] > 1 || next[1] - pair[1] > 1;
+        return !(changedBefore && changedAfter);
+    });
+    var out = '';
+    var i = 0;
+    var j = 0;
+    /** @type {(ai: number, bj: number) => void} */
+    var change = function(ai, bj) {
+        var removed = a.slice(i, ai);
+        var added = b.slice(j, bj);
+        if (!removed.length && !added.length) { return; }
+        var oldText = removed.map(function(p) { return p.text; }).join('');
+        var newText = added.map(function(p) { return p.text; }).join('');
+        var touchesMark = removed.concat(added).some(function(p) { return p.mark; });
+        var from = oldText.trim();
+        var to = newText.trim();
+        if (touchesMark || MDB_MARK_DELIMITER.test(from) || MDB_MARK_DELIMITER.test(to)) {
+            counter.untracked++;
+            out += newText;
+            return;
+        }
+        if (!from && !to) { out += newText; return; }
+        var base = added.length ? newText : oldText;
+        var lead = (/^\s*/.exec(base) || [''])[0];
+        var trail = to || !added.length ? (/\s*$/.exec(base) || [''])[0] : '';
+        if (!base.trim()) { lead = base; trail = ''; }
+        var mark = from && to ? '{~~ ' + from + ' ~> ' + to + ' ~~}' : from ? '{-- ' + from + ' --}' : '{++ ' + to + ' ++}';
+        counter.marks++;
+        out += lead + mark + token + trail;
+    };
+    pairs.forEach(function(pair) {
+        change(pair[0], pair[1]);
+        out += b[pair[1]].text;
+        i = pair[0] + 1;
+        j = pair[1] + 1;
+    });
+    change(a.length, b.length);
+    return out;
+}
+
+/**
+ * How alike two lines are, 0 … 1 (the share of their words in common, in order).
+ * @param {string} x
+ * @param {string} y
+ * @returns {number}
+ */
+function mdbLineSimilarity(x, y) {
+    var a = x.trim().split(/\s+/).filter(function(w) { return w; });
+    var b = y.trim().split(/\s+/).filter(function(w) { return w; });
+    if (!a.length && !b.length) { return 1; }
+    if (!a.length || !b.length) { return 0; }
+    var pairs = mdbLcsPairs(a, b, function(p, q) { return p === q; });
+    return pairs ? (2 * pairs.length) / (a.length + b.length) : 0;
+}
+
+/**
+ * Tracking mode (the MD Browser's edit mode): `newText` as the user saved it,
+ * with every change against `oldText` written as inline marks (SOM §11.9.3)
+ * instead of being made. Lines are matched first (an unchanged line stays as
+ * it is; in a changed stretch a line is paired with the one most like it),
+ * then a pair is compared word by word (mdbTrackedLine). A line only in the
+ * old text stays, marked deleted; one only in the new text is marked added.
+ * The structural start of a line (list marker, quote mark, heading hashes)
+ * stays outside the marks; what cannot carry a mark — code blocks, table
+ * rows, html, fences, blank lines, changes to existing marks — is written as
+ * the user left it (`untracked` counts those).
+ * @param {string} oldText
+ * @param {string} newText
+ * @param {string} token  the attribution token after each mark (mdbOwnToken), or ''
+ * @returns {{text: string, marks: number, untracked: number}}
+ */
+function mdbTrackedEdit(oldText, newText, token) {
+    var counter = { untracked: 0, marks: 0 };
+    var eol = String(newText).indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+    var oldLines = String(oldText).replace(/\r\n|\r/g, '\n').split('\n');
+    var newLines = String(newText).replace(/\r\n|\r/g, '\n').split('\n');
+    if (oldLines.join('\n') === newLines.join('\n')) { return { text: newText, marks: 0, untracked: 0 }; }
+    var oldPlain = mdbUnmarkableLines(oldLines);
+    var newPlain = mdbUnmarkableLines(newLines);
+    var same = mdbLcsPairs(oldLines, newLines, function(x, y) { return x === y; });
+    if (!same) { return { text: newText, marks: 0, untracked: 1 }; }
+    /** @type {string[]} */
+    var out = [];
+    var tok = token || '';
+    var prefixOf = function(/** @type {string} */ line) { return (MDB_LINE_PREFIX.exec(line) || [''])[0]; };
+    // A removed blank line is kept when a removed line follows it: that line stays, marked, a paragraph of its own.
+    var heldBlank = false;
+    /** @type {(oi: number) => void} */
+    var removedLine = function(oi) {
+        var line = oldLines[oi];
+        if (!line.trim()) { heldBlank = out.length > 0; return; }
+        var prefix = prefixOf(line);
+        var body = line.slice(prefix.length).trim();
+        if (oldPlain[oi] || !body || MDB_MARK_DELIMITER.test(body)) { counter.untracked++; return; }
+        if (heldBlank && out[out.length - 1].trim()) { out.push(''); }
+        heldBlank = false;
+        counter.marks++;
+        out.push(prefix + '{-- ' + body + ' --}' + tok);
+    };
+    /** @type {(ni: number) => void} */
+    var addedLine = function(ni) {
+        var line = newLines[ni];
+        var prefix = prefixOf(line);
+        var body = line.slice(prefix.length).trim();
+        if (!line.trim()) { out.push(line); return; }
+        if (newPlain[ni] || !body || MDB_MARK_DELIMITER.test(body)) { counter.untracked++; out.push(line); return; }
+        counter.marks++;
+        out.push(prefix + '{++ ' + body + ' ++}' + tok);
+    };
+    /** @type {(oi: number, ni: number) => void} */
+    var changedLine = function(oi, ni) {
+        var oldLine = oldLines[oi];
+        var newLine = newLines[ni];
+        if (oldPlain[oi] || newPlain[ni]) { if (oldLine !== newLine) { counter.untracked++; } out.push(newLine); return; }
+        var prefix = prefixOf(newLine);
+        var oldPrefix = prefixOf(oldLine);
+        var tail = (/\s*$/.exec(newLine.slice(prefix.length)) || [''])[0];
+        var body = mdbTrackedLine(oldLine.slice(oldPrefix.length).replace(/\s+$/, ''), newLine.slice(prefix.length).replace(/\s+$/, ''), tok, counter);
+        out.push(prefix + body + tail);
+    };
+    /** A changed stretch: old lines [o0, o1) against new lines [n0, n1). */
+    /** @type {(o0: number, o1: number, n0: number, n1: number) => void} */
+    var stretch = function(o0, o1, n0, n1) {
+        var n = o1 - o0;
+        var m = n1 - n0;
+        if (!n) { for (var k = n0; k < n1; k++) { addedLine(k); } return; }
+        if (!m) { for (var d = o0; d < o1; d++) { removedLine(d); } return; }
+        var GAP = 0.6;
+        var MIN = 0.4;
+        /** @type {number[][]} */
+        var sim = [];
+        for (var a = 0; a < n; a++) {
+            sim.push([]);
+            for (var b = 0; b < m; b++) { sim[a].push(n * m > 40000 ? (a === b ? 1 : 0) : mdbLineSimilarity(oldLines[o0 + a], newLines[n0 + b])); }
+        }
+        /** @type {number[][]} */
+        var cost = [];
+        for (var r = 0; r <= n; r++) { cost.push(new Array(m + 1).fill(0)); }
+        for (var x = n; x >= 0; x--) {
+            for (var y = m; y >= 0; y--) {
+                if (x === n && y === m) { continue; }
+                var best = Infinity;
+                if (x < n) { best = Math.min(best, GAP + cost[x + 1][y]); }
+                if (y < m) { best = Math.min(best, GAP + cost[x][y + 1]); }
+                if (x < n && y < m && sim[x][y] >= MIN) { best = Math.min(best, 1 - sim[x][y] + cost[x + 1][y + 1]); }
+                cost[x][y] = best;
+            }
+        }
+        var i = 0;
+        var j = 0;
+        while (i < n || j < m) {
+            if (i < n && j < m && sim[i][j] >= MIN && Math.abs(cost[i][j] - (1 - sim[i][j] + cost[i + 1][j + 1])) < 1e-9) {
+                changedLine(o0 + i, n0 + j); i++; j++;
+            } else if (i < n && Math.abs(cost[i][j] - (GAP + cost[i + 1][j])) < 1e-9) {
+                removedLine(o0 + i); i++;
+            } else {
+                addedLine(n0 + j); j++;
+            }
+        }
+    };
+    var oi = 0;
+    var ni = 0;
+    same.forEach(function(pair) {
+        stretch(oi, pair[0], ni, pair[1]);
+        out.push(newLines[pair[1]]);
+        oi = pair[0] + 1;
+        ni = pair[1] + 1;
+    });
+    stretch(oi, oldLines.length, ni, newLines.length);
+    return { text: out.join(eol), marks: counter.marks, untracked: counter.untracked };
+}

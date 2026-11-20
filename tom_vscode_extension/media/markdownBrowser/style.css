@@ -425,6 +425,12 @@ body.mdb-edit-mode .mdb-rm-actions { display: inline-flex; gap: 1px; margin-left
 .mdb-option:hover { background: var(--vscode-list-hoverBackground); }
 .mdb-option-recommended { font-weight: bold; }
 .mdb-option-write { border-top: 1px solid var(--vscode-panel-border); font-style: italic; }
+/* The right-click menu of edit mode: marks for the selection, a comment at the point. */
+.mdb-sel-menu .mdb-option .codicon { font-size: 13px; vertical-align: -2px; margin-right: 6px; }
+.mdb-sel-menu .mdb-sel-reason { padding: 3px 10px; max-width: 320px; white-space: normal; color: var(--vscode-descriptionForeground); font-style: italic; }
+.mdb-editor-hint { font-size: 0.85em; color: var(--vscode-descriptionForeground); margin: 2px 0; }
+/* Track changes on: the toggle pressed. */
+#trackBtn.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 
 /* The navigation's kinds: a button naming them, a popup of checkboxes. */
 .nav-kind { position: relative; display: inline-flex; }
