@@ -37,9 +37,9 @@ import {
 } from '../prerequisites';
 import { buildPrerequisitesTree, optionLabel, type DiscoveredFile } from '../prerequisitesTree';
 import { discoverPrerequisites, pendingChecks, repositoryOf, runChecks, shellProbeScript, shellQuestions } from '../../services/prerequisitesService';
+import { guidelinePath } from './_layoutRoot.js';
 
 const EXT = path.resolve(__dirname, '..', '..', '..');
-const WS = path.resolve(EXT, '..', '..', '..');
 const SAMPLE = `formatVersion: 1
 sections:
   - id: server
@@ -159,7 +159,8 @@ sections:
         ok(SAMPLE, 'the sample');
         ok(fs.readFileSync(path.join(EXT, 'prerequisites.yaml'), 'utf8'), 'the extension\'s own file');
         ok(prerequisitesSkeleton('x'), 'the skeleton');
-        const guideline = fs.readFileSync(path.join(WS, '_copilot_guidelines', 'prerequisites_yaml.md'), 'utf8');
+        // The guideline on its two levels (the workspace folder's, then the root's), wherever the layout keeps it.
+        const guideline = fs.readFileSync(guidelinePath('prerequisites_yaml.md'), 'utf8');
         const example = /```yaml\n([\s\S]*?)```/.exec(guideline);
         assert.ok(example, 'the guideline has an example');
         ok(example![1], 'the guideline\'s example');

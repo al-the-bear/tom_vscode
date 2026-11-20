@@ -1,5 +1,5 @@
 /**
- * The module catalogue of `_copilot_guidelines/architecture.md` names every module of `src/` (qrfix13;
+ * The module catalogue of `_agent_guidelines/architecture.md` names every module of `src/` (qrfix13;
  * scripts/check-module-catalogue.cjs, `npm run check:module-catalogue`).
  *
  *   MC-1 the catalogue as it is: every non-test module of src/ is named in its folder's row, every top-level file

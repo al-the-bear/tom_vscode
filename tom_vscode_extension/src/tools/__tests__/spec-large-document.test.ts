@@ -3,7 +3,7 @@
  * a Blueprint of some 13 MB / 230 000 lines (the Meridian sample with its first
  * user category repeated 12 000 times), written with the key order and scalar
  * styles of a different encoder (every plain scalar as a `|2-` block, `userType`
- * before `description`). The SOM document store keeps the file's own text
+ * and `description` in the order the SOM encoder does not write them). The SOM document store keeps the file's own text
  * wherever an edit did not change a value (mergeYamlLayout), and the dry-run
  * diff stays bounded (unifiedDiff).
  *
@@ -69,12 +69,15 @@ function largeForeignBlueprint(): string {
     const item = lines.slice(start, end);
     const description = item.findIndex((l) => l.trim() === 'description: |2-');
     const userType = item.findIndex((l) => l.trim() === 'userType: |2-');
-    assert.equal(userType, description + 2, 'description (one line) then userType');
+    // The two fields side by side (each a key and one value line), in the order the model gives them.
+    const first = Math.min(description, userType);
+    const second = Math.max(description, userType);
+    assert.ok(first >= 0 && second === first + 2, 'userType and description, one line each, side by side');
     const copies: string[] = [];
     for (let k = 1; k <= COPIES; k++) {
         const copy = item.map((l) => l.replace('UCE-USER-1:', `UCE-USER-${k}:`).replace('Order Operations Clerk', `Order Operations Clerk ${k}`));
-        // The other encoder's field order: userType before description.
-        copies.push(...copy.slice(0, description), ...copy.slice(userType, userType + 2), ...copy.slice(description, description + 2), ...copy.slice(userType + 2));
+        // The other encoder's field order: the two fields swapped.
+        copies.push(...copy.slice(0, first), ...copy.slice(second, second + 2), ...copy.slice(first, first + 2), ...copy.slice(second + 2));
     }
     return asBlocks([...lines.slice(0, start), ...copies, ...lines.slice(end)].join('\n'));
 }

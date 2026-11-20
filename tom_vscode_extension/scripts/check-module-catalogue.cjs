@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Is every module of `src/` named in the module catalogue of
- * `_copilot_guidelines/architecture.md` (qrfix13)?
+ * `_agent_guidelines/architecture.md` (qrfix13; `_copilot_guidelines/` in a checkout before the rename)?
  *
  * The catalogue is a table, one row per folder of `src/` (`handlers/`,
  * `utils/`, …) and per top-level file (`extension.ts`, …). A module counts as
@@ -25,7 +25,14 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const EXT_ROOT = path.resolve(__dirname, '..');
-const CATALOGUE = path.join('_copilot_guidelines', 'architecture.md');
+const CATALOGUE = path.join('_agent_guidelines', 'architecture.md');
+
+/** The catalogue of the extension at `root`: in `_agent_guidelines/`, else in the older `_copilot_guidelines/`. */
+function cataloguePath(root) {
+    const current = path.join(root, CATALOGUE);
+    const older = path.join(root, '_copilot_guidelines', 'architecture.md');
+    return fs.existsSync(current) || !fs.existsSync(older) ? current : older;
+}
 
 /** Every module of `src/`: folder (`handlers/`) or top-level file (`extension.ts`) → module names. */
 function srcModules(root = EXT_ROOT) {
@@ -81,7 +88,7 @@ function removedModuleNames(root = EXT_ROOT) {
 }
 
 /** The report: `{missing: [{folder, module}], removed: [{folder, name}], misplaced: [{folder, name, in}]}`. */
-function check({ root = EXT_ROOT, text = fs.readFileSync(path.join(root, CATALOGUE), 'utf8'), modules = srcModules(root), removed = removedModuleNames(root) } = {}) {
+function check({ root = EXT_ROOT, text = fs.readFileSync(cataloguePath(root), 'utf8'), modules = srcModules(root), removed = removedModuleNames(root) } = {}) {
     const rows = catalogueRows(text);
     const missing = [];
     for (const [folder, list] of modules) {

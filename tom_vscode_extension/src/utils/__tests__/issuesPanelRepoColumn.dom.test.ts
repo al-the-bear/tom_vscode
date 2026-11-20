@@ -17,6 +17,7 @@ import * as path from 'path';
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { rootTomPath } from './_layoutRoot.js';
 
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 installVscodeStub({});
@@ -88,8 +89,8 @@ describe('@WS Issues / Tests: the Repo column', () => {
     });
 
     test('IR-4: the workspace config', () => {
-        const ws = path.resolve(__dirname, '..', '..', '..', '..', '..', '..');
-        const panels = JSON.parse(fs.readFileSync(path.join(ws, '.tom', 'tom_vscode_extension.json'), 'utf8')).issuePanels;
+        // The configuration is the root's (utils/workspaceLayout.ts), wherever the root is.
+        const panels = JSON.parse(fs.readFileSync(rootTomPath('tom_vscode_extension.json'), 'utf8')).issuePanels;
         for (const name of ['issueKit', 'testkit']) {
             const cols: string[] = panels[name].availableColumns.map((c: string) => c.split('{')[0]);
             assert.equal(cols[cols.indexOf('commentCount') + 1], 'repo', `${name}: repo right of commentCount`);

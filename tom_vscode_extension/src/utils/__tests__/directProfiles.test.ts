@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
+import { rootTomPath } from './_layoutRoot.js';
 
 const WORKSPACE = path.resolve(__dirname, '..', '..', '..', '..', '..', '..');
 installVscodeStub({ workspaceFolders: [WORKSPACE] });
@@ -28,7 +29,8 @@ import { directThinkingFields, profileThinkingSettings } from '../thinkingAndEff
 import { buildPayloadDump } from '../../services/anthropicPayload.js';
 
 interface Profile { id: string; configurationId?: string; systemPrompt?: string; effort?: string }
-const CONFIG = JSON.parse(fs.readFileSync(path.join(WORKSPACE, '.tom', 'tom_vscode_extension.json'), 'utf8'));
+// The configuration is the root's (utils/workspaceLayout.ts); the instruction files stay the workspace folder's.
+const CONFIG = JSON.parse(fs.readFileSync(rootTomPath('tom_vscode_extension.json'), 'utf8'));
 const CONFIGS = new Map<string, { transport?: string; model?: string }>((CONFIG.anthropic.configurations as Array<{ id: string; transport?: string; model?: string }>).map((c) => [c.id, c] as const));
 const LOCAL = new Set<string>(((CONFIG.localLlm?.configurations ?? []) as Array<{ id: string }>).map((c) => c.id));
 const PROFILES = CONFIG.anthropic.profiles as Profile[];

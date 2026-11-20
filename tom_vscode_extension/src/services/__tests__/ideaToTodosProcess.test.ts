@@ -44,6 +44,7 @@ import { availableMoves, EMPTY_PROCESS_STATE, parseProcessYaml, phaseSteps, type
 import { unescapePlaceholders } from '../../utils/placeholderEscape.js';
 import { SomModelService } from '../som-model-service.js';
 import { SomDocumentStore, nodeSomDocumentIo } from '../som-document-store.js';
+import { rootTomPath } from '../../utils/__tests__/_layoutRoot.js';
 
 const yamlText = present ? fs.readFileSync(path.join(PROCESS, 'idea_to_todos.process.yaml'), 'utf8') : '';
 const def = present ? parseProcessYaml(yamlText).definition as ProcessDefinition : undefined;
@@ -140,14 +141,15 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         const { docspecsValidateImpl } = await import('../../tools/docspecs-tools.js');
         const dir = fs.mkdtempSync(path.join(WS, 'ztmp', 'idea-blueprint-test-'));
         try {
-            const deps = { wsRoot: WS, store: new SomDocumentStore(SomModelService.instance, nodeSomDocumentIo), service: SomModelService.instance };
+            // The schemas are the root's (`.tom/docspecs-schema/`): the configuration layer the layout gives the tool.
+            const deps = { wsRoot: WS, configLayers: [rootTomPath()], store: new SomDocumentStore(SomModelService.instance, nodeSomDocumentIo), service: SomModelService.instance };
             const put = (name: string, text: string) => { fs.writeFileSync(path.join(dir, name), text); return path.relative(WS, path.join(dir, name)); };
             const head = '<!-- docspec: idea-blueprint/1.0 -->\n\n# <!--[word-count]--> Word Count\n\n## <!--[intent]--> Intent\n\nShow a word count.\n\n';
             const quests = '## <!--[quests]--> Quests\n\n- vscode_extension: the file bar.\n\n';
             const parts = '## <!--[scope]--> Scope\n\nThe count only.\n\n## <!--[parts]--> Parts\n\n### <!--[part-count]--> Count\n\nCount the words.\n\n> **❓ IDEA-1 — Code:** count code blocks?\n> - (a) yes\n> - **(b)** no\n>\n> **Answer:**\n';
             const run = async (name: string, text: string) => JSON.parse(await docspecsValidateImpl(deps as never, { file: put(name, text) }));
             const phase1 = await run('phase1.md', head + quests);
-            assert.equal(phase1.schema.file, '.tom/docspecs-schema/idea-blueprint/idea-blueprint.1.0.docspecs-schema.yaml');
+            assert.equal(path.resolve(WS, phase1.schema.file), rootTomPath('docspecs-schema', 'idea-blueprint', 'idea-blueprint.1.0.docspecs-schema.yaml'), JSON.stringify(phase1.schema));
             assert.deepEqual([phase1.passed, phase1.findings], [true, []], 'a phase-1 document');
             assert.deepEqual((await run('full.md', head + quests + parts)).findings, [], 'with scope and parts');
             const noQuests = await run('bad.md', head);
@@ -163,7 +165,7 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         for (const folder of ['01_Idea/<NN>_Questions Round/', '02_Blueprint/01_Initial Version/', '02_Blueprint/02_<NN>_Iteration/', '03_Deepening/01_Deepening/', '03_Deepening/02_<NN>_Iteration/', '04_Todos/02_<NN>_Iteration/', '04_Todos/03_Filing/']) {
             assert.ok(md.includes(folder), folder);
         }
-        assert.match(md, /`_ai\/quests\/<quest>\/ideas\/<idea>\/<idea>\.md`/);
+        assert.match(md, /`_ai\/quests\/<quest>\/ideas\/<idea>\/<idea>\.docspecs\.md`/, 'the working document\'s default name (doc_specs 01d_rdv1: a DocSpecs document is `*.docspecs.md`)');
         assert.match(md, /`\$\$\{finish-review-round\}`/, 'escaped, so it survives the description\'s resolution');
         assert.ok(!/(?<!\$)\$\{finish-review-round\}/.test(md));
         assert.match(md, /`<NN><g>_<stem><n>` — the phase `<NN>`, the group letter `<g>`/, 'the id form');

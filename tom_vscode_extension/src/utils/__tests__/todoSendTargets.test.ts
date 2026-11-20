@@ -177,8 +177,9 @@ describe('todo panel sends carry the todo record', () => {
         const { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY } = await import('../explainTodoTemplate.js');
         const fs = await import('fs');
         const path = await import('path');
-        const root = path.resolve(__dirname, '..', '..', '..');
-        const workspaceConfig = JSON.parse(fs.readFileSync(path.resolve(root, '..', '..', '..', '.tom', 'tom_vscode_extension.json'), 'utf8'));
+        const { rootTomPath, EXTENSION_DIR: root } = await import('./_layoutRoot.js');
+        // The configuration is the root's (utils/workspaceLayout.ts), wherever the root is.
+        const workspaceConfig = JSON.parse(fs.readFileSync(rootTomPath('tom_vscode_extension.json'), 'utf8'));
         const guide = (workspaceConfig.anthropic.userMessageTemplates as Array<{ id: string; template: string }>).find((t) => t.id === 'guide-user-action')?.template;
         assert.ok(guide, 'the workspace has the Guide me template');
         const prompt = buildStackedTodoPrompt([{ ref: REF, yaml: todoSendBlock(REF, todoYamlBlock(TODO, '_ai/quests/q/todos.q.todo.yaml')) }]);

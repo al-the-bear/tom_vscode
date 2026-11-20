@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
+import { rootTomPath } from '../../utils/__tests__/_layoutRoot.js';
 installVscodeStub({});
 
 import { ALWAYS_ON_TOOLS, parseRoleType, resolveRoleTools, roleSchemaPath, validateRoleFile, withAlwaysOnTools } from '../../utils/roleTypes.js';
@@ -50,7 +51,7 @@ function sandbox(): { ws: string; ai: string; store: RoleStore } {
 describe('roles and role types', () => {
     test('RL-1: the schemas, the seeded role types, the always-on tools', () => {
         for (const name of ['role-type.schema.json', 'role-config.schema.json']) {
-            assert.equal(fs.readFileSync(path.join(WS, '.tom', 'json-schema', 'roles', name), 'utf8'), read('src', 'config', name), `${name}: the workspace's copy is the extension's`);
+            assert.equal(fs.readFileSync(rootTomPath('json-schema', 'roles', name), 'utf8'), read('src', 'config', name), `${name}: the root's copy is the extension's`);
         }
         assert.equal(roleSchemaPath('roleType'), path.join(EXT, 'out', 'config', 'role-type.schema.json'));
         const typesDir = path.join(WS, '_ai', 'role-types');
