@@ -134,6 +134,8 @@ describe('Create New Quest', () => {
         assert.equal(fs.readFileSync(path.join(ws, ACTIVE_QUESTS_FILE), 'utf8'), TABLE, 'quests_and_processes.md untouched');
         assert.equal('registration' in r, false);
         assert.ok(!todo.description.includes('Active Quests'), 'the setup todo asks for no table row');
+        assert.match(todo.description, /short_description\.my_quest\.md\` up to date — every active quest must have one/, 'the short description is required');
+        assert.match(todo.description, /_ai\/workspaces\/<workspace>\.yaml/, 'the workspace\'s quest list, when it keeps one');
         createQuestScaffold(path.join(workspace(false), '_ai', 'quests'), 'other', 'Other', date);
         assert.equal(questScaffoldFiles('q', 'Q', date).length, 14);
     });

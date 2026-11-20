@@ -52,7 +52,9 @@ export function questSetupTodoDescription(id: string): string {
         '',
         `Then write \`overview.${id}.md\` (its sections are there, empty), set the process with tomAi_setProcessState when one was chosen, and create the first todos with tomAi_createQuestTodo: ids from tomAi_generateIdPrefix, each decision the user still has to make in \`decisions\` with status decision-needed. Show the user the overview and the todos and adjust them until they agree.`,
         '',
-        `Last, bring \`short_description.${id}.md\` up to date: keep its title line, write 2–4 sentences on what the quest is for and what it covers (the repositories it works on included), and a \`**State:**\` line with where it stands now. It holds the current state only; the overview stays the long form.`,
+        `When the workspace keeps a list of its quests (\`_ai/workspaces/<workspace>.yaml\`, @T: Open AI Workspace Quests), add the quest to it; the quests themselves are the folders under \`_ai/quests/\`.`,
+        '',
+        `Last, bring \`short_description.${id}.md\` up to date — every active quest must have one (quests_and_processes.md): keep its title line, write 2–4 sentences on what the quest is for and what it covers (the repositories it works on included), and a \`**State:**\` line with where it stands now. It holds the current state only; the overview stays the long form.`,
     ].join('\n');
 }
 
