@@ -12,7 +12,7 @@ dependencies:
   # 5.0.0: on tom_todo_model 3 (TodoWire reads a todo group).
   tom_vscode_scripting_api: ^6.0.0
   # The generated scripting-API bridges import the todo model directly.
-  tom_todo_model: ^4.1.0   # the regenerated bridges use the item model (4.0.0: TomItem, status `none`; 4.1.0: the reminder schedule) besides the todo groups, repeated-todo, id and collaboration fields
+  tom_todo_model: ^4.2.0   # the regenerated bridges use the item model (4.0.0: TomItem, status `none`; 4.1.0: the reminder schedule) besides the todo groups, repeated-todo, id and collaboration fields; 4.2.0: a todo's `role` and `guidelines`, which the extension writes, are read instead of refused
   # 1.225.0: `D4rt.loadedSourceModuleCount`, which tom_d4rt_dcli 1.8.0's bridges
   # call although that package still declares `tom_d4rt: ^1.77.0`. A lock frozen
   # below it compiles nothing (seen on legiondary01, 2026-10-27).
