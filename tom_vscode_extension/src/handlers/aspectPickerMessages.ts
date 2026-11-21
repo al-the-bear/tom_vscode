@@ -1,9 +1,9 @@
 /**
  * The guideline picker's messages (media/shared/aspectPicker.js, gsel5), the
  * same in every page that shows it (the Prompt Queue editor, the todo panel
- * and editor):
+ * and editor, the @CHAT subpanels):
  *
- * - `aspectChoose` `{ level, section, value, run?, itemId?, questId?, todoId? }`:
+ * - `aspectChoose` `{ level, section, value, run?, itemId?, questId?, todoId?, panel? }`:
  *   one section's choice on one level (services/aspectPickerState.ts
  *   applyAspectChoice); a refusal is shown as a warning.
  * - `aspectQuestDefault` `{ action: 'set' | 'clear' }`: *Set as quest default*
@@ -46,6 +46,7 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
                 itemId: str(msg.itemId),
                 questId: str(msg.questId),
                 todoId: str(msg.todoId),
+                panel: str(msg.panel) as AspectChoiceRequest['panel'],
             };
             let result;
             try {

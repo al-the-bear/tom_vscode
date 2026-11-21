@@ -611,7 +611,9 @@ choices a caller passes in `aspectGuidelineChoices`.
 
 **The guideline picker** (`media/shared/aspectPicker.js`) sets the window, all
 windows, a run, a queue item and a todo from the Prompt Queue editor and the
-todo editor (user guide § Aspect guidelines). The pages get the sections and
+todo editor, and each @CHAT subpanel's sticky choices — the item level of its
+sends — from the @CHAT panel (level `chat` with `panel`, gsel6; user guide
+§ Aspect guidelines). The pages get the sections and
 the shared levels from `services/aspectPickerState.ts` and post
 `aspectChoose {level, section, value}` (`''` Don't add, `remove`, an option),
 `aspectQuestDefault {action}` and `aspectEditSections`
@@ -620,8 +622,16 @@ refused. After every level write — a picker message, another window's
 `setAspectChoice` window request, the quest-default commands — every view
 showing the picker is redrawn (`handlers/aspectViewsRefresh.ts`): the Prompt
 Queue editor gets its state again, every todo view that asked for the picker's
-data (`qtGetAspects`) a fresh `qtAspects`. A todo's own choice is in the todo
-file, whose watcher reloads the todo views.
+data (`qtGetAspects`) a fresh `qtAspects`, the @CHAT panel a fresh
+`chatAspects`. A todo's own choice is in the todo file, whose watcher reloads
+the todo views.
+
+**The @CHAT role dropdown** (ANTHROPIC/LLM, gsel6; `utils/chatPanelRole.ts`)
+is the item role of the panel's sends: the send runs inside
+`runWithQueueRole({itemRole})`, so its tools, guideline levels and `${role}`
+follow it ahead of the step role and the chat variable, which stays as it is.
+What the panel queues with its own target, or because its session is busy,
+carries the role and the subpanel's choices as the item's own.
 
 **Where the text goes.** The chosen options are rendered under one
 `## Aspect guidelines` heading, with a `### <section>: <option>` heading per

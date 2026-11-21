@@ -8,7 +8,8 @@
  *   the window, and the role / role-type choices of every role under
  *   `_ai/roles`. The page adds the run, item and todo levels it has.
  * - {@link applyAspectChoice}: one section's choice on one level — the
- *   window, all windows, a run, a queue item or a todo. `''` is *Don't add*
+ *   window, all windows, a run, a queue item, a todo or a @CHAT subpanel
+ *   (gsel6). `''` is *Don't add*
  *   (the entry goes), `remove` is *Remove*, anything else an option the
  *   section has.
  *
@@ -22,7 +23,7 @@ export { applyAspectChoice, aspectValueRefusal, ASPECT_PICKER_LEVELS, type Aspec
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
 import { ASPECT_GUIDELINES_FOLDER, readAspectSections } from './aspectGuidelinesStore';
-import { questDefaultChoices, roleLevelChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
+import { chatPanelChoices, questDefaultChoices, roleLevelChoices, setChatPanelChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
 
 /** The picker's shared data. */
 export interface AspectPickerState extends AspectCatalogue {
@@ -86,6 +87,8 @@ export function liveAspectChoiceWriters(): AspectChoiceWriters {
             return todo ? todo.guidelines : null;
         },
         setTodo: (questId, todoId, choices) => !!todos.updateTodo(quest(questId), todoId, { guidelines: choices ?? {} }),
+        chatChoices: (panel) => chatPanelChoices(panel),
+        setChat: (panel, choices) => setChatPanelChoices(panel, choices),
     };
 }
 /* eslint-enable @typescript-eslint/no-require-imports */

@@ -23,7 +23,12 @@ import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFol
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
-import { chatSendAspectChoices, liveAspectChoices } from '../services/aspectChoiceLevels';
+import { chatPanelChoices, chatSendAspectChoices, liveAspectChoices } from '../services/aspectChoiceLevels';
+import { aspectPickerState } from '../services/aspectPickerState';
+import { runWithQueueRole } from '../services/queueRoleContext';
+import { handleAspectPickerMessage } from './aspectPickerMessages';
+import { chatQueueItemFields, chatRoleKey, chatRoleSource, effectiveChatRole } from '../utils/chatPanelRole';
+import { listRoleNames } from '../utils/roleNames';
 import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
@@ -534,8 +539,28 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         if (section && typeof message.run === 'string') { await this._setChatRun(section, message.run); }
                         this._sendChatRuns();
                         if (section === 'anthropic') { this._sendChatSession(); }
+                        // The guideline buttons show the choices of the panel's run.
+                        this.postChatAspects();
                         break;
                     }
+                    // The role dropdown and the guideline buttons (gsel6).
+                    case 'getChatAspects':
+                        this.postChatAspects();
+                        break;
+                    case 'setChatRole':
+                        await this._context.workspaceState.update(chatRoleKey(WsPaths.getWorkspaceQuestId()), typeof message.role === 'string' && message.role ? message.role : undefined);
+                        this.postChatAspects();
+                        break;
+                    case 'openRoleEditor': {
+                        const role = this._chatRole();
+                        await vscode.commands.executeCommand('tomAi.editor.roles', role ? { role } : undefined);
+                        break;
+                    }
+                    case 'aspectChoose':
+                    case 'aspectEditSections':
+                        // Writes the level, then refreshes every view showing it (this panel included).
+                        await handleAspectPickerMessage(message);
+                        break;
                     case 'pickAnthropicSession': {
                         const quest = WsPaths.getWorkspaceQuestId();
                         const picked = await pickAgentSdkSession({
@@ -953,6 +978,36 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         } catch {
             return undefined;
         }
+    }
+
+    /** The ANTHROPIC/LLM subpanel's role (its role dropdown, gsel6): `''` is *Default role*; a deleted role is forgotten. */
+    private _chatRole(): string {
+        const key = chatRoleKey(WsPaths.getWorkspaceQuestId());
+        const stored = this._context.workspaceState.get<string>(key);
+        let roles: string[] = [];
+        try { roles = listRoleNames(WsPaths.ai('roles')); } catch { roles = []; }
+        const role = effectiveChatRole(stored, roles);
+        if (stored && stored !== role) { void this._context.workspaceState.update(key, undefined); }
+        return role;
+    }
+
+    /**
+     * Tell the webview what its role dropdown and guideline buttons show
+     * (gsel6): the roles, the panel's role, the picker state (catalogue,
+     * quest default, window, the roles' levels), each subpanel's run choices
+     * and its sticky choices (the item level of its sends).
+     */
+    postChatAspects(): void {
+        if (!this._view) { return; }
+        let roles: string[] = [];
+        try { roles = listRoleNames(WsPaths.ai('roles')); } catch { roles = []; }
+        let aspects: unknown;
+        try { aspects = aspectPickerState(); } catch { aspects = undefined; }
+        const panels = Object.fromEntries(CHAT_RUN_SECTIONS.map((section) => {
+            const levels = chatSendAspectChoices(section, this._chatRun(section));
+            return [section, { run: levels.run ?? {}, item: levels.item ?? {} }];
+        }));
+        void this._view.webview.postMessage({ type: 'chatAspects', roles, role: this._chatRole(), aspects, panels });
     }
 
     /** Tell the webview the runs each subpanel can pick and the one it is on. */
@@ -1624,7 +1679,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         // A fresh session is never busy: its base may be (it is only read).
         const busy = fresh ? { kind: 'free' as const } : await resolveBusySession({
             session: targetSession,
-            send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}), run: panelRun },
+            send: { text, ...(profileId ? { profileId } : {}), ...(configId ? { configId } : {}), ...(userMessageTemplateId ? { template: userMessageTemplateId } : {}), run: panelRun, ...chatQueueItemFields(this._chatRole(), chatPanelChoices('anthropic')) },
             interactive: true,
         });
         if (busy.kind === 'cancelled') {
@@ -1781,7 +1836,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
             const result = await trackChatSend(
                 { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel', run: this._chatRun('anthropic') },
-                () => runInProcessPosition(runContext, () => AnthropicHandler.instance.sendMessage({
+                // The panel's role is the send's item role (gsel6): its tools, guidelines and ${role}.
+                () => runInProcessPosition(runContext, () => runWithQueueRole(chatRoleSource(this._chatRole(), chatPanelChoices('anthropic')), () => AnthropicHandler.instance.sendMessage({
                     userText: text,
                     profile,
                     configuration: cfg,
@@ -1794,7 +1850,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // The panel's run and sticky guideline choices (gsel4).
                     aspectGuidelineChoices: chatSendAspectChoices('anthropic', this._chatRun('anthropic')),
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
-                })),
+                }))),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.
                 {
                     cancel: (chatItemId) => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); },
@@ -2278,6 +2334,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     ...(transport === 'anthropic' && panelTarget
                         ? { anthropicProfileId: transportOpts?.anthropicProfileId, anthropicConfigId: transportOpts?.anthropicConfigId, session: this._chatSessionKey() }
                         : {}),
+                    // With the panel's target the item carries the panel's role (ANTHROPIC/LLM only) and its
+                    // sticky guideline choices as its own (gsel6).
+                    ...(panelTarget ? chatQueueItemFields(section === 'anthropic' ? this._chatRole() : '', chatPanelChoices(section)) : {}),
                     run,
                     // The default run named outright: the queue does not take the run of a Proceed running now.
                     runIsExplicit: true,
@@ -2483,6 +2542,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 }
 
 let _provider: ChatPanelViewProvider | undefined;
+
+/** Post fresh guideline-picker data to the @CHAT panel when it is open (handlers/aspectViewsRefresh.ts). */
+export function postChatAspectsToPanel(): void {
+    _provider?.postChatAspects();
+}
 
 /** The per-session actions of the ANTHROPIC/LLM chat (runSessionAction). */
 export type ChatSessionAction = 'rawTrail' | 'trailSummary' | 'history' | 'liveTrail' | 'memory' | 'clearHistory';

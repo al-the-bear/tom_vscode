@@ -119,9 +119,9 @@ const queueStates = (panel: Json): Json[] => (panel.webview.__posted as Json[]).
 const lastQueueState = (panel: Json): Json => queueStates(panel).pop();
 
 /** Count the refresh calls while `run` runs. */
-async function refreshCalls(run: () => unknown): Promise<{ queueEditor: number; todoViews: number }> {
-    const calls = { queueEditor: 0, todoViews: 0 };
-    __setAspectViewRefreshersForTests({ queueEditor: () => { calls.queueEditor++; }, todoViews: () => { calls.todoViews++; } });
+async function refreshCalls(run: () => unknown): Promise<{ queueEditor: number; todoViews: number; chatPanel: number }> {
+    const calls = { queueEditor: 0, todoViews: 0, chatPanel: 0 };
+    __setAspectViewRefreshersForTests({ queueEditor: () => { calls.queueEditor++; }, todoViews: () => { calls.todoViews++; }, chatPanel: () => { calls.chatPanel++; } });
     try { await run(); } finally { __setAspectViewRefreshersForTests(undefined); }
     return calls;
 }
@@ -149,25 +149,25 @@ describe('the guideline picker views follow each other (gsel5b)', () => {
             ['Set as quest default', () => handleAspectPickerMessage({ type: 'aspectQuestDefault', action: 'set' })],
             ['Clear quest default', () => handleAspectPickerMessage({ type: 'aspectQuestDefault', action: 'clear' })],
         ] as const) {
-            assert.deepEqual(await refreshCalls(run), { queueEditor: 1, todoViews: 1 }, what);
+            assert.deepEqual(await refreshCalls(run), { queueEditor: 1, todoViews: 1, chatPanel: 1 }, what);
         }
-        assert.deepEqual(await refreshCalls(choose('window', 'tone', 'dry')), { queueEditor: 0, todoViews: 0 }, 'an unknown section is refused');
-        assert.deepEqual(await refreshCalls(choose('window', 'night', 'never')), { queueEditor: 0, todoViews: 0 }, 'an unknown option is refused');
-        assert.deepEqual(await refreshCalls(() => handleAspectPickerMessage({ type: 'aspectEditSections' })), { queueEditor: 0, todoViews: 0 }, 'Edit sections');
+        assert.deepEqual(await refreshCalls(choose('window', 'tone', 'dry')), { queueEditor: 0, todoViews: 0, chatPanel: 0 }, 'an unknown section is refused');
+        assert.deepEqual(await refreshCalls(choose('window', 'night', 'never')), { queueEditor: 0, todoViews: 0, chatPanel: 0 }, 'an unknown option is refused');
+        assert.deepEqual(await refreshCalls(() => handleAspectPickerMessage({ type: 'aspectEditSections' })), { queueEditor: 0, todoViews: 0, chatPanel: 0 }, 'Edit sections');
         // A refresher that throws does not keep the other from running.
         let todo = 0;
-        __setAspectViewRefreshersForTests({ queueEditor: () => { throw new Error('gone'); }, todoViews: () => { todo++; } });
+        __setAspectViewRefreshersForTests({ queueEditor: () => { throw new Error('gone'); }, todoViews: () => { todo++; }, chatPanel: () => undefined });
         try { refreshAspectViews(); } finally { __setAspectViewRefreshersForTests(undefined); }
         assert.equal(todo, 1);
         setWindowChoices(undefined);
     });
 
     test('AR-2: another window\'s change and the quest-default commands refresh both', async () => {
-        assert.deepEqual(await refreshCalls(() => applyAspectChoiceRequest('night', 'on')), { queueEditor: 1, todoViews: 1 });
+        assert.deepEqual(await refreshCalls(() => applyAspectChoiceRequest('night', 'on')), { queueEditor: 1, todoViews: 1, chatPanel: 1 });
         assert.deepEqual(windowChoices(), { night: 'on' }, 'set in this window');
-        assert.deepEqual(await refreshCalls(() => commands.get(SET_QUEST_DEFAULT_GUIDELINES_COMMAND)!()), { queueEditor: 1, todoViews: 1 });
+        assert.deepEqual(await refreshCalls(() => commands.get(SET_QUEST_DEFAULT_GUIDELINES_COMMAND)!()), { queueEditor: 1, todoViews: 1, chatPanel: 1 });
         assert.deepEqual(questDefaultChoices(), { night: 'on' });
-        assert.deepEqual(await refreshCalls(() => commands.get(CLEAR_QUEST_DEFAULT_GUIDELINES_COMMAND)!()), { queueEditor: 1, todoViews: 1 });
+        assert.deepEqual(await refreshCalls(() => commands.get(CLEAR_QUEST_DEFAULT_GUIDELINES_COMMAND)!()), { queueEditor: 1, todoViews: 1, chatPanel: 1 });
         assert.equal(questDefaultChoices(), undefined);
         setWindowChoices(undefined);
     });

@@ -58,6 +58,17 @@
 .run-select { max-width: 4.5em; margin-left: 4px; }
 .run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }
 
+/* ANTHROPIC/LLM (gsel6): the profile, user-prompt template, session, Run and role dropdowns
+   unlabelled at 60% of their width (the toolbar select's 60–120px, the template's 40%,
+   the session name's 110px); each tooltip names what it is. */
+.toolbar select.chat-compact-select { min-width: 36px; max-width: 72px; }
+.toolbar select.chat-compact-template { width: 24%; }
+.toolbar select.run-select.chat-compact-run { min-width: 36px; max-width: 2.7em; }
+.session-btn .session-name.chat-compact-session { max-width: 66px; }
+.toolbar select.chat-role-select { margin-left: 4px; }
+/* The guideline button (gsel6): the shared picker's icon button, a dot and the hover help only. */
+.chat-aspects-slot { display: inline-flex; align-items: center; margin-left: 2px; }
+
 
 /* The Extension Tools overlay: ~90% of the panel's width, the groups in columns (up to four as the width allows). */
 .modal-popup.extension-tools-popup { width: 90%; max-width: none; }

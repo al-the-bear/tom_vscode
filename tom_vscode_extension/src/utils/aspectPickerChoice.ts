@@ -1,7 +1,7 @@
 /**
  * One choice of the guideline picker (media/shared/aspectPicker.js, gsel5),
- * written to its level: the window, all windows, a run, a queue item or a
- * todo. vscode-free: the writers are passed in (services/aspectPickerState.ts
+ * written to its level: the window, all windows, a run, a queue item, a todo
+ * or a @CHAT subpanel's sticky choices (gsel6: its sends' item level). vscode-free: the writers are passed in (services/aspectPickerState.ts
  * liveAspectChoiceWriters is the live set).
  *
  * `''` is *Don't add* (the level's entry goes), `remove` is *Remove*,
@@ -11,9 +11,16 @@
 import { withSectionChoice, type AspectChoices } from './aspectChoices';
 import { ASPECT_REMOVE, type AspectSection } from './aspectGuidelines';
 
-/** The levels a picker sets. `allWindows` is the window level of every open window on this machine. */
-export type AspectPickerLevel = 'window' | 'allWindows' | 'run' | 'item' | 'todo';
-export const ASPECT_PICKER_LEVELS: readonly AspectPickerLevel[] = ['window', 'allWindows', 'run', 'item', 'todo'];
+/**
+ * The levels a picker sets. `allWindows` is the window level of every open
+ * window on this machine; `chat` a @CHAT subpanel's sticky choices.
+ */
+export type AspectPickerLevel = 'window' | 'allWindows' | 'run' | 'item' | 'todo' | 'chat';
+export const ASPECT_PICKER_LEVELS: readonly AspectPickerLevel[] = ['window', 'allWindows', 'run', 'item', 'todo', 'chat'];
+
+/** The @CHAT subpanels with sticky choices. */
+export type AspectPickerChatPanel = 'anthropic' | 'copilot';
+export const ASPECT_PICKER_CHAT_PANELS: readonly AspectPickerChatPanel[] = ['anthropic', 'copilot'];
 
 /** One choice of the picker. */
 export interface AspectChoiceRequest {
@@ -28,6 +35,8 @@ export interface AspectChoiceRequest {
     /** todo: its quest (default: the window's) and id. */
     questId?: string;
     todoId?: string;
+    /** chat: the subpanel. */
+    panel?: AspectPickerChatPanel;
 }
 
 /** Where the non-window levels are written (swapped in tests). */
@@ -42,6 +51,8 @@ export interface AspectChoiceWriters {
     setItem(id: string, choices: AspectChoices | undefined): boolean;
     todoChoices(questId: string | undefined, todoId: string): AspectChoices | undefined | null;
     setTodo(questId: string | undefined, todoId: string, choices: AspectChoices | undefined): boolean;
+    chatChoices(panel: AspectPickerChatPanel): AspectChoices | undefined;
+    setChat(panel: AspectPickerChatPanel, choices: AspectChoices | undefined): void;
 }
 
 /** What a choice did: ok, or why not; `sentTo` for all windows. */
@@ -90,6 +101,12 @@ export function applyAspectChoice(req: AspectChoiceRequest, w: AspectChoiceWrite
             return w.setTodo(req.questId, id, withSectionChoice(current, req.section, option))
                 ? { ok: true }
                 : { ok: false, error: `The todo ${id} could not be written.` };
+        }
+        case 'chat': {
+            const panel = req.panel;
+            if (!panel || !ASPECT_PICKER_CHAT_PANELS.includes(panel)) { return { ok: false, error: `Unknown chat panel "${String(panel)}".` }; }
+            w.setChat(panel, withSectionChoice(w.chatChoices(panel), req.section, option));
+            return { ok: true };
         }
     }
     return { ok: false, error: 'Unknown level.' };

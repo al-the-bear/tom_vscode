@@ -283,7 +283,6 @@ Processes live in `_ai/processes/<id>/`: `<id>.process.yaml` is the structure an
 
 The **@TOM VSC** sidebar's RESOURCES view lists the helper processes of this window's extension host (language servers, analysers, git, …) grouped by the extension that started them, with memory, CPU and age; a group opens to its processes. **Pause** stops a process or all of an extension's (SIGSTOP: no CPU, its idle memory is left to the system, the extension does not notice) — its editor features wait until you **Resume** it; **Kill** (asked first) ends a hung one, which its extension may start again. Windows offers Kill only. **Profiles**: switch to a lean VS Code profile (its own set of enabled extensions — the supported way to turn extensions off), create one from the current profile, or open the profiles editor. **Settings (this workspace)**: toggles for Dart analysis, Git's repository scan and the watcher / search excludes of `ztmp/`, `build/`, `.dart_tool/`, `node_modules/`. The view refreshes every 5 s while visible; the status-bar item with the window's total (refreshed every 30 s) opens it.
 
-
 ### @TOM VSC: prerequisites and secrets
 
 A `prerequisites.yaml` at a project's root (or at a repository root, for every project of the repository) lists what the project needs that is not in its repository: the **secrets** it reads, each with its type, whether it is required, what it is for, how to get it, and the ways to provide it (an environment variable, a `.env` key, a file, the OS keychain, VS Code's secret storage, a KDBX entry, a tool's own login, ssh-agent, a cloud secret manager); and the **software** it expects on the PATH. It never holds a value. The format is in `_agent_guidelines/prerequisites_yaml.md`; the YAML editor checks the file against the extension's schema.
@@ -295,6 +294,7 @@ The **PREREQUISITES** view of the **@TOM VSC** sidebar lists every such file of 
 - A click on a name shows its details: what it is for, how to get it, the option's fields, and the check's result with its time. The file button opens the `prerequisites.yaml` at that entry; the pencil opens the file.
 - **missing only** / **required only** narrow the tree.
 - **Projects without prerequisites.yaml** (closed at first) lists the other projects of the workspace listing; **Create** writes a starting file there and opens it. The view re-reads a file when it changes.
+
 ### Window Status Panel
 
 The Window Status panel is an Explorer sidebar view showing the state of all open @Tom windows:
@@ -355,6 +355,7 @@ When several apply, the first of this list wins. Click a run of this window to w
 Click a row for its details (the questions and their choices, the picker's items, the document, the plan, the message, the answer). Clicking an open ask of this window also opens it where it is answered — the user-input panel on its run, or its MD Browser.
 
 **Answer** (on an open row) answers from wherever you are:
+
 - an ask of this window opens where it waits;
 - an ask of **another window** is shown in this window's user-input panel, on a tab named after that window and its run; your answer goes to that window, which settles the ask there (an MD Browser ask is answered in its own window, where its document is open);
 - a todo waiting for decisions opens in the bottom panel's **Quest TODO** section (@WS), switched to the todo's quest. The section stays where you leave it; the sidebar's QUEST TODOS keeps its own view.
@@ -460,6 +461,7 @@ Each todo whose Blocked By or status changed gets a line in its notes. While it 
 #### After done and Filed by
 
 Todos hand work on to each other within this machine:
+
 - **After done:** a completed todo unblocks, notifies or queues others.
 - **The Done notification:** the panel's items report back when they finish.
 - **Items sent to another quest:** they can be todo walks in a named run (see
@@ -493,6 +495,7 @@ The Blocked By entry of an **unblock** target is kept for you, by the todo panel
 - **Renaming** a target, or the todo that filed this one, rewrites the ids in After done and Filed by.
 
 **When the todo is completed, the extension carries out After done itself.**
+
 - **When it runs:**
   - in a queue walk, once the walk has written the todo's answer;
   - otherwise, when the todo is set to completed: from the todo panel, a tool or the editor;
@@ -518,6 +521,7 @@ The Blocked By entry of an **unblock** target is kept for you, by the todo panel
 
 **The todo done notification** is a todo's After done **notify**; nothing
 else sends one.
+
 - **Who gets one:** only a todo whose After done asks for notify. A todo
   without After done, or without notify in it, gets none.
 - **What it says:** the todo's **Notify prompt**, else the **Todo — Done
@@ -549,6 +553,7 @@ else sends one.
   older build added for its todo loses it when the queue reads it.
 
 **Filed by**, below the group, is read-only. It holds:
+
 - the quest of the window, or of the quest that asked for the todo when another quest's item filed it;
 - the process run and the session;
 - the todo whose queue walk filed it;
@@ -642,6 +647,10 @@ Around the prompt: the profile picker with its edit button and the user-message 
 
 A conversation lives in a **session**: a `<name>.session.json` file in the quest's `history/` folder (machine-local, gitignored). On the Agent SDK transport with SDK-managed history it holds the SDK conversation the session continues; on the direct API transport the session has a history of its own (below). The panel uses its own session `chat`, the prompt queue the run's **default session** `default@<run>` — `default@default` in the default run (an older build named it `default`; a window moves it to the new name when it starts) — and any number of named sessions can be created and chosen. Every run has its default session from the moment it is created (based on `default@default`); switching the panel's **Run** select switches the panel to that run's default session, created when missing. The session button stays free to choose any other session afterwards.
 
+- **The ANTHROPIC/LLM toolbar** (gsel6): the profile, user-prompt template, session, Run and role dropdowns have no labels and take 60% of their former width; each one's tooltip names it. The template dropdown's empty entry is **No template** (the Copilot subpanel's too).
+- **The role dropdown** (right of the Run select) is the role of the panel's sends: **Default role**, or one of the roles of `_ai/roles/`. A send — and what the panel queues with its own target, or because the session is busy — runs as that role: its tools, its guideline choices and `${role}`, ahead of the process step's role and the chat variable `role`. The run's chat variable is not changed. The choice is kept per window and quest until you change it; a role deleted meanwhile puts it back on Default role. The Copilot subpanel has no role dropdown.
+- **The guideline button** (book icon, after the role dropdown; in the Copilot subpanel after its Run select) sets the guideline choices of the panel's sends — their item level, kept until you change them (see [Aspect guidelines](#aspect-guidelines)). It shows only a dot when the panel chose something and the effective selection on hover; no list beside it. What the panel queues with its own target carries the choices as the item's own.
+- **The role editor icon** (person icon, in the row under the input area) opens the Role Editor on the panel's role.
 - **The session button** (speech-bubble icon, right of the profile) shows the session the panel sends in — its name, what it is based on, its lifetime when it is not one conversation, and its model when it has a profile (e.g. *walk based on prep (per iteration) · claude-opus-5-5*). A click opens VS Code's picker: the quest's sessions with what each one does, **New session…**, and **New session based on…**. The choice is kept per quest; *The panel's own session (chat)* goes back to the default. Picking a session that has a profile selects that profile in the panel; you can still choose another. **Send** runs in the session picked here. **Save to Queue** (add + list icon) always queues the prompt into the **default run** with the prompt queue's own profile, session (`default@default`) and default template — nothing from the panel but the text and the repeat count. **Queue next** (add + step-into icon) does the same so it is the **next one sent**: it goes in pending directly under the item of the default run that is sending (in front of the other pending items), and when that item is repeating (a repeat count above 1 or a `prefix*` walk) it is marked to go **between its iterations** — what Save to Queue, Send next and Send between iterations in the queue editor would do. After the session and Run select, **Save to Queue with this panel's session, run, profile and template** (add + person icon) and **Queue next with this panel's session and run** (person + step-into icon) queue the prompt in the panel's run and session, with its profile and template, so it continues the panel's conversation as Send would; the second, pending at the front of that run's lane, between a running loop's iterations. The confirmation names the run (and session) each went to.
 - **The user-input panel — one open question per run**: everything a prompt waits for you on — a question (*tomAi_askUser*, the Agent SDK's own question with choices), a tool approval, a plan proposal, a picker that could not be a QuickPick, and the asks waiting in the MD Browser — is in one panel, **Tom AI — Waiting for you**, with **one tab per process run** that has something open (a badge counts them). Sessions of different runs ask at the same time: each run has at most one open question (a second ask of the same run is refused as before), and you answer them in any order. The panel opens when a question, a picker or a plan arrives and nothing is open; while you work in it, another run's question only adds or updates its tab. An approval also shows in the @CHAT panel (the run named), a plan as its overlay there; either answers it. Asks in the MD Browser stay in their own panels (two runs asking about one file get two panels); the panel lists them with **Show it**. Pickers: VS Code shows one QuickPick at a time, so while one run's picker is on screen, another run's is answered in the panel (items, your own words, Dismiss). Plan mode is per run, too. Stopping a turn denies only that turn's approvals. From Telegram, with several questions open, reply `<run>: your answer`. The questions journal names each question's run.
 - **A reload keeps the question**: when you reload the window while a queue item's prompt waits for your answer — a question, a picker, an ask in the MD Browser — the ask comes back after the reload (the user-input panel opens again with the same questions and choices, the picker, the MD Browser with its buttons) and the item stays running instead of going back to pending. Your answer is sent to the item's session as its next prompt, telling the agent that the window was reloaded and quoting its question and your answer, and the item goes on where it was. Resend, Skip or Stop on the item close the restored ask instead. A send of the @CHAT panel that waits for your answer comes back the same way: your answer goes out as a new send in the same session and run, which continues the conversation; the send's queue entry says so. A reload in any other state works as before.
@@ -710,7 +719,7 @@ The tools come from the role's **role type**:
 
 Two editors edit them, both in the Extension Tools overview:
 
-- **@T: Open Role Editor** (`tomAi.editor.roles`) lists the roles. You edit `role.md` and pick the role type (*none* keeps the profile's tools); **+** adds a role. Roles are not deleted here: retire one by archiving it first.
+- **@T: Open Role Editor** (`tomAi.editor.roles`; also the person icon of the @CHAT ANTHROPIC/LLM subpanel, on the panel's role) lists the roles. You edit `role.md` and pick the role type (*none* keeps the profile's tools); **+** adds a role. Roles are not deleted here: retire one by archiving it first.
 - **@T: Open Role Type Editor** (`tomAi.editor.roleTypes`) lists the role types with the roles that use them. You set the name, the description, and the tools: the profile's default, or a selection by tool group (all / none per group). **+** adds a type and the trash deletes one no role names.
 
 Both editors check every file against its JSON schema before writing it (`.tom/json-schema/roles/role-type.schema.json` and `role-config.schema.json`; each file's first line names its schema). The workspace comes with two example types, neither assigned to a role: `document-author` (reading, editing files and documents, questions, specs, todos; no commands, git writes, queue or process control) and `coder` (everything but the process and queue controls). Details: [llm_configuration.md §6.1](llm_configuration.md#61-tools-by-role-role-types).
@@ -729,8 +738,9 @@ A prompt gets the guideline aspects chosen for it, section by section: an answer
   - **The run's info line** (above each run's queue): *Guidelines:* with the run's effective selection, the run's own choices starred (`Answer: full*`); a click opens the run's picker.
   - **Queue items:** a staged or pending item's details hold its button and its selection; the list row shows only an indicator when the item chose something, with the details on hover.
   - **Todos:** the todo editor (the todo panel's detail form and the `*.todo.yaml` editor) has a *Guidelines* row with the button and the todo's own choices beside it; a todo row with choices of its own shows an indicator. Session and workspace todos have none.
+  - **@CHAT:** each subpanel (ANTHROPIC/LLM and Copilot) has a button for its sends' choices — the item level, kept until changed —, with a dot and the hover help only. Its popup counts the quest default, the window, the subpanel's run and, in ANTHROPIC/LLM, the role picked in its role dropdown.
 - **Who wins:** each picker shows the levels up to its own. An item's choices count its run's and its role's; a todo's count the window's run and its role.
-- **Every page follows:** a change of the window, a run or the quest default, made in the Prompt Queue editor, a todo panel or another window (the all-windows button), shows at once in the Prompt Queue editor and every open todo panel of the window, without a reload.
+- **Every page follows:** a change of the window, a run or the quest default, made in the Prompt Queue editor, a todo panel, the @CHAT panel or another window (the all-windows button), shows at once in the Prompt Queue editor, every open todo panel and the @CHAT panel of the window, without a reload.
 
 Details: [llm_configuration.md §6.2](llm_configuration.md#62-aspect-guidelines).
 
@@ -755,6 +765,7 @@ Use command palette or editor context menu:
 Each opens Copilot Chat with the text — the selection, or the whole file for the template variants without one — wrapped in the template for the two template variants. They always go to Copilot; the ANTHROPIC/LLM panel has its own commands (above).
 
 The templates are the one template store, the user-message templates (template editor: **Anthropic — User Message**); **Default Template** uses the one marked default. The extension seeds these into it:
+
 - **With asking** (`with-asking`): before the work, the agent asks about every point the prompt leaves unclear, all at once, with the ask tools — `tomAi_askUser` (with choices), `tomAi_askUserPicker` or `tomAi_askInMdBrowser` — without a timeout. It files decision-needed todos only for what you leave open.
 - **Execute TODO**, **Explain TODO**, and the todo buttons' **Guide me through a user action** and **Specify TODO**. Each names the ask tools for whatever it leaves open. Explain TODO writes its explanation into `_ai/quests/<quest>/explanations/<todo id>.md`, puts its questions there and asks through `tomAi_askInMdBrowser`.
 - A seeded template you have not edited is brought to the current text when the extension starts; an edited one stays as it is.
@@ -867,7 +878,6 @@ A GROUP item lists its group's **members** in the queue editor, in their order i
 - a **checkbox** for every member still to come, checked when the walk will send it.
 
 The checkboxes start from the walk's rules (open, not blocked, not your own, its decisions answered). You may check any member — a completed or blocked one too — and uncheck any; **Select all** checks every member still to come, **Reset to rules** drops your choices. The walk then sends exactly the checked members, in their order, each once. Your choices are stored on the item (`group-selection` in its entry file); a member added to the group later starts as the rules say, and a member removed from it is gone from the list. The list can be changed while the item is staged, pending or sending (for the members still to come), and while it waits because its walk had nothing to send. Agents read the members with their marker in `tomAi_listQueue` (`members`: → being sent, ✓ sent, ☑ will be sent, ☐ will not) and set them with `tomAi_updateQueueItem` (`groupSelection`: the member ids to send).
-
 
 ### Answer Detection
 

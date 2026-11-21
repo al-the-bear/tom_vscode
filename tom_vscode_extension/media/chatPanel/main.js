@@ -330,8 +330,9 @@ function getPromptEditorComponent(options) {
     var selectorId = options.sectionId + '-' + options.selectorKind;
     var selectorClass = options.selectorClass ? ' class="' + options.selectorClass + '"' : '';
     var selectorTitle = options.selectorTitle ? ' title="' + options.selectorTitle + '"' : '';
+    // No label when the options give none (the ANTHROPIC/LLM dropdowns, gsel6: the tooltip names it).
     var selectorHtml =
-        '<label>' + options.selectorLabel + ':</label>' +
+        (options.selectorLabel ? '<label>' + options.selectorLabel + ':</label>' : '') +
         '<select id="' + selectorId + '"' + selectorClass + selectorTitle + '>' +
         (options.selectorOptions || '<option value="">(None)</option>') +
         '</select>';
@@ -389,13 +390,102 @@ function renderChatRunSelects() {
     });
 }
 
+/*
+ * The role dropdown and the guideline buttons (gsel6; design
+ * role_and_guideline_selector.vscode_extension.md R-3, L-7, P-5, AS-3).
+ *
+ * - The role dropdown (ANTHROPIC/LLM): the role of the panel's sends, their
+ *   item role. *Default role* leaves the role to the step, the run's default
+ *   and the chat variable. A change goes to the host at once (setChatRole).
+ * - The guideline buttons (both subpanels): the item level of the panel's
+ *   sends, kept by the host per quest until changed (aspectChoose, level
+ *   `chat`). A dot when the panel chose something, the effective selection
+ *   in the hover help, no list beside it. The levels shown: the quest
+ *   default, the window, the panel's run, the panel role's type and role.
+ * - The host posts `chatAspects` on load, after every change, and when a
+ *   level changes elsewhere (handlers/aspectViewsRefresh.ts).
+ */
+var chatAspectsState = { roles: [], role: '', aspects: null, panels: {} };
+function chatAspectPicker() { return window.TomAspectPicker || null; }
+function applyChatAspects(msg) {
+    chatAspectsState = {
+        roles: Array.isArray(msg.roles) ? msg.roles : [],
+        role: typeof msg.role === 'string' ? msg.role : '',
+        aspects: msg.aspects && Array.isArray(msg.aspects.sections) ? msg.aspects : null,
+        panels: msg.panels || {},
+    };
+    renderChatRoleSelect();
+    renderChatAspectButtons();
+}
+/** The levels of a subpanel's send: quest default, window, its run, its role's type and role, its own (the item). */
+function chatAspectLevels(section) {
+    var a = chatAspectsState.aspects || {};
+    var p = chatAspectsState.panels[section] || {};
+    var levels = { questDefault: a.questDefault, window: a.window, run: p.run, item: p.item };
+    var role = section === 'anthropic' ? chatAspectsState.role : '';
+    var r = (role && a.roles && a.roles[role]) || {};
+    levels.roleType = r.roleType;
+    levels.role = r.role;
+    return levels;
+}
+function chatAspectView(section) {
+    var p = chatAspectPicker();
+    return p && chatAspectsState.aspects ? p.view(chatAspectsState.aspects, chatAspectLevels(section), 'item') : null;
+}
+function renderChatRoleSelect() {
+    var sel = document.getElementById('anthropic-role');
+    if (!sel) { return; }
+    var current = chatAspectsState.role;
+    var roles = chatAspectsState.roles.slice();
+    if (current && roles.indexOf(current) < 0) { roles.push(current); }
+    sel.innerHTML = '<option value="">Default role</option>' + roles.map(function(r) {
+        return '<option value="' + escapeAttr(r) + '"' + (r === current ? ' selected' : '') + '>' + escapeAttr(r) + '</option>';
+    }).join('');
+    sel.value = current;
+    sel.title = 'Role of this panel\'s sends: ' + (current || 'Default role (the step\'s, the run\'s default or the chat variable)') + '. The run\'s chat variable role is not changed.';
+    sel.onchange = function() {
+        chatAspectsState.role = sel.value;
+        vscode.postMessage({ type: 'setChatRole', role: sel.value });
+    };
+}
+function renderChatAspectButtons() {
+    var p = chatAspectPicker();
+    ['anthropic', 'copilot'].forEach(function(section) {
+        var slot = document.getElementById(section + '-aspects-slot');
+        if (!slot) { return; }
+        var v = chatAspectView(section);
+        if (!p || !v) { slot.innerHTML = ''; return; }
+        // A dot and the hover help only: no list beside it.
+        slot.innerHTML = p.buttonHtml(v, {
+            title: 'Guidelines of this panel\'s sends',
+            id: section + '-aspects-btn',
+            attrs: { 'data-action': 'openChatAspects', 'data-id': section },
+        });
+    });
+}
+function openChatAspectPicker(section) {
+    var p = chatAspectPicker();
+    var v = chatAspectView(section);
+    var anchor = document.getElementById(section + '-aspects-btn');
+    if (!p || !v || !anchor) { return; }
+    var note = section === 'anthropic' && !chatAspectsState.role
+        ? 'Default role: the role levels of the role the send runs as apply when it is sent.'
+        : '';
+    p.open(anchor, v, {
+        title: 'Guidelines \u2014 this panel\'s sends',
+        note: note,
+        onChoose: function(sec, value) { vscode.postMessage({ type: 'aspectChoose', level: 'chat', panel: section, section: sec, value: value }); },
+        onEditSections: function() { vscode.postMessage({ type: 'aspectEditSections' }); },
+    });
+}
+
 function getSectionContent(id) {
     var contents = {
         copilot: getPromptEditorComponent({
             sectionId: 'copilot',
             selectorKind: 'template',
             selectorLabel: 'Template',
-            selectorOptions: '<option value="">(None)</option>',
+            selectorOptions: '<option value="">No template</option>',
             selectorClass: 'compact-select',
             selectorTitle: 'Template',
             toolbarClass: 'copilot-compact-toolbar',
@@ -417,6 +507,8 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue — in the default run, with the prompt queue&#39;s settings and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
                 '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
+                '<span id="copilot-aspects-slot" class="chat-aspects-slot"></span>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="copilot" title="Save to Queue in this panel&#39;s run, with its template"><span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
@@ -452,7 +544,10 @@ function getSectionContent(id) {
         anthropic: getPromptEditorComponent({
             sectionId: 'anthropic',
             selectorKind: 'profile',
-            selectorLabel: 'Profile',
+            // Unlabelled and at 60% of its width (gsel6); the tooltip names it.
+            selectorLabel: '',
+            selectorClass: 'chat-compact-select',
+            selectorTitle: 'Anthropic profile',
             selectorOptions: '<option value="">(None)</option>',
             prefixButtons:
                 '<button class="icon-btn" data-action="openExtensionTools" data-id="anthropic" title="Extension Tools"><span class="codicon codicon-tools"></span></button>',
@@ -468,7 +563,7 @@ function getSectionContent(id) {
                 '<span id="anthropic-apikey-dot" class="api-status-dot" title="API key status" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:6px;"></span>' +
                 '<span id="anthropic-claude-dot" class="api-status-dot" title="Agent SDK transport: the Anthropic provider&#39;s Agent SDK and Claude CLI installed (Provider SDKs page)" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--vscode-errorForeground);margin-left:4px;"></span>' +
                 // User-message template dropdown + inline edit icon (§7.3)
-                '<label>User Prompt:</label><select id="anthropic-userMessage" style="width:40%" title="Anthropic user-message template"><option value="">(None)</option></select>' +
+                '<select id="anthropic-userMessage" class="chat-compact-select chat-compact-template" title="User prompt template (the Anthropic user-message template)"><option value="">No template</option></select>' +
                 '<button class="icon-btn" data-action="editAnthropicUserMessage" data-id="anthropic" title="Edit Anthropic user-message template"><span class="codicon codicon-edit"></span></button>',
             // Intentionally empty: add/delete for profiles and user-message
             // templates is done inside the Global Template Editor, not here.
@@ -494,9 +589,13 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — in the default run (default@default), sent next, with the prompt queue&#39;s profile, session and default template; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-arrow-circle-up"></span></button>' +
                 // Agent SDK session: the button names the session the panel sends in; a click opens VS Code's picker
                 // (pick / new / based on). A run switch selects the run's default session (vscimpb151).
-                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name">chat</span></button>' +
+                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name chat-compact-session">chat</span></button>' +
                 // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
-                '<select id="anthropic-run" class="run-select" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                '<select id="anthropic-run" class="run-select chat-compact-run" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                // The role of this subpanel's sends (gsel6): their item role; the run's chat variable is untouched.
+                '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Default role</option></select>' +
+                // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
+                '<span id="anthropic-aspects-slot" class="chat-aspects-slot"></span>' +
                 // What uses the panel's session and run: Send, Stop, and the two queue buttons with the panel's target.
                 '<button class="icon-btn primary" id="anthropic-send-btn" data-action="send" data-id="anthropic" title="Send to Anthropic"><span class="codicon codicon-send"></span></button>' +
                 '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
@@ -552,6 +651,8 @@ function getSectionContent(id) {
                 '<span class="status-bar-actions">' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
                 '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
+                // The role editor (gsel6), the panel's role selected.
+                '<button class="icon-btn" data-action="openRoleEditor" id="anthropic-role-editor-btn" title="Role Editor — the roles a prompt can run as (_ai/roles)"><span class="codicon codicon-person"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
@@ -867,6 +968,8 @@ function handleAction(action, id, slot) {
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
+        case 'openRoleEditor': vscode.postMessage({ type: 'openRoleEditor' }); break;
+        case 'openChatAspects': openChatAspectPicker(id); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
         case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
@@ -1042,6 +1145,9 @@ function populateDropdowns() {
     populateCopilotTemplates();
     // The run pickers are part of the sections: fill them again after a render.
     renderChatRunSelects();
+    // So are the role dropdown and the guideline buttons (gsel6).
+    renderChatRoleSelect();
+    renderChatAspectButtons();
     // Use populateEntitySelect for anthropic profiles so the entry marked
     // isDefault is preselected; the label shown is the human-readable name.
     if (anthropicProfileEntries && anthropicProfileEntries.length > 0) {
@@ -1307,7 +1413,8 @@ function populateSelect(id, options) {
     var sel = document.getElementById(id);
     if (!sel) {return;}
     var cur = sel.value;
-    var baseOptions = '<option value="">(None)</option>';
+    // The user-prompt template dropdown (its only caller): "No template" (gsel6).
+    var baseOptions = '<option value="">No template</option>';
     sel.innerHTML = baseOptions + (options || []).map(function(o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
     if (cur && options && options.includes(cur)) {sel.value = cur;}
 }
@@ -1316,13 +1423,13 @@ function escapeAttr(v) {
     return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// The Copilot template dropdown: (None) and the user-message templates, the
-// one template store. A saved selection that is gone falls back to (None).
+// The Copilot template dropdown: No template and the user-message templates, the
+// one template store. A saved selection that is gone falls back to No template.
 function populateCopilotTemplates() {
     var sel = document.getElementById('copilot-template');
     if (!sel) {return;}
     var cur = sel.value;
-    sel.innerHTML = '<option value="">(None)</option>' + copilotTemplateEntries.map(function(t) {
+    sel.innerHTML = '<option value="">No template</option>' + copilotTemplateEntries.map(function(t) {
         return '<option value="' + escapeAttr(t.id) + '">' + escapeAttr(t.name || t.id) + '</option>';
     }).join('');
     sel.value = copilotTemplateEntries.some(function(t) { return t.id === cur; }) ? cur : '';
@@ -1365,6 +1472,8 @@ window.addEventListener('message', function(e) {
         updateClaudeCliDot();
     } else if (msg.type === 'chatRuns') {
         applyChatRuns(msg);
+    } else if (msg.type === 'chatAspects') {
+        applyChatAspects(msg);
     } else if (msg.type === 'anthropicSession') {
         // The session as the queue's context bar shows it: name, base, lifetime, model.
         var sessionLabel = document.getElementById('anthropic-session-name');
@@ -1778,6 +1887,8 @@ initToggleButtons();
 initCopilotSection();
 initReusablePromptSelectors();
 vscode.postMessage({ type: 'getProfiles' });
+// The role dropdown and the guideline buttons (gsel6).
+vscode.postMessage({ type: 'getChatAspects' });
 vscode.postMessage({ type: 'getReusablePrompts' });
 vscode.postMessage({ type: 'getAutoHideDelay' });
 vscode.postMessage({ type: 'getKeepContent' });

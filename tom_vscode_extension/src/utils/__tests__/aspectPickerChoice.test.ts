@@ -8,6 +8,7 @@
  *   PC-4 run: the run's choices with the section set, removed (Don't add) or `remove`; the run passed on
  *   PC-5 item: a gone item and an item that cannot change are refused; otherwise the item's choices updated
  *   PC-6 todo: a missing todo is refused; otherwise its choices updated with its quest
+ *   PC-7 chat (gsel6): an unknown panel is refused; otherwise the panel's sticky choices set, removed or `remove`
  */
 
 import test, { describe } from 'node:test';
@@ -38,6 +39,9 @@ function writers(): AspectChoiceWriters & { log: unknown[]; run: AspectChoices |
         setItem: (id: string, c: AspectChoices | undefined) => { w.log.push(['item', id, c]); return w.itemOk; },
         todoChoices: () => w.todo,
         setTodo: (q: string | undefined, id: string, c: AspectChoices | undefined) => { w.log.push(['todo', q, id, c]); return true; },
+        chat: { anthropic: { answer: 'full' } } as Record<string, AspectChoices | undefined>,
+        chatChoices: (p: string) => w.chat[p],
+        setChat: (p: string, c: AspectChoices | undefined) => { w.log.push(['chat', p, c]); w.chat[p] = c; },
     };
     return w;
 }
@@ -100,5 +104,19 @@ describe('guideline picker: a choice and the catalogue', () => {
         assert.deepEqual(w.log, [['todo', 'q', 't1', undefined]]);
         w.todo = null;
         assert.match(applyAspectChoice({ level: 'todo', section: 'answer', value: 'brief', todoId: 't9' }, w).error ?? '', /todo t9 was not found/);
+    });
+
+    test('PC-7: chat', () => {
+        const w = writers();
+        assert.match(applyAspectChoice({ level: 'chat', section: 'answer', value: 'brief' }, w).error ?? '', /Unknown chat panel/);
+        assert.match(applyAspectChoice({ level: 'chat', section: 'answer', value: 'brief', panel: 'logs' as never }, w).error ?? '', /Unknown chat panel/);
+        assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'night', value: 'on', panel: 'anthropic' }, w), { ok: true });
+        assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'answer', value: '', panel: 'anthropic' }, w), { ok: true });
+        assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'answer', value: 'remove', panel: 'copilot' }, w), { ok: true });
+        assert.deepEqual(w.log, [
+            ['chat', 'anthropic', { answer: 'full', night: 'on' }],
+            ['chat', 'anthropic', { night: 'on' }],
+            ['chat', 'copilot', { answer: 'remove' }],
+        ]);
     });
 });
