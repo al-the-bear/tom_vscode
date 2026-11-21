@@ -40,7 +40,8 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
-import { resolveLink, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+import { resolveLink, resolveFoundFile, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+import { findLinkedFile, linkSearchName, linkSearchScopes, LINK_SEARCH_SCOPE_LABEL, type LinkSearchScope } from '../utils/linkFileSearch.js';
 import { NavigationHistory, type ReadingPosition } from '../utils/mdBrowserHistory.js';
 import { currentCommentAuthor, type CommentAuthorForm } from '../utils/osUserName.js';
 
@@ -777,7 +778,7 @@ class MdBrowserPanel {
                     const currentFile = this._history.current?.filePath || '';
                     if (!linkHref) break;
 
-                    followMdLink(linkHref, currentFile, {
+                    await followMdLink(linkHref, currentFile, {
                         scrollToAnchor: (anchor) => { void this._panel.webview.postMessage({ type: 'scrollToAnchor', anchor }); },
                         openMarkdown: (filePath, anchor, newPanel) => {
                             if (newPanel) {
@@ -1554,15 +1555,97 @@ export interface MdLinkTarget {
 /**
  * Follow a link of a rendered document (`currentFilePath`): resolved by
  * utils/linkResolver.ts, Markdown targets through `target`, everything else
- * (files at a line, URLs, todo / quest / test links) opened here. The MD
- * Browser and the quest notes panel's View tab share it.
+ * (files at a line, URLs, todo / quest / test links) opened here. A file that
+ * is not where the link says is looked for by its name (searchLinkedFile:
+ * the document's folder, the quest folder, the workspace's and the root's
+ * guidelines, the workspace), a picker choosing when several are found. The
+ * MD Browser and the quest notes panel's View tab share it.
  */
-export function followMdLink(href: string, currentFilePath: string, target: MdLinkTarget, newPanel = false): void {
+export async function followMdLink(href: string, currentFilePath: string, target: MdLinkTarget, newPanel = false): Promise<void> {
     const context: LinkContext = { currentFilePath, workspaceRoot: WsPaths.wsRoot };
     const resolved = resolveLink(href, context);
     if (MD_BROWSER_DEBUG) {
         debugLog(`[MdBrowser] resolveLink href=${href} => type=${resolved.type} action=${resolved.action}`, 'INFO', 'mdBrowser');
     }
+    if (resolved.action === 'error' && resolved.notFound) {
+        // Not where the link says: look for the file by its name.
+        const found = await searchLinkedFile(resolved.notFound.path, currentFilePath);
+        if (found === 'cancelled') { return; }
+        if (found) {
+            followResolvedLink(resolveFoundFile(found, resolved.notFound.anchor), target, newPanel);
+            return;
+        }
+    }
+    followResolvedLink(resolved, target, newPanel);
+}
+
+/** The search scopes of a link in `currentFilePath`, from this window's layout and quest. */
+export function mdLinkSearchScopes(currentFilePath: string): LinkSearchScope[] {
+    const wsRoot = WsPaths.wsRoot;
+    const quest = WsPaths.getWorkspaceQuestId();
+    const levels = WsPaths.guidelineLevels();
+    // A standalone workspace's one level is named 'root' but is the workspace's own.
+    const standalone = !WsPaths.tomRoot || !wsRoot || samePath(WsPaths.tomRoot, wsRoot);
+    const dirsOf = (level: string): string[] => levels.filter((l) => l.level === level).flatMap((l) => l.dirs);
+    return linkSearchScopes({
+        currentFilePath: currentFilePath || undefined,
+        questDir: quest && quest !== 'default' ? WsPaths.ai('quests', quest) : undefined,
+        workspaceGuidelineDirs: standalone ? [...dirsOf('workspace'), ...dirsOf('root')] : dirsOf('workspace'),
+        rootGuidelineDirs: standalone ? [] : dirsOf('root'),
+        workspaceRoot: wsRoot,
+    });
+}
+
+/** A found file as the picker shows its folder: relative to the workspace folder, else the root. */
+function displayDir(file: string): string {
+    const dir = path.dirname(file);
+    for (const base of [WsPaths.wsRoot, WsPaths.tomRoot]) {
+        if (!base) { continue; }
+        const rel = path.relative(base, dir);
+        if (!rel.startsWith('..') && !path.isAbsolute(rel)) { return rel || '.'; }
+    }
+    return dir;
+}
+
+/**
+ * Look for the file a link names (`linkPath`, not where it says) by its name
+ * (utils/linkFileSearch.ts): the found file, the one the user picked when the
+ * first scope with a match has several, 'cancelled' when the picker was
+ * dismissed, undefined when none was found (the caller warns).
+ */
+async function searchLinkedFile(linkPath: string, currentFilePath: string): Promise<string | 'cancelled' | undefined> {
+    const { name } = linkSearchName(linkPath);
+    if (!name) { return undefined; }
+    const status = vscode.window.setStatusBarMessage(`$(search) Looking for ${name} in the workspace…`);
+    let result;
+    try {
+        result = await findLinkedFile(linkPath, mdLinkSearchScopes(currentFilePath));
+    } finally {
+        status.dispose();
+    }
+    if (MD_BROWSER_DEBUG) {
+        debugLog(`[MdBrowser] link search ${linkPath} => ${result.files.length} in ${result.scope?.kind ?? 'none'}${result.incomplete ? ' (incomplete)' : ''}`, 'INFO', 'mdBrowser');
+    }
+    if (result.files.length === 0 || !result.scope) {
+        if (result.incomplete) {
+            void vscode.window.showWarningMessage(`File not found: ${linkPath} — the search of the workspace stopped before it was through.`);
+            return 'cancelled';
+        }
+        return undefined;
+    }
+    if (result.files.length === 1) { return result.files[0]; }
+    const picked = await vscode.window.showQuickPick(
+        result.files.map((file) => ({ label: path.basename(file), description: displayDir(file), file })),
+        {
+            title: `${linkPath} is not at the linked path`,
+            placeHolder: `${result.files.length} files named ${name} ${LINK_SEARCH_SCOPE_LABEL[result.scope.kind]} — pick the one to open`,
+            matchOnDescription: true,
+        },
+    );
+    return picked ? picked.file : 'cancelled';
+}
+
+function followResolvedLink(resolved: ResolvedLink, target: MdLinkTarget, newPanel: boolean): void {
     switch (resolved.action) {
         case 'scroll-to-anchor':
             if (resolved.anchor) { target.scrollToAnchor(resolved.anchor); }

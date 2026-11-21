@@ -43,6 +43,13 @@ export interface ResolvedLink {
 
     /** Error message if resolution failed. */
     error?: string;
+
+    /**
+     * A file link whose file is not where it says: the path as written
+     * (URL-decoded) and its anchor, for a search by name
+     * (utils/linkFileSearch.ts).
+     */
+    notFound?: { path: string; anchor?: string };
 }
 
 /** Types of links we can resolve. */
@@ -223,10 +230,19 @@ function resolveFileLink(href: string, context: LinkContext): ResolvedLink {
             type: 'unknown',
             action: 'error',
             error: `File not found: ${pathPart}`,
+            notFound: { path: pathPart, anchor },
         };
     }
 
-    // Determine action based on file type
+    return resolveFoundFile(resolvedPath, anchor);
+}
+
+/**
+ * What to do with an existing file a link names (at `anchor`): a Markdown file
+ * is shown in the browser (at the anchor), any other opens in an editor, at the
+ * line an `#L<n>` anchor names.
+ */
+export function resolveFoundFile(resolvedPath: string, anchor?: string): ResolvedLink {
     const isMarkdown = resolvedPath.toLowerCase().endsWith('.md');
 
     if (isMarkdown) {

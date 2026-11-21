@@ -148,7 +148,7 @@ export class QuestNotesPanelProvider implements vscode.WebviewViewProvider {
             case 'navigateLink': {
                 const href = String(msg.href || '');
                 if (!href || !this._storage) { return; }
-                followMdLink(href, this._storage.path, {
+                await followMdLink(href, this._storage.path, {
                     scrollToAnchor: (anchor) => { void this._view?.webview.postMessage({ type: 'scrollToAnchor', anchor }); },
                     // Another document opens in the MD Browser: the panel shows only the quest notes.
                     openMarkdown: (filePath, anchor) => { openMarkdownBrowser(this._context, filePath, { anchor }); },
