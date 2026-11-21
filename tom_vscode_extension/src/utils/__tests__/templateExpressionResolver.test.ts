@@ -17,7 +17,7 @@ installVscodeStub({});
 
 import { resolveVariables } from '../variableResolver.js';
 import { resolveTemplate } from '../../handlers/promptTemplate.js';
-import { DEFAULT_PROCESS_ACTION_TEMPLATES } from '../processActionPrompt.js';
+import { DEFAULT_PROCESS_ACTION_TEMPLATES, QUEUED_WORK_TEXT } from '../processActionPrompt.js';
 
 const resolve = (text: string, values: Record<string, string> = {}): string =>
     resolveVariables(text, { values, includeEditor: false, unresolvedBehavior: 'empty' });
@@ -51,14 +51,14 @@ describe('${{ … }} in the resolvers', () => {
         };
         assert.equal(
             resolve(proceed, base),
-            '# Run: P1\n\nProcess `proc`, phase `one` (iteration 1), step `a` (iteration 2).\n\nAFTER',
+            `# Run: P1\n\nProcess \`proc\`, phase \`one\` (iteration 1), step \`a\` (iteration 2).\n\n${QUEUED_WORK_TEXT}\n\nAFTER`,
         );
         assert.equal(
             resolve(proceed, {
                 ...base, substep: 's', 'substep-iteration': '3', 'action-note': 'NOTE', 'action-prompt': 'DO', 'custom-instructions': 'MINE',
             }),
             '# Run: P1\n\nProcess `proc`, phase `one` (iteration 1), step `a` (iteration 2), sub-step `s` (iteration 3).'
-            + '\n\nNOTE\n\n## What to do\n\nDO\n\n## Instructions\n\nMINE\n\nAFTER',
+            + `\n\nNOTE\n\n## What to do\n\nDO\n\n## Instructions\n\nMINE\n\n${QUEUED_WORK_TEXT}\n\nAFTER`,
         );
     });
 

@@ -42,6 +42,7 @@ installVscodeStub({ workspaceFolders: [BARE] });
 import { checkProcessDraft } from '../../tools/process-write-tools.js';
 import { availableMoves, EMPTY_PROCESS_STATE, parseProcessYaml, phaseSteps, type ProcessDefinition, type ProcessState } from '../../utils/processDefinition.js';
 import { unescapePlaceholders } from '../../utils/placeholderEscape.js';
+import { QUEUED_WORK_TEXT } from '../../utils/processActionPrompt.js';
 import { SomModelService } from '../som-model-service.js';
 import { SomDocumentStore, nodeSomDocumentIo } from '../som-document-store.js';
 import { rootTomPath } from '../../utils/__tests__/_layoutRoot.js';
@@ -125,7 +126,9 @@ describe('the idea_to_todos process', { skip: present ? false : 'no _ai/processe
         assert.match(file, /Check each quest's todo file before creating \(an id or a todo of the idea already there is not created twice\) and after \(every todo is there\)/);
         assert.match(file, /Dependencies inside the quest go in `dependencies` \(by id\); a dependency on another quest's todo goes in `blocked_by` as `<quest>\/<id>`, with status `blocked` while that todo is open/);
         assert.match(file, /Never put a dependency in `notes`/, 'a cross-quest dependency is released by itself, not kept as text (ideatests2)');
-        assert.ok(!/tomAi_sendItemToQuest|\$\{itemOutcome\}|\$\{senderQuest\}/.test(file), 'nothing goes through another quest\'s queue');
+        // The Proceed template's *Work you queue* section names tomAi_sendItemToQuest generically (gsel8); the step itself does not.
+        assert.ok(file.includes(QUEUED_WORK_TEXT), 'the Proceed template says what queued work may name');
+        assert.ok(!/tomAi_sendItemToQuest|\$\{itemOutcome\}|\$\{senderQuest\}/.test(file.replace(QUEUED_WORK_TEXT, '')), 'nothing goes through another quest\'s queue');
         const gate = prompt(at('idea', 'g1'));
         assert.match(gate, /Gate G1 of the idea[\s\S]*`gates\/G1\.md`[\s\S]*approval and the move \(Gate passed \/ failed\) are the user's/);
         // Every gate ends with its result and the decision's buttons (vscimpb85).
