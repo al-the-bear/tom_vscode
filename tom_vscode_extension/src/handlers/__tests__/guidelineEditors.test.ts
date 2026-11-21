@@ -242,7 +242,7 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
         assert.deepEqual(posted, [{ type: 'save', section: {
             id: 'answer', name: 'Answer style', label: '', placement: 'system', defaultOption: 'short',
             options: [{ name: 'long', text: 'At length.' }, { name: 'short', text: 'Answer briefly: ${role}.\n' }],
-        } }]);
+        }, renames: { brief: 'short' } }], 'the option renamed in the draft goes with it (gsel7b)');
 
         // The host's answer drops the saved draft; Revert drops one unsaved.
         send(w, { type: 'data', saved: 'answer', selected: 'answer', sections: [{ ...section({ name: 'Answer style' }), problems: [] }, night] });

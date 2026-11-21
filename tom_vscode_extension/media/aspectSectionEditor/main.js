@@ -8,6 +8,11 @@
  * posts the draft as a whole; the host writes section.yaml and the option
  * files and answers with the data (`saved`: that draft is done). Sections are
  * added, renamed and deleted through the host (it asks).
+ *
+ * Each draft option keeps the name it has on disk (`origin`); Save sends the
+ * options renamed in the draft as `renames` (old name → new name), and the host
+ * carries the stored choices over (gsel7b) and answers what it rewrote
+ * (`carried`), shown above the form.
  */
 const vscode = acquireVsCodeApi();
 const INIT = window.__INIT__ || {};
@@ -22,6 +27,8 @@ let data = { sections: [] };
 let selected = INIT.selected || (vscode.getState() || {}).selected || '';
 /** Unsaved drafts by section id. */
 let drafts = {};
+/** What the last rename carried over (the host's `carried`), shown until another section is picked. */
+let carried = '';
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
@@ -30,7 +37,17 @@ function escapeHtml(s) {
 function onDisk(id) { return (data.sections || []).find(function(s) { return s.id === id; }); }
 
 function copyOf(s) {
-  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, options: s.options.map(function(o) { return { name: o.name, text: o.text }; }) };
+  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, options: s.options.map(function(o) { return { name: o.name, text: o.text, origin: o.name }; }) };
+}
+
+/** The options renamed in the draft: { name on disk: new name }, those with a name on disk and a new name only. */
+function renamesOf(d) {
+  const renames = {};
+  d.options.forEach(function(o) {
+    const to = o.name.trim();
+    if (o.origin && to && to !== o.origin) { renames[o.origin] = to; }
+  });
+  return renames;
 }
 
 /** The draft of the selected section (made on first look). */
@@ -48,6 +65,7 @@ function isDirty(id) {
 }
 
 function select(id) {
+  if (id !== selected) { carried = ''; }
   selected = id;
   vscode.setState({ selected: id });
   render();
@@ -100,8 +118,9 @@ function render() {
     form.innerHTML = '<p class="muted">' + ((data.sections || []).length ? 'Pick a section on the left.' : 'No sections yet: add one with +.') + '</p>';
     return;
   }
-  form.innerHTML = '<div class="field"><label class="title">Section</label><div>' + escapeHtml(s.id) + ' <span class="muted">(_ai/aspect_guidelines/' + escapeHtml(s.id) + '/)</span></div>'
-    + '<div class="hint">The short name every level\'s choice names; rename it with the pencil above the list.</div></div>'
+  form.innerHTML = (carried ? '<div class="hint carried" role="status"><span class="codicon codicon-check"></span> ' + escapeHtml(carried) + '</div>' : '')
+    + '<div class="field"><label class="title">Section</label><div>' + escapeHtml(s.id) + ' <span class="muted">(_ai/aspect_guidelines/' + escapeHtml(s.id) + '/)</span></div>'
+    + '<div class="hint">The short name every level\'s choice names; rename it with the pencil above the list (the choices stored on every level follow).</div></div>'
     + (s.problems && s.problems.length ? '<ul class="problems">' + s.problems.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') + '</ul>' : '')
     + '<div class="row">'
     + '<div class="field"><label class="title" for="secName">Name</label><input type="text" id="secName" value="' + escapeHtml(d.name) + '" placeholder="e.g. Answer mode"></div>'
@@ -150,7 +169,7 @@ function wireForm(d) {
     });
   });
   document.getElementById('btnAddOption').addEventListener('click', function() {
-    d.options.push({ name: '', text: '' });
+    d.options.push({ name: '', text: '', origin: '' });
     render();
     const names = document.querySelectorAll('.opt-name');
     if (names.length) { names[names.length - 1].focus(); }
@@ -170,7 +189,10 @@ function move(d, i, by) {
 function save() {
   const d = draft();
   if (!d) { return; }
-  vscode.postMessage({ type: 'save', section: { id: d.id, name: d.name, label: d.label, placement: d.placement, defaultOption: d.defaultOption, options: d.options.map(function(o) { return { name: o.name.trim(), text: o.text }; }) } });
+  const renames = renamesOf(d);
+  const message = { type: 'save', section: { id: d.id, name: d.name, label: d.label, placement: d.placement, defaultOption: d.defaultOption, options: d.options.map(function(o) { return { name: o.name.trim(), text: o.text }; }) } };
+  if (Object.keys(renames).length) { message.renames = renames; }
+  vscode.postMessage(message);
 }
 
 document.getElementById('btnAdd').addEventListener('click', function() { vscode.postMessage({ type: 'addSection' }); });
@@ -186,6 +208,7 @@ window.addEventListener('message', function(event) {
   const msg = event.data;
   if (!msg || msg.type !== 'data') { return; }
   data = msg;
+  carried = msg.carried || (msg.saved || msg.renamed ? '' : carried);
   if (msg.saved) { delete drafts[msg.saved]; }
   if (msg.deleted) { delete drafts[msg.deleted]; }
   if (msg.renamed && drafts[msg.renamed.from]) {

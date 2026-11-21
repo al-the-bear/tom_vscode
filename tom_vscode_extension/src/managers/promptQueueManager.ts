@@ -16,6 +16,7 @@ import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { liveAspectChoices } from '../services/aspectChoiceLevels';
 import { normalizeAspectChoices } from '../utils/aspectChoices';
+import { renameInChoices, type AspectRename } from '../utils/aspectRename';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { livePromptRole, runWithQueueRole } from '../services/queueRoleContext';
 import { RoleOverrides, rolesShownInChatVariable, type QueueRoleSource } from '../utils/promptRole';
@@ -7148,6 +7149,30 @@ export class PromptQueueManager {
     }
 
     // ----- persistence -------------------------------------------------------
+
+    /**
+     * A guideline section or option renamed (gsel7b): the choices this window
+     * holds in memory — its queue items' and its runs' — carried over to the new
+     * name and written (only the items and runs that changed; the runs as changed
+     * by this window, so another window's write does not take them back).
+     * Answers how many items and runs changed.
+     */
+    applyAspectRename(rename: AspectRename): { items: number; runs: number } {
+        let items = 0;
+        for (const item of this._items) {
+            const next = renameInChoices(item.guidelines, rename);
+            if (next) { item.guidelines = next; items++; }
+        }
+        let runs = 0;
+        for (const [run, settings] of [...this._runSettings]) {
+            const next = renameInChoices(settings.guidelines, rename);
+            if (next) { this._putRunSettings(run, { ...settings, guidelines: next }); runs++; }
+        }
+        if (items) { this.persist(); }
+        if (runs) { this.persistSettings(); }
+        if (items || runs) { this._onDidChange.fire(); }
+        return { items, runs };
+    }
 
     private persist(): void {
         this.trimSentHistory();

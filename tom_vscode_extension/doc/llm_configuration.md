@@ -598,11 +598,17 @@ on a level it is Remove.
 **The section editor** (`tomAi.editor.aspectSections`, *Edit sections…* in
 every picker, Extension Tools; `src/handlers/aspectSectionEditor-handler.ts`,
 `src/services/aspectSectionsEdit.ts`) edits the store: sections are added,
-renamed (the folder, so the choices naming the old id stop applying) and
-deleted; a section's name, label, placement, default and options (short name,
-text, order) are edited as a draft and saved as a whole, `section.yaml` with
-its schema line and one `<option>.md` per option, an option file no longer
-listed deleted. A save the rules refuse writes nothing.
+renamed (the folder) and deleted; a section's name, label, placement, default
+and options (short name, text, order) are edited as a draft and saved as a
+whole, `section.yaml` with its schema line and one `<option>.md` per option,
+an option file no longer listed deleted. A save the rules refuse writes
+nothing. A section renamed, or an option renamed in the draft (Save sends the
+renames), keeps the choices in effect: every stored choice naming the old id
+is rewritten to the new one (`src/services/aspectChoiceRename.ts`) — every
+quest's quest default and every host's window and @CHAT choices, the runs'
+queue settings, queue items, templates and inbox items, every quest's todos,
+roles and role types — and the other open windows on this machine carry over
+what they hold in memory; the editor says what was rewritten.
 
 **The levels**, the lowest winning per section: the section default < quest
 default < window < run < role type < role < queue item < todo. On each level a

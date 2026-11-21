@@ -14,7 +14,9 @@
  *   (the response the stand-in's panel produced, for the ask `id`) or
  *   `resumeRun` (switch the run's auto-send on) or `setAspectChoice` (one
  *   aspect section's choice in the window level, the all-windows change of the
- *   guideline selector; `option` absent: *Don't add*). The window takes each
+ *   guideline selector; `option` absent: *Don't add*) or `renameAspectChoices`
+ *   (a guideline section or option renamed: carry the choices the window holds
+ *   in memory over to the new name). The window takes each
  *   file, deletes it and carries it out.
  *
  * vscode-free (fs).
@@ -23,13 +25,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { parseAspectRename, type AspectRename } from '../utils/aspectRename';
 import type { InteractionView } from './userInteractions';
 
 /** A request to a window. */
 export type WindowRequest =
     | { type: 'answerAsk'; id: string; response: Record<string, unknown>; from?: string }
     | { type: 'resumeRun'; run: string; from?: string }
-    | { type: 'setAspectChoice'; section: string; option?: string; from?: string };
+    | { type: 'setAspectChoice'; section: string; option?: string; from?: string }
+    | { type: 'renameAspectChoices'; rename: AspectRename; from?: string };
 
 /** What a window does with the requests it is sent. */
 export interface WindowRequestHandlers {
@@ -37,6 +41,8 @@ export interface WindowRequestHandlers {
     resumeRun(run: string): boolean;
     /** Set `section` to `option` in this window's guideline choices (undefined: *Don't add*). */
     setAspectChoice?(section: string, option: string | undefined): boolean;
+    /** A guideline section or option renamed: carry this window's choices in memory over. */
+    renameAspectChoices?(rename: AspectRename): boolean;
 }
 
 let rootDir: string | undefined;
@@ -94,6 +100,12 @@ export function sendWindowRequest(windowId: string, request: WindowRequest): boo
     } catch { return false; }
 }
 
+/** A `renameAspectChoices` request: carried out when the window handles it and the rename is one. */
+function takeRename(handlers: WindowRequestHandlers, value: unknown): boolean {
+    const rename = parseAspectRename(value);
+    return rename !== undefined && handlers.renameAspectChoices !== undefined && handlers.renameAspectChoices(rename);
+}
+
 /** Take and carry out the requests waiting for this window, oldest first; answers how many were carried out. */
 export function takeWindowRequests(handlers: WindowRequestHandlers): number {
     const dir = ownWindow ? requestsDir(ownWindow) : undefined;
@@ -113,7 +125,8 @@ export function takeWindowRequests(handlers: WindowRequestHandlers): number {
                 : request.type === 'resumeRun' ? handlers.resumeRun(String(request.run))
                     : request.type === 'setAspectChoice' && handlers.setAspectChoice
                         ? handlers.setAspectChoice(String(request.section), typeof request.option === 'string' && request.option ? request.option : undefined)
-                        : false;
+                        : request.type === 'renameAspectChoices' ? takeRename(handlers, request.rename)
+                            : false;
             if (ok) { done++; }
         } catch { /* a failing handler must not stop the others */ }
     }

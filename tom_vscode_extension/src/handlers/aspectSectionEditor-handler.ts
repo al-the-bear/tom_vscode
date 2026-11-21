@@ -12,6 +12,11 @@
  *   deleting an option happen in the draft.
  * - Sections are added, renamed (the folder: the id the levels' choices name)
  *   and deleted at once, through the list's buttons.
+ * - A rename keeps the choices in effect (gsel7b): a section renamed, or an
+ *   option renamed in the draft (the page sends `renames`, old name → new name,
+ *   with the save), rewrites every stored choice that names the old one
+ *   (aspectChoiceCommands.ts carryAspectChoicesOver), and the page and a
+ *   VS Code message say what was rewritten.
  *
  * Opened from *Edit sections…* in every guideline picker and from Extension
  * Tools (utils/extensionToolsCatalog.ts). After every write the pickers are
@@ -33,6 +38,7 @@ import {
     type AspectSectionEdit,
 } from '../services/aspectSectionsEdit';
 import { isAspectName } from '../utils/aspectGuidelines';
+import { parseAspectRename, type AspectRename } from '../utils/aspectRename';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { WsPaths } from '../utils/workspacePaths';
 
@@ -51,6 +57,8 @@ export interface AspectSectionEditorEnv {
     topTom?: string;
     /** A section changed: the pickers and the Role Editor read the sections again. */
     changed?: () => void;
+    /** A section or options renamed: carry the stored choices over; answers what was rewritten. */
+    renamed?: (rename: AspectRename) => string | undefined;
 }
 
 /** What the page asks the user and shows. */
@@ -59,6 +67,8 @@ export interface AspectSectionEditorUi {
     confirm(message: string, action: string): Promise<boolean>;
     error(message: string): void;
     info(message: string): void;
+    /** A message the user should read (what a rename rewrote). */
+    notice?(message: string): void;
     reveal?(file: string): void;
 }
 
@@ -89,6 +99,14 @@ function sectionOf(value: unknown): Omit<AspectSectionEdit, 'problems'> | undefi
 
 const NAME_RULE = 'not empty, no "/" or "\\", no line break, no space at either end';
 
+/** The option renames a save carries, kept to those whose new name is an option of the saved section. */
+function optionRenamesOf(value: unknown, section: Omit<AspectSectionEdit, 'problems'>): AspectRename | undefined {
+    const rename = parseAspectRename({ kind: 'options', section: section.id, options: value });
+    if (!rename || rename.kind !== 'options') { return undefined; }
+    const names = new Set(section.options.map((o) => o.name));
+    return parseAspectRename({ kind: 'options', section: section.id, options: Object.fromEntries(Object.entries(rename.options).filter(([, to]) => names.has(to))) });
+}
+
 /** A message from the page; answers what to post back (undefined: nothing). */
 export async function handleAspectSectionEditorMessage(
     msg: Record<string, unknown>,
@@ -105,10 +123,13 @@ export async function handleAspectSectionEditorMessage(
             case 'save': {
                 const section = sectionOf(msg.section);
                 if (!section) { return undefined; }
+                const renames = optionRenamesOf(msg.renames, section);
                 saveAspectSection(dir, section, env.topTom);
+                const carried = renames ? env.renamed?.(renames) : undefined;
                 env.changed?.();
                 ui.info(`Section ${section.id} saved.`);
-                return data(section.id, { saved: section.id });
+                if (carried) { ui.notice?.(carried); }
+                return data(section.id, { saved: section.id, ...(carried ? { carried } : {}) });
             }
             case 'addSection': {
                 const name = (await ui.ask('Short name of the new section: its folder under _ai/aspect_guidelines/, the name every level\'s choice names'))?.trim();
@@ -121,12 +142,14 @@ export async function handleAspectSectionEditorMessage(
             }
             case 'renameSection': {
                 if (!id) { return undefined; }
-                const to = (await ui.ask(`New short name of the section ${id} (its folder). Choices saved under "${id}" on any level no longer apply until chosen again.`, id))?.trim();
+                const to = (await ui.ask(`New short name of the section ${id} (its folder). The choices saved under "${id}" on every level are carried over to the new name.`, id))?.trim();
                 if (!to || to === id) { return undefined; }
                 if (!isAspectName(to) || to.includes('\\') || to === '.' || to === '..') { ui.error(`"${to}" is not a section name: ${NAME_RULE}.`); return undefined; }
                 renameAspectSection(dir, id, to, env.topTom);
+                const carried = env.renamed?.({ kind: 'section', from: id, to });
                 env.changed?.();
-                return data(to, { renamed: { from: id, to } });
+                if (carried) { ui.notice?.(carried); }
+                return data(to, { renamed: { from: id, to }, ...(carried ? { carried } : {}) });
             }
             case 'deleteSection': {
                 if (!id) { return undefined; }
@@ -154,6 +177,8 @@ function liveEnv(): AspectSectionEditorEnv {
     return {
         dir,
         topTom: WsPaths.topTom,
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        renamed: (rename) => (require('./aspectChoiceCommands') as typeof import('./aspectChoiceCommands')).carryAspectChoicesOver(rename),
         changed: () => {
             /* eslint-disable @typescript-eslint/no-require-imports */
             try { (require('./aspectViewsRefresh') as typeof import('./aspectViewsRefresh')).refreshAspectViews(); } catch { /* nothing open */ }
@@ -189,6 +214,7 @@ function bindPanel(context: vscode.ExtensionContext, bound: vscode.WebviewPanel,
         confirm: async (message, action) => (await vscode.window.showWarningMessage(message, { modal: true }, action)) === action,
         error: (message) => { void vscode.window.showErrorMessage(`${TITLE}: ${message}`); },
         info: (message) => { vscode.window.setStatusBarMessage(`$(check) ${message}`, 3000); },
+        notice: (message) => { void vscode.window.showInformationMessage(`${TITLE}: ${message}`); },
         reveal: (file) => {
             if (!fs.existsSync(file)) { fs.mkdirSync(file, { recursive: true }); }
             void vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(file));

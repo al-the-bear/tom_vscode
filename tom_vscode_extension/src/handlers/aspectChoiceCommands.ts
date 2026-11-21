@@ -11,12 +11,22 @@
  * - {@link setSectionChoiceForAllWindows}: one section's choice in this window
  *   and every other open window on this machine (services/windowRequests.ts
  *   `setAspectChoice`); only that section changes.
+ * - {@link carryAspectChoicesOver}: a section or option renamed in the section
+ *   editor (gsel7b) — the stored choices naming the old id carried over on every
+ *   level this machine can reach: this window's memory, the files
+ *   (services/aspectChoiceRename.ts), and every other open window on this
+ *   machine (`renameAspectChoices`), which carries its own memory over.
  */
 
 import * as vscode from 'vscode';
 
+import { PromptQueueManager } from '../managers/promptQueueManager';
+import { aspectRenameSummary, rewriteStoredAspectChoices } from '../services/aspectChoiceRename';
 import { clearQuestDefault, openWindowsOnThisMachine, setQuestDefaultFromWindow, setSectionChoiceInAllWindows, setWindowSectionChoice } from '../services/aspectChoiceLevels';
 import { sendWindowRequest, windowRequestsOwnWindow } from '../services/windowRequests';
+import { getQueueFolder } from '../storage/queueFileStorage';
+import { aspectRenameText, type AspectRename } from '../utils/aspectRename';
+import { WsPaths } from '../utils/workspacePaths';
 import { isWindowAlive } from '../utils/windowHeartbeat';
 import { refreshAspectViews } from './aspectViewsRefresh';
 import { loadAllWindowStates } from './windowStatusPanel-handler';
@@ -34,19 +44,22 @@ export function clearQuestDefaultGuidelines(): void {
     clearQuestDefault();
 }
 
+/** The other open windows on this machine. */
+function otherOpenWindows(own: string | undefined): string[] {
+    const now = Date.now();
+    const states = loadAllWindowStates().map((s) => {
+        const state = s as unknown as { windowId?: string; heartbeat?: string };
+        return { windowId: state.windowId, alive: isWindowAlive(state, now) };
+    });
+    return openWindowsOnThisMachine(states, own);
+}
+
 /** The all-windows change: answers the other windows it was sent to. */
 export function setSectionChoiceForAllWindows(section: string, option: string | undefined): string[] {
     const own = windowRequestsOwnWindow();
     return setSectionChoiceInAllWindows(section, option, {
         ownWindowId: own,
-        windowIds: () => {
-            const now = Date.now();
-            const states = loadAllWindowStates().map((s) => {
-                const state = s as unknown as { windowId?: string; heartbeat?: string };
-                return { windowId: state.windowId, alive: isWindowAlive(state, now) };
-            });
-            return openWindowsOnThisMachine(states, own);
-        },
+        windowIds: () => otherOpenWindows(own),
         send: (windowId, s, o) => sendWindowRequest(windowId, { type: 'setAspectChoice', section: s, ...(o ? { option: o } : {}) }),
     });
 }
@@ -54,6 +67,33 @@ export function setSectionChoiceForAllWindows(section: string, option: string | 
 /** The window-request handler: another window's all-windows change, set in this window's level and shown in its views. */
 export function applyAspectChoiceRequest(section: string, option: string | undefined): boolean {
     setWindowSectionChoice(section, option);
+    refreshAspectViews();
+    return true;
+}
+
+/**
+ * A section or option renamed (gsel7b): carry the stored choices naming the
+ * old id over — this window's queue items and runs first (in memory, written
+ * at once), then every level's files under `_ai` and the queue folder, then
+ * every other open window on this machine is told to carry its memory over.
+ * Answers what was rewritten, in one sentence. The caller redraws the views.
+ */
+export function carryAspectChoicesOver(rename: AspectRename): string {
+    let memory = { items: 0, runs: 0 };
+    try { memory = PromptQueueManager.instance?.applyAspectRename(rename) ?? memory; } catch { /* no queue in this window */ }
+    const aiRoot = WsPaths.aiRoot;
+    const result = aiRoot
+        ? rewriteStoredAspectChoices({ aiRoot, queueFolder: getQueueFolder() }, rename)
+        : { changes: [], failed: [] };
+    const own = windowRequestsOwnWindow();
+    const told = otherOpenWindows(own).filter((id) => sendWindowRequest(id, { type: 'renameAspectChoices', rename })).length;
+    const windows = told ? ` ${told} other open window${told === 1 ? ' was' : 's were'} told.` : '';
+    return `Renamed ${aspectRenameText(rename)}. ${aspectRenameSummary(result, { item: memory.items, run: memory.runs })}${windows}`;
+}
+
+/** The window-request handler: another window's rename, carried over in this window's memory and shown in its views. */
+export function applyAspectRenameRequest(rename: AspectRename): boolean {
+    try { PromptQueueManager.instance?.applyAspectRename(rename); } catch { /* no queue in this window */ }
     refreshAspectViews();
     return true;
 }

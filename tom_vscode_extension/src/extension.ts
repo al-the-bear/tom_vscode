@@ -123,7 +123,7 @@ import { configureWindowRequests, publishInteractions, startWindowRequests } fro
 import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
 import { initAnswersPanel } from './handlers/answersPanel-handler';
-import { applyAspectChoiceRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
+import { applyAspectChoiceRequest, applyAspectRenameRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
 import { registerAspectSectionEditorCommand } from './handlers/aspectSectionEditor-handler';
 
 // Global manager instance for SendToChatAdvanced
@@ -929,6 +929,8 @@ export async function activate(context: vscode.ExtensionContext) {
             },
             // Another window's all-windows guideline change (gsel4).
             setAspectChoice: (section, option) => applyAspectChoiceRequest(section, option),
+            // Another window renamed a guideline section or option (gsel7b).
+            renameAspectChoices: (rename) => applyAspectRenameRequest(rename),
         }, () => { syncRemoteAsks(userInteractions); });
         context.subscriptions.push({ dispose: () => { unpublish(); stopRequests(); publishInteractions([]); } });
     }
