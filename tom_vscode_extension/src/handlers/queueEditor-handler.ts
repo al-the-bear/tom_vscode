@@ -267,11 +267,9 @@ async function handleMessage(msg: any): Promise<void> {
 
 async function handleMessageUnsafe(msg: any): Promise<void> {
     // The guideline picker (gsel5): the window, all windows, a run, an item; the quest default.
+    // A change redraws this editor and the todo views itself (aspectViewsRefresh.ts).
     const aspect = await handleAspectPickerMessage(msg);
-    if (aspect.handled) {
-        if (aspect.changed) { sendState(); }
-        return;
-    }
+    if (aspect.handled) { return; }
     // Handle non-queue messages first
     switch (msg.type) {
         case 'getState':

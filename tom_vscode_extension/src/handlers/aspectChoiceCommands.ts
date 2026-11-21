@@ -18,6 +18,7 @@ import * as vscode from 'vscode';
 import { clearQuestDefault, openWindowsOnThisMachine, setQuestDefaultFromWindow, setSectionChoiceInAllWindows, setWindowSectionChoice } from '../services/aspectChoiceLevels';
 import { sendWindowRequest, windowRequestsOwnWindow } from '../services/windowRequests';
 import { isWindowAlive } from '../utils/windowHeartbeat';
+import { refreshAspectViews } from './aspectViewsRefresh';
 import { loadAllWindowStates } from './windowStatusPanel-handler';
 
 export const SET_QUEST_DEFAULT_GUIDELINES_COMMAND = 'tomAi.setQuestDefaultGuidelines';
@@ -50,9 +51,10 @@ export function setSectionChoiceForAllWindows(section: string, option: string | 
     });
 }
 
-/** The window-request handler: another window's all-windows change, set in this window's level. */
+/** The window-request handler: another window's all-windows change, set in this window's level and shown in its views. */
 export function applyAspectChoiceRequest(section: string, option: string | undefined): boolean {
     setWindowSectionChoice(section, option);
+    refreshAspectViews();
     return true;
 }
 
@@ -63,6 +65,7 @@ export function registerAspectChoiceCommands(context: vscode.ExtensionContext): 
             try {
                 const choices = setQuestDefaultGuidelines();
                 const text = choices ? Object.entries(choices).map(([s, o]) => `${s}: ${o}`).join(', ') : 'none (the window has no choices; the quest default is cleared)';
+                refreshAspectViews();
                 void vscode.window.showInformationMessage(`Quest default guideline choices: ${text}.`);
             } catch (err) {
                 void vscode.window.showErrorMessage(`Setting the quest default failed: ${(err as Error).message}`);
@@ -71,6 +74,7 @@ export function registerAspectChoiceCommands(context: vscode.ExtensionContext): 
         vscode.commands.registerCommand(CLEAR_QUEST_DEFAULT_GUIDELINES_COMMAND, () => {
             try {
                 clearQuestDefaultGuidelines();
+                refreshAspectViews();
                 void vscode.window.showInformationMessage('The quest default guideline choices are cleared.');
             } catch (err) {
                 void vscode.window.showErrorMessage(`Clearing the quest default failed: ${(err as Error).message}`);

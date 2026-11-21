@@ -616,7 +616,12 @@ the shared levels from `services/aspectPickerState.ts` and post
 `aspectChoose {level, section, value}` (`''` Don't add, `remove`, an option),
 `aspectQuestDefault {action}` and `aspectEditSections`
 (`handlers/aspectPickerMessages.ts`); a value the section does not have is
-refused.
+refused. After every level write — a picker message, another window's
+`setAspectChoice` window request, the quest-default commands — every view
+showing the picker is redrawn (`handlers/aspectViewsRefresh.ts`): the Prompt
+Queue editor gets its state again, every todo view that asked for the picker's
+data (`qtGetAspects`) a fresh `qtAspects`. A todo's own choice is in the todo
+file, whose watcher reloads the todo views.
 
 **Where the text goes.** The chosen options are rendered under one
 `## Aspect guidelines` heading, with a `### <section>: <option>` heading per

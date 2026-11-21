@@ -11,8 +11,10 @@
  * - `aspectEditSections`: *Edit sections…* — the section editor when the
  *   extension has it, else the `_ai/aspect_guidelines/` folder in the Explorer.
  *
- * Answers whether the message was the picker's and whether a level changed
- * (the page then sends its state again).
+ * Answers whether the message was the picker's and whether a level changed.
+ * After a change every view showing the picker is redrawn — the page it came
+ * from and the others (aspectViewsRefresh.ts) — so the page itself sends
+ * nothing again.
  */
 
 import * as fs from 'fs';
@@ -22,6 +24,7 @@ import { applyAspectChoice, liveAspectChoiceWriters, type AspectChoiceRequest } 
 import { ASPECT_GUIDELINES_FOLDER } from '../services/aspectGuidelinesStore';
 import { WsPaths } from '../utils/workspacePaths';
 import { clearQuestDefaultGuidelines, setQuestDefaultGuidelines } from './aspectChoiceCommands';
+import { refreshAspectViews } from './aspectViewsRefresh';
 
 /** The command of the section editor page (P-4). */
 export const ASPECT_SECTION_EDITOR_COMMAND = 'tomAi.editor.aspectSections';
@@ -58,6 +61,7 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
                 const n = result.sentTo?.length ?? 0;
                 vscode.window.setStatusBarMessage(`Guideline choice set in this window and ${n} other window${n === 1 ? '' : 's'}.`, 5000);
             }
+            refreshAspectViews();
             return { handled: true, changed: true };
         }
         case 'aspectQuestDefault': {
@@ -74,6 +78,7 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
                 void vscode.window.showErrorMessage(`The quest default could not be written: ${(err as Error).message}`);
                 return { handled: true, changed: false };
             }
+            refreshAspectViews();
             return { handled: true, changed: true };
         }
         case 'aspectEditSections': {

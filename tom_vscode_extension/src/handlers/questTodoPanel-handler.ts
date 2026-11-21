@@ -2121,6 +2121,8 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         }
         case 'qtGetAspects': {
             // The guideline picker's sections and levels (gsel5): the todo button and the row indicators.
+            // The view gets them again whenever a level changes (gsel5b, postTodoAspectsToAllViews).
+            _aspectViews.add(webview);
             post(_todoAspectMessage());
             return true;
         }
@@ -2149,8 +2151,9 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 _sendTodoList(questId, undefined, post);
                 return true;
             }
-            const handled = await handleAspectPickerMessage(msg);
-            if (handled.changed) { post(_todoAspectMessage()); }
+            // A change redraws this view, the other todo views and the queue editor (aspectViewsRefresh.ts).
+            _aspectViews.add(webview);
+            await handleAspectPickerMessage(msg);
             return true;
         }
         case 'qtGetUserName': {
@@ -2917,6 +2920,28 @@ function _withTodoGroups(list: TodoListItem[], questId: string): TodoListItem[] 
  * shared levels, and the window's run's choices and default role (a todo's
  * effective selection counts the run it would be queued into).
  */
+/** The todo views that asked for the picker's data (qtGetAspects): told again when a level changes. */
+const _aspectViews = new Set<vscode.Webview>();
+
+/**
+ * A fresh `qtAspects` to every todo view showing the picker (gsel5b): a level changed in another page, in this
+ * one or in another window. A disposed view (its post throws or is refused) is dropped. Answers the views posted to.
+ */
+export function postTodoAspectsToAllViews(): number {
+    if (_aspectViews.size === 0) { return 0; }
+    const message = _todoAspectMessage();
+    let posted = 0;
+    for (const view of [..._aspectViews]) {
+        try {
+            Promise.resolve(view.postMessage(message)).then(undefined, () => { _aspectViews.delete(view); });
+            posted++;
+        } catch {
+            _aspectViews.delete(view);
+        }
+    }
+    return posted;
+}
+
 function _todoAspectMessage(): { type: 'qtAspects'; aspects: unknown; runGuidelines?: Record<string, string>; runDefaultRole?: string } {
     let aspects: unknown;
     try { aspects = aspectPickerState(); } catch { aspects = undefined; }

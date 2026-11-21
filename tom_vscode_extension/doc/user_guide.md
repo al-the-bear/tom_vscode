@@ -730,6 +730,7 @@ A prompt gets the guideline aspects chosen for it, section by section: an answer
   - **Queue items:** a staged or pending item's details hold its button and its selection; the list row shows only an indicator when the item chose something, with the details on hover.
   - **Todos:** the todo editor (the todo panel's detail form and the `*.todo.yaml` editor) has a *Guidelines* row with the button and the todo's own choices beside it; a todo row with choices of its own shows an indicator. Session and workspace todos have none.
 - **Who wins:** each picker shows the levels up to its own. An item's choices count its run's and its role's; a todo's count the window's run and its role.
+- **Every page follows:** a change of the window, a run or the quest default, made in the Prompt Queue editor, a todo panel or another window (the all-windows button), shows at once in the Prompt Queue editor and every open todo panel of the window, without a reload.
 
 Details: [llm_configuration.md §6.2](llm_configuration.md#62-aspect-guidelines).
 

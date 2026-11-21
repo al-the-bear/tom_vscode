@@ -354,13 +354,13 @@ describe('guideline picker: the todo panel', () => {
 
     test('AP-10: the hosts', () => {
         const queue = read('src', 'handlers', 'queueEditor-handler.ts');
-        assert.match(queue, /const aspect = await handleAspectPickerMessage\(msg\);\s*if \(aspect\.handled\) \{\s*if \(aspect\.changed\) \{ sendState\(\); \}/);
+        assert.match(queue, /const aspect = await handleAspectPickerMessage\(msg\);\s*if \(aspect\.handled\) \{ return; \}/);
         assert.match(queue, /aspects: \(\(\) => \{\s*try \{ return aspectPickerState\(\); \}/);
         const html = read('media', 'queueEditor', 'index.html');
         assert.match(html, /\{\{sharedUri\}\}\/aspectPicker\.css/);
         assert.match(html, /<script src="\{\{sharedUri\}\}\/aspectPicker\.js"><\/script>[\s\S]*main\.js/);
         const todo = read('src', 'handlers', 'questTodoPanel-handler.ts');
-        assert.match(todo, /case 'qtGetAspects': \{\s*[^\n]*\n\s*post\(_todoAspectMessage\(\)\);/);
+        assert.match(todo, /case 'qtGetAspects': \{[\s\S]*?_aspectViews\.add\(webview\);\s*post\(_todoAspectMessage\(\)\);/);
         assert.match(todo, /msg\.level === 'todo'[\s\S]*?applyAspectChoice\(\{ level: 'todo'[\s\S]*?post\(\{ type: 'qtAspectChanged'/);
         assert.match(todo, /readMediaText\('shared', 'aspectPicker\.js'\)/);
         assert.match(read('src', 'handlers', 'questTodo', 'questTodoAssets.ts'), /readMediaText\('shared', 'aspectPicker\.css'\)/);
