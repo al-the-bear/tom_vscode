@@ -4,15 +4,21 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <!--
-  Role Editor / Role Type Editor (vscimpb87; src/handlers/rolesEditor-handler.ts).
-  One shell, two modes (window.__INIT__.kind: 'roles' | 'roleTypes'). Every
-  interaction is wired with addEventListener, so the loader's default
-  nonce-only CSP applies. Data arrives by postMessage after 'ready'.
+  Role Editor (vscimpb87, gsel7; src/handlers/rolesEditor-handler.ts). One
+  page, two tabs: Roles and Role Types (window.__INIT__.kind: the tab it opens
+  on). Every interaction is wired with addEventListener, so the loader's
+  default nonce-only CSP applies. Data arrives by postMessage after 'ready'.
+  Each role and role type has the guideline picker (media/shared/aspectPicker.js).
 -->
+<link rel="stylesheet" href="{{sharedUri}}/aspectPicker.css">
 <link rel="stylesheet" href="{{baseUri}}/style.css">
 </head>
 <body>
-<h2 id="headline"></h2>
+<h2 id="headline">Role Editor</h2>
+<div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" id="tabRoles" data-kind="roles">Roles</button>
+    <button type="button" class="tab" role="tab" id="tabRoleTypes" data-kind="roleTypes">Role Types</button>
+</div>
 <p id="intro" class="muted"></p>
 <div class="layout">
     <div class="list-pane">
@@ -27,5 +33,7 @@
     </div>
     <div class="form-pane" id="form"></div>
 </div>
+<script src="{{sharedUri}}/aspectPicker.js"></script>
+<script src="{{baseUri}}/main.js"></script>
 </body>
 </html>

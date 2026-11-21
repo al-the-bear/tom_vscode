@@ -199,7 +199,8 @@
 | Prompt Template Editor | `tomAi.globalTemplateEditor` | `tomAi.editor.promptTemplates` |
 | Reusable Prompt Editor | `tomAi.reusablePromptEditor` | `tomAi.editor.reusablePrompts` |
 | Chat Variables | `tomAi.chatVariablesEditor` | `tomAi.editor.chatVariables` |
-| Role Editor / Role Type Editor | `tomAi.rolesEditor` | `tomAi.editor.roles` / `tomAi.editor.roleTypes` |
+| Role Editor (Roles and Role Types tabs) | `tomAi.rolesEditor` | `tomAi.editor.roles` / `tomAi.editor.roleTypes` (on that tab) |
+| Guideline Sections Editor | `tomAi.aspectSectionEditor` | `tomAi.editor.aspectSections`, or *Edit sections…* in a guideline picker |
 | Process Editor | `tomAi.processEditor` | `tomAi.editor.process` |
 | AI Workspace Quests | `tomAi.aiWorkspaceQuests` | `tomAi.editor.aiWorkspaceQuests` |
 | Process Template Editor | `tomAi.processTemplateEditor` | `tomAi.editor.processTemplates`, or the snippet button of the PROCESS view's action bar |

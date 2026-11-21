@@ -57,7 +57,7 @@ describe('the overview of editors and pages', () => {
         assert.deepEqual(TOOL_GROUPS.map((g) => g.label), ['Prompts & templates', 'Queue & automation', 'Quest & process', 'Trails, logs & setup']);
         for (const g of TOOL_GROUPS) { assert.ok(toolsOfGroup(g.id).length > 0, `${g.label} has entries`); }
         assert.deepEqual(toolsOfGroup('prompts').map((t) => t.id),
-            ['promptTemplates', 'queueTemplates', 'reusablePrompts', 'groupPrompts', 'processTemplates', 'assistPrompts']);
+            ['promptTemplates', 'queueTemplates', 'reusablePrompts', 'groupPrompts', 'processTemplates', 'assistPrompts', 'aspectSections']);
         assert.deepEqual(toolsOfGroup('queue').map((t) => t.id), ['promptQueue', 'timedRequests', 'providerSdks', 'telegram', 'reminders', 'mcpServer']);
         assert.ok(['process', 'processBranching', 'chatVariables', 'memory', 'createQuest', 'setupWorkspaceFolder']
             .every((id) => toolById(id)?.group === 'quest'));

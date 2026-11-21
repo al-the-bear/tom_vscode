@@ -96,7 +96,7 @@ describe('editor lists: Up / Down on the host', () => {
         assert.deepEqual(shown('roles'), ['architect', 'builder', 'critic']);
 
         const answer = await handleRolesEditorMessage('roles', { type: 'move', id: 'critic', direction: 'up' }, store, ui);
-        assert.deepEqual(answer, { type: 'order', ids: ['architect', 'critic', 'builder'] });
+        assert.deepEqual(answer, { type: 'order', kind: 'roles', ids: ['architect', 'critic', 'builder'] });
         assert.deepEqual(shown('roles'), ['architect', 'critic', 'builder']);
         assert.deepEqual(onDisk().editorListOrder.roles, ['architect', 'critic', 'builder']);
         assert.equal(await handleRolesEditorMessage('roles', { type: 'move', id: 'architect', direction: 'up' }, store, ui), undefined);
@@ -104,7 +104,7 @@ describe('editor lists: Up / Down on the host', () => {
         assert.deepEqual(fs.readdirSync(path.join(ai, 'roles')).sort(), ['architect', 'builder', 'critic'], 'the folders stay');
 
         assert.deepEqual(shown('roleTypes'), ['reader', 'writer']);
-        assert.deepEqual(await handleRolesEditorMessage('roleTypes', { type: 'move', id: 'reader', direction: 'down' }, store, ui), { type: 'order', ids: ['writer', 'reader'] });
+        assert.deepEqual(await handleRolesEditorMessage('roleTypes', { type: 'move', id: 'reader', direction: 'down' }, store, ui), { type: 'order', kind: 'roleTypes', ids: ['writer', 'reader'] });
         assert.deepEqual(onDisk().editorListOrder.roleTypes, ['writer', 'reader']);
         assert.deepEqual(shown('roles'), ['architect', 'critic', 'builder'], 'the roles keep their own order');
         // The role type picker of the Role Editor lists the types in their order too.

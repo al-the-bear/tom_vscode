@@ -8,8 +8,8 @@
  *   applyAspectChoice); a refusal is shown as a warning.
  * - `aspectQuestDefault` `{ action: 'set' | 'clear' }`: *Set as quest default*
  *   / *Clear quest default* (handlers/aspectChoiceCommands.ts).
- * - `aspectEditSections`: *Edit sections…* — the section editor when the
- *   extension has it, else the `_ai/aspect_guidelines/` folder in the Explorer.
+ * - `aspectEditSections`: *Edit sections…* — the section editor page
+ *   (aspectSectionEditor-handler.ts, `tomAi.editor.aspectSections`).
  *
  * Answers whether the message was the picker's and whether a level changed.
  * After a change every view showing the picker is redrawn — the page it came
@@ -17,17 +17,14 @@
  * nothing again.
  */
 
-import * as fs from 'fs';
 import * as vscode from 'vscode';
 
 import { applyAspectChoice, liveAspectChoiceWriters, type AspectChoiceRequest } from '../services/aspectPickerState';
-import { ASPECT_GUIDELINES_FOLDER } from '../services/aspectGuidelinesStore';
-import { WsPaths } from '../utils/workspacePaths';
 import { clearQuestDefaultGuidelines, setQuestDefaultGuidelines } from './aspectChoiceCommands';
+import { ASPECT_SECTION_EDITOR_COMMAND } from './aspectSectionEditor-handler';
 import { refreshAspectViews } from './aspectViewsRefresh';
 
-/** The command of the section editor page (P-4). */
-export const ASPECT_SECTION_EDITOR_COMMAND = 'tomAi.editor.aspectSections';
+export { ASPECT_SECTION_EDITOR_COMMAND };
 
 /** The message types the picker posts. */
 export const ASPECT_PICKER_MESSAGE_TYPES = ['aspectChoose', 'aspectQuestDefault', 'aspectEditSections'] as const;
@@ -83,7 +80,7 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
             return { handled: true, changed: true };
         }
         case 'aspectEditSections': {
-            await openSectionEditor();
+            await vscode.commands.executeCommand(ASPECT_SECTION_EDITOR_COMMAND);
             return { handled: true, changed: false };
         }
         default:
@@ -91,19 +88,3 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
     }
 }
 
-/** *Edit sections…*: the section editor page when there is one, else the sections folder. */
-async function openSectionEditor(): Promise<void> {
-    const commands = await vscode.commands.getCommands(true);
-    if (commands.includes(ASPECT_SECTION_EDITOR_COMMAND)) {
-        await vscode.commands.executeCommand(ASPECT_SECTION_EDITOR_COMMAND);
-        return;
-    }
-    const dir = WsPaths.ai(ASPECT_GUIDELINES_FOLDER);
-    if (!dir) {
-        void vscode.window.showWarningMessage('This workspace has no _ai folder: there are no guideline sections to edit.');
-        return;
-    }
-    if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-    await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(dir));
-    void vscode.window.showInformationMessage('The guideline sections are the folders under _ai/aspect_guidelines/: a section.yaml and one <option>.md per option.');
-}

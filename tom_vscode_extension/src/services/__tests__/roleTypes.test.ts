@@ -170,8 +170,8 @@ describe('roles and role types', () => {
         assert.equal(rolesEditorData('roles', undefined).error, 'No workspace is open.');
         const pkg = JSON.parse(read('package.json')) as { contributes: { commands: Array<{ command: string; title: string }> } };
         assert.deepEqual(pkg.contributes.commands.filter((c) => c.command.startsWith('tomAi.editor.role')).map((c) => [c.command, c.title]),
-            [['tomAi.editor.roles', '@T: Open Role Editor'], ['tomAi.editor.roleTypes', '@T: Open Role Type Editor']]);
-        assert.match(read('src', 'utils', 'extensionToolsCatalog.ts'), /id: 'roles', label: 'Role Editor', group: 'quest'[\s\S]*id: 'roleTypes', label: 'Role Type Editor', group: 'quest'/);
+            [['tomAi.editor.roles', '@T: Open Role Editor'], ['tomAi.editor.roleTypes', '@T: Open Role Editor on Role Types']]);
+        assert.match(read('src', 'utils', 'extensionToolsCatalog.ts'), /id: 'roles', label: 'Role Editor', group: 'quest'[\s\S]*id: 'roleTypes', label: 'Role Editor › Role Types', group: 'quest'/);
         const template = read('scripts', 'build-workspace-template.cjs');
         assert.match(template, /\{ path: '_ai\/role-types', kind: 'dir', optional: true \}/);
         // The role schemas are generated into the top .tom at start (utils/generatedSchemas.ts), not packed.
@@ -196,7 +196,7 @@ describe('roles and role types', () => {
         };
         // Roles.
         const r = boot('roles');
-        assert.deepEqual(r.posted, [{ type: 'ready' }]);
+        assert.deepEqual(r.posted, [{ type: 'ready', kind: 'roles' }]);
         r.data({ items: [{ id: 'author', roleMd: '# Author\n', roleType: 'writer' }, { id: 'coder', roleMd: '# Coder\n' }], roleTypes: [{ id: 'writer', name: 'Writer' }] });
         assert.equal(r.doc.getElementById('headline')!.textContent, 'Role Editor');
         assert.deepEqual([...r.doc.querySelectorAll('#itemList li')].map((li) => li.textContent), ['authorwriter', 'coder']);
@@ -205,7 +205,7 @@ describe('roles and role types', () => {
         assert.equal((r.doc.getElementById('btnDelete') as HTMLElement).style.display, 'none', 'roles are not deleted here');
         (r.doc.getElementById('roleType') as HTMLSelectElement).value = '';
         (r.doc.getElementById('btnSave') as HTMLButtonElement).click();
-        assert.deepEqual(r.posted.at(-1), { type: 'save', id: 'author', roleType: '', roleMd: '# Author\n' });
+        assert.deepEqual(r.posted.at(-1), { type: 'save', kind: 'roles', id: 'author', roleType: '', roleMd: '# Author\n', guidelines: {} });
         // Role types.
         const rt = boot('roleTypes');
         rt.data({
@@ -220,13 +220,13 @@ describe('roles and role types', () => {
         assert.match(rt.doc.getElementById('form')!.textContent ?? '', /Used by: author/);
         cb('tomAi_findFiles').checked = true;
         (rt.doc.getElementById('btnSave') as HTMLButtonElement).click();
-        assert.deepEqual(rt.posted.at(-1), { type: 'save', id: 'writer', value: { name: 'Writer', description: '', tools: { mode: 'selected', enabled: ['tomAi_readFile', 'tomAi_findFiles'] } } });
+        assert.deepEqual(rt.posted.at(-1), { type: 'save', kind: 'roleTypes', id: 'writer', value: { name: 'Writer', description: '', tools: { mode: 'selected', enabled: ['tomAi_readFile', 'tomAi_findFiles'] }, guidelines: {} } });
         (rt.doc.querySelector('input[name="toolsMode"][value="profileDefault"]') as HTMLInputElement).click();
         assert.equal(cb('tomAi_readFile').disabled, true, 'profile default: the selection is off');
         assert.equal(cb('tomAi_askUser').disabled, true);
         (rt.doc.getElementById('btnSave') as HTMLButtonElement).click();
         assert.deepEqual((rt.posted.at(-1)!.value as { tools: unknown }).tools, { mode: 'profileDefault' });
         (rt.doc.getElementById('btnDelete') as HTMLButtonElement).click();
-        assert.deepEqual(rt.posted.at(-1), { type: 'delete', id: 'writer' });
+        assert.deepEqual(rt.posted.at(-1), { type: 'delete', kind: 'roleTypes', id: 'writer' });
     });
 });

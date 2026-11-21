@@ -74,8 +74,8 @@ describe('editors: the Up / Down buttons', () => {
         typed.value = 'unsaved text';
         posted.length = 0;
         w.document.getElementById('btnMoveDown').click();
-        assert.deepEqual(posted, [{ type: 'move', id: 'builder', direction: 'down' }]);
-        send(w, { type: 'order', ids: ['architect', 'critic', 'builder'] });
+        assert.deepEqual(posted, [{ type: 'move', kind: 'roles', id: 'builder', direction: 'down' }]);
+        send(w, { type: 'order', kind: 'roles', ids: ['architect', 'critic', 'builder'] });
         assert.deepEqual(Array.from(w.document.querySelectorAll('#itemList li') as Win[]).map((li: Win) => li.dataset.id), ['architect', 'critic', 'builder']);
         assert.ok(!off(w, 'btnMoveUp') && off(w, 'btnMoveDown'), 'now last');
         assert.equal((Array.from(w.document.querySelectorAll('textarea') as Win[])[0] as Win).value, 'unsaved text', 'the form is not drawn again');

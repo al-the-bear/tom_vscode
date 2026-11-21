@@ -124,6 +124,7 @@ import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
 import { initAnswersPanel } from './handlers/answersPanel-handler';
 import { applyAspectChoiceRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
+import { registerAspectSectionEditorCommand } from './handlers/aspectSectionEditor-handler';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -551,6 +552,7 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerGlobalTemplateEditorCommand(context);
     registerRolesEditorCommands(context);
+    registerAspectSectionEditorCommand(context);
     timeStep('globalTemplateEditor', stepStart);
 
     // Register Reusable Prompt Editor command

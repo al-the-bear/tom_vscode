@@ -484,7 +484,12 @@
       },
       {
         "command": "tomAi.editor.roleTypes",
-        "title": "@T: Open Role Type Editor",
+        "title": "@T: Open Role Editor on Role Types",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.editor.aspectSections",
+        "title": "@T: Open Guideline Sections Editor",
         "category": "@Tom"
       },
       {

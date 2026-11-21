@@ -558,7 +558,7 @@ The same list then reaches every transport: the direct request's `tools`, the Ag
 
 **Always-on tools:** `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, `tomAi_notifyUser`, `tomAi_answerUser`, `tomAi_getProcessState`, `tomAi_setProcessState`, `tomAi_listQuestTodos`, `tomAi_getQuestTodo`, `tomAi_createQuestTodo`, `tomAi_updateQuestTodo`, `tomAi_generateIdPrefix`, `tomAi_waitFor`. A role type cannot switch them off. A profile with a selection of its own gets them too, and the Prompt Template Editor shows them greyed and on.
 
-The two files are validated against `src/config/role-type.schema.json` and `role-config.schema.json`, which are copied into the workspace's `.tom/json-schema/roles/`. The Role Editor and the Role Type Editor (`tomAi.editor.roles`, `tomAi.editor.roleTypes`; `src/handlers/rolesEditor-handler.ts`, `src/services/roleStore.ts`) write only valid files. A `role-config.yaml` holds only `roleType` for now.
+The two files are validated against `src/config/role-type.schema.json` and `role-config.schema.json`, which are copied into the workspace's `.tom/json-schema/roles/`. The Role Editor — one page, a Roles tab and a Role Types tab, `tomAi.editor.roles` and `tomAi.editor.roleTypes` opening it on theirs (`src/handlers/rolesEditor-handler.ts`, `src/services/roleStore.ts`) — writes only valid files. A `role-config.yaml` holds `roleType` and the role's `guidelines`; a `role-type.yaml` its name, description, tools and `guidelines`. Both editors' tabs set the guideline choices with the guideline picker (§6.2), saved with the item; a new role or type has none.
 
 ### 6.2 Aspect guidelines
 
@@ -594,6 +594,15 @@ short name, and its content is the text sent. The text may use the usual prompt
 placeholders (`${guidelines-<name>}`, `${file-<path>}`, `${role}`, …); they
 are resolved recursively before the text is sent. `remove` is no option name:
 on a level it is Remove.
+
+**The section editor** (`tomAi.editor.aspectSections`, *Edit sections…* in
+every picker, Extension Tools; `src/handlers/aspectSectionEditor-handler.ts`,
+`src/services/aspectSectionsEdit.ts`) edits the store: sections are added,
+renamed (the folder, so the choices naming the old id stop applying) and
+deleted; a section's name, label, placement, default and options (short name,
+text, order) are edited as a draft and saved as a whole, `section.yaml` with
+its schema line and one `<option>.md` per option, an option file no longer
+listed deleted. A save the rules refuse writes nothing.
 
 **The levels**, the lowest winning per section: the section default < quest
 default < window < run < role type < role < queue item < todo. On each level a

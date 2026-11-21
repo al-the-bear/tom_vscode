@@ -56,6 +56,8 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'The Proceed template: how a process position becomes the prompt it queues.' },
     { id: 'assistPrompts', label: 'Assist prompts', group: 'prompts', icon: 'lightbulb', statusSection: 'assistPrompts',
         purpose: 'Grill me, Explain in detail, Finish review round and the other assist prompts (a Status Page section).' },
+    { id: 'aspectSections', label: 'Guideline Sections Editor', group: 'prompts', icon: 'book', command: 'tomAi.editor.aspectSections',
+        purpose: 'The aspect guideline sections of `_ai/aspect_guidelines/` the guideline buttons choose from: name, label, placement, default and each option\'s text.' },
 
     // (2) Queue & automation
     { id: 'promptQueue', label: 'Prompt Queue Editor', group: 'queue', icon: 'list-flat', command: 'tomAi.editor.promptQueue',
@@ -78,9 +80,9 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'Start (or see suggested) subprocesses and branches of the running step.',
         whenAvailable: 'when the running step lists subprocesses or branches' },
     { id: 'roles', label: 'Role Editor', group: 'quest', icon: 'person', command: 'tomAi.editor.roles',
-        purpose: 'The roles of `_ai/roles/`: each role\'s role.md and the role type its role-config.yaml names.' },
-    { id: 'roleTypes', label: 'Role Type Editor', group: 'quest', icon: 'tools', command: 'tomAi.editor.roleTypes',
-        purpose: 'The role types of `_ai/role-types/`: the tools a prompt run as a role of the type gets (the profile\'s, or a selection).' },
+        purpose: 'Roles and role types on one page (two tabs), opened on Roles: each role\'s role.md, its role type and its guideline choices.' },
+    { id: 'roleTypes', label: 'Role Editor › Role Types', group: 'quest', icon: 'tools', command: 'tomAi.editor.roleTypes',
+        purpose: 'The Role Editor on its Role Types tab: the tools a prompt run as a role of the type gets (the profile\'s, or a selection) and the type\'s guideline choices.' },
     { id: 'chatVariables', label: 'Chat Variables Editor', group: 'quest', icon: 'symbol-variable', command: 'tomAi.editor.chatVariables',
         purpose: 'The chat variables of the window and of each process run (quest, role, custom keys).' },
     { id: 'memory', label: 'Memory Panel', group: 'quest', icon: 'database', command: 'tomAi.panel.memory',
