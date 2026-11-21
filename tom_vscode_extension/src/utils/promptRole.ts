@@ -55,6 +55,68 @@ export function effectivePromptRole(input: { queued?: QueueRoleSource; stepRole?
     return { role: '', from: 'none' };
 }
 
+/** How the trail header and the queue item name where a role comes from (gsel11). */
+export const PROMPT_ROLE_ORIGIN_LABEL: Record<Exclude<PromptRoleOrigin, 'none'>, string> = {
+    todo: 'todo',
+    item: 'item',
+    step: 'process step',
+    runDefault: 'run default',
+    chat: 'chat variable',
+};
+
+/** The order the role of a prompt is taken in, as the queue item's hover names it. */
+export const PROMPT_ROLE_ORDER_TEXT = 'the todo\'s role > the item\'s role > the process step\'s > the run\'s default > the chat variable role';
+
+/**
+ * What the live trail's prompt header adds for the role a prompt runs as
+ * (gsel11): ` · role idea_author (todo)`; no role: `''`.
+ */
+export function promptRoleHeaderSuffix(role: PromptRole | undefined): string {
+    if (!role || role.from === 'none' || !role.role) { return ''; }
+    return ` · role ${role.role} (${PROMPT_ROLE_ORIGIN_LABEL[role.from]})`;
+}
+
+/** What the queue item's role chip shows (gsel11; media/shared/queueEntryRenderFunctions.js). */
+export interface QueueItemRoleView {
+    /** The role the item runs as, as far as the queue knows it; `''`: none known. */
+    role: string;
+    /** Where it comes from; `none` with no role. */
+    from: PromptRoleOrigin;
+    /** A walk over several todos that has none in hand: each todo's own role wins over what is shown. */
+    perTodo?: boolean;
+    /** The chip's text after the role: `· from its todo`, `· run default`, `· process step`; `''` for the item's own. */
+    note: string;
+    /** The chip's hover. */
+    title: string;
+}
+
+/**
+ * The role chip of a queue item (gsel11): the role it runs as by the queue's
+ * order without the chat variable (that is the window's at send time), where
+ * it comes from, and the hover naming the order. `todoRole` is the role of the
+ * todo the item runs (a TODO item's, the claimed one of a walk); `perTodo`: a
+ * walk with no todo in hand.
+ */
+export function queueItemRoleView(input: { todoRole?: string; itemRole?: string; stepRole?: string; runDefaultRole?: string; perTodo?: boolean }): QueueItemRoleView {
+    const r = effectivePromptRole({ queued: { todoRole: input.todoRole, itemRole: input.itemRole, runDefaultRole: input.runDefaultRole }, stepRole: input.stepRole });
+    const order = `The order: ${PROMPT_ROLE_ORDER_TEXT}.`;
+    const own = named(input.itemRole) ? input.itemRole : undefined;
+    const perTodo = input.perTodo ? ' A walk: the todo it runs names its own role, which wins over this.' : '';
+    if (r.from === 'none') {
+        return {
+            role: '', from: 'none', note: '', ...(input.perTodo ? { perTodo: true } : {}),
+            title: `No role of its own: it runs as the chat variable role, if any.${perTodo} ${order}`,
+        };
+    }
+    const note = r.from === 'todo' ? '· from its todo' : r.from === 'item' ? '' : `· ${PROMPT_ROLE_ORIGIN_LABEL[r.from]}`;
+    const whence = r.from === 'todo' ? 'from the todo it runs' : r.from === 'item' ? 'its own role' : r.from === 'step' ? 'from the process step it was queued for' : 'the default role of its run';
+    const passed = own && r.from === 'todo' && own !== r.role ? ` Its own role ${own} is passed over.` : '';
+    return {
+        role: r.role, from: r.from, note, ...(input.perTodo ? { perTodo: true } : {}),
+        title: `Runs as role ${r.role} — ${whence}.${passed}${perTodo} The chat variable role shows it while it sends. ${order}`,
+    };
+}
+
 /** Whether the chat variable shows a role of this origin while its item runs (the queue's own roles, not the step's). */
 export function rolesShownInChatVariable(from: PromptRoleOrigin): boolean {
     return from === 'todo' || from === 'item' || from === 'runDefault';

@@ -9,6 +9,12 @@
  * older, newer or across the major version (`withStamp`).
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { SomModelService } from '../../services/som-model-service.js';
+import { SomDocumentStore, nodeSomDocumentIo } from '../../services/som-document-store.js';
+
 const YAML_STAMP = /^modelVersion: "(\d+)\.(\d+)"$/m;
 const MD_STAMP = /^(<!-- docspec: [a-z0-9-]+\/)(\d+)\.(\d+)( -->)$/m;
 
@@ -26,6 +32,27 @@ export function withStamp(text: string, version: string): string {
     if (YAML_STAMP.test(text)) { return text.replace(YAML_STAMP, `modelVersion: "${version}"`); }
     if (MD_STAMP.test(text)) { return text.replace(MD_STAMP, `$1${version}$4`); }
     throw new Error('no model-version stamp found in the sample');
+}
+
+/**
+ * A sample's Markdown as this build's runtime renders it from the sample's
+ * YAML, with the YAML's stamp. ai_build re-renders its committed
+ * `.tomspecs.md` files only with their next content step (tom_specs
+ * 04a_rdv3, DP-risks-1 (b)), so a committed one may be in an older layout
+ * than the runtime writes; a test that needs a canonical rendition takes this
+ * one instead.
+ */
+export function renderedMarkdown(yamlText: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'som-md-'));
+    try {
+        const file = path.join(dir, 'sample.tomspecs.yaml');
+        fs.writeFileSync(file, yamlText);
+        const store = new SomDocumentStore(new SomModelService(), nodeSomDocumentIo);
+        const loaded = store.load(file);
+        return store.render({ ...loaded, format: 'markdown' }, { stamp: loaded.stamp });
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 }
 
 /** A stamp of the same major version as `modelVersion`, older than it (`1.0` for a `1.6` model). */

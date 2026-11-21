@@ -23,6 +23,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { InterruptionKind, interruptionLabel } from '../utils/anthropicErrorClassifier';
 import { sanitizeQuestSegment } from '../utils/questPaths';
 import { sessionLiveTrailFile } from './sessionStorage';
+import { promptRoleHeaderSuffix, type PromptRole } from '../utils/promptRole';
 
 const HEADER_COMMENT = '<!-- tom-ai live-trail -->';
 /** Per-kind marker used by `endPromptWithInterruption` — all yellow family. */
@@ -274,6 +275,12 @@ export interface LiveTrailPromptInfo {
     userText: string;
     /** Origin of the prompt. Defaults to `'chat'` when omitted. */
     source?: PromptSource;
+    /**
+     * The role the prompt runs as and where it comes from (gsel11;
+     * services/queueRoleContext.ts livePromptRole): the header names it,
+     * `[direct / opus · role idea_author (todo)]`. None: nothing is added.
+     */
+    role?: PromptRole;
 }
 
 /**
@@ -482,7 +489,7 @@ export class LiveTrailWriter {
             const lines = [
                 trimmed.trim(),
                 '',
-                `${PROMPT_HEADER_PREFIX}${ts} [${info.transport} / ${info.config}]`,
+                `${PROMPT_HEADER_PREFIX}${ts} [${info.transport} / ${info.config}${promptRoleHeaderSuffix(info.role)}]`,
                 '',
                 `> User: ${userPreview}`,
                 '',

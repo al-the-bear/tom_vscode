@@ -19,6 +19,11 @@
  *        in the inbox item the target enqueues
  *   QR-8 the editors: the queue editor's item chip and run default link, the todo panel's Role field
  *   QR-9 the wiring: every stage is expanded and sent with its role source; the hold before the send
+ *   QR-10 shown (gsel11): the queue editor's role chip names the role an item runs as and where it comes from — a
+ *        TODO item its todo's (read from the todo file, each quest once), its own, its step's, its run's default; a
+ *        walk with no todo in hand says each todo's own wins; the live trail's prompt header names the role a
+ *        prompt runs as (`· role writer (todo)`), nothing without one; the trail merge driver still splits those
+ *        headers; the wiring
  */
 import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -82,6 +87,9 @@ import {
 import { sendItemToQuestImpl } from '../send-to-quest-tools.js';
 import { parseInboxItem as parseInboxFile, planInboxConversion, serializeInboxItem } from '../../utils/questInbox.js';
 import { parse as parseYaml } from 'yaml';
+import { cachedTodoRoles } from '../../handlers/queueEditor-handler.js';
+import { LiveTrailWriter, promptHeaderLines } from '../../services/live-trail.js';
+import { mergeTrail } from '../../utils/aiMergeDrivers/trail.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -332,5 +340,72 @@ describe('roles per todo, item and run default', () => {
             assert.ok(src.includes(`runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, ${stage}), () => this._buildExpandedText(`), `expansion of ${stage}`);
         }
         assert.match(src, /m\._onDidChange\.event\(\(\) => m\._syncRoleHolds\(\)\)/, 'released on every change');
+    });
+
+    test('QR-10: the role chip and the trail header name the role and where it comes from', async () => {
+        const roles = cachedTodoRoles();
+        assert.equal(roles(QUEST, 't1_aktl-roled'), 'writer', 'read from the todo file');
+        assert.equal(roles(QUEST, 't2_aktl-plain'), undefined);
+        const view = (item: QueuedPrompt) => queue().roleViewOf(item, roles);
+        // A TODO item: its todo's role, over its own.
+        const todoItem = await add('a todo item', { role: 'reviewer' });
+        todoItem.repeatCount = `todo:${QUEST}/t1_aktl-roled` as never;
+        const fromTodo = view(todoItem);
+        assert.deepEqual([fromTodo.role, fromTodo.from, fromTodo.note], ['writer', 'todo', '· from its todo']);
+        assert.match(fromTodo.title, /^Runs as role writer — from the todo it runs\. Its own role reviewer is passed over\./);
+        assert.match(fromTodo.title, /The order: the todo's role > the item's role > the process step's > the run's default > the chat variable role\./);
+        assert.deepEqual([view(todoItem).role], [queue().roleViewOf(todoItem).role], 'the default reader agrees');
+        // A TODO item whose todo names none: its own.
+        const plainTodo = await add('a plain todo item', { role: 'reviewer' });
+        plainTodo.repeatCount = `todo:${QUEST}/t2_aktl-plain` as never;
+        assert.deepEqual([view(plainTodo).role, view(plainTodo).from, view(plainTodo).note], ['reviewer', 'item', '']);
+        // The run's default.
+        queue().setDefaultRole('planner', TEST_RUN);
+        const none = await add('names none');
+        assert.deepEqual([view(none).role, view(none).from, view(none).note], ['planner', 'runDefault', '· run default']);
+        assert.match(view(none).title, /the default role of its run/);
+        // The Proceed prompt: its step's.
+        const proceedItem = queue().items.find((i) => i.processRun && !i.processMove && i.originalText.includes('Work on it'))!;
+        assert.deepEqual([view(proceedItem).role, view(proceedItem).from, view(proceedItem).note], ['stepper', 'step', '· process step']);
+        queue().setDefaultRole('', TEST_RUN);
+        // A walk with no todo in hand: none known, each todo's own wins; once it has one, that one's.
+        const walk = await add('walk t2 ${repeatTodoId}', { repeatCount: 't2_*' });
+        assert.deepEqual([view(walk).role, view(walk).from, view(walk).perTodo], ['', 'none', true]);
+        assert.match(view(walk).title, /No role of its own: it runs as the chat variable role, if any\. A walk: the todo it runs names its own role/);
+        walk.todoClaim = { questId: QUEST, todoId: 't1_aktl-roled' } as never;
+        assert.deepEqual([view(walk).role, view(walk).from], ['writer', 'todo'], 'the claimed todo while it runs');
+        walk.todoClaim = undefined;
+        walk.status = 'sent'; walk.repeatTodoId = 't1_aktl-roled';
+        assert.deepEqual([view(walk).role, view(walk).from], ['writer', 'todo'], 'a finished walk: the last todo it ran');
+
+        // The live trail's header: the role the prompt runs as, where it comes from; nothing without one.
+        const header = (role: ReturnType<typeof livePromptRole> | undefined): string => {
+            const w = new LiveTrailWriter(QUEST, undefined, `gsel11_${Math.random().toString(36).slice(2)}`);
+            w.beginPrompt({ transport: 'direct', config: 'opus-5-5-direct', userText: 'x', role });
+            return fs.readFileSync(w.getFilePath(), 'utf8').split('\n').find((l) => l.startsWith('## \u{1F680} PROMPT '))!;
+        };
+        const queued = await runWithQueueRole(queue().stageRoleSource(todoItem, 'main', 't1_aktl-roled'), async () => header(livePromptRole()));
+        assert.match(queued, /^## \u{1F680} PROMPT \d{8}_\d{6} \[direct \/ opus-5-5-direct · role writer \(todo\)\]$/u);
+        assert.match(await runWithQueueRole(queue().stageRoleSource(none, 'main'), async () => header(livePromptRole())), /\[direct \/ opus-5-5-direct · role chatter \(chat variable\)\]$/);
+        assert.match(header({ role: 'reviewer', from: 'item' }), /· role reviewer \(item\)\]$/);
+        assert.match(header({ role: 'planner', from: 'runDefault' }), /· role planner \(run default\)\]$/);
+        assert.match(header({ role: 'stepper', from: 'step' }), /· role stepper \(process step\)\]$/);
+        assert.match(header({ role: '', from: 'none' }), /^## \u{1F680} PROMPT \d{8}_\d{6} \[direct \/ opus-5-5-direct\]$/u, 'no role: nothing added');
+        assert.match(header(undefined), /\[direct \/ opus-5-5-direct\]$/);
+        // Still a prompt block for the writer's trimming and the _ai trail merge driver.
+        const block = (ts: string, role: string, body: string): string => `## \u{1F680} PROMPT ${ts} [direct / opus · role ${role} (todo)]\n\n${body}\n`;
+        const ours = `<!-- tom-ai live-trail -->\n\n${block('20261121_100000', 'writer', 'ours')}`;
+        const theirs = `<!-- tom-ai live-trail -->\n\n${block('20261121_090000', 'idea_author', 'theirs')}\n${block('20261121_100000', 'writer', 'ours longer')}`;
+        const merged = mergeTrail({ ours, theirs });
+        assert.equal(merged.status, 'merged', JSON.stringify(merged));
+        const text = (merged as { text: string }).text;
+        assert.equal(promptHeaderLines(text.split('\n')).length, 2, 'two blocks');
+        assert.ok(text.indexOf('role idea_author') < text.indexOf('role writer'), 'sorted by time');
+        assert.match(text, /role writer \(todo\)\]\n\nours longer/, 'one block per prompt, the longer side');
+
+        // The wiring: the editor's state carries the view; the Anthropic send names the role.
+        assert.match(EXT('src', 'handlers', 'queueEditor-handler.ts'), /const todoRoleOf = cachedTodoRoles\(\);[\s\S]*roleView: PromptQueueManager\.instance\.roleViewOf\(item, todoRoleOf\)/);
+        assert.match(EXT('src', 'handlers', 'anthropic-handler.ts'), /liveTrail\?\.beginPrompt\(\{[\s\S]{0,600}role: livePromptRole\(\),\n\s*\}\);/);
+        assert.match(EXT('media', 'shared', 'queueEntryRenderFunctions.js'), /\(!isChat \? queueRoleChip\(item, safeId, isStaged \|\| isPending\) : ''\)/);
     });
 });

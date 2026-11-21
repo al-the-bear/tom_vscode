@@ -495,19 +495,9 @@ function renderEntry(item, idx) {
               + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
               + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
             : '') +
-          // The role the item runs as (gsel3): shown when it has one; a staged or
-          // pending item can set, change or clear it (a todo's own role still wins).
-          (!isChat && (item.role || isStaged || isPending)
-            ? '<span class="queue-role-chip" style="' + ((isStaged || isPending) ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;' + (item.role ? '' : 'opacity:0.45;') + '"'
-              + ((isStaged || isPending) ? ' onclick="editItemRole(\'' + safeId + '\')"' : '')
-              + ' title="' + escapeHtml(item.role
-                ? 'Runs as role ' + item.role + ' (unless the todo it runs names its own); the chat variable role shows it while it sends'
-                : 'No role of its own: the todo\'s, the process step\'s, the run\'s default or the chat variable role')
-              + ((isStaged || isPending) ? ' — click to ' + (item.role ? 'change' : 'set') : '') + '">'
-              + '<span class="codicon codicon-person"></span>'
-              + (item.role ? '<span style="font-size:0.85em;">' + escapeHtml(item.role) + '</span>' : '')
-              + '</span>'
-            : '') +
+          // The role the item runs as (gsel3, gsel11): its todo's, its own, its process step's or its
+          // run's default, with where it comes from; a staged or pending item can set, change or clear its own.
+          (!isChat ? queueRoleChip(item, safeId, isStaged || isPending) : '') +
           // The item's own guideline choices (gsel5): an indicator only, the details on hover;
           // the button is in the item's details (queueItemAspectRow).
           (!isChat && typeof queueItemAspectIndicator === 'function' ? queueItemAspectIndicator(item) : '') +
@@ -1238,6 +1228,29 @@ function waitingForUserBadge(item, safeId) {
         : kinds.indexOf('mdBrowser') !== -1 ? 'your answer in the MD Browser' : 'you';
   var where = kinds.length === 1 && kinds[0] === 'mdBrowser' ? 'Click to bring its MD Browser to the front' : 'Click to open it in the user-input panel (on this item\'s run tab)';
   return '  <span class="waiting-user-badge clickable" style="cursor:pointer;" onclick="event.stopPropagation();openPendingQuestion(\'' + safeId + '\')" title="The running prompt waits for ' + what + '. ' + where + '.">[\u23f3 waiting for ' + what + ']</span>';
+}
+
+/*
+ * The role chip of a queue item (gsel3, gsel11). The host's `roleView`
+ * (utils/promptRole.ts queueItemRoleView) names the role the item runs as and
+ * where it comes from: its todo's (`· from its todo`), its own, its process
+ * step's, its run's default — dimmed when not its own; the hover names the
+ * order. Without a `roleView` (an entry another page shows) the item's own
+ * role. A staged or pending item opens the role picker for its own role.
+ */
+function queueRoleChip(item, safeId, editable) {
+  var rv = item.roleView || (item.role
+    ? { role: item.role, from: 'item', note: '', title: 'Runs as role ' + item.role + ' (unless the todo it runs names its own); the chat variable role shows it while it sends' }
+    : { role: '', from: 'none', note: '', title: 'No role of its own: the todo\'s, the process step\'s, the run\'s default or the chat variable role' });
+  if (!rv.role && !editable) { return ''; }
+  var opacity = !rv.role ? 'opacity:0.45;' : (rv.from === 'item' ? '' : 'opacity:0.7;');
+  return '<span class="queue-role-chip" data-role-from="' + escapeHtml(rv.from) + '" style="' + (editable ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;' + opacity + '"'
+    + (editable ? ' onclick="editItemRole(\'' + safeId + '\')"' : '')
+    + ' title="' + escapeHtml(rv.title + (editable ? ' — click to ' + (item.role ? 'change' : 'set') + ' its own role' : '')) + '">'
+    + '<span class="codicon codicon-person"></span>'
+    + (rv.role ? '<span class="queue-role-name" style="font-size:0.85em;">' + escapeHtml(rv.role) + '</span>' : '')
+    + (rv.role && rv.note ? '<span class="queue-role-from" style="font-size:0.85em;font-style:italic;">' + escapeHtml(rv.note) + '</span>' : '')
+    + '</span>';
 }
 
 /* A chat send's source (`panel`, `editor`, `todo panel`, …), beside its label. */

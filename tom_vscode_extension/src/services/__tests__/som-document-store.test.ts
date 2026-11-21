@@ -36,12 +36,13 @@ import * as path from 'path';
 import { SpecDocument, SpecEditor, SomEditability } from 'tom_som_typescript_runtime';
 import { SomModelService } from '../som-model-service.js';
 import { SomDocumentStore, SomDocumentError, nodeSomDocumentIo } from '../som-document-store.js';
-import { olderSameMajor, stampOf, withStamp } from '../../tools/__tests__/_somSamples.js';
+import { olderSameMajor, renderedMarkdown, stampOf, withStamp } from '../../tools/__tests__/_somSamples.js';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SAMPLES = path.resolve(EXT_ROOT, '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
+// Rendered by this build's runtime: ai_build's committed .tomspecs.md may be in an older layout (_somSamples.ts).
+const MERIDIAN_MD = renderedMarkdown(MERIDIAN_YAML);
 /** The stamp ai_build's sample carries today; it moves with the model. */
 const SAMPLE_STAMP = stampOf(MERIDIAN_YAML);
 

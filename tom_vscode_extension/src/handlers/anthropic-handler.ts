@@ -52,6 +52,7 @@ import { nextFreeToolResultIndex } from '../services/sessionStorage';
 import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
+import { livePromptRole } from '../services/queueRoleContext';
 import { beginCurrentPrompt, writeCurrentPrompt } from '../services/current-prompt-dump';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
@@ -2447,6 +2448,8 @@ export class AnthropicHandler {
             config: configuration.id,
             userText: effectiveUserText,
             source: options.source ?? 'chat',
+            // The role it runs as, as the tools and `${role}` take it (gsel11): named in the header.
+            role: livePromptRole(),
         });
 
         TrailService.instance.writeRawPrompt(

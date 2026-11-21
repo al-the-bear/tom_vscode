@@ -19,7 +19,7 @@ import { normalizeAspectChoices } from '../utils/aspectChoices';
 import { renameInChoices, type AspectRename } from '../utils/aspectRename';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { livePromptRole, runWithQueueRole } from '../services/queueRoleContext';
-import { RoleOverrides, rolesShownInChatVariable, type QueueRoleSource } from '../utils/promptRole';
+import { RoleOverrides, queueItemRoleView, rolesShownInChatVariable, type QueueItemRoleView, type QueueRoleSource } from '../utils/promptRole';
 import { markerInsertIndex, markerVerdict, openMarkerIds, stepRunProgress, type ProcessMoveSpec, type StepRunProgress } from '../utils/processMoveMarker';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1107,6 +1107,43 @@ export class PromptQueueManager {
             ...(item.guidelines && Object.keys(item.guidelines).length ? { itemGuidelines: { ...item.guidelines } } : {}),
             ...(settings.guidelines && Object.keys(settings.guidelines).length ? { runGuidelines: { ...settings.guidelines } } : {}),
         };
+    }
+
+    /**
+     * The role chip of `item` in the Prompt Queue editor (gsel11;
+     * utils/promptRole.ts queueItemRoleView): the role it runs as by the
+     * queue's order and where that comes from. The todo is the one it runs: its
+     * claim, a TODO item's todo, a finished walk's last one; a walk over several
+     * todos with none in hand shows `perTodo`. The step role is its Proceed
+     * run's position. `todoRoleOf` reads a todo's role (the editor passes one
+     * that reads each quest's todos once per state it builds).
+     */
+    roleViewOf(item: QueuedPrompt, todoRoleOf: (quest: string, id: string) => string | undefined = readTodoRole): QueueItemRoleView {
+        const active = this.activeQuestId();
+        const walk = parseTodoWalk(item.repeatCount);
+        let todo: { quest: string; id: string } | undefined;
+        let perTodo = false;
+        if (item.todoClaim) {
+            todo = { quest: item.todoClaim.questId, id: item.todoClaim.todoId };
+        } else if (walk?.kind === 'todo') {
+            todo = { quest: walk.quest, id: walk.id };
+        } else if (walk) {
+            const quest = walk.kind === 'group' ? walk.quest : active;
+            if (item.status === 'sent' && item.repeatTodoId && quest) { todo = { quest, id: item.repeatTodoId }; } else { perTodo = true; }
+        } else if (item.repeatTodoId && active) {
+            todo = { quest: active, id: item.repeatTodoId };
+        }
+        let todoRole: string | undefined;
+        if (todo) { try { todoRole = todoRoleOf(todo.quest, todo.id); } catch { /* no todo store */ } }
+        let stepRole: string | undefined;
+        if (item.processRun && active && item.processRun.quest === active) {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { ProcessStateStore } = require('./processStateStore') as typeof import('./processStateStore');
+                stepRole = ProcessStateStore.instance?.runOverview(item.processRun.run ?? 'default').role || undefined;
+            } catch { /* no process store */ }
+        }
+        return queueItemRoleView({ todoRole, itemRole: item.role, stepRole, runDefaultRole: this._settingsOf(itemRun(item)).defaultRole, perTodo });
     }
 
     /**
@@ -8513,6 +8550,13 @@ function readQuestTodoEntries(questId: string, ran?: ReadonlySet<string>): TodoI
  * The todos an item's walk reads: the quest's todos with what the item ran
  * (walkableRepeatIds) and a GROUP item's selection applied (vscimpb129).
  */
+/** The `role` of todo `id` of `quest` (gsel11: the queue item's role chip); undefined: none or no such todo. */
+function readTodoRole(quest: string, id: string): string | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { findTodoById } = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
+    return findTodoById(quest, id)?.role || undefined;
+}
+
 function walkEntriesOf(item: QueuedPrompt, questId: string): TodoIterationSource[] {
     const ran = walkableRepeatIds(item);
     const entries = withSelectionFlags(readQuestTodoEntries(questId, ran), item.groupSelection, ran);

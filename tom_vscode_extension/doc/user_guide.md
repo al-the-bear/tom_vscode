@@ -701,14 +701,20 @@ The MCP servers you set up for Claude Code — in the workspace's `.mcp.json`, o
 A prompt runs as a role: its tools, `${role}` and the role text (`${role-description}`) follow it. The first of these that names a role decides:
 
 1. **The todo's role**: the todo a walk or TODO item runs. It applies from the iteration's main prompt on, so its continuations and follow-ups too. The todo panel and editor set it in the **Role** field (*Default role*: none of its own).
-2. **The queue item's role**: the person chip in its header. A click on a staged or pending item picks one of the roles under `_ai/roles/`, or *Default role*.
+2. **The queue item's role**: set with the person chip in its header. A click on a staged or pending item picks one of the roles under `_ai/roles/`, or *Default role*.
 3. **The process step's role**: a Proceed prompt, and every item that prompt queued.
 4. **The run's default role**: **Default role** in the context bar of the run's tab in the Prompt Queue editor.
 5. **The chat variable `role`.**
 
 While a queue item whose role comes from its todo, itself or its run's default sends, the chat variable `role` shows that role. It is put back when the item stops sending, however it stops: done, failed, interrupted, stopped or removed. A role you change by hand meanwhile stays.
 
-The built-in chat variables are the window's, so with items of several runs sending at once the newest item's role is shown. Each send still runs as its own role. Agents set roles with `role` on `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_sendItemToQuest`, `tomAi_createQuestTodo` and `tomAi_updateQuestTodo`.
+The built-in chat variables are the window's, so with items of several runs sending at once the newest item's role is shown. Each send still runs as its own role.
+
+**Where to see the role a prompt runs as:**
+
+- **On the queue item:** the person chip in its header shows the role the item runs as. When the role is not the item's own, the chip is dimmed and says where it comes from: `idea_author · from its todo`, `coder · process step`, `reviewer · run default`. A TODO item shows its todo's role from the todo file; a walk or GROUP item shows the role of the todo it runs while it runs, and before that the item's, the step's or the run's (each todo's own role still wins). The hover names the order. Without any of these the chip is a grey person icon: the prompt runs as the chat variable `role`, if one is set.
+- **In the live trail:** every prompt's header names the role it ran as and where it came from, `## 🚀 PROMPT 20261121_163000 [direct / opus-5-5-direct · role idea_author (todo)]` (`item`, `process step`, `run default`, `chat variable`). A prompt with no role adds nothing. @CHAT › Logs › MD Trail shows it.
+- **In the system prompt:** the role's text under `## Role` (@CHAT › Logs › Current Prompt, variant *Queue / System*). Agents set roles with `role` on `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_sendItemToQuest`, `tomAi_createQuestTodo` and `tomAi_updateQuestTodo`.
 
 The tools come from the role's **role type**:
 

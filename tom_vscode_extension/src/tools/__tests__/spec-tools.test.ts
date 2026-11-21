@@ -36,7 +36,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
-import { stampOf, withStamp } from './_somSamples.js';
+import { renderedMarkdown, stampOf, withStamp } from './_somSamples.js';
 installVscodeStub({});
 
 import { checkAddNode } from 'tom_som_typescript_runtime';
@@ -57,7 +57,8 @@ import {
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
+// Rendered by this build's runtime: ai_build's committed .tomspecs.md may be in an older layout (_somSamples.ts).
+const MERIDIAN_MD = renderedMarkdown(MERIDIAN_YAML);
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const FR1 = `${FR}/FRE-REQU-LST-1`;

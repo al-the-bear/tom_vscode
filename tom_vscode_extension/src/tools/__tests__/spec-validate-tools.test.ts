@@ -23,7 +23,7 @@ import * as path from 'path';
 
 import { installVscodeStub } from './_vscode-stub.js';
 import { withTiming } from './_timing.js';
-import { stampOf } from './_somSamples.js';
+import { renderedMarkdown, stampOf } from './_somSamples.js';
 installVscodeStub({});
 
 import { SpecEditor, yamlEncode } from 'tom_som_typescript_runtime';
@@ -44,7 +44,8 @@ import {
 
 const SAMPLES = path.resolve(__dirname, '..', '..', '..', '..', '..', 'ai_build', 'tom_som_dart_v0', 'documents');
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
-const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.md'), 'utf8');
+// Rendered by this build's runtime: ai_build's committed .tomspecs.md may be in an older layout (_somSamples.ts).
+const MERIDIAN_MD = renderedMarkdown(MERIDIAN_YAML);
 
 const FR = 'SBP/introductionAndScope/requirements/functionalRequirements';
 const FR1 = `${FR}/FRE-REQU-LST-1`;
@@ -167,7 +168,7 @@ describe('TomSpecs validate, render and convert', () => {
     test('SV-6: render equals the Markdown golden; a subtree renders alone', async () => {
         const r = JSON.parse(await withTiming('tomAi_specRender:typical', () => specRenderImpl(deps, { file: 'meridian.tomspecs.yaml' })));
         assert.equal(r.ok, true);
-        assert.equal(r.markdown, MERIDIAN_MD, 'byte-identical to the shipped Markdown of the same document');
+        assert.equal(r.markdown, MERIDIAN_MD, 'byte-identical to the Markdown the store renders of the same document');
         const sub = await run(specRenderImpl, { file: 'meridian.tomspecs.yaml', path: FR1 });
         assert.ok(sub.markdown.startsWith(`<!-- docspec: solution-blueprint/${stampOf(MERIDIAN_YAML)} -->`), 'under the document\'s own header');
         assert.match(sub.markdown, /<!--\[FRE-REQU-ORDER-CAPTURE\]/);

@@ -18,6 +18,7 @@ import { listRoleNames } from '../utils/roleNames';
 import * as vscode from 'vscode';
 import { questShortDescription, windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../managers/promptQueueManager';
+import * as questTodo from '../managers/questTodoManager';
 import { SOFT_INTERRUPT_TIMEOUT_MS, type SoftInterruptState } from '../services/softInterrupt';
 import type { LaneSummary } from '../utils/queueLanes';
 import { ReminderSystem } from '../managers/reminderSystem';
@@ -1553,6 +1554,26 @@ export function backgroundWaitViewOf(item: QueuedPrompt, now = Date.now()): { li
     };
 }
 
+/**
+ * A todo's `role` by quest and id, each quest's todos read once (gsel11: the
+ * role chips of one state). Archived and deleted todos are read too, as the
+ * queue reads them when it sends.
+ */
+export function cachedTodoRoles(): (quest: string, id: string) => string | undefined {
+    const byQuest = new Map<string, Map<string, string>>();
+    return (quest, id) => {
+        let roles = byQuest.get(quest);
+        if (!roles) {
+            roles = new Map();
+            try {
+                for (const t of questTodo.readAllTodos(quest, questTodo.ALL_TODO_FILES)) { if (t.role) { roles.set(t.id, t.role); } }
+            } catch { /* no todos */ }
+            byQuest.set(quest, roles);
+        }
+        return roles.get(id);
+    };
+}
+
 /** What the editor shows of a sending item's wait in tomAi_waitFor (vscimpb82), or undefined when it does not wait. */
 export function waitForViewOf(item: QueuedPrompt, now = Date.now()): { reason: string; details?: string; until: string; untilLabel: string; left: string; since: string } | undefined {
     if (item.status !== 'sending' || !item.waitingFor) { return undefined; }
@@ -1719,6 +1740,8 @@ function buildState(): Record<string, unknown> {
     } catch { /* */ }
 
     const catalogue = profileCatalogue();
+    // The role chip (gsel11): each quest's todos read once for this state.
+    const todoRoleOf = cachedTodoRoles();
     return {
         type: 'state',
         // A plain array for serialisation; an item a missing API key would make fail carries the reason.
@@ -1771,6 +1794,8 @@ function buildState(): Record<string, unknown> {
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
                 // A GROUP item's members with → / ✓ / checkbox (vscimpb129).
                 ...(groupMembersOf(item) ? { groupMembers: groupMembersOf(item) } : {}),
+                // The role it runs as and where it comes from: its todo's, its own, its step's, its run's default (gsel11).
+                ...(item.processMove ? {} : { roleView: PromptQueueManager.instance.roleViewOf(item, todoRoleOf) }),
             };
             return Object.keys(extra).length ? { ...item, ...extra } : item;
         }),
