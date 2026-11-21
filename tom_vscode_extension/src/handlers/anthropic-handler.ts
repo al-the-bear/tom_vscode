@@ -343,9 +343,12 @@ interface AnthropicSection {
 
 export interface AnthropicSendOptions {
     /**
-     * The aspect guideline choices of the levels below the section default
-     * (utils/aspectGuidelines.ts): the section defaults always apply; an
-     * isolated send (a sub-agent) gets no aspect text.
+     * Aspect guideline choices that replace levels of the live ones
+     * (services/aspectChoiceLevels.ts liveAspectChoices: quest default,
+     * window, run, role type, role, and inside a queue stage its item and
+     * todo): a chat send passes its panel's sticky choices as `item`. The
+     * section defaults always apply; an isolated send (a sub-agent) gets no
+     * aspect text.
      */
     aspectGuidelineChoices?: AspectLevelChoices;
     /** Raw text the user typed into the panel. */
@@ -467,6 +470,7 @@ import { localLlmEndpointText } from '../utils/localLlmEndpoint';
 import { prefixedToolResultContent, SoftInterruptRegistry, toolResultText } from '../services/softInterrupt';
 import { readQuestSection } from '../managers/extensionConfigStore';
 import { liveAspectsForSend } from '../services/aspectGuidelinesStore';
+import { liveAspectChoices } from '../services/aspectChoiceLevels';
 import { placeAspects, type AspectLevelChoices, type AspectTransport } from '../utils/aspectGuidelines';
 import { agentSdkThinkingOptions, directThinkingFields, profileThinkingSettings, type EffortLevel, type ThinkingMode } from '../utils/thinkingAndEffort';
 export { temperatureField };
@@ -2360,7 +2364,7 @@ export class AnthropicHandler {
         // here; the user sections go before the user content below.
         const aspects = options.isolated
             ? undefined
-            : liveAspectsForSend(transport as AspectTransport, { systemSegments, userContent: '' }, options.aspectGuidelineChoices);
+            : liveAspectsForSend(transport as AspectTransport, { systemSegments, userContent: '' }, liveAspectChoices(options.aspectGuidelineChoices));
         if (aspects) {
             systemSegments.splice(0, systemSegments.length, ...aspects.systemSegments);
             for (const problem of aspects.problems) { debugLog(`[aspects] ${problem}`, 'WARN', 'anthropic'); }

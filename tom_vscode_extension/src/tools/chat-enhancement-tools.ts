@@ -35,6 +35,7 @@ import { groupPromptDirs } from '../services/groupPromptDirs';
 import { readGroupPrompts } from '../services/groupPromptStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { liveSectionsReader } from './aspect-guideline-tools';
 import { telegramNotifyTarget } from '../handlers/telegram-config';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
@@ -337,6 +338,7 @@ export const liveQuestTodoDeps: QuestTodoToolsDeps = {
     partOf: (questId, todoId) => questTodo.todoPartOf(questId, todoId),
     idRefusal: (id) => questTodo.todoIdRefusal(id),
     rolesDir: () => WsPaths.ai('roles'),
+    aspectSections: liveSectionsReader,
 };
 
 /** Every todo of a quest, the `-archived` / `-deleted` siblings included. */
@@ -768,7 +770,12 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemRole(id, role);
     },
+    updateItemGuidelines(id, guidelines) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemGuidelines(id, guidelines);
+    },
     rolesDir: () => WsPaths.ai('roles'),
+    aspectSections: liveSectionsReader,
     questExists(quest) {
         const folder = WsPaths.ai('quests', quest);
         return !!folder && fs.existsSync(folder) && fs.statSync(folder).isDirectory();
@@ -919,6 +926,7 @@ export const liveQuestSendAccess: QuestSendAccess = {
         return !!lookupProfile(loadSendToChatConfig()?.anthropic as import('../utils/sessionSpecs').ProfileSection | undefined, id);
     },
     rolesDir: () => WsPaths.ai('roles'),
+    aspectSections: liveSectionsReader,
     listSessions: (quest) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');

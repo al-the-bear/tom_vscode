@@ -22,6 +22,10 @@ export interface QueueRoleSource {
     todoRole?: string;
     itemRole?: string;
     runDefaultRole?: string;
+    /** The guideline choices of the stage's todo, the item and the item's run (gsel4; services/aspectChoiceLevels.ts). */
+    todoGuidelines?: Record<string, string>;
+    itemGuidelines?: Record<string, string>;
+    runGuidelines?: Record<string, string>;
 }
 
 /** Where the effective role comes from. */

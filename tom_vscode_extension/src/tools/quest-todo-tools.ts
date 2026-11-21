@@ -58,6 +58,8 @@ import type { QuestTodoStatus } from '../managers/questTodoManager';
 import type { TodoDecision } from '../utils/todoDecisions';
 import { repeatRuleError, type TodoRepeat } from '../utils/todoRepeat';
 import { roleRefusal } from '../utils/roleNames';
+import { GUIDELINES_SCHEMA, guidelinesRefusal, type AspectSectionsReader } from './aspect-guideline-tools';
+import { normalizeAspectChoices } from '../utils/aspectChoices';
 import { remindersError, remindRuleError, type TodoReminderEntry } from '../utils/todoRemind';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { onDoneShapeError, onDoneTargetRefusal, TODO_ON_DONE_ACTIONS, type TodoFiledBy, type TodoOnDone } from '../utils/todoOnDone';
@@ -108,6 +110,8 @@ export interface QuestTodoFull {
     bundle_id?: string;
     /** The role the todo runs in (a folder of `_ai/roles/`). */
     role?: string;
+    /** The todo's guideline choices: aspect section → option or `remove` (gsel4). */
+    guidelines?: Record<string, string>;
     derived_from?: string;
     feedback_source?: string;
     /** The todo is the user's to do: a `<prefix>*` walk passes it. */
@@ -170,6 +174,8 @@ export interface QuestTodoToolsDeps {
     idRefusal?(id: string): string | undefined;
     /** The roles folder (`_ai/roles/`) a todo's `role` is checked against; undefined: only its form is checked. */
     rolesDir?(): string | undefined;
+    /** The aspect sections a todo's `guidelines` are checked against (gsel4); undefined: only their form is checked. */
+    aspectSections?: AspectSectionsReader;
 }
 
 /** Today for the overdue state: the deps' clock, else the local date now. */
@@ -538,6 +544,7 @@ export interface CreateQuestTodoInput {
         orchestration_role?: string;
         bundle_id?: string;
         role?: string;
+        guidelines?: Record<string, string> | null;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
@@ -711,7 +718,7 @@ export function createQuestTodoProblem(deps: QuestTodoToolsDeps, input: CreateQu
         return '`todo.id` is required — there are NO auto-id rules for quest todos. Pick a stable lowercase id like `add-auth-flow`.';
     }
     if (!input.todo?.description) { return '`todo.description` is required.'; }
-    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateRemind(input.todo as never) ?? roleRefusal(input.todo.role, deps.rolesDir?.()) ?? validateOnDone(deps, input.questId, input.todo.on_done);
+    const shapeError = validateNoBlocking(input.todo) ?? validateNoLastAnswer(input.todo) ?? validateNoFiledBy(input.todo) ?? validateTodoReferences(input.todo.references) ?? validateBlockedUntil(input.todo.blocked_until) ?? validateRepeat(input.todo.repeat) ?? validateRemind(input.todo as never) ?? roleRefusal(input.todo.role, deps.rolesDir?.()) ?? guidelinesRefusal(input.todo.guidelines, deps.aspectSections) ?? validateOnDone(deps, input.questId, input.todo.on_done);
     if (shapeError) { return shapeError; }
     const idRefused = deps.idRefusal?.(String(input.todo.id));
     if (idRefused) { return idRefused; }
@@ -728,8 +735,11 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
         // SCD203: computed BEFORE the create, so the proposed id is not in
         // the list it is being compared against.
         const warning = stemCollisionWarning(deps, input.questId, input.todo.id);
+        const { guidelines, ...todo } = input.todo;
+        const choices = normalizeAspectChoices(guidelines);
         const created = deps.store.create(input.questId, {
-            ...input.todo,
+            ...todo,
+            ...(choices ? { guidelines: choices } : {}),
             status: input.todo.status ?? 'not-started',
         }, input.file);
         deps.onMutate?.();
@@ -777,6 +787,7 @@ export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> 
                     ...USER_ACTION_SCHEMA,
                     ...BLOCKED_UNTIL_SCHEMA,
                     ...ON_DONE_SCHEMA,
+                    ...GUIDELINES_SCHEMA,
                 },
             },
         },
@@ -814,6 +825,7 @@ export interface UpdateQuestTodoInput {
         orchestration_role?: string;
         bundle_id?: string;
         role?: string;
+        guidelines?: Record<string, string> | null;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
@@ -879,13 +891,16 @@ export async function updateQuestTodoImpl(deps: QuestTodoToolsDeps, input: Updat
         }
         // Checked before anything is written: a rejected update applies none
         // of its fields.
-        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateRemind(input.updates as never) ?? roleRefusal(input.updates?.role, deps.rolesDir?.()) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
+        const referencesError = validateNoBlocking(input.updates) ?? validateNoLastAnswer(input.updates) ?? validateNoFiledBy(input.updates) ?? validateTodoReferences(input.updates?.references) ?? validateBlockedUntil(input.updates?.blocked_until) ?? validateRepeat(input.updates?.repeat) ?? validateRemind(input.updates as never) ?? roleRefusal(input.updates?.role, deps.rolesDir?.()) ?? guidelinesRefusal(input.updates?.guidelines, deps.aspectSections) ?? validateOnDone(deps, input.questId, input.updates?.on_done);
         if (referencesError) {
             return JSON.stringify({ ok: false, error: referencesError });
         }
         // Read before writing: the warning compares against what is replaced.
         const before = deps.store.findById(input.questId, input.todoId);
-        const updated = deps.store.update(input.questId, input.todoId, input.updates ?? {});
+        // `guidelines` null or {} removes them (an empty map is what the writer deletes).
+        const { guidelines, ...rest } = input.updates ?? {};
+        const updates = guidelines !== undefined ? { ...rest, guidelines: normalizeAspectChoices(guidelines) ?? {} } : rest;
+        const updated = deps.store.update(input.questId, input.todoId, updates);
         if (!updated) {
             return JSON.stringify({
                 ok: false,
@@ -936,6 +951,7 @@ export const UPDATE_QUEST_TODO_TOOL: SharedToolDefinition<UpdateQuestTodoInput> 
                     ...USER_ACTION_SCHEMA,
                     ...BLOCKED_UNTIL_SCHEMA,
                     ...ON_DONE_SCHEMA,
+                    ...GUIDELINES_SCHEMA,
                 },
             },
         },

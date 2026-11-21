@@ -19,6 +19,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { Document, parseDocument, YAMLMap, YAMLSeq, Scalar, isMap, isSeq } from 'yaml';
 import { WsPaths } from '../utils/workspacePaths';
+import { normalizeAspectChoices } from '../utils/aspectChoices';
 import { TODO_ORCHESTRATION_FIELDS, toTodoDate, todayLocalDate, withTodoDates, type TodoOrchestrationField } from '../utils/todoDates';
 import { coarseProjectType, listedProjects } from '../services/workspaceProjects';
 import { forceBlockStyle, archiveTodos as archiveTodosInFile, deleteTodos as deleteTodosInFile, type TodoMoveResult as TodoFileMoveResult } from '../utils/todoArchive';
@@ -157,6 +158,12 @@ export interface QuestTodoItem {
      * variable's (utils/promptRole.ts).
      */
     role?: string;
+    /**
+     * The todo's guideline choices (gsel4): aspect section → option short
+     * name or `remove`; the todo level, the lowest of all
+     * (utils/aspectGuidelines.ts). Absent or {}: none.
+     */
+    guidelines?: Record<string, string>;
     /** Worktracker orchestration: the todo this one was derived from. */
     derived_from?: string;
     /** Worktracker orchestration: the feedback that raised this todo. */
@@ -556,7 +563,7 @@ const VERIFIED_TODO_FIELDS = new Set<string>([
     'completed_date', 'completed_by', 'last_answer',
     'tags', 'dependencies', 'blocked_by', 'comprised_of', 'blocked_until', 'references',
     'decisions', 'scope', 'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by',
-    'remind', 'next_remind', 'remind_count', 'reminders',
+    'remind', 'next_remind', 'remind_count', 'reminders', 'guidelines',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -721,6 +728,11 @@ function nodeToTodo(node: YAMLMap, sourceFile?: string): QuestTodoItem {
     }
     const onDoneNode = node.get('on_done', true);
     if (isMap(onDoneNode)) { item.on_done = (onDoneNode as YAMLMap).toJSON() as TodoOnDone; }
+    const guidelinesNode = node.get('guidelines', true);
+    if (isMap(guidelinesNode)) {
+        const choices = normalizeAspectChoices((guidelinesNode as YAMLMap).toJSON());
+        if (choices) { item.guidelines = choices; }
+    }
     const filedByNode = node.get('filed_by', true);
     if (isMap(filedByNode)) {
         item.filed_by = Object.fromEntries(Object.entries((filedByNode as YAMLMap).toJSON() as Record<string, unknown>)
@@ -899,7 +911,7 @@ const BUILT_TODO_KEYS = new Set<string>([
     'dependencies', 'blocked_by', 'blocking', 'comprised_of', 'part_of', 'blocked_until', 'references', 'completed_date',
     'completed_by', 'last_answer', 'scope', 'decisions', 'created', '_sourceFile', '_extra',
     'user_action', 'repeat', 'next_repeat', 'repeat_count', 'on_done', 'filed_by', 'due', 'due_reminded',
-    'remind', 'next_remind', 'remind_count', 'reminders',
+    'remind', 'next_remind', 'remind_count', 'reminders', 'guidelines',
     ...TODO_ORCHESTRATION_FIELDS,
 ]);
 
@@ -977,6 +989,8 @@ function buildTodoPlain(todo: Omit<QuestTodoItem, '_sourceFile'>): Record<string
     if (todo.due && todo.due_reminded) { plain.due_reminded = todo.due_reminded; }
     const onDone = normaliseOnDone(todo.on_done);
     if (onDone) { plain.on_done = onDone; }
+    const guidelines = normalizeAspectChoices(todo.guidelines);
+    if (guidelines) { plain.guidelines = guidelines; }
     if (todo.filed_by && Object.keys(todo.filed_by).length) { plain.filed_by = todo.filed_by; }
     if (todo.scope) {
         const scopeObj: Record<string, unknown> = {};
@@ -1145,6 +1159,12 @@ function applyTodoUpdates(
             item.delete('on_done');
         }
         applied.on_done = onDone;
+    }
+    if (updates.guidelines !== undefined) {
+        // Replaced as a whole; null or {} removes it (gsel4).
+        const choices = normalizeAspectChoices(updates.guidelines);
+        setOrDelete(item, 'guidelines', choices ? doc.createNode(choices) : undefined);
+        applied.guidelines = choices;
     }
     // A repeated todo set to `completed` is not completed: it waits for its
     // next repetition (utils/todoRepeat.ts). One place for every writer — the

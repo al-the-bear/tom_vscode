@@ -61,6 +61,8 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 import { parseSessionSpec } from '../utils/sessionSpecs';
 import { roleRefusal } from '../utils/roleNames';
+import { GUIDELINES_SCHEMA, guidelinesRefusal, type AspectSectionsReader } from './aspect-guideline-tools';
+import { normalizeAspectChoices } from '../utils/aspectChoices';
 
 // ===========================================================================
 // Shared shapes
@@ -143,6 +145,8 @@ export interface QueueItemSnapshot {
     sessionCreate?: { basedOn?: string; mode?: string; profile?: string };
     /** The role the item runs as (a folder of `_ai/roles/`); unset: none of its own. */
     role?: string;
+    /** The item's guideline choices (gsel4). */
+    guidelines?: Record<string, string>;
     /** The process run of the quest the item belongs to (`default` for the quest's own position). */
     run?: string;
     answerText?: string;
@@ -185,7 +189,7 @@ export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
     'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
-    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'role', 'run',
+    'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'role', 'guidelines', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
     'queuedBy', 'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
 ] as const satisfies readonly (keyof QueueItemSnapshot)[];
@@ -239,6 +243,8 @@ export interface EnqueueInput {
     session?: QueueSessionInput;
     /** The role the item runs as (a folder of `_ai/roles/`). */
     role?: string;
+    /** The item's guideline choices (gsel4; checked by the caller). */
+    guidelines?: Record<string, string>;
     /** The process run the item belongs to; default the window's current run. */
     run?: string;
     prePrompts?: PrePromptSpec[];
@@ -335,6 +341,10 @@ export interface PromptQueueAccess {
     updateItemRole?(id: string, role: string): boolean;
     /** The roles folder (`_ai/roles/`) a role is checked against; undefined: only its form is checked. */
     rolesDir?(): string | undefined;
+    /** Set the guideline choices of a staged or pending item (undefined = none); false when the item cannot change (gsel4). */
+    updateItemGuidelines?(id: string, guidelines: Record<string, string> | undefined): boolean;
+    /** The aspect sections `guidelines` are checked against; undefined: only their form is checked. */
+    aspectSections?: AspectSectionsReader;
     /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
     updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean; quest?: string; run?: string }): boolean;
 
@@ -482,6 +492,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         session: i.session || null,
         ...(i.sessionCreate ? { sessionSpec: { name: i.session, ...i.sessionCreate } } : {}),
         ...(i.role ? { role: i.role } : {}),
+        ...(i.guidelines && Object.keys(i.guidelines).length ? { guidelines: i.guidelines } : {}),
         // The process run the item belongs to (a chat send: none).
         ...(i.run ? { run: i.run } : {}),
         answerText: i.answerText || null,
@@ -545,6 +556,8 @@ export interface AddQueueItemInput {
     session?: QueueSessionInput;
     /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
     role?: string;
+    /** The item's guideline choices (gsel4): section → option or `remove`. */
+    guidelines?: Record<string, string> | null;
     doneNotificationPrompt?: string;
     /** The quest the done notification is posted to (its inbox); default this quest. */
     doneNotificationQuest?: string;
@@ -613,6 +626,8 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
         if (badSession) { return badSession; }
         const badRole = roleRefusal(input.role, access.rolesDir?.());
         if (badRole) { return err(badRole); }
+        const badGuidelines = guidelinesRefusal(input.guidelines, access.aspectSections);
+        if (badGuidelines) { return err(badGuidelines); }
         const run = typeof input.run === 'string' && input.run.trim() ? input.run.trim() : undefined;
         if (run && access.runs) {
             const known = access.runs();
@@ -653,6 +668,7 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             anthropicConfigId: input.anthropicConfigId,
             ...(input.session ? { session: input.session } : {}),
             ...(input.role ? { role: input.role } : {}),
+            ...(normalizeAspectChoices(input.guidelines) ? { guidelines: normalizeAspectChoices(input.guidelines) } : {}),
             ...(input.doneNotificationPrompt ? { doneNotificationPrompt: input.doneNotificationPrompt } : {}),
             ...(input.processItem === true ? { processItem: true } : {}),
             prePrompts: input.prePrompts ?? [],
@@ -727,6 +743,7 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
             role: ROLE_SCHEMA,
+            ...GUIDELINES_SCHEMA,
             run: { type: 'string', description: 'The process run of the quest the item belongs to (tomAi_listProcessRuns): its sessions are the run\'s (`<session>@<run>`). Default: the run of the Proceed prompt it is queued from, else the window\'s run.' },
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
@@ -1007,6 +1024,8 @@ export interface UpdateQueueItemInput {
     session?: QueueSessionInput;
     /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
     role?: string;
+    /** The item's guideline choices (gsel4); {} or null removes them. */
+    guidelines?: Record<string, string> | null;
     /** '' removes it. */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;
@@ -1082,6 +1101,13 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             if (badRole) { return err(badRole); }
             if (!access.updateItemRole || !access.updateItemRole(input.queueItemId, input.role)) {
                 return err(`The role of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
+            }
+        }
+        if (input.guidelines !== undefined) {
+            const badGuidelines = guidelinesRefusal(input.guidelines, access.aspectSections);
+            if (badGuidelines) { return err(badGuidelines); }
+            if (!access.updateItemGuidelines || !access.updateItemGuidelines(input.queueItemId, normalizeAspectChoices(input.guidelines))) {
+                return err(`The guideline choices of queue item "${input.queueItemId}" cannot be changed (only staged or pending items).`);
             }
         }
         if (input.doneNotificationQuest !== undefined || input.doneNotificationRun !== undefined) {
@@ -1193,6 +1219,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
             role: ROLE_SCHEMA,
+            ...GUIDELINES_SCHEMA,
             doneNotificationPrompt: { type: 'string', description: DONE_NOTIFICATION_DOC },
             doneNotificationQuest: { type: 'string', description: DONE_NOTIFICATION_QUEST_DOC },
             doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },

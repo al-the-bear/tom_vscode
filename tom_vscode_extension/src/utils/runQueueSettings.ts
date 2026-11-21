@@ -20,6 +20,7 @@
 
 import { DEFAULT_RUN, normalizeRun } from './processRuns';
 import { DEFAULT_WALK_CONTINUATIONS, validContinuations } from './walkCompletionCheck';
+import { normalizeAspectChoices } from './aspectChoices';
 
 export type RunQueueTransport = 'copilot' | 'anthropic';
 
@@ -46,6 +47,11 @@ export interface RunQueueSettings {
      * one and no process step does (gsel3; utils/promptRole.ts).
      */
     defaultRole?: string;
+    /**
+     * The run's guideline choices (gsel4, L-5): aspect section → option or
+     * `remove`; the run level of utils/aspectGuidelines.ts. Unset: none.
+     */
+    guidelines?: Record<string, string>;
 }
 
 /** The settings of a run when neither the file nor its old top-level keys say otherwise. */
@@ -74,6 +80,7 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     defaultAgentSdkSession: 'default-agent-sdk-session',
     defaultMessageTemplateId: 'default-message-template-id',
     defaultRole: 'default-role',
+    guidelines: 'guidelines',
 });
 
 /** Every setting, in the file's key order. */
@@ -103,6 +110,11 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
             if (v) { (out as unknown as Record<string, unknown>)[key] = v; } else { delete out[key]; }
         }
     }
+    // The guideline choices: a map; '' or an empty map clears them.
+    if (r[k.guidelines] !== undefined) {
+        const choices = normalizeAspectChoices(r[k.guidelines]);
+        if (choices) { out.guidelines = choices; } else { delete out.guidelines; }
+    }
     return out;
 }
 
@@ -111,6 +123,8 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
     const out: Record<string, unknown> = {};
     for (const field of fields) {
         const v = s[field];
+        // The guideline choices are a map: unset is written as an empty one.
+        if (field === 'guidelines') { out[RUN_QUEUE_SETTING_KEYS[field]] = { ...(s.guidelines ?? {}) }; continue; }
         out[RUN_QUEUE_SETTING_KEYS[field]] = v === undefined ? '' : v;
     }
     return out;
@@ -121,10 +135,12 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
  * / -Continue, the default transport, profile, configuration, session, role and
  * prompt template, the Copilot answer timeout and reminder template. The walk
- * continuations (not shown in a tab) keep their top-level value.
+ * continuations (not shown in a tab) keep their top-level value; the run's
+ * guideline choices stay the run's own (the quest default is their shared
+ * level, gsel4).
  */
 export const DEFAULT_SETTING_FIELDS: ReadonlyArray<keyof RunQueueSettings> = Object.freeze(
-    ALL_FIELDS.filter((f) => f !== 'walkContinuations'),
+    ALL_FIELDS.filter((f) => f !== 'walkContinuations' && f !== 'guidelines'),
 );
 
 /** The start values once "Make default" took `from`'s shown settings: `start` with {@link DEFAULT_SETTING_FIELDS} of `from`. */

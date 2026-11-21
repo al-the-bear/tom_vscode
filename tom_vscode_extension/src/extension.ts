@@ -123,6 +123,7 @@ import { configureWindowRequests, publishInteractions, startWindowRequests } fro
 import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
 import { initAnswersPanel } from './handlers/answersPanel-handler';
+import { applyAspectChoiceRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
 
 // Global manager instance for SendToChatAdvanced
 let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
@@ -514,6 +515,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // tomAi_answerUser (vscimpb171): the machine's answer store for this window's _ai, and the Answers page.
     configureAnswersStore(context.globalStorageUri.fsPath, () => WsPaths.aiRoot);
     initAnswersPanel(context);
+    registerAspectChoiceCommands(context);
     timeStep('notifications', stepStart);
 
     // Register Unified Notepad (T2) panel
@@ -923,6 +925,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 PromptQueueManager.instance.setRunAutoSend(run, true);
                 return true;
             },
+            // Another window's all-windows guideline change (gsel4).
+            setAspectChoice: (section, option) => applyAspectChoiceRequest(section, option),
         }, () => { syncRemoteAsks(userInteractions); });
         context.subscriptions.push({ dispose: () => { unpublish(); stopRequests(); publishInteractions([]); } });
     }

@@ -113,10 +113,16 @@ export function liveAspectsForSend(
     );
 }
 
-/** The aspect text placed before a Copilot prompt (Copilot has no system prompt). */
+/**
+ * The aspect text placed before a Copilot prompt (Copilot has no system
+ * prompt). `choices`: the send's levels; default: the live ones
+ * (services/aspectChoiceLevels.ts liveAspectChoices).
+ */
 export function withAspectsForCopilot(text: string, choices?: AspectLevelChoices): string {
     try {
-        return liveAspectsForSend('copilot', { systemSegments: [], userContent: text }, choices).userContent;
+        /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+        const levels = choices ?? (require('./aspectChoiceLevels') as typeof import('./aspectChoiceLevels')).liveAspectChoices();
+        return liveAspectsForSend('copilot', { systemSegments: [], userContent: text }, levels).userContent;
     } catch {
         return text;
     }

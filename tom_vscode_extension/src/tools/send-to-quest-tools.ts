@@ -21,6 +21,8 @@ import type { InboxItem, InboxNewSession } from '../utils/questInbox';
 import type { QueuedBy } from '../utils/queuedBy';
 import { todoPrefixPatternError } from '../utils/queueStep3Utils';
 import { roleRefusal } from '../utils/roleNames';
+import { GUIDELINES_SCHEMA, guidelinesRefusal, type AspectSectionsReader } from './aspect-guideline-tools';
+import { normalizeAspectChoices } from '../utils/aspectChoices';
 
 export interface SendItemToQuestInput {
     quest: string;
@@ -37,6 +39,8 @@ export interface SendItemToQuestInput {
     newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
     /** The role the item runs as in the target quest (a folder of `_ai/roles/`). */
     role?: string;
+    /** The item's guideline choices there: aspect section → option or `remove` (gsel4). */
+    guidelines?: Record<string, string> | null;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** How often the target repeats the item: a number, a chat variable there, or `<prefix>*` (a walk over the target quest's todos). */
@@ -70,6 +74,8 @@ export interface QuestSendAccess {
     listSessions(quest: string): SessionRecord[];
     /** The roles folder (`_ai/roles/`, shared by every quest) a role is checked against; undefined: only its form. */
     rolesDir?(): string | undefined;
+    /** The aspect sections (`_ai/aspect_guidelines/`, shared by every quest) `guidelines` are checked against; undefined: only their form. */
+    aspectSections?: AspectSectionsReader;
     /** The windows of the quest with a live heartbeat. */
     liveWindows(quest: string): TargetWindow[];
     /** This window, as the item names its sender. */
@@ -103,6 +109,8 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
         }
         const badRole = roleRefusal(input.role, access.rolesDir?.());
         if (badRole) { return err(badRole, { code: 'unknownRole' }); }
+        const badGuidelines = guidelinesRefusal(input.guidelines, access.aspectSections);
+        if (badGuidelines) { return err(badGuidelines, { code: 'unknownGuidelines' }); }
         if (input.session && input.newSession) {
             return err('Give `session` or `newSession`, not both.', { code: 'invalidSession' });
         }
@@ -175,6 +183,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
             ...(input.session ? { session: input.session } : {}),
             ...(newSession ? { newSession } : {}),
             ...(input.role ? { role: input.role } : {}),
+            ...(normalizeAspectChoices(input.guidelines) ? { guidelines: normalizeAspectChoices(input.guidelines) } : {}),
             ...(run ? { run } : {}),
             ...(walk.repeatCount !== undefined ? { repeatCount: walk.repeatCount } : {}),
             ...(walk.todoIdPattern ? { todoIdPattern: walk.todoIdPattern } : {}),
@@ -274,6 +283,7 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
             pauseAfter: { type: 'boolean' },
             session: { type: 'string', description: 'An existing session of the target quest.' },
             role: { type: 'string', description: 'The role the item runs as there: a folder of `_ai/roles/` (shared by every quest). Its stages run as this role unless the todo it runs names its own. An unknown role is refused (`unknownRole`).' },
+            ...GUIDELINES_SCHEMA,
             newSession: {
                 type: 'object',
                 properties: {

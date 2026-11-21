@@ -143,6 +143,8 @@ export const AVAILABLE_LLM_TOOLS = [
     // Pattern prompts
     'tomAi_listPatternPrompts',
     'tomAi_readPatternPrompt',
+    // Aspect guideline choices (read-only; the levels and the selection)
+    'tomAi_getAspectGuidelines',
     // Quest todos
     'tomAi_listQuestTodos',
     'tomAi_getQuestTodo',

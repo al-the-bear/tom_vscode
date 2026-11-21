@@ -107,7 +107,7 @@ describe('tomAi_sendItemToQuest', () => {
         assert.equal(SEND_ITEM_TO_QUEST_TOOL.readOnly, false, 'a write tool: the MCP read-only floor does not serve it');
         const props = Object.keys((SEND_ITEM_TO_QUEST_TOOL.inputSchema as { properties: object }).properties);
         assert.deepEqual(props.sort(), ['anthropicProfileId', 'doneNotificationPrompt', 'doneNotificationQuest', 'doneNotificationRun',
-            'group', 'newSession', 'pauseAfter', 'quest', 'repeatCount', 'role', 'run', 'session', 'template', 'text', 'todo', 'todoIdPattern']);
+            'group', 'guidelines', 'newSession', 'pauseAfter', 'quest', 'repeatCount', 'role', 'run', 'session', 'template', 'text', 'todo', 'todoIdPattern']);
     });
 
     test('SQ-4: runs and the notification\'s target', async () => {

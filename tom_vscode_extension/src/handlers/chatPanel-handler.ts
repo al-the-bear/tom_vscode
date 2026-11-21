@@ -23,6 +23,7 @@ import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFol
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
+import { chatSendAspectChoices, liveAspectChoices } from '../services/aspectChoiceLevels';
 import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
@@ -1510,7 +1511,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
 
         // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
-        expanded = withAspectsForCopilot(expanded);
+        // Its levels: the live ones with the panel's run and sticky choices (gsel4).
+        expanded = withAspectsForCopilot(expanded, liveAspectChoices(chatSendAspectChoices('copilot', this._chatRun('copilot'))));
 
         // Extract requestId from expanded prompt so trail and answer share the same ID
         const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
@@ -1789,6 +1791,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // separate from the prompt queue's `default`, so the two never resume each other.
                     sessionKey,
                     skipQuestRefresh,
+                    // The panel's run and sticky guideline choices (gsel4).
+                    aspectGuidelineChoices: chatSendAspectChoices('anthropic', this._chatRun('anthropic')),
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
                 })),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.

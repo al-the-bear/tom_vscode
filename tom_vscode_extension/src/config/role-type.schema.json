@@ -26,6 +26,12 @@
                     "description": "With mode selected: the tool names (tomAi_*). The always-on tools need not be listed."
                 }
             }
+        },
+        "guidelines": {
+            "type": "object",
+            "description": "The guideline choices of the type's roles (a role's own win): an aspect section (a folder of _ai/aspect_guidelines/) mapped to an option's short name, or to `remove` (nothing is sent for that section). A section without an entry inherits from the levels above (Don't add). Absent: no choices.",
+            "propertyNames": { "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" },
+            "additionalProperties": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" }
         }
     }
 }

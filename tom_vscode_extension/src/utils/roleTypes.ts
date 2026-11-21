@@ -58,10 +58,14 @@ export interface RoleType {
     name?: string;
     description?: string;
     tools: { mode: RoleToolsMode; enabled?: string[] };
+    /** The guideline choices of the type's roles (gsel4): aspect section → option or `remove`; none: *Don't add* everywhere. */
+    guidelines?: Record<string, string>;
 }
 
 export interface RoleConfig {
     roleType?: string;
+    /** The role's own guideline choices (gsel4), over its type's. */
+    guidelines?: Record<string, string>;
 }
 
 /** A folder name a role or role type may have. */
@@ -118,6 +122,11 @@ export function schemaLine(file: string, topTom: string, kind: 'roleType' | 'rol
     return `# yaml-language-server: $schema=${schemaRefFromFile(file, topTom, rel)}`;
 }
 
+/** Whether `g` is a guideline-choice map with at least one entry (an empty one is not written). */
+function nonEmptyChoices(g: Record<string, string> | undefined): g is Record<string, string> {
+    return typeof g === 'object' && g !== null && Object.keys(g).length > 0;
+}
+
 /** A role type as its file's text (refused when it does not match the schema). */
 export function serializeRoleType(value: RoleType, header: string): string {
     const clean: RoleType = {
@@ -127,6 +136,7 @@ export function serializeRoleType(value: RoleType, header: string): string {
         tools: value?.tools?.mode === 'selected'
             ? { mode: 'selected', enabled: [...new Set((value.tools.enabled ?? []).filter((t) => !ALWAYS_ON_TOOLS.includes(t)))].sort() }
             : value?.tools?.mode === 'profileDefault' ? { mode: 'profileDefault' } : { ...(value?.tools ?? {}) } as RoleType['tools'],
+        ...(nonEmptyChoices(value.guidelines) ? { guidelines: value.guidelines } : {}),
     };
     const errors = validateRoleFile('roleType', clean);
     if (errors.length) { throw new Error(`The role type does not match its schema: ${errors.join('; ')}`); }
@@ -135,7 +145,10 @@ export function serializeRoleType(value: RoleType, header: string): string {
 
 /** A role configuration as its file's text. */
 export function serializeRoleConfig(value: RoleConfig, header: string): string {
-    const clean: RoleConfig = value.roleType?.trim() ? { roleType: value.roleType.trim() } : {};
+    const clean: RoleConfig = {
+        ...(value.roleType?.trim() ? { roleType: value.roleType.trim() } : {}),
+        ...(nonEmptyChoices(value.guidelines) ? { guidelines: value.guidelines } : {}),
+    };
     const errors = validateRoleFile('roleConfig', clean);
     if (errors.length) { throw new Error(`The role configuration does not match its schema: ${errors.join('; ')}`); }
     return `${header}\n${Object.keys(clean).length ? stringify(clean) : '{}\n'}`;
@@ -176,6 +189,39 @@ export function resolveRoleTools(aiRoot: string, role: string | undefined): Role
     if (!parsed.ok) { return { role: name, roleType: type, note: `${typeFile} is not valid (${parsed.errors.join('; ')}): the profile's tools` }; }
     const tools = roleTypeToolNames(parsed.value);
     return tools ? { role: name, roleType: type, tools } : { role: name, roleType: type, note: `role type ${type} keeps the profile's tools` };
+}
+
+/** The guideline choices of a role and of its type (gsel4), and why one could not be read. */
+export interface RoleGuidelines {
+    role: string;
+    roleType?: string;
+    /** The role type's choices (`role-type.yaml` `guidelines`). */
+    roleTypeChoices?: Record<string, string>;
+    /** The role's own choices (`role-config.yaml` `guidelines`). */
+    roleChoices?: Record<string, string>;
+    /** Files that could not be read (their choices are left out). */
+    notes: string[];
+}
+
+/** The guideline choices of the role `role` under the `_ai` folder `aiRoot`: its own and its type's. None without a role. */
+export function resolveRoleGuidelines(aiRoot: string, role: string | undefined): RoleGuidelines {
+    const name = role?.trim() ?? '';
+    const out: RoleGuidelines = { role: name, notes: [] };
+    if (!name || name === 'default' || !ROLE_ID_PATTERN.test(name)) { return out; }
+    const configFile = path.join(aiRoot, 'roles', name, ROLE_CONFIG_FILE);
+    if (!fs.existsSync(configFile)) { return out; }
+    const config = parseRoleConfig(fs.readFileSync(configFile, 'utf8'));
+    if (!config.ok) { out.notes.push(`${configFile} is not valid (${config.errors.join('; ')})`); return out; }
+    if (nonEmptyChoices(config.value.guidelines)) { out.roleChoices = { ...config.value.guidelines }; }
+    const type = config.value.roleType;
+    if (!type) { return out; }
+    out.roleType = type;
+    const typeFile = path.join(aiRoot, ROLE_TYPES_FOLDER, type, ROLE_TYPE_FILE);
+    if (!fs.existsSync(typeFile)) { return out; }
+    const parsed = parseRoleType(fs.readFileSync(typeFile, 'utf8'));
+    if (!parsed.ok) { out.notes.push(`${typeFile} is not valid (${parsed.errors.join('; ')})`); return out; }
+    if (nonEmptyChoices(parsed.value.guidelines)) { out.roleTypeChoices = { ...parsed.value.guidelines }; }
+    return out;
 }
 
 /**

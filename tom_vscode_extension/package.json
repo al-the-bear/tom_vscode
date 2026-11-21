@@ -244,6 +244,16 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.setQuestDefaultGuidelines",
+        "title": "@T: Set Guideline Choices as Quest Default",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.clearQuestDefaultGuidelines",
+        "title": "@T: Clear Quest Default Guideline Choices",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.commandline.add",
         "title": "@T: Add Commandline",
         "category": "@Tom"

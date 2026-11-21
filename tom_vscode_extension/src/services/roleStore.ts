@@ -24,6 +24,8 @@ export interface RoleRecord {
     roleType?: string;
     /** Why role-config.yaml could not be read. */
     configError?: string;
+    /** The role's guideline choices (gsel4). */
+    guidelines?: Record<string, string>;
 }
 
 export interface RoleTypeRecord {
@@ -67,6 +69,7 @@ export class RoleStore {
             const parsed = parseRoleConfig(fs.readFileSync(configFile, 'utf8'));
             if (parsed.ok) {
                 if (parsed.value.roleType) { record.roleType = parsed.value.roleType; }
+                if (parsed.value.guidelines && Object.keys(parsed.value.guidelines).length) { record.guidelines = { ...parsed.value.guidelines }; }
             } else {
                 record.configError = parsed.errors.join('; ');
             }
@@ -89,16 +92,20 @@ export class RoleStore {
     /**
      * Save a role: role.md, and role-config.yaml naming its type. No type:
      * an existing role-config.yaml keeps no type; none is created.
+     * `guidelines` (gsel4): the role's guideline choices; undefined keeps the
+     * file's, `{}` clears them.
      */
-    saveRole(id: string, roleMd: string, roleType: string | undefined): void {
+    saveRole(id: string, roleMd: string, roleType: string | undefined, guidelines?: Record<string, string>): void {
         if (!ROLE_ID_PATTERN.test(id)) { throw new Error(`"${id}" is not a role name (letters, digits, _ and -)`); }
         const type = roleType?.trim() || undefined;
         if (type && !fs.existsSync(path.join(this.typesDir(), type, ROLE_TYPE_FILE))) { throw new Error(`role type "${type}" does not exist`); }
         const dir = path.join(this.rolesDir(), id);
         fs.mkdirSync(dir, { recursive: true });
         const configFile = path.join(dir, ROLE_CONFIG_FILE);
-        if (type || fs.existsSync(configFile)) {
-            const text = serializeRoleConfig(type ? { roleType: type } : {}, schemaLine(configFile, this.topTom, 'roleConfig'));
+        const kept = guidelines ?? (fs.existsSync(configFile) ? this.role(id)?.guidelines : undefined);
+        const choices = kept && Object.keys(kept).length ? kept : undefined;
+        if (type || choices || fs.existsSync(configFile)) {
+            const text = serializeRoleConfig({ ...(type ? { roleType: type } : {}), ...(choices ? { guidelines: choices } : {}) }, schemaLine(configFile, this.topTom, 'roleConfig'));
             fs.writeFileSync(configFile, text);
         }
         fs.writeFileSync(path.join(dir, 'role.md'), roleMd.endsWith('\n') ? roleMd : `${roleMd}\n`);
@@ -112,11 +119,16 @@ export class RoleStore {
         this.saveRole(id, `# ${title}\n\nWhat this role does.\n\n## Responsibilities\n\n- \n`, undefined);
     }
 
-    /** Save a role type (role-type.yaml). */
+    /** Save a role type (role-type.yaml). A value without `guidelines` keeps the file's (gsel4); `{}` clears them. */
     saveRoleType(id: string, value: RoleType): void {
         if (!ROLE_ID_PATTERN.test(id)) { throw new Error(`"${id}" is not a role type name (letters, digits, _ and -)`); }
         const file = path.join(this.typesDir(), id, ROLE_TYPE_FILE);
-        const text = serializeRoleType(value, schemaLine(file, this.topTom, 'roleType'));
+        let guidelines = value.guidelines;
+        if (guidelines === undefined && fs.existsSync(file)) {
+            const before = parseRoleType(fs.readFileSync(file, 'utf8'));
+            if (before.ok) { guidelines = before.value.guidelines; }
+        }
+        const text = serializeRoleType({ ...value, ...(guidelines ? { guidelines } : {}) }, schemaLine(file, this.topTom, 'roleType'));
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, text);
     }

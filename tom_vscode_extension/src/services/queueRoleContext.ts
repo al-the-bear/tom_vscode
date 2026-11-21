@@ -37,9 +37,10 @@ export function __setPromptRoleDepsForTests(deps: typeof testDeps): void { testD
 /**
  * The role the current send runs as: the queue stage's todo or item role, the
  * running Proceed's step role, the run's default role, else the chat variable
- * `role`.
+ * `role`. `queued`: the queue stage's roles (default: the stage the current
+ * code runs in).
  */
-export function livePromptRole(): PromptRole {
+export function livePromptRole(queued: QueueRoleSource | undefined = currentQueueRole()): PromptRole {
     let stepRole: string | undefined;
     let chatRole: string | undefined;
     if (testDeps) {
@@ -55,5 +56,5 @@ export function livePromptRole(): PromptRole {
             chatRole = (require('../managers/chatVariablesStore') as typeof import('../managers/chatVariablesStore')).ChatVariablesStore.instance?.role;
         } catch { /* no chat variables */ }
     }
-    return effectivePromptRole({ queued: currentQueueRole(), stepRole, chatRole });
+    return effectivePromptRole({ queued, stepRole, chatRole });
 }

@@ -30,6 +30,7 @@ import * as path from 'path';
 import { isValidSessionName, normalizeSessionMode, type SessionMode, type SessionRecord } from './agentSdkSessions';
 import { sanitizeFilePart, sanitizeHostnameForFile } from './queueStep5Utils';
 import { fillPlaceholder } from './placeholderEscape';
+import { normalizeAspectChoices } from './aspectChoices';
 
 export const INBOX_SUFFIX = '.inbox.queue.yaml';
 const CLAIM_MARK = '.claimed-';
@@ -78,6 +79,8 @@ export interface InboxItem {
     newSession?: InboxNewSession;
     /** The role the item runs as there (a folder of `_ai/roles/`; gsel3). */
     role?: string;
+    /** The item's guideline choices there: aspect section → option or `remove` (gsel4). */
+    guidelines?: Record<string, string>;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** The item's repeat count in the target queue: a number, a chat variable, or `<prefix>*` (a todo walk there). */
@@ -158,6 +161,7 @@ export function serializeInboxItem(item: InboxItem): string {
     if (item.queuedBy) { doc['queued-by'] = queuedByToYaml(item.queuedBy); }
     if (item.session) { doc.session = item.session; }
     if (item.role) { doc.role = item.role; }
+    if (item.guidelines && Object.keys(item.guidelines).length) { doc.guidelines = { ...item.guidelines }; }
     if (item.newSession) {
         const n = item.newSession;
         doc['new-session'] = {
@@ -208,6 +212,10 @@ export function parseInboxItem(content: string): ParsedInboxItem {
         const role = str(r.role);
         if (!role || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(role)) { return { ok: false, error: `"${String(r.role)}" is not a role name` }; }
         item.role = role;
+    }
+    if (r.guidelines !== undefined) {
+        const guidelines = normalizeAspectChoices(r.guidelines);
+        if (guidelines) { item.guidelines = guidelines; }
     }
     if (r.session !== undefined) {
         const session = str(r.session);
@@ -331,6 +339,8 @@ export interface InboxConversion {
         session?: string;
         /** The role the item runs as. */
         role?: string;
+        /** The item's guideline choices. */
+        guidelines?: Record<string, string>;
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
         doneNotificationQuest?: string;
@@ -384,6 +394,7 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
         ...(item.transport ? { transport: item.transport } : {}),
         ...(item.queuedBy ? { queuedBy: item.queuedBy } : {}),
         ...(item.role ? { role: item.role } : {}),
+        ...(item.guidelines ? { guidelines: item.guidelines } : {}),
         from: item.from,
     };
     if (item.run && ctx.runExists && !ctx.runExists(item.run)) {

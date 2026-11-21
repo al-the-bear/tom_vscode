@@ -99,6 +99,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_gitWrite',
     ],
     'Guidelines (global)': [
+        'tomAi_getAspectGuidelines',
         'tomAi_listGlobalGuidelines',
         'tomAi_readGlobalGuideline',
         'tomAi_searchGlobalGuidelines',
