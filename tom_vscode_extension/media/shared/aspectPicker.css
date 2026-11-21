@@ -1,0 +1,121 @@
+/* The guideline picker (media/shared/aspectPicker.js, gsel5): the button with
+ * its dot, the list indicator and the two-level popup. */
+
+.tom-aspect-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 4px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0.75;
+}
+.tom-aspect-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+.tom-aspect-btn.own { opacity: 1; }
+.tom-aspect-dot {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+}
+.tom-aspect-ind {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 4px 0 0;
+    opacity: 0.85;
+}
+.tom-aspect-ind .tom-aspect-dot { right: 0; top: 0; }
+/* The Prompt Queue editor's window buttons, right of the model dropdowns. */
+.aspect-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+}
+.tom-aspect-text {
+    font-size: 0.85em;
+    opacity: 0.85;
+    margin-left: 4px;
+}
+
+.tom-aspect-popup {
+    position: fixed;
+    z-index: 1000;
+    min-width: 240px;
+    max-width: 420px;
+    padding: 4px 0;
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, #555));
+    border-radius: 4px;
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    font-size: 12px;
+}
+.tom-aspect-popup-title {
+    padding: 3px 10px 5px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-widget-border, #555));
+    margin-bottom: 2px;
+}
+.tom-aspect-popup-note { padding: 2px 10px 4px; opacity: 0.75; font-size: 0.92em; }
+.tom-aspect-empty { padding: 4px 10px; opacity: 0.75; }
+.tom-aspect-section {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.tom-aspect-section:hover, .tom-aspect-section.open, .tom-aspect-edit:hover {
+    background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+    color: var(--vscode-menu-selectionForeground, inherit);
+}
+.tom-aspect-section-label { font-weight: 600; }
+.tom-aspect-section-value { flex: 1; }
+.tom-aspect-origin { opacity: 0.6; font-size: 0.92em; }
+.tom-aspect-origin.here { opacity: 1; color: var(--vscode-testing-iconPassed, #73c991); }
+.tom-aspect-options {
+    display: none;
+    position: absolute;
+    top: -5px;
+    left: 100%;
+    min-width: 160px;
+    padding: 4px 0;
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, #555));
+    border-radius: 4px;
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+.tom-aspect-section.open > .tom-aspect-options { display: block; }
+.tom-aspect-section.flip > .tom-aspect-options { left: auto; right: 100%; }
+.tom-aspect-option {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 3px 10px;
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    background: transparent;
+}
+.tom-aspect-option:hover {
+    background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+    color: var(--vscode-menu-selectionForeground, inherit);
+}
+.tom-aspect-option.mine { font-weight: 600; }
+.tom-aspect-mark { width: 10px; display: inline-block; }
+.tom-aspect-option-text { flex: 1; }
+.tom-aspect-edit {
+    margin-top: 2px;
+    padding: 4px 10px 3px;
+    border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-widget-border, #555));
+    cursor: pointer;
+}

@@ -25,6 +25,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'unsafe-inline';">
 <link rel="stylesheet" href="{{sharedUri}}/queueEntryStyles.css">
 <link rel="stylesheet" href="{{sharedUri}}/mdOverlay.css">
+<link rel="stylesheet" href="{{sharedUri}}/aspectPicker.css">
 </head>
 <body class="queue-editor-page">
 <h2>Prompt Queue</h2>
@@ -36,6 +37,9 @@
   <select id="compactionModelPick" title="The model that compacts the history (compaction.compactionModel; also on the Status Page, History Compaction)"></select>
   <label for="memoryModelPick" style="font-size:0.85em;opacity:0.85;">Memory extraction model:</label>
   <select id="memoryModelPick" title="The model that extracts memory (compaction.memoryExtractionModel; also on the Status Page, History Compaction)"></select>
+  <!-- The guideline picker (gsel5, media/shared/aspectPicker.js): the window's
+       choices, the all-windows change, Set as / Clear quest default. Drawn by main.js. -->
+  <span id="aspectToolbar" class="aspect-toolbar"></span>
 </div>
 <!-- One tab per process run (vscimpb60b): the quest's runs and any run that has
      items. Each tab is that run's queue — its items, its toolbar, its defaults row;
@@ -160,6 +164,7 @@
 <noscript><div class="empty" style="color:var(--vscode-errorForeground,#f85149);">JavaScript is disabled in this webview.</div></noscript>
 
 <script src="{{sharedUri}}/mdOverlay.js"></script>
+<script src="{{sharedUri}}/aspectPicker.js"></script>
 <script src="{{sharedUri}}/queueEntryUtils.js"></script>
 <script src="{{sharedUri}}/queueEntryRenderFunctions.js"></script>
 <script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>

@@ -210,6 +210,8 @@ let queueDefaultMessageTemplateId = __INITIAL__.queueDefaultMessageTemplateId ||
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
 // Each run's context for its tab's links: position, role, chat variables (vscimpb60c; from the host).
 let runContexts = (__INITIAL__.runContexts && typeof __INITIAL__.runContexts === 'object') ? __INITIAL__.runContexts : {};
+/* The guideline picker's sections and shared levels (gsel5, services/aspectPickerState.ts): quest default, window, roles. */
+let aspectState = (__INITIAL__.aspects && typeof __INITIAL__.aspects === 'object') ? __INITIAL__.aspects : null;
 // Whether a Quest Refresh dispatch is in flight — drives the orange banner
 // between the queue header and the first item.
 let questRefreshActive = __INITIAL__.questRefreshActive === true;
@@ -271,6 +273,8 @@ if (__ctxSummary) {
     if (!link) { return; }
     e.preventDefault();
     var pick = link.dataset.pick;
+    // The run's guidelines open the picker (the document's aspect listener below).
+    if (pick === 'guidelines') { return; }
     vscode.postMessage(pick === 'role' ? { type: 'pickRole' }
       : pick === 'position' ? { type: 'openRunStateFile', run: settingsRun() }
       : pick === 'variables' ? { type: 'openChatVariablesEditor', run: settingsRun() }
@@ -308,6 +312,7 @@ function syncCopilotOnlyFields() {
 /* Render immediately from embedded state */
 try {
   renderCompactionPickers(__INITIAL__.compactionPickers);
+  renderAspectToolbar();
   applyRunSettings();
   postSettingsRun();
   normalizeState();
@@ -369,6 +374,8 @@ window.addEventListener('message', e => {
       applyRunSettings();
       questRefreshActive = msg.questRefreshActive === true;
       renderCompactionPickers(msg.compactionPickers);
+      aspectState = (msg.aspects && typeof msg.aspects === 'object') ? msg.aspects : null;
+      renderAspectToolbar();
       normalizeState();
       render();
       populateAddForm();
@@ -447,6 +454,17 @@ function updateContextSummary() {
   el.appendChild(link('defaultRole', runDefaultRole || '(none)',
     'The role run ' + settingsRun() + '\'s items run as when neither their todo, the item nor a process step names one — click to choose another'));
   sep();
+  // The run's guideline selection (gsel5, P-3): its effective choices, the run's own starred; a click opens its picker.
+  const runAspects = runAspectView(run);
+  if (runAspects) {
+    el.appendChild(document.createTextNode('Guidelines: '));
+    const g = link('guidelines', window.TomAspectPicker.summary(runAspects, { star: true }),
+      window.TomAspectPicker.hoverText(runAspects, 'Guidelines of run ' + run) + '\n(* chosen by the run) — click to choose');
+    g.dataset.aspectOpen = 'run';
+    g.id = 'runAspectLink';
+    el.appendChild(g);
+    sep();
+  }
   el.appendChild(document.createTextNode('Session: '));
   const sessionName = runQueueSessionName(queueDefaultSessionLabel, settingsRun());
   const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
@@ -1241,8 +1259,143 @@ function renderCompactionPickers(state) {
     }
     sel.innerHTML = options.join('');
     sel.value = value;
+    // The dropdowns give the guideline buttons room (gsel5, P-1): 60% of their natural width.
+    sel.style.width = '';
+    const natural = sel.offsetWidth;
+    if (natural > 0) { sel.style.width = Math.round(natural * 0.6) + 'px'; }
   }
 }
+
+/* ---- The guideline picker (gsel5; media/shared/aspectPicker.js) -------------- */
+
+/** The shared component, when its script loaded. */
+function aspectPicker() { return window.TomAspectPicker || null; }
+
+/** The quest default and the window: every picker of this page starts from them. */
+function baseAspectLevels() {
+  return { questDefault: aspectState ? aspectState.questDefault : undefined, window: aspectState ? aspectState.window : undefined };
+}
+
+/** The levels of `run`: the quest default, the window and the run's own choices. */
+function runAspectLevels(run) {
+  const levels = baseAspectLevels();
+  levels.run = (runQueueSettings[run] || {}).guidelines;
+  return levels;
+}
+
+/** The role an item runs as, as far as the editor knows: its own, the run's default, the run's role. */
+function itemAspectRole(item) {
+  const run = tabRunOf(item);
+  return item.role || (runQueueSettings[run] || {}).defaultRole
+    || (run === currentRun ? currentContext.role : (runContexts[run] || {}).role) || '';
+}
+
+/** The levels of an item: its run's, its role's and role type's, and its own. */
+function itemAspectLevels(item) {
+  const levels = runAspectLevels(tabRunOf(item));
+  const roles = (aspectState && aspectState.roles) || {};
+  const r = roles[itemAspectRole(item)] || {};
+  levels.roleType = r.roleType;
+  levels.role = r.role;
+  levels.item = item.guidelines;
+  return levels;
+}
+
+function windowAspectView() {
+  const p = aspectPicker();
+  return p && aspectState ? p.view(aspectState, baseAspectLevels(), 'window') : null;
+}
+
+function runAspectView(run) {
+  const p = aspectPicker();
+  return p && aspectState ? p.view(aspectState, runAspectLevels(run), 'run') : null;
+}
+
+function queueItemAspectView(item) {
+  const p = aspectPicker();
+  return p && aspectState && item ? p.view(aspectState, itemAspectLevels(item), 'item') : null;
+}
+
+/** The queue list's indicator of an item (renderEntry): only when the item chose something itself. */
+// eslint-disable-next-line no-unused-vars -- called by renderEntry (queueEntryRenderFunctions.js)
+function queueItemAspectIndicator(item) {
+  const v = queueItemAspectView(item);
+  return v ? window.TomAspectPicker.indicatorHtml(v, 'Guidelines of this item') : '';
+}
+
+/** The item editor's row (renderEntry, the item's details): the item-level button and its choices as text. */
+// eslint-disable-next-line no-unused-vars -- called by renderEntry (queueEntryRenderFunctions.js)
+function queueItemAspectRow(item) {
+  const v = queueItemAspectView(item);
+  if (!v) { return ''; }
+  const p = window.TomAspectPicker;
+  const editable = item.status === 'staged' || item.status === 'pending';
+  const attrs = { 'data-aspect-open': 'item', 'data-aspect-item': String(item.id) };
+  if (!editable) { attrs.disabled = 'disabled'; }
+  return '<div class="qe-aspect-row" style="display:flex;align-items:center;gap:4px;margin:2px 0;">'
+    + '<span style="font-size:0.85em;font-weight:600;">Guidelines:</span>'
+    + p.buttonHtml(v, { title: editable ? 'Guidelines of this item' : 'Guidelines of this item (only a staged or pending item can change them)', attrs: attrs })
+    + '<span class="tom-aspect-text">' + escapeHtml(p.summary(v, { star: true })) + '</span>'
+    + '</div>';
+}
+
+/** The window's buttons right of the dropdowns: this window, all windows, Set as / Clear quest default. */
+function renderAspectToolbar() {
+  const slot = document.getElementById('aspectToolbar');
+  const p = aspectPicker();
+  if (!slot) { return; }
+  const v = windowAspectView();
+  if (!p || !v) { slot.innerHTML = ''; return; }
+  const hasQuestDefault = !!(aspectState.questDefault && Object.keys(aspectState.questDefault).length);
+  slot.innerHTML = p.buttonHtml(v, { title: 'Guidelines of this window', id: 'aspectWindowBtn', attrs: { 'data-aspect-open': 'window' } })
+    // The all-windows button has no level of its own: no dot.
+    + p.buttonHtml(Object.assign({}, v, { own: false }), { title: 'Guidelines of every open window (each change one section)', icon: 'codicon-broadcast', id: 'aspectAllWindowsBtn', attrs: { 'data-aspect-open': 'allWindows' } })
+    + '<button type="button" class="ctx-btn" id="aspectSetQuestDefault" data-aspect-quest-default="set"'
+    + ' title="Copy this window\'s guideline choices to the quest default (shared by every machine)">Set as quest default</button>'
+    + '<button type="button" class="ctx-btn" id="aspectClearQuestDefault" data-aspect-quest-default="clear"' + (hasQuestDefault ? '' : ' disabled')
+    + ' title="' + (hasQuestDefault ? 'Clear the quest default\'s guideline choices' : 'The quest default has no guideline choices') + '">Clear quest default</button>';
+}
+
+/** Open the picker of a level: the window, all windows, the tab's run, an item. */
+function openQueueAspectPicker(kind, anchor, itemId) {
+  const p = aspectPicker();
+  if (!p || !aspectState) { return; }
+  const run = settingsRun();
+  const msg = { type: 'aspectChoose', level: kind };
+  let v = null;
+  let title = '';
+  let note = '';
+  if (kind === 'window') {
+    v = windowAspectView(); title = 'Guidelines \u2014 this window';
+  } else if (kind === 'allWindows') {
+    v = windowAspectView(); title = 'Guidelines \u2014 all open windows';
+    note = 'Each change goes to every window open now, one section at a time.';
+  } else if (kind === 'run') {
+    v = runAspectView(run); title = 'Guidelines \u2014 run ' + run; msg.run = run;
+  } else if (kind === 'item') {
+    const item = currentItems.find(function(i) { return String(i.id) === String(itemId); });
+    v = queueItemAspectView(item); title = 'Guidelines \u2014 this item'; msg.itemId = itemId;
+  }
+  if (!v) { return; }
+  p.open(anchor, v, {
+    title: title,
+    note: note,
+    onChoose: function(section, value) { vscode.postMessage(Object.assign({}, msg, { section: section, value: value })); },
+    onEditSections: function() { vscode.postMessage({ type: 'aspectEditSections' }); },
+  });
+}
+
+// The picker's buttons and links (the toolbar, the run's info line, an item's button): one delegated listener.
+document.addEventListener('click', function(ev) {
+  const t = ev.target && ev.target.closest ? ev.target.closest('[data-aspect-open],[data-aspect-quest-default]') : null;
+  if (!t || t.disabled) { return; }
+  ev.preventDefault();
+  if (t.dataset.aspectQuestDefault) {
+    vscode.postMessage({ type: 'aspectQuestDefault', action: t.dataset.aspectQuestDefault });
+    return;
+  }
+  openQueueAspectPicker(t.dataset.aspectOpen, t, t.dataset.aspectItem);
+});
 
 function setCompactionModel(purpose, value) {
   vscode.postMessage({ type: 'setCompactionModel', purpose: purpose, value: value || '' });

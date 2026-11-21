@@ -723,7 +723,13 @@ A prompt gets the guideline aspects chosen for it, section by section: an answer
 - **Placeholders:** an option's text may use the prompt placeholders (`${guidelines-<name>}`, `${file-<path>}`, …), resolved before the text is sent.
 - **Which option a prompt gets:** the lowest level that chooses wins, per section. The levels are the section default, quest default, window, run, role type, role, queue item and todo. *Remove* on a level sends nothing for the section.
 - **Where it goes:** system sections join the system prompt; user sections go before the prompt text. On Copilot both go before the prompt text.
-- **Today:** a section's default reaches every prompt, on every transport. The selector that sets the other levels follows.
+- **The guideline picker** sets a level's choices. It is a book icon with a dot when its level chose something itself; its hover help lists the effective selection (`Answer: brief · Night: on`). A click opens a popup with one row per section: the choice in effect and where it comes from — **✓ here**, or in grey *from quest* / *window* / *run* / *role type* / *role* / *item* / *default*. Hovering a section opens its options with **Don't add** (no choice on this level: the level above decides) and **Remove** (nothing is sent for the section); this level's choice is marked ●. A choice takes effect at once and closes the popup. **Edit sections…** at the bottom opens the section folders.
+- **Where the picker is:**
+  - **Prompt Queue editor**, right of the compaction and memory model dropdowns (shared by every run): the window's button, the all-windows button (broadcast icon: each change sets one section in every window open on this machine), **Set as quest default** (the window's choices become the quest default, shared by every machine) and **Clear quest default**.
+  - **The run's info line** (above each run's queue): *Guidelines:* with the run's effective selection, the run's own choices starred (`Answer: full*`); a click opens the run's picker.
+  - **Queue items:** a staged or pending item's details hold its button and its selection; the list row shows only an indicator when the item chose something, with the details on hover.
+  - **Todos:** the todo editor (the todo panel's detail form and the `*.todo.yaml` editor) has a *Guidelines* row with the button and the todo's own choices beside it; a todo row with choices of its own shows an indicator. Session and workspace todos have none.
+- **Who wins:** each picker shows the levels up to its own. An item's choices count its run's and its role's; a todo's count the window's run and its role.
 
 Details: [llm_configuration.md §6.2](llm_configuration.md#62-aspect-guidelines).
 

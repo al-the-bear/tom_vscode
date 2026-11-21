@@ -38,6 +38,10 @@ var qtGroupByPrefix = true;
 var qtUserName = '';
 /** The roles under _ai/roles (the host answers qtRoles): the detail form's Role choices (gsel3). */
 var qtRoles = [];
+/* The guideline picker (gsel5, media/shared/aspectPicker.js): the sections and shared levels (qtAspects), the window's run's choices and default role. */
+var qtAspects = null;
+var qtAspectRun = undefined;
+var qtAspectRunRole = '';
 var qtNavHistory = [];
 var qtNavIndex = -1;
 var qtNavPushing = true;
@@ -485,6 +489,8 @@ function qtNavPush(todoId) {
     vscode.postMessage({ type: 'qtGetTemplates' });
     // The roles under _ai/roles for the Role field (gsel3): the host answers qtRoles.
     vscode.postMessage({ type: 'qtGetRoles' });
+    // The guideline picker's sections and levels (gsel5): the host answers qtAspects.
+    vscode.postMessage({ type: 'qtGetAspects' });
     // The quest scope (vscimpb137): the host answers qtScope.
     vscode.postMessage({ type: 'qtGetScope' });
     // The Done notification toggle's state: the host answers qtDoneNotification, and again on every change.
@@ -1088,6 +1094,7 @@ function qtRenderTodoRow(t) {
         '<span class="ttitle">' + qtEsc(t.title || '') + '</span>' +
         qtDecisionChip(t) +
         qtPartOfChips(t) +
+        qtTodoAspectIndicator(t) +
         priorityBadge + queueItemBtn + moveBtn + moveWsBtn + trashBtn + reopenBtn + restoreBtn + '</div>' +
         '<div class="qt-todo-item-row2">' +
         stackCircle +
@@ -1870,6 +1877,83 @@ function qtRenderSortPicker() {
     });
 }
 
+// ── The guideline picker (gsel5; media/shared/aspectPicker.js) ──
+
+/** Whether this view's todos take guideline choices: quest todos (not session or workspace-file todos). */
+function qtAspectsAvailable() {
+    var mode = (typeof qtViewConfig !== 'undefined' && qtViewConfig && qtViewConfig.mode) || '';
+    return !!(window.TomAspectPicker && qtAspects && mode !== 'session' && mode !== 'workspace-file'
+        && qtCurrentQuestId !== '__all_workspace__' && qtCurrentQuestId !== '__session__');
+}
+
+/** A todo's levels: the quest default, the window, the window's run, its role's and role type's, its own. */
+function qtTodoAspectView(todo, role) {
+    if (!qtAspectsAvailable() || !todo) return null;
+    var roleName = role !== undefined ? role : (todo.role || '');
+    var r = (qtAspects.roles || {})[roleName || qtAspectRunRole] || {};
+    return window.TomAspectPicker.view(qtAspects, {
+        questDefault: qtAspects.questDefault, window: qtAspects.window, run: qtAspectRun,
+        roleType: r.roleType, role: r.role, todo: todo.guidelines,
+    }, 'todo');
+}
+
+/** The todo's own choices as text (`Answer: brief · Night: Remove`). */
+function qtTodoAspectText(v) {
+    var own = v.sections.filter(function(s) { return s.here !== undefined; })
+        .map(function(s) { return s.label + ': ' + (s.here === 'remove' ? 'Remove' : s.here); });
+    return own.length ? own.join(' \u00b7 ') : 'none of its own';
+}
+
+/** A list row's indicator: only when the todo chose something itself; the details on hover. */
+function qtTodoAspectIndicator(t) {
+    if (!t || !t.guidelines) return '';
+    var v = qtTodoAspectView(t);
+    return v ? window.TomAspectPicker.indicatorHtml(v, 'Guidelines of this todo') : '';
+}
+
+/** The detail form's row: the todo-level button and the todo's choices beside it. */
+function qtTodoAspectRow(todo, role) {
+    var v = qtTodoAspectView(todo, role);
+    if (!v) return '<div id="qt-d-aspect-row"></div>';
+    return '<div id="qt-d-aspect-row">' + qtFormRow('Guidelines',
+        '<span class="qt-aspect-wrap" style="display:inline-flex;align-items:center;gap:4px;">'
+        + window.TomAspectPicker.buttonHtml(v, { title: 'Guidelines of this todo', id: 'qt-d-aspect-btn' })
+        + '<span class="tom-aspect-text" id="qt-d-aspect-text">' + qtEsc(qtTodoAspectText(v)) + '</span></span>') + '</div>';
+}
+
+/** The role the form shows (a changed Role field before it is saved), else the todo's. */
+function qtCurrentFormRole(todo) {
+    var sel = document.getElementById('qt-d-role');
+    return sel ? sel.value : (todo && todo.role) || '';
+}
+
+/** Redraw the detail form's guideline row (new state, a changed role or choice). */
+function qtRefreshTodoAspectRow() {
+    var row = document.getElementById('qt-d-aspect-row');
+    if (!row || !qtDetailTodo) return;
+    row.outerHTML = qtTodoAspectRow(qtDetailTodo, qtCurrentFormRole(qtDetailTodo));
+    qtWireTodoAspectButton();
+}
+
+/** The button opens the todo's picker; a choice is written to the todo at once. */
+function qtWireTodoAspectButton() {
+    var btn = document.getElementById('qt-d-aspect-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var todo = qtDetailTodo;
+        var v = qtTodoAspectView(todo, qtCurrentFormRole(todo));
+        if (!v) return;
+        window.TomAspectPicker.open(btn, v, {
+            title: 'Guidelines \u2014 todo ' + todo.id,
+            onChoose: function(section, value) {
+                vscode.postMessage({ type: 'aspectChoose', level: 'todo', questId: todo._resolvedQuestId || qtCurrentQuestId, todoId: todo.id, section: section, value: value });
+            },
+            onEditSections: function() { vscode.postMessage({ type: 'aspectEditSections' }); },
+        });
+    });
+}
+
 // ── Autosave helper ──
 function qtAutoSave() {
     if (qtAutoSaveTimer) clearTimeout(qtAutoSaveTimer);
@@ -1941,6 +2025,7 @@ function qtRenderDetail(todo) {
         qtFormRow('Priority', '<select id="qt-d-priority">' + qtPriorityOptions(todo.priority) + '</select>') +
         qtFormRow('Role', '<select id="qt-d-role" title="' + qtEsc(QT_ROLE_TITLE) + '">' + qtRoleOptions(todo.role) + '</select>') +
         '</div>' +
+        qtTodoAspectRow(todo, todo.role || '') +
         qtTodoButtonsRow(todo) +
         qtUserActionRow(todo.user_action === true, true) +
         qtRepeatSection(todo) +
@@ -1975,7 +2060,12 @@ function qtRenderDetail(todo) {
     });
 
     document.getElementById('qt-d-priority').addEventListener('change', qtAutoSave);
-    document.getElementById('qt-d-role').addEventListener('change', qtAutoSave);
+    document.getElementById('qt-d-role').addEventListener('change', function() {
+        qtAutoSave();
+        // The role's own guideline choices count in the todo's effective selection.
+        qtRefreshTodoAspectRow();
+    });
+    qtWireTodoAspectButton();
     document.getElementById('qt-d-user-action').addEventListener('change', qtAutoSave);
     qtAttachOnDoneHandlers(todo);
     qtRepeatFormSync();
@@ -3975,6 +4065,19 @@ function qtHandleMessage(msg) {
             break;
         case 'qtUserNameResult':
             if (msg.userName) qtUserName = msg.userName;
+            break;
+        case 'qtAspects':
+            qtAspects = msg.aspects && typeof msg.aspects === 'object' ? msg.aspects : null;
+            qtAspectRun = msg.runGuidelines || undefined;
+            qtAspectRunRole = msg.runDefaultRole || '';
+            qtRefreshTodoAspectRow();
+            if (typeof qtRenderList === 'function') { qtRenderList(); }
+            break;
+        case 'qtAspectChanged':
+            if (qtDetailTodo && qtDetailTodo.id === msg.todoId) {
+                if (msg.guidelines) { qtDetailTodo.guidelines = msg.guidelines; } else { delete qtDetailTodo.guidelines; }
+                qtRefreshTodoAspectRow();
+            }
             break;
         case 'qtRoles': {
             qtRoles = Array.isArray(msg.roles) ? msg.roles.slice() : [];

@@ -605,9 +605,18 @@ section is one of three things:
 - An option: its text is sent.
 
 An entry naming an option the section does not have is skipped, and the level
-above it decides. Today a send gets the section defaults and the choices a
-caller passes in `aspectGuidelineChoices`. The queue, the panels, the roles and
-the todos set the other levels.
+above it decides. A send resolves the levels it has (`liveAspectChoices`: the
+quest default, the window, its run, its role, its queue item and todo) and any
+choices a caller passes in `aspectGuidelineChoices`.
+
+**The guideline picker** (`media/shared/aspectPicker.js`) sets the window, all
+windows, a run, a queue item and a todo from the Prompt Queue editor and the
+todo editor (user guide § Aspect guidelines). The pages get the sections and
+the shared levels from `services/aspectPickerState.ts` and post
+`aspectChoose {level, section, value}` (`''` Don't add, `remove`, an option),
+`aspectQuestDefault {action}` and `aspectEditSections`
+(`handlers/aspectPickerMessages.ts`); a value the section does not have is
+refused.
 
 **Where the text goes.** The chosen options are rendered under one
 `## Aspect guidelines` heading, with a `### <section>: <option>` heading per

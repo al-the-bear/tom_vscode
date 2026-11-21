@@ -41,6 +41,8 @@ import { collectAllTags, readAllQuestsTodos, readWorkspaceTodos, listQuestIds, l
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { WsPaths } from '../utils/workspacePaths';
 import { listRoleNames } from '../utils/roleNames';
+import { applyAspectChoice, aspectPickerState, liveAspectChoiceWriters } from '../services/aspectPickerState';
+import { handleAspectPickerMessage } from './aspectPickerMessages';
 import { storedQueueTarget, storedSendTarget, TODO_PANEL_FRESH_KEY, TODO_PANEL_QUEUE_NEXT_KEY, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey, todoPanelQueuePosition } from '../utils/todoPanelRunSession';
 import { busySessionsOfEntries, defaultTargetQuest, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueuePosition, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
 import { runSessionName } from '../utils/runSessions';
@@ -850,6 +852,7 @@ export function getQuestTodoScript(config?: QuestTodoViewConfig): string {
     const cfgJson = JSON.stringify(config ?? {});
     return `\n// ── Quest TODO variables ──\nvar qtViewConfig = ${cfgJson};\n`
         + readMediaText('shared', 'mdOverlay.js')
+        + readMediaText('shared', 'aspectPicker.js')
         + readMediaText('questTodoPanel', 'grouping.js')
         + readMediaText('questTodoPanel', 'main.js');
 }
@@ -2116,6 +2119,40 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             post({ type: 'qtRoles', roles: listRoleNames(WsPaths.ai('roles')) });
             return true;
         }
+        case 'qtGetAspects': {
+            // The guideline picker's sections and levels (gsel5): the todo button and the row indicators.
+            post(_todoAspectMessage());
+            return true;
+        }
+        case 'aspectChoose':
+        case 'aspectQuestDefault':
+        case 'aspectEditSections': {
+            if (msg.type === 'aspectChoose' && msg.level === 'todo') {
+                if (isSessionMode || isWorkspaceFileMode) {
+                    void vscode.window.showWarningMessage('Guideline choices are set on quest todos only.');
+                    return true;
+                }
+                const questId = effectiveQuestId(msg.questId);
+                const todoId = String(msg.todoId || '');
+                let result;
+                try {
+                    result = applyAspectChoice({ level: 'todo', section: String(msg.section || ''), value: typeof msg.value === 'string' ? msg.value : '', questId, todoId }, liveAspectChoiceWriters());
+                } catch (err) {
+                    result = { ok: false, error: (err as Error).message };
+                }
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Guideline choice not set: ${result.error ?? 'unknown reason'}`);
+                    return true;
+                }
+                const todo = questTodo.findTodoById(questId, todoId);
+                post({ type: 'qtAspectChanged', todoId, guidelines: todo?.guidelines ?? null });
+                _sendTodoList(questId, undefined, post);
+                return true;
+            }
+            const handled = await handleAspectPickerMessage(msg);
+            if (handled.changed) { post(_todoAspectMessage()); }
+            return true;
+        }
         case 'qtGetUserName': {
             const config = loadSendToChatConfig();
             const envOverride = (process.env.TOM_USER ?? '').trim();
@@ -2873,6 +2910,25 @@ function _withTodoGroups(list: TodoListItem[], questId: string): TodoListItem[] 
     } catch {
         return list;
     }
+}
+
+/**
+ * The guideline picker's data for a todo panel (gsel5): the sections and the
+ * shared levels, and the window's run's choices and default role (a todo's
+ * effective selection counts the run it would be queued into).
+ */
+function _todoAspectMessage(): { type: 'qtAspects'; aspects: unknown; runGuidelines?: Record<string, string>; runDefaultRole?: string } {
+    let aspects: unknown;
+    try { aspects = aspectPickerState(); } catch { aspects = undefined; }
+    let runGuidelines: Record<string, string> | undefined;
+    let runDefaultRole: string | undefined;
+    try {
+        const { PromptQueueManager: pqm } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
+        const settings = pqm.instance.runQueueSettings();
+        runGuidelines = settings.guidelines;
+        runDefaultRole = settings.defaultRole;
+    } catch { /* no queue yet: the run adds nothing */ }
+    return { type: 'qtAspects', aspects, ...(runGuidelines ? { runGuidelines } : {}), ...(runDefaultRole ? { runDefaultRole } : {}) };
 }
 
 function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any) => void): void {

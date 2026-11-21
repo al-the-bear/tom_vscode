@@ -42,6 +42,10 @@ export interface TodoListSource {
     reminders?: TodoReminderEntry[];
     /** The questions behind a `decision-needed` status; one without a `decision` is open. */
     decisions?: Array<{ summary?: string; decision?: string }>;
+    /** The role the todo runs in (gsel3). */
+    role?: string;
+    /** The todo's own guideline choices: section → option or `remove` (gsel4). */
+    guidelines?: Record<string, string>;
 }
 
 export interface TodoListItem {
@@ -77,6 +81,10 @@ export interface TodoListItem {
     group_members?: GroupMemberRow[];
     /** The groups this todo is a member of (derived; the row's chips). */
     part_of?: string[];
+    /** The role it runs in, when it names one (the row's guideline indicator resolves its role levels). */
+    role?: string;
+    /** Its own guideline choices, when it has any (the row's guideline indicator, gsel5). */
+    guidelines?: Record<string, string>;
     sourceFile: string;
 }
 
@@ -140,6 +148,8 @@ export function todoListItem(todo: TodoListSource, sourceFile: string, id: strin
     if (isTodoOverdue(todo, today)) { row.overdue = true; }
     if (todo.comprised_of?.length) { row.comprised_of = [...todo.comprised_of]; }
     if (todo.user_action === true) { row.user_action = true; }
+    if (typeof todo.role === 'string' && todo.role.trim()) { row.role = todo.role.trim(); }
+    if (todo.guidelines && typeof todo.guidelines === 'object' && Object.keys(todo.guidelines).length) { row.guidelines = { ...todo.guidelines }; }
     if (todo.blocking && todo.blocking.length) { row.blocking = todo.blocking; }
     if (todo.repeat && !repeatRuleError(todo.repeat)) {
         row.repeat = describeRepeat(todo.repeat);

@@ -40,4 +40,6 @@ interface Window {
      * API here; shared components read it (and acquire+cache as a fallback).
      */
     __tomVscodeApi?: VsCodeWebviewApi;
+    /** The guideline picker (`media/shared/aspectPicker.js`), published by that script. */
+    TomAspectPicker?: Record<string, unknown>;
 }

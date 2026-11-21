@@ -79,6 +79,34 @@ export function withSectionChoice(choices: AspectChoices | undefined, section: s
     return Object.keys(out).length ? out : undefined;
 }
 
+/** A section as the guideline picker shows it: everything but the option texts. */
+export interface AspectCatalogueSection {
+    id: string;
+    name: string;
+    label: string;
+    defaultOption?: string;
+    options: string[];
+}
+
+/** The sections the guideline picker offers (media/shared/aspectPicker.js), and the problems reading them. */
+export interface AspectCatalogue {
+    sections: AspectCatalogueSection[];
+    problems?: string[];
+}
+
+/** The picker's catalogue of `sections`: names, labels, option names and defaults, in their order. */
+export function aspectCatalogueOf(sections: readonly AspectSection[]): AspectCatalogue {
+    return {
+        sections: sections.map((s) => ({
+            id: s.id,
+            name: s.name,
+            label: s.label,
+            ...(s.defaultOption ? { defaultOption: s.defaultOption } : {}),
+            options: s.options.map((o) => o.name),
+        })),
+    };
+}
+
 /** The levels of `choices` up to and including `level` (in the order of ASPECT_LEVELS): what that level resolves to. */
 export function choicesUpTo(choices: AspectLevelChoices, level: AspectLevel): AspectLevelChoices {
     const last = ASPECT_LEVELS.indexOf(level);

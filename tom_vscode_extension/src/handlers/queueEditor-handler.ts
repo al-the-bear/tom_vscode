@@ -57,6 +57,8 @@ import { runChatSessionAction } from './chatPanel-handler';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
 import { waitMessageViews } from '../utils/itemWaitMessages';
 import { answerItemAsk, itemAskViews } from '../services/queueItemAsks';
+import { aspectPickerState } from '../services/aspectPickerState';
+import { handleAspectPickerMessage } from './aspectPickerMessages';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -264,6 +266,12 @@ async function handleMessage(msg: any): Promise<void> {
 }
 
 async function handleMessageUnsafe(msg: any): Promise<void> {
+    // The guideline picker (gsel5): the window, all windows, a run, an item; the quest default.
+    const aspect = await handleAspectPickerMessage(msg);
+    if (aspect.handled) {
+        if (aspect.changed) { sendState(); }
+        return;
+    }
     // Handle non-queue messages first
     switch (msg.type) {
         case 'getState':
@@ -1780,6 +1788,11 @@ function buildState(): Record<string, unknown> {
         // the same state as the Status Page's History Compaction dropdowns.
         compactionPickers: (() => {
             try { return compactionPickerState(loadSendToChatConfig() as unknown as CompactionPickerConfig); } catch { return undefined; }
+        })(),
+        // The guideline picker's sections and shared levels (gsel5): the window's
+        // buttons, the run's info line and each item's button resolve over them.
+        aspects: (() => {
+            try { return aspectPickerState(); } catch { return undefined; }
         })(),
         anthropicProfiles,
         defaultProfileNoApiKey,

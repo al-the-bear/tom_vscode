@@ -508,6 +508,9 @@ function renderEntry(item, idx) {
               + (item.role ? '<span style="font-size:0.85em;">' + escapeHtml(item.role) + '</span>' : '')
               + '</span>'
             : '') +
+          // The item's own guideline choices (gsel5): an indicator only, the details on hover;
+          // the button is in the item's details (queueItemAspectRow).
+          (!isChat && typeof queueItemAspectIndicator === 'function' ? queueItemAspectIndicator(item) : '') +
           '<span class="codicon codicon-go-to-file" style="cursor:pointer;color:#000;" onclick="openEntryFile(\'' + safeId + '\')" title="Open YAML file"></span>' +
           // A chat send is always removable: a send still running is stopped with its entry; a stale one is only removed.
           '<span class="codicon codicon-trash" style="cursor:pointer;color:#000;" onclick="remove(\'' + safeId + '\')" title="' + (isChat
@@ -618,6 +621,8 @@ function renderEntry(item, idx) {
       ? '<textarea onchange="updateText(\'' + safeId + '\', this.value)">' + escapeHtml(item.originalText) + '</textarea>'
       : '<div class="mainprompt-content' + (isMainPromptActive ? ' is-active' : '') + '" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(item.originalText) + '</div>') +
     templateRow +
+    // The item editor's guideline button and choices (gsel5; queue editor only).
+    (!isChat && typeof queueItemAspectRow === 'function' ? queueItemAspectRow(item) : '') +
     (editorMode === 'template' || isChat ? '' : renderDoneNotification(item, safeId, safeStatus)) +
     reminderRow +
     renderPrePrompts(item, safeStatus) +

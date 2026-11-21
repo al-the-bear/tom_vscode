@@ -23,7 +23,9 @@ import { readMediaText } from '../../utils/webviewLoader';
 /** CSS for the Quest TODO section (top bar, split panes, pickers, mass-add overlay). */
 export function getQuestTodoCss(): string {
     // The markdown overlay's stylesheet is shared with the Prompt Queue editor.
-    return readMediaText('questTodoPanel', 'style.css') + '\n' + readMediaText('shared', 'mdOverlay.css');
+    // So is the guideline picker's (gsel5).
+    return readMediaText('questTodoPanel', 'style.css') + '\n' + readMediaText('shared', 'mdOverlay.css')
+        + '\n' + readMediaText('shared', 'aspectPicker.css');
 }
 
 /** HTML fragment for the Quest TODO section content (inside accordion). */
