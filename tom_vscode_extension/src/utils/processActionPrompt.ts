@@ -55,9 +55,27 @@ const ACTION_PROMPT = '${{ action-prompt ? "\\n\\n## What to do\\n\\n" + action-
 
 const AFTER = '\n\n${action-after}';
 
+/**
+ * Role and guidelines on the work the prompt queues (design
+ * `role_and_guideline_selector.vscode_extension.md` R-1, R-4): in the one
+ * template, so every process says it.
+ */
+export const QUEUED_WORK_TEXT = '## Work you queue\n\n'
+    + 'Queue items you add (tomAi_addQueueItem, tomAi_sendItemToQuest) and todos you create (tomAi_createQuestTodo) '
+    + 'may name a `role` (a folder of `_ai/roles/`) and `guidelines` (aspect section → option, or `remove`; '
+    + 'tomAi_getAspectGuidelines lists the sections and their options). '
+    + 'Name them to give secondary work the role and guideline aspects it needs when they differ from this step\'s — '
+    + 'a review, a fix in another area, research, a task for another quest — so that work is given only the aspects it needs. '
+    + 'Leave them out when the work should run like this step: what this prompt queues runs as this step\'s role, '
+    + 'with the guideline choices of its run, role and quest. A todo queued later, outside this step, runs as its own role, '
+    + 'else its queue item\'s, the run\'s default role or the chat variable `role`: name a `role` on a todo whose work needs one. '
+    + 'A todo\'s role and guidelines win over its item\'s.';
+
+const QUEUED_WORK = `\n\n${QUEUED_WORK_TEXT}`;
+
 /** The template used when the config holds none. */
 export const DEFAULT_PROCESS_ACTION_TEMPLATES: Readonly<Record<ProcessTemplateKind, string>> = Object.freeze({
-    proceed: `# Run: \${action-position}\n\n${POSITION}${NOTE}${ACTION_PROMPT}${INSTRUCTIONS}${AFTER}`,
+    proceed: `# Run: \${action-position}\n\n${POSITION}${NOTE}${ACTION_PROMPT}${INSTRUCTIONS}${QUEUED_WORK}${AFTER}`,
 });
 
 /** What each template is, for the template editor. */

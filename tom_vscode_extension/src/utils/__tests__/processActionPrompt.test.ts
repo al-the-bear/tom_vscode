@@ -18,6 +18,8 @@
  *   PA-7 confirming a user action: the dialog says it is a user action, names the position, gives what
  *        is to be done (its description, else its name) and asks to confirm that it is done
  *   PA-9 the review document's name: review_<phase>_<step>_repetition_<step iteration>_<yyyymmdd_hhmmss>.md
+ *   PA-10 the default template tells the agent that the items and todos it queues may name a `role` and
+ *        `guidelines`, and when to (design role_and_guideline_selector R-1, R-4); before `${action-after}`
  */
 
 import test, { describe } from 'node:test';
@@ -38,6 +40,7 @@ import {
 import {
     DEFAULT_PROCESS_ACTION_TEMPLATES,
     PROCESS_ACTION_VARIABLES,
+    QUEUED_WORK_TEXT,
     processActionTemplate,
     processActionValues,
     positionText,
@@ -228,5 +231,21 @@ phases:
         assert.equal(reviewFileName(at, now), 'review_blueprint_iteration_repetition_3_20261112_090507.md');
         assert.equal(reviewFileName({ ...at, step: 'review-initial', stepIteration: 0, substep: '' }, now),
             'review_blueprint_review-initial_repetition_1_20261112_090507.md', 'a step never run counts as the first');
+    });
+
+    test('PA-10: the work the prompt queues names its role and guidelines', () => {
+        const t = DEFAULT_PROCESS_ACTION_TEMPLATES.proceed;
+        assert.ok(t.includes(QUEUED_WORK_TEXT), 'the one template says it, so every process does');
+        assert.ok(t.indexOf(QUEUED_WORK_TEXT) < t.indexOf('${action-after}'), 'before what happens after queuing');
+        assert.ok(t.indexOf('${custom-instructions}') < t.indexOf(QUEUED_WORK_TEXT), 'after the step\'s own instructions');
+        assert.match(QUEUED_WORK_TEXT, /^## Work you queue\n\n/);
+        for (const tool of ['tomAi_addQueueItem', 'tomAi_sendItemToQuest', 'tomAi_createQuestTodo', 'tomAi_getAspectGuidelines']) {
+            assert.ok(QUEUED_WORK_TEXT.includes(tool), `names ${tool}`);
+        }
+        assert.match(QUEUED_WORK_TEXT, /`role`/);
+        assert.match(QUEUED_WORK_TEXT, /`guidelines`/);
+        assert.match(QUEUED_WORK_TEXT, /secondary work/, 'when to name them');
+        assert.match(QUEUED_WORK_TEXT, /Leave them out when the work should run like this step/, 'when not to');
+        assert.ok(!QUEUED_WORK_TEXT.includes('${'), 'plain text: no placeholder to resolve');
     });
 });
