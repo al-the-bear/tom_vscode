@@ -60,6 +60,10 @@ import { classifyAnthropicError, Interruption } from '../utils/anthropicErrorCla
 import { withRetryBudget, RetryWait } from '../utils/retryWithBudget';
 import { isRetryableVsCodeLmError } from '../utils/retryableError';
 import { sendWithContinuation, type ContinuationMessage } from '../utils/directContinuation';
+import {
+    appendAssistantContent, describeServerToolResult, hasPendingServerToolUse, isServerToolResult, repairServerToolUses,
+    sendWithServerToolRepair, unmatchedServerToolUses, type ContentBlockLike, type MessageLike,
+} from '../utils/serverToolUses';
 import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
@@ -2963,32 +2967,42 @@ export class AnthropicHandler {
                 // utils/directContinuation.ts); a busy backend is ridden out by
                 // the retry budget inside. Each attempt sends `messages` as
                 // they are then (the continuation prompt included).
-                const response = await sendWithContinuation({
-                    messages: messages as unknown as ContinuationMessage[],
-                    send: () => withRetryBudget({
-                        // Streamed: the SDK refuses a non-streaming request whose
-                        // max_tokens could take longer than ten minutes.
-                        call: () => createMessageStreamed(client, { ...createParams, messages: requestMessages() }, abortSignal),
-                        totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
-                        backendLabel: 'Anthropic API busy',
-                        cancellationToken: options.cancellationToken,
-                        // A 429 says when the window resets (retry-after, the
-                        // anthropic-ratelimit-*-reset headers): wait exactly that.
-                        waitFromError: providerRetryDelayMs,
-                        onRetryStatus: (text: string, cause?: string): void => {
-                            this._onStatusUpdate.fire(text);
-                            liveTrail?.appendRetry(text, cause);
-                        },
-                        onRetryWait: options.onRetryWait,
-                    }),
-                    maxAttempts: this.transportRetryMaxAttempts(),
-                    continuationPrompt: (errorText) => this.transportContinuationPrompt(errorText, userContent),
-                    isCancelled: () => options.cancellationToken?.isCancellationRequested === true,
-                    onContinue: (attempt, max, errorText) => {
-                        const note = `Connection dropped — continuing the turn (attempt ${attempt} of ${max})`;
+                // A round the API refuses for a server tool use without its
+                // result (utils/serverToolUses.ts) is repaired and sent once more.
+                const response = await sendWithServerToolRepair({
+                    messages: messages as unknown as MessageLike[],
+                    onRepair: (ids, errorText) => {
+                        const note = `Server tool call without a result (${ids.join(', ')}) — error result put in, sending the round again`;
                         this._onStatusUpdate.fire(note);
                         liveTrail?.appendRetry(note, errorText);
                     },
+                    send: () => sendWithContinuation({
+                        messages: messages as unknown as ContinuationMessage[],
+                        send: () => withRetryBudget({
+                            // Streamed: the SDK refuses a non-streaming request whose
+                            // max_tokens could take longer than ten minutes.
+                            call: () => createMessageStreamed(client, { ...createParams, messages: requestMessages() }, abortSignal),
+                            totalWaitMs: (profile.retryMaxTotalWaitMinutes ?? 10) * 60 * 1000,
+                            backendLabel: 'Anthropic API busy',
+                            cancellationToken: options.cancellationToken,
+                            // A 429 says when the window resets (retry-after, the
+                            // anthropic-ratelimit-*-reset headers): wait exactly that.
+                            waitFromError: providerRetryDelayMs,
+                            onRetryStatus: (text: string, cause?: string): void => {
+                                this._onStatusUpdate.fire(text);
+                                liveTrail?.appendRetry(text, cause);
+                            },
+                            onRetryWait: options.onRetryWait,
+                        }),
+                        maxAttempts: this.transportRetryMaxAttempts(),
+                        continuationPrompt: (errorText) => this.transportContinuationPrompt(errorText, userContent),
+                        isCancelled: () => options.cancellationToken?.isCancellationRequested === true,
+                        onContinue: (attempt, max, errorText) => {
+                            const note = `Connection dropped — continuing the turn (attempt ${attempt} of ${max})`;
+                            this._onStatusUpdate.fire(note);
+                            liveTrail?.appendRetry(note, errorText);
+                        },
+                    }),
                 });
 
                 sendUsage.addRound(addResponseUsage({}, response.usage));
@@ -3005,14 +3019,47 @@ export class AnthropicHandler {
                 // Live-trail each content block from this response so
                 // the MD Browser shows thinking / text before we go
                 // back out to the tools (or finalize).
+                // Server tool calls (tool search, web search, …) with what they
+                // found; one whose result is still to come is marked pending.
+                const pendingIds = new Set(unmatchedServerToolUses(response.content).map((u) => String(u.id)));
                 for (const block of response.content) {
-                    const b = block as { type?: string; text?: unknown; thinking?: unknown };
+                    const b = block as ContentBlockLike & { text?: unknown; thinking?: unknown };
                     if (b.type === 'thinking' && typeof b.thinking === 'string') {
                         liveTrail?.appendThinking(b.thinking);
                     } else if (b.type === 'text' && typeof b.text === 'string') {
                         liveTrail?.appendAssistantText(b.text);
+                    } else if (b.type === 'server_tool_use') {
+                        liveTrail?.beginToolCall(`${String(b.name)} (server)`, b.input, String(b.id));
+                        if (pendingIds.has(String(b.id))) {
+                            const pending = 'pending — the API runs it when the turn goes on';
+                            liveTrail?.appendToolResult(pending, pending.length);
+                        }
+                    } else if (isServerToolResult(b)) {
+                        const found = describeServerToolResult(b);
+                        liveTrail?.appendToolResult(found, found.length);
                     }
                 }
+
+                // A paused turn (long server tool work) goes on: the same
+                // request again, its content the last message, no user message.
+                if (response.stop_reason === 'pause_turn') {
+                    appendAssistantContent(messages as unknown as MessageLike[], response.content);
+                    liveTrail?.appendNotice('The API paused the turn (pause_turn) — sending it again so it goes on.');
+                    continue;
+                }
+
+                // The response as the conversation's assistant message, every
+                // server tool use without a result given an error result: a
+                // user text after it is refused otherwise.
+                const closeAssistantMessage = (): void => {
+                    appendAssistantContent(messages as unknown as MessageLike[], response.content);
+                    const last = messages[messages.length - 1];
+                    const fixed = repairServerToolUses(last.content as unknown as ContentBlockLike[]);
+                    if (fixed.repaired.length > 0) {
+                        last.content = fixed.content as unknown as AnthropicMessageParam['content'];
+                        liveTrail?.appendNotice(`No result came for server tool call(s) ${fixed.repaired.join(', ')}: an error result was put in so the turn can go on.`);
+                    }
+                };
 
                 if (response.stop_reason !== 'tool_use') {
                     // A Stop hook that blocks gives the model its reason to go on (CC-12).
@@ -3021,14 +3068,14 @@ export class AnthropicHandler {
                         : undefined;
                     if (goOn !== undefined) {
                         stopHookActive = true;
-                        messages.push({ role: 'assistant', content: response.content });
+                        closeAssistantMessage();
                         messages.push({ role: 'user', content: goOn });
                         continue;
                     }
                     // A queue turn waits for the command streams it started, then goes on with their end.
                     const background = await this.awaitBackgroundCommands(options, liveTrail, turn + 1 < configuration.maxRounds);
                     if (background.continueWith !== undefined) {
-                        messages.push({ role: 'assistant', content: response.content });
+                        closeAssistantMessage();
                         messages.push({ role: 'user', content: background.continueWith });
                         continue;
                     }
@@ -3039,7 +3086,12 @@ export class AnthropicHandler {
                     return background.hint ? { ...finished, backgroundLeft: true } : finished;
                 }
 
-                messages.push({ role: 'assistant', content: response.content });
+                appendAssistantContent(messages as unknown as MessageLike[], response.content);
+                // A server tool use still without its result is run by the API
+                // when the round goes on — only if the user message holds the
+                // tool results alone: the parallel-calls reminder (a text
+                // block) is left out of this round.
+                const roundReminder = hasPendingServerToolUse(messages[messages.length - 1].content) ? '' : parallelReminder;
 
                 const toolResults: AnthropicToolResultBlockParam[] = [];
                 for (const block of response.content) {
@@ -3068,7 +3120,7 @@ export class AnthropicHandler {
                     currentQueueItemId(),
                     lastToolName?.name ?? 'tool',
                     toolResults.map((r) => toolResultText(r.content)).join('\n\n'),
-                    { conversation: { transport: 'direct', messages: [...messages, { role: 'user', content: roundResultContent(toolResults, parallelReminder) }] } },
+                    { conversation: { transport: 'direct', messages: [...messages, { role: 'user', content: roundResultContent(toolResults, roundReminder) }] } },
                 );
                 if (held.prefix && toolResults.length > 0) {
                     toolResults[0] = { ...toolResults[0], content: prefixedToolResultContent(toolResults[0].content, held.prefix) } as AnthropicToolResultBlockParam;
@@ -3077,7 +3129,7 @@ export class AnthropicHandler {
                 // The tool results, then the parallel-calls reminder as a text
                 // block (DA-11; `anthropic.parallelToolCallsReminder`, '' = off).
                 // Earlier rounds' messages keep theirs as sent.
-                messages.push({ role: 'user', content: roundResultContent(toolResults, parallelReminder) });
+                messages.push({ role: 'user', content: roundResultContent(toolResults, roundReminder) });
 
                 // Apply the configured tool-trail retention policy: the
                 // most-recent `toolTrailKeepRounds` rounds keep their

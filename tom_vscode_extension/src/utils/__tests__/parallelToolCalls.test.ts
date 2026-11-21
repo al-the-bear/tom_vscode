@@ -105,7 +105,9 @@ describe('parallel tool calls', () => {
         const loop = handler.slice(handler.indexOf('const sendUsage = new DirectSendUsage('), handler.indexOf('private async sendViaVsCodeLm'));
         assert.match(loop, /const parallelReminder = parallelCallsReminder\(loadSendToChatConfig\(\)\?\.anthropic\?\.parallelToolCallsReminder\)/);
         assert.match(loop, /sendUsage\.addTurn\(response\.content\.filter\(\(b\) => b\.type === 'tool_use'\)\.length\)/);
-        assert.match(loop, /messages\.push\(\{ role: 'user', content: roundResultContent\(toolResults, parallelReminder\) \}\)/);
+        // Left out of a round whose response still has a server tool use pending (srvtool1_akuj).
+        assert.match(loop, /const roundReminder = hasPendingServerToolUse\(messages\[messages\.length - 1\]\.content\) \? '' : parallelReminder;/);
+        assert.match(loop, /messages\.push\(\{ role: 'user', content: roundResultContent\(toolResults, roundReminder\) \}\)/);
         assert.doesNotMatch(loop, /content: toolResults \}/, 'no round goes out without the reminder');
         const schema = JSON.parse(src('src', 'config', 'tom_vscode_extension.schema.json'));
         assert.equal(schema.properties.anthropic.properties.parallelToolCallsReminder.type, 'string');

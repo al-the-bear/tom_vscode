@@ -159,7 +159,7 @@ describe('direct transport: continue after a dropped connection', () => {
 
     test('DC-6: the direct loop uses it', () => {
         const src = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'anthropic-handler.ts'), 'utf8');
-        assert.match(src, /const response = await sendWithContinuation\(\{/);
+        assert.match(src, /send: \(\) => sendWithContinuation\(\{/);
         assert.match(src, /createMessageStreamed\(client, \{ \.\.\.createParams, messages: requestMessages\(\) \}, abortSignal\)/, 'messages rebuilt per attempt');
         assert.match(src, /continuationPrompt: \(errorText\) => this\.transportContinuationPrompt\(errorText, userContent\)/);
         assert.match(src, /buildContinuationPrompt: \(errorText: string\): string => this\.transportContinuationPrompt\(errorText, userContent\)/, 'the same prompt as the Agent SDK');
