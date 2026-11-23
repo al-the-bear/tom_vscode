@@ -46,13 +46,13 @@ function escapeHtml(s) {
 function onDisk(id) { return (data.sections || []).find(function(s) { return s.id === id; }); }
 
 function copyOf(s) {
-  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, options: s.options.map(function(o) {
+  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, removeWhen: s.removeWhen || '', options: s.options.map(function(o) {
     const mode = o.mode === 'file' ? 'file' : 'own';
     const files = o.files || [];
     const base = o.fileBase || '';
     const file = files.find(function(f) { return f.base === base; });
     return {
-      name: o.name, origin: o.name, mode: mode, fileBase: base,
+      name: o.name, origin: o.name, mode: mode, fileBase: base, when: o.when || '',
       ownText: o.ownText !== undefined ? o.ownText : (mode === 'own' ? o.text : ''),
       fileText: file ? file.text : (mode === 'file' ? o.text : ''),
       files: files,
@@ -61,6 +61,67 @@ function copyOf(s) {
 }
 
 function layers() { return data.layers || []; }
+
+/*
+ * Conditions (gsel20): the checkboxes under a Condition / Remove when field
+ * write or extend its expression, combined with &&; unchecking takes the term
+ * out again. The role-type term names the picked folders of _ai/role-types/.
+ */
+const CONDITION_TERMS = [
+  { id: 'todo', label: 'only in todo prompts', term: 'prompt.kind == "todo"' },
+  { id: 'process', label: 'only while a process runs', term: 'prompt.process != ""' },
+  { id: 'direct', label: 'only on the direct API', term: 'prompt.transport == "direct"' },
+  { id: 'agentSdk', label: 'only on the Agent SDK', term: 'prompt.transport == "agentSdk"' },
+];
+const ROLE_TERM = /\(?prompt\.roleType == "[^"]*"(?: \|\| prompt\.roleType == "[^"]*")*\)?/;
+
+function splitTerms(expr) {
+  return String(expr || '').split(/\s*&&\s*/).map(function(t) { return t.trim(); }).filter(Boolean);
+}
+function joinTerms(terms) { return terms.join(' && '); }
+function hasTerm(expr, term) { return splitTerms(expr).indexOf(term) >= 0; }
+function withTerm(expr, term, on) {
+  const terms = splitTerms(expr).filter(function(t) { return t !== term; });
+  if (on) { terms.push(term); }
+  return joinTerms(terms);
+}
+/** The role types the expression's role-type term names. */
+function roleTypesIn(expr) {
+  const m = ROLE_TERM.exec(String(expr || ''));
+  if (!m) { return []; }
+  const out = [];
+  m[0].replace(/prompt\.roleType == "([^"]*)"/g, function(_, name) { out.push(name); return ''; });
+  return out;
+}
+/** The expression with its role-type term naming `types` (none: the term goes). */
+function withRoleTypes(expr, types) {
+  const terms = splitTerms(expr).filter(function(t) { return !ROLE_TERM.test(t) || ROLE_TERM.exec(t)[0] !== t; });
+  if (types.length === 1) { terms.push('prompt.roleType == "' + types[0] + '"'); }
+  if (types.length > 1) { terms.push('(' + types.map(function(t) { return 'prompt.roleType == "' + t + '"'; }).join(' || ') + ')'); }
+  return joinTerms(terms);
+}
+window.TomConditionTerms = { CONDITION_TERMS: CONDITION_TERMS, withTerm: withTerm, hasTerm: hasTerm, roleTypesIn: roleTypesIn, withRoleTypes: withRoleTypes };
+
+/** Errors of the conditions as the host checked them, by field key. */
+let conditionErrors = {};
+
+/** A condition field with its checkboxes; `key` names it ('remove' or 'opt-<i>'). */
+function conditionHtml(key, label, expr, hint) {
+  const roleTypes = data.roleTypes || [];
+  const picked = roleTypesIn(expr);
+  return '<div class="cond" data-cond="' + escapeHtml(key) + '">'
+    + '<label class="cond-label">' + escapeHtml(label) + '</label>'
+    + '<input type="text" class="cond-input" spellcheck="false" value="' + escapeHtml(expr) + '" placeholder="' + escapeHtml(hint) + '" aria-label="' + escapeHtml(label) + '">'
+    + '<div class="cond-error' + (conditionErrors[key] ? ' shown' : '') + '">' + escapeHtml(conditionErrors[key] || '') + '</div>'
+    + '<div class="cond-boxes">'
+    + CONDITION_TERMS.map(function(t) {
+      return '<label class="cond-box"><input type="checkbox" data-term="' + t.id + '"' + (hasTerm(expr, t.term) ? ' checked' : '') + '> ' + escapeHtml(t.label) + '</label>';
+    }).join('')
+    + (roleTypes.length ? '<span class="cond-roles">only for role types: ' + roleTypes.map(function(rt) {
+      return '<label class="cond-box"><input type="checkbox" data-role-type="' + escapeHtml(rt) + '"' + (picked.indexOf(rt) >= 0 ? ' checked' : '') + '> ' + escapeHtml(rt) + '</label>';
+    }).join('') + '</span>' : '')
+    + '</div></div>';
+}
 function layerOf(base) { return layers().find(function(l) { return l.base === base; }); }
 function ownLayer() { return layers().find(function(l) { return l.own; }); }
 
@@ -175,6 +236,7 @@ function optionHtml(o, i, count, d) {
     + '</div>'
     + fileLineHtml(o, d)
     + '<textarea class="opt-text" spellcheck="false" aria-label="Choice text">' + escapeHtml(text) + '</textarea>'
+    + conditionHtml('opt-' + i, 'Condition', o.when || '', 'always sent when chosen; e.g. prompt.transport != "direct"')
     + '</div>';
 }
 
@@ -211,6 +273,8 @@ function render() {
     + '<div class="field"><label class="title" for="secDefault">Default choice</label><select id="secDefault">' + defaultOptionsHtml(d) + '</select>'
     + '<div class="hint">Chosen when no level chooses.</div></div>'
     + '</div>'
+    + '<div class="field"><label class="title">Remove when</label>' + conditionHtml('remove', 'Remove when', d.removeWhen || '', 'never; e.g. prompt.transport == "direct"')
+    + '<div class="hint">While this expression holds the aspect sends nothing, whatever a level chose. Conditions are template expressions (as in ${{ … }}) over the chat variables, the placeholders and prompt.transport, prompt.kind, prompt.todo, prompt.role, prompt.roleType, prompt.run, prompt.process, prompt.quest, prompt.workspace, prompt.night.</div></div>'
     + '<div class="field"><label class="title">Choices</label>'
     + '<div class="hint">Each choice is &lt;short name&gt;.md, Markdown: <b>Own text</b> in this aspect\'s folder, or a <b>Guideline file</b> _agent_guidelines/aspects/' + escapeHtml(s.id) + '/&lt;short name&gt;.md of the root or a workspace folder (the nearest wins; Claude Code can import it). Placeholders (${guidelines-…}, ${file-…} …) are resolved when the text is sent. "remove" is no choice name: it is the levels\' Remove.</div>'
     + '<div id="options">' + d.options.map(function(o, i) { return optionHtml(o, i, d.options.length, d); }).join('') + '</div>'
@@ -261,8 +325,34 @@ function wireForm(d) {
       render();
     });
   });
+  form.querySelectorAll('.cond').forEach(function(block) {
+    const key = block.dataset.cond;
+    const get = function() { return key === 'remove' ? (d.removeWhen || '') : (d.options[Number(key.slice(4))].when || ''); };
+    const set = function(v) { if (key === 'remove') { d.removeWhen = v; } else { d.options[Number(key.slice(4))].when = v; } };
+    block.querySelector('.cond-input').addEventListener('input', function(e) {
+      set(e.target.value);
+      vscode.postMessage({ type: 'checkCondition', key: key, expression: e.target.value });
+      changed();
+    });
+    block.querySelectorAll('input[data-term]').forEach(function(box) {
+      box.addEventListener('change', function() {
+        const t = CONDITION_TERMS.find(function(x) { return x.id === box.dataset.term; });
+        set(withTerm(get(), t.term, box.checked));
+        vscode.postMessage({ type: 'checkCondition', key: key, expression: get() });
+        render();
+      });
+    });
+    block.querySelectorAll('input[data-role-type]').forEach(function(box) {
+      box.addEventListener('change', function() {
+        const types = Array.from(block.querySelectorAll('input[data-role-type]')).filter(function(b) { return b.checked; }).map(function(b) { return b.dataset.roleType; });
+        set(withRoleTypes(get(), types));
+        vscode.postMessage({ type: 'checkCondition', key: key, expression: get() });
+        render();
+      });
+    });
+  });
   document.getElementById('btnAddOption').addEventListener('click', function() {
-    d.options.push({ name: '', origin: '', mode: 'own', fileBase: '', ownText: '', fileText: '', files: [] });
+    d.options.push({ name: '', origin: '', mode: 'own', fileBase: '', ownText: '', fileText: '', files: [], when: '' });
     render();
     const names = document.querySelectorAll('.opt-name');
     if (names.length) { names[names.length - 1].focus(); }
@@ -284,10 +374,13 @@ function save() {
   if (!d) { return; }
   const renames = renamesOf(d);
   const message = { type: 'save', section: { id: d.id, name: d.name, label: d.label, placement: d.placement, defaultOption: d.defaultOption, options: d.options.map(function(o) {
-    return o.mode === 'file'
+    const out = o.mode === 'file'
       ? { name: o.name.trim(), text: o.fileText, mode: 'file', fileBase: o.fileBase }
       : { name: o.name.trim(), text: o.ownText };
+    if (o.when && o.when.trim()) { out.when = o.when.trim(); }
+    return out;
   }) } };
+  if (d.removeWhen && d.removeWhen.trim()) { message.section.removeWhen = d.removeWhen.trim(); }
   if (Object.keys(renames).length) { message.renames = renames; }
   vscode.postMessage(message);
 }
@@ -303,6 +396,13 @@ document.addEventListener('keydown', function(e) {
 
 window.addEventListener('message', function(event) {
   const msg = event.data;
+  if (msg && msg.type === 'conditionCheck') {
+    // The answer to a condition typed: shown under its field (without a redraw, so the typing goes on).
+    if (msg.error) { conditionErrors[msg.key] = msg.error; } else { delete conditionErrors[msg.key]; }
+    const box = document.querySelector('.cond[data-cond="' + msg.key + '"] .cond-error');
+    if (box) { box.textContent = msg.error || ''; box.classList.toggle('shown', !!msg.error); }
+    return;
+  }
   if (!msg || msg.type !== 'data') { return; }
   data = msg;
   carried = msg.carried || (msg.saved || msg.renamed ? '' : carried);

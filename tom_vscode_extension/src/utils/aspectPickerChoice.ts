@@ -9,7 +9,7 @@
  */
 
 import { withSectionChoice, type AspectChoices } from './aspectChoices';
-import { ASPECT_REMOVE, type AspectSection } from './aspectGuidelines';
+import { ASPECT_REMOVE, aspectValueText, parseAspectValue, type AspectChoiceValue, type AspectSection } from './aspectGuidelines';
 
 /**
  * The levels a picker sets. `allWindows` is the window level of every open
@@ -26,8 +26,8 @@ export const ASPECT_PICKER_CHAT_PANELS: readonly AspectPickerChatPanel[] = ['ant
 export interface AspectChoiceRequest {
     level: AspectPickerLevel;
     section: string;
-    /** `''` Don't add, `remove`, or an option name. */
-    value: string;
+    /** `''` Don't add, `remove`, a choice, or a list of choices (all with `+`: added to the levels below; gsel20). */
+    value: AspectChoiceValue;
     /** run: the run (default: the window's). */
     run?: string;
     /** item: the queue item's id. */
@@ -42,9 +42,9 @@ export interface AspectChoiceRequest {
 /** Where the non-window levels are written (swapped in tests). */
 export interface AspectChoiceWriters {
     sections(): readonly AspectSection[];
-    setWindow(section: string, option: string | undefined): void;
+    setWindow(section: string, option: AspectChoiceValue | undefined): void;
     /** Answers the other windows it was sent to. */
-    setAllWindows(section: string, option: string | undefined): string[];
+    setAllWindows(section: string, option: AspectChoiceValue | undefined): string[];
     runChoices(run: string | undefined): AspectChoices | undefined;
     setRun(choices: AspectChoices | undefined, run: string | undefined): void;
     itemChoices(id: string): AspectChoices | undefined | null;
@@ -63,20 +63,24 @@ export interface AspectChoiceResult {
 }
 
 /** Why `value` is no choice of `section` (undefined: it is). */
-export function aspectValueRefusal(sections: readonly AspectSection[], section: string, value: string): string | undefined {
+export function aspectValueRefusal(sections: readonly AspectSection[], section: string, value: AspectChoiceValue): string | undefined {
     const s = sections.find((x) => x.id === section);
     if (!s) { return `There is no guideline aspect "${section}".`; }
-    if (value === '' || value === ASPECT_REMOVE || s.options.some((o) => o.name === value)) { return undefined; }
-    return `The aspect ${s.name} has no choice "${value}".`;
+    if (value === '' || value === ASPECT_REMOVE || (Array.isArray(value) && value.length === 0)) { return undefined; }
+    const entry = parseAspectValue(value);
+    if (!entry || entry.kind === 'remove') { return `The aspect ${s.name}: "${aspectValueText(value)}" is no choice, list of choices or remove.`; }
+    const missing = entry.choices.filter((c) => !s.options.some((o) => o.name === c));
+    return missing.length ? `The aspect ${s.name} has no choice "${missing.join('", "')}".` : undefined;
 }
 
 /** Set one section's choice on one level. */
 export function applyAspectChoice(req: AspectChoiceRequest, w: AspectChoiceWriters): AspectChoiceResult {
     if (!ASPECT_PICKER_LEVELS.includes(req.level)) { return { ok: false, error: `Unknown level "${String(req.level)}".` }; }
-    const value = typeof req.value === 'string' ? req.value : '';
+    const value: AspectChoiceValue = typeof req.value === 'string' || Array.isArray(req.value) ? req.value : '';
     const refusal = aspectValueRefusal(w.sections(), req.section, value);
     if (refusal) { return { ok: false, error: refusal }; }
-    const option = value || undefined;
+    // '' and [] are Don't add (no entry on this level).
+    const option = value === '' || (Array.isArray(value) && value.length === 0) ? undefined : value;
     switch (req.level) {
         case 'window':
             w.setWindow(req.section, option);

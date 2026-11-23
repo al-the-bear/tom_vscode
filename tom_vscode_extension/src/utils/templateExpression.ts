@@ -331,6 +331,12 @@ function evaluateNode(node: ExpressionNode, lookup: ExpressionLookup): Expressio
     }
 }
 
+/** Whether an expression holds (its value is set: a non-empty string, true, a non-zero number); throws {@link ExpressionError} on a syntax error. */
+export function evaluateCondition(source: string | ExpressionNode, lookup: ExpressionLookup): boolean {
+    const node = typeof source === 'string' ? parseExpression(source) : source;
+    return isSet(evaluateNode(node, lookup));
+}
+
 /** Evaluate an expression to the text a template gets; throws {@link ExpressionError} on a syntax error. */
 export function evaluateExpression(source: string | ExpressionNode, lookup: ExpressionLookup): string {
     const node = typeof source === 'string' ? parseExpression(source) : source;

@@ -23,9 +23,15 @@ export interface QueueRoleSource {
     itemRole?: string;
     runDefaultRole?: string;
     /** The guideline choices of the stage's todo, the item and the item's run (gsel4; services/aspectChoiceLevels.ts). */
-    todoGuidelines?: Record<string, string>;
-    itemGuidelines?: Record<string, string>;
-    runGuidelines?: Record<string, string>;
+    todoGuidelines?: Record<string, string | string[]>;
+    itemGuidelines?: Record<string, string | string[]>;
+    runGuidelines?: Record<string, string | string[]>;
+    /** What the stage is (gsel20, the `prompt.kind` of aspect conditions): a chat send, a todo it runs, a timed request's, a Proceed prompt, else a queue prompt. */
+    kind?: 'chat' | 'queue' | 'todo' | 'proceed' | 'timed';
+    /** The todo the stage runs, when it runs one. */
+    todoId?: string;
+    /** The item's process run. */
+    run?: string;
 }
 
 /** Where the effective role comes from. */

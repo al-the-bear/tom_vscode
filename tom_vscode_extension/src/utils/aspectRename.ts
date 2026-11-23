@@ -11,7 +11,7 @@
  * never rewritten.
  */
 
-import { isMap, isScalar, Scalar, visit, type Document, type YAMLMap } from 'yaml';
+import { isMap, isScalar, isSeq, Scalar, visit, type Document, type YAMLMap } from 'yaml';
 
 /** What was renamed: a section's id, or options of one section (old name → new name). */
 export type AspectRename =
@@ -49,11 +49,11 @@ export function aspectRenameText(rename: AspectRename): string {
  * A section rename keeps the key's place; a choice already stored under the new
  * id (it named no section, so it applied nowhere) gives way to the carried one.
  */
-export function renameInChoices(choices: Readonly<Record<string, string>> | undefined, rename: AspectRename): Record<string, string> | undefined {
+export function renameInChoices(choices: Readonly<Record<string, string | string[]>> | undefined, rename: AspectRename): Record<string, string | string[]> | undefined {
     if (!choices) { return undefined; }
     if (rename.kind === 'section') {
         if (!Object.prototype.hasOwnProperty.call(choices, rename.from)) { return undefined; }
-        const next: Record<string, string> = {};
+        const next: Record<string, string | string[]> = {};
         for (const [section, option] of Object.entries(choices)) {
             if (section === rename.to) { continue; }
             next[section === rename.from ? rename.to : section] = option;
@@ -61,8 +61,17 @@ export function renameInChoices(choices: Readonly<Record<string, string>> | unde
         return next;
     }
     const current = choices[rename.section];
-    if (typeof current !== 'string' || !Object.prototype.hasOwnProperty.call(rename.options, current)) { return undefined; }
-    return { ...choices, [rename.section]: rename.options[current] };
+    if (current === undefined) { return undefined; }
+    const renamed = Array.isArray(current) ? current.map((c) => renamedChoice(c, rename.options)) : renamedChoice(current, rename.options);
+    const changed = Array.isArray(current) ? current.some((c, i) => c !== (renamed as string[])[i]) : renamed !== current;
+    return changed ? { ...choices, [rename.section]: renamed } : undefined;
+}
+
+/** One stored choice (`name`, `+name`; `remove` never) with a choice rename applied. */
+function renamedChoice(stored: string, options: Readonly<Record<string, string>>): string {
+    const add = stored.startsWith('+');
+    const name = add ? stored.slice(1) : stored;
+    return Object.prototype.hasOwnProperty.call(options, name) ? `${add ? '+' : ''}${options[name]}` : stored;
 }
 
 const scalarText = (node: unknown): string | undefined => (isScalar(node) && node.value !== null && node.value !== undefined ? String(node.value) : undefined);
@@ -77,10 +86,17 @@ export function renameInYamlChoiceMap(map: YAMLMap, rename: AspectRename): boole
         return true;
     }
     const pair = map.items.find((p) => scalarText(p.key) === rename.section);
-    const current = pair ? scalarText(pair.value) : undefined;
-    if (!pair || current === undefined || !Object.prototype.hasOwnProperty.call(rename.options, current)) { return false; }
-    if (isScalar(pair.value)) { (pair.value as Scalar).value = rename.options[current]; } else { pair.value = new Scalar(rename.options[current]); }
-    return true;
+    if (!pair) { return false; }
+    // A list of choices (gsel20): each entry renamed in place, its `+` kept.
+    const scalars = isSeq(pair.value) ? pair.value.items.filter(isScalar) : isScalar(pair.value) ? [pair.value] : [];
+    let changed = false;
+    for (const node of scalars) {
+        const current = scalarText(node);
+        if (current === undefined) { continue; }
+        const next = renamedChoice(current, rename.options);
+        if (next !== current) { (node as Scalar).value = next; changed = true; }
+    }
+    return changed;
 }
 
 /**

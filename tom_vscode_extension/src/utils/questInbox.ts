@@ -80,7 +80,7 @@ export interface InboxItem {
     /** The role the item runs as there (a folder of `_ai/roles/`; gsel3). */
     role?: string;
     /** The item's guideline choices there: aspect → choice or `remove` (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** The item's repeat count in the target queue: a number, a chat variable, or `<prefix>*` (a todo walk there). */
@@ -340,7 +340,7 @@ export interface InboxConversion {
         /** The role the item runs as. */
         role?: string;
         /** The item's guideline choices. */
-        guidelines?: Record<string, string>;
+        guidelines?: Record<string, string | string[]>;
         pauseAfter?: boolean;
         doneNotificationPrompt?: string;
         doneNotificationQuest?: string;

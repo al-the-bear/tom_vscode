@@ -41,7 +41,7 @@ export const SET_QUEST_DEFAULT_GUIDELINES_COMMAND = 'tomAi.setQuestDefaultGuidel
 export const CLEAR_QUEST_DEFAULT_GUIDELINES_COMMAND = 'tomAi.clearQuestDefaultGuidelines';
 
 /** *Set as quest default*: answers the choices written (undefined: none, the quest default is cleared). */
-export function setQuestDefaultGuidelines(): Record<string, string> | undefined {
+export function setQuestDefaultGuidelines(): Record<string, string | string[]> | undefined {
     return setQuestDefaultFromWindow();
 }
 
@@ -79,7 +79,7 @@ function otherOpenWindows(own: string | undefined): string[] {
 }
 
 /** The all-windows change: answers the other windows it was sent to. */
-export function setSectionChoiceForAllWindows(section: string, option: string | undefined): string[] {
+export function setSectionChoiceForAllWindows(section: string, option: string | string[] | undefined): string[] {
     const own = windowRequestsOwnWindow();
     return setSectionChoiceInAllWindows(section, option, {
         ownWindowId: own,
@@ -89,7 +89,7 @@ export function setSectionChoiceForAllWindows(section: string, option: string | 
 }
 
 /** The window-request handler: another window's all-windows change, set in this window's level and shown in its views. */
-export function applyAspectChoiceRequest(section: string, option: string | undefined): boolean {
+export function applyAspectChoiceRequest(section: string, option: string | string[] | undefined): boolean {
     setWindowSectionChoice(section, option);
     refreshAspectViews();
     return true;

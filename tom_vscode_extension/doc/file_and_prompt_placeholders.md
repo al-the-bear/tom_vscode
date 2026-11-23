@@ -276,6 +276,33 @@ ${{ rawTurns && rawTurnCount > 0 ? "## Raw turns\n\n" + rawTurns : "" }}
 ${{ notEmpty(selection) ? "Selection:\n" + selection : "" }}
 ```
 
+### Aspect conditions and the `prompt.*` variables
+
+An aspect guideline choice's `when:` and an aspect's `remove_when:` (in
+`_ai/aspect_guidelines/<aspect>/aspect.yaml`) are expressions of this language,
+evaluated while a prompt is prepared; the choice is sent while its `when:` holds
+(its value is set), the aspect sends nothing while `remove_when:` holds. Besides
+every variable above they read the **prompt facts**:
+
+| Variable | Value |
+| --- | --- |
+| `prompt.transport` | `direct`, `agentSdk`, `copilot`, `localLlm` or `vscodeLm` |
+| `prompt.kind` | `chat` (a chat panel's send), `queue`, `todo` (a queue stage that runs a todo), `proceed` (a process step's Proceed prompt), `timed` (a timed request's) |
+| `prompt.todo` | the id of the todo the prompt runs, `''` when none |
+| `prompt.role`, `prompt.roleType` | the role the prompt runs as and its role type (`_ai/role-types/<type>`) |
+| `prompt.run` | the process run |
+| `prompt.process` | the run's process, `''` when it has none |
+| `prompt.quest`, `prompt.workspace` | the quest, and the workspace folder's name |
+| `prompt.night` | the effective choices of the night-mode aspect (`night_mode` or `night`), `''` when there is none |
+
+```text
+when: prompt.transport != "direct" && prompt.kind == "todo"
+when: (prompt.roleType == "coder" || prompt.roleType == "reviewer")
+remove_when: prompt.night == "on"
+```
+
+An expression that cannot be evaluated is logged and counts as not holding.
+
 ### Evaluation order
 
 Expressions are evaluated **before** `${...}` placeholders in each resolution

@@ -146,7 +146,7 @@ export interface QueueItemSnapshot {
     /** The role the item runs as (a folder of `_ai/roles/`); unset: none of its own. */
     role?: string;
     /** The item's guideline choices (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /** The process run of the quest the item belongs to (`default` for the quest's own position). */
     run?: string;
     answerText?: string;
@@ -244,7 +244,7 @@ export interface EnqueueInput {
     /** The role the item runs as (a folder of `_ai/roles/`). */
     role?: string;
     /** The item's guideline choices (gsel4; checked by the caller). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /** The process run the item belongs to; default the window's current run. */
     run?: string;
     prePrompts?: PrePromptSpec[];
@@ -342,7 +342,7 @@ export interface PromptQueueAccess {
     /** The roles folder (`_ai/roles/`) a role is checked against; undefined: only its form is checked. */
     rolesDir?(): string | undefined;
     /** Set the guideline choices of a staged or pending item (undefined = none); false when the item cannot change (gsel4). */
-    updateItemGuidelines?(id: string, guidelines: Record<string, string> | undefined): boolean;
+    updateItemGuidelines?(id: string, guidelines: Record<string, string | string[]> | undefined): boolean;
     /** The guideline aspects `guidelines` are checked against; undefined: only their form is checked. */
     aspectSections?: AspectSectionsReader;
     /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
@@ -557,7 +557,7 @@ export interface AddQueueItemInput {
     /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
     role?: string;
     /** The item's guideline choices (gsel4): section → option or `remove`. */
-    guidelines?: Record<string, string> | null;
+    guidelines?: Record<string, string | string[]> | null;
     doneNotificationPrompt?: string;
     /** The quest the done notification is posted to (its inbox); default this quest. */
     doneNotificationQuest?: string;
@@ -1025,7 +1025,7 @@ export interface UpdateQueueItemInput {
     /** The role the item runs as (a folder of `_ai/roles/`; '' = none of its own). */
     role?: string;
     /** The item's guideline choices (gsel4); {} or null removes them. */
-    guidelines?: Record<string, string> | null;
+    guidelines?: Record<string, string | string[]> | null;
     /** '' removes it. */
     doneNotificationPrompt?: string;
     doneNotificationDisabled?: boolean;

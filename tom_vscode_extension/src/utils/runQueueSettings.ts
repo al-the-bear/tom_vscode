@@ -51,7 +51,7 @@ export interface RunQueueSettings {
      * The run's guideline choices (gsel4, L-5): aspect → choice or
      * `remove`; the run level of utils/aspectGuidelines.ts. Unset: none.
      */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 /** The settings of a run when neither the file nor its old top-level keys say otherwise. */

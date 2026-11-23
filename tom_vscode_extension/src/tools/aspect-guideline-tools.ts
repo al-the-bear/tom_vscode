@@ -20,14 +20,15 @@
 
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { ASPECT_LEVELS, resolveAspects, type AspectLevel, type AspectLevelChoices, type AspectSection } from '../utils/aspectGuidelines';
+import { conditionEvaluator, type AspectConditionContext } from '../services/aspectGuidelinesStore';
 import { aspectChoicesRefusal, choicesUpTo, normalizeAspectChoices } from '../utils/aspectChoices';
 
 /** The `guidelines` argument: a map of aspect → choice or `remove`. */
 export const GUIDELINES_SCHEMA = {
     guidelines: {
         type: ['object', 'null'],
-        additionalProperties: { type: 'string' },
-        description: 'Guideline choices: an aspect (a folder of `_ai/aspect_guidelines/`) mapped to a choice\'s short name, or to "remove" (nothing is sent for that aspect). An aspect not named inherits from the levels above (quest default, window, run, role type, role; the todo\'s win over the item\'s). Replaces the stored map as a whole; {} or null removes it. Aspects and choices: tomAi_getAspectGuidelines.',
+        additionalProperties: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        description: 'Guideline choices: an aspect (a folder of `_ai/aspect_guidelines/`) mapped to a choice\'s short name, a list of choices (replacing the levels below\'s; every entry with a leading "+": added to them, e.g. ["+react"]), or to "remove" (nothing is sent for that aspect). An aspect not named inherits from the levels above (quest default, window, run, role type, role; the todo\'s win over the item\'s). Replaces the stored map as a whole; {} or null removes it. Aspects and choices: tomAi_getAspectGuidelines.',
     },
 } as const;
 
@@ -50,7 +51,7 @@ export type AspectSectionsReader = () => { sections: AspectSection[]; problems: 
 export function guidelinesRefusal(value: unknown, readSections: AspectSectionsReader | undefined): string | undefined {
     if (value === undefined || value === null) { return undefined; }
     if (typeof value !== 'object' || Array.isArray(value)) {
-        return '`guidelines` must be an object mapping an aspect to a choice name or "remove".';
+        return '`guidelines` must be an object mapping an aspect to a choice name, a list of choice names (replacing the levels below; all with a leading "+": added to them) or "remove".';
     }
     const store = readSections?.();
     if (!store) {
@@ -92,6 +93,8 @@ export interface AspectGuidelineToolsDeps {
     levels(input: GetAspectGuidelinesInput): { levels: AspectLevelChoices; context: AspectLevelsContext; notes: string[] } | { error: string };
     /** The workspace level's files (gsel19): per folder, root first, the files that exist and its problems. */
     workspace?(): { files: Array<{ folder: string; md?: string; yaml?: string }>; sources: Record<string, string>; problems: string[] };
+    /** What the conditions read for the context (gsel20); unset: the conditions are not evaluated. */
+    conditions?(input: GetAspectGuidelinesInput, context: AspectLevelsContext): AspectConditionContext | undefined;
 }
 
 export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: GetAspectGuidelinesInput): string {
@@ -104,7 +107,9 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
         const store = deps.readSections() ?? { sections: [], problems: [] };
         const read = deps.levels(input);
         if ('error' in read) { return JSON.stringify({ ok: false, error: read.error }); }
-        const resolved = resolveAspects(store.sections, choicesUpTo(read.levels, level));
+        const cut = choicesUpTo(read.levels, level);
+        const cond = deps.conditions?.(input, read.context);
+        const resolved = resolveAspects(store.sections, cut, cond ? { evaluate: conditionEvaluator(store.sections, cut, cond) } : {});
         return JSON.stringify({
             ok: true,
             folder: deps.folder(),
@@ -114,6 +119,8 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
                 placement: s.placement,
                 ...(s.defaultOption ? { default: s.defaultOption } : {}),
                 choices: s.options.map((o) => o.name),
+                ...(s.options.some((o) => o.when !== undefined) ? { when: Object.fromEntries(s.options.filter((o) => o.when !== undefined).map((o) => [o.name, o.when])) } : {}),
+                ...(s.removeWhen !== undefined ? { removeWhen: s.removeWhen } : {}),
             })),
             ...(store.problems.length ? { problems: store.problems } : {}),
             context: read.context,
@@ -121,12 +128,22 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
             ...((ws) => (ws && (ws.files.some((f) => f.md || f.yaml) || ws.problems.length) ? { workspace: ws } : {}))(deps.workspace?.()),
             level: toolLevel(level),
             selection: resolved.sections.map((r) => {
-                const source = !r.removed && r.option ? store.sections.find((s) => s.id === r.section)?.options.find((o) => o.name === r.option)?.source : undefined;
+                const aspect = store.sections.find((s) => s.id === r.section);
+                const sourceOf = (choice: string) => aspect?.options.find((o) => o.name === choice)?.source;
+                const source = !r.removed && r.option ? sourceOf(r.option) : undefined;
+                const conditions = r.chosen.filter((c) => c.when !== undefined);
                 return {
                     aspect: r.section,
                     choice: r.removed ? 'remove' : (r.option ?? null),
+                    ...(r.options.length > 1 ? { choices: r.options, files: Object.fromEntries(r.options.map((c) => [c, sourceOf(c)?.display ?? null])) } : {}),
                     from: toolLevel(r.from) ?? null,
+                    ...(r.options.length > 1 ? { fromByChoice: Object.fromEntries(r.chosen.filter((c) => r.options.includes(c.option)).map((c) => [c.option, toolLevel(c.from)])) } : {}),
                     ...(source ? { file: source.display, ...(source.kind === 'file' ? { guidelineFile: true } : {}) } : {}),
+                    ...(conditions.length || r.removeWhen ? {
+                        conditional: r.conditional,
+                        ...(conditions.length ? { conditions: conditions.map((c) => ({ choice: c.option, when: c.when, ...(c.holds !== undefined ? { holds: c.holds } : {}), ...(c.error ? { error: c.error } : {}) })) } : {}),
+                        ...(r.removeWhen ? { removeWhen: r.removeWhen } : {}),
+                    } : {}),
                 };
             }),
             ...(resolved.ignored.length ? { ignored: resolved.ignored.map((i) => ({ level: toolLevel(i.level), aspect: i.section, choice: i.option })) } : {}),
@@ -144,7 +161,7 @@ export const GET_ASPECT_GUIDELINES_DESCRIPTION =
     'Context: `questId` (default this window\'s), `run` (default the window\'s), `role` (default the live role), `todoId` (its role and ' +
     'choices), `itemId` (a queue item: its run, role, todo and choices). `level` cuts the selection at that level (default `todo`: all). ' +
     'Response: `{ok, folder, aspects: [{id, label, placement, default?, choices}], context, levels, level, selection: [{aspect, choice ' +
-    '(a name, "remove" or null), from (the deciding level), file (where its text is: own text or a guideline file, guidelineFile)}], workspace? ({files, sources, problems}), ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
+    '(the first sent, "remove" or null), choices (several), from, file, conditional (a when / remove_when decided), conditions, removeWhen}], workspace? ({files, sources, problems}), ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
     '`guidelines` argument of tomAi_addQueueItem / tomAi_updateQueueItem / tomAi_sendItemToQuest / tomAi_createQuestTodo / tomAi_updateQuestTodo.';
 
 export function makeGetAspectGuidelinesTool(deps: () => AspectGuidelineToolsDeps): SharedToolDefinition<GetAspectGuidelinesInput> {
@@ -176,6 +193,19 @@ function liveDeps(): AspectGuidelineToolsDeps {
     const { WsPaths } = require('../utils/workspacePaths') as typeof import('../utils/workspacePaths');
     const { liveAspectStore, readAspectSections } = require('../services/aspectGuidelinesStore') as typeof import('../services/aspectGuidelinesStore');
     return {
+        conditions: (input, context) => {
+            const { promptFacts } = require('../services/aspectPromptFacts') as typeof import('../services/aspectPromptFacts');
+            const { variableLookup } = require('../utils/variableResolver') as typeof import('../utils/variableResolver');
+            const facts = promptFacts({
+                'prompt.kind': context.todoId ? 'todo' : context.itemId ? 'queue' : 'chat',
+                'prompt.todo': context.todoId ?? '',
+                'prompt.role': context.role ?? '',
+                'prompt.roleType': context.roleType ?? '',
+                'prompt.run': context.run ?? '',
+                'prompt.quest': context.questId ?? '',
+            });
+            return { facts, lookup: variableLookup(), log: (m) => { console.warn(`[aspect guidelines] ${m}`); } };
+        },
         workspace: () => {
             const ws = (require('../services/workspaceAspects') as typeof import('../services/workspaceAspects')).liveWorkspaceAspects();
             return {

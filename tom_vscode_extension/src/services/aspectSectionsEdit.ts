@@ -38,6 +38,7 @@ import { orphanGuidelineAspects, readAspectChoiceTexts } from './aspectGuideline
 import {
     ASPECT_REMOVE,
     buildAspectSection,
+    conditionProblem,
     isAspectName,
     type AspectPlacement,
     type AspectSectionYaml,
@@ -61,6 +62,8 @@ export interface AspectOptionEdit {
     ownText?: string;
     /** As read: the choice's guideline files, nearest layer first. */
     files?: Array<{ base: string; text: string }>;
+    /** Its condition (gsel20): sent only while it holds; '' or unset: always. */
+    when?: string;
 }
 
 /** A guideline layer as the page shows it. */
@@ -90,6 +93,8 @@ export interface AspectSectionEdit {
     /** The default option; '' for none. */
     defaultOption: string;
     options: AspectOptionEdit[];
+    /** While it holds, the aspect sends nothing (gsel20); '' or unset: never. */
+    removeWhen?: string;
     /** What is wrong with the folder as it is on disk. */
     problems: string[];
 }
@@ -100,7 +105,7 @@ function sectionFolder(dir: string, id: string): string {
 }
 
 /** A choice as the page edits it, from the texts read (own text and guideline files). */
-function optionForEdit(name: string, read: ReturnType<typeof readAspectChoiceTexts>): AspectOptionEdit {
+function optionForEdit(name: string, read: ReturnType<typeof readAspectChoiceTexts>, when?: string): AspectOptionEdit {
     const files = [...read.layerFiles].reverse().filter((l) => name in l.files).map((l) => ({ base: l.layer.base, text: l.files[name] }));
     const own = name in read.own;
     return {
@@ -109,7 +114,19 @@ function optionForEdit(name: string, read: ReturnType<typeof readAspectChoiceTex
         mode: own ? 'own' : 'file',
         ...(files.length ? { fileBase: files[0].base, files } : {}),
         ...(own ? { ownText: read.own[name] } : {}),
+        ...(when !== undefined ? { when } : {}),
     };
+}
+
+/** The conditions `choices:` gives (`{name, when}` entries), by choice name. */
+function conditionsOf(raw: AspectSectionYaml): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const e of Array.isArray(raw.choices) ? raw.choices : []) {
+        if (e && typeof e === 'object' && typeof (e as { name?: unknown }).name === 'string' && typeof (e as { when?: unknown }).when === 'string') {
+            out[(e as { name: string }).name] = (e as { when: string }).when;
+        }
+    }
+    return out;
 }
 
 /**
@@ -148,7 +165,8 @@ export function readSectionsForEdit(dir: string | undefined, layers: readonly As
                 label: typeof raw.label === 'string' ? raw.label : '',
                 placement: s.placement,
                 defaultOption: s.defaultOption ?? '',
-                options: s.options.map((o) => optionForEdit(o.name, read)),
+                options: s.options.map((o) => optionForEdit(o.name, read, o.when)),
+                ...(s.removeWhen !== undefined ? { removeWhen: s.removeWhen } : {}),
                 problems: [...new Set(problems)],
             });
         } else {
@@ -164,7 +182,9 @@ export function readSectionsForEdit(dir: string | undefined, layers: readonly As
 }
 
 function unusableForEdit(id: string, raw: AspectSectionYaml, read: ReturnType<typeof readAspectChoiceTexts>, problems: string[]): AspectSectionEdit {
-    const order = Array.isArray(raw.choices) ? raw.choices.filter((o): o is string => typeof o === 'string' && o in read.texts) : [];
+    const named = (Array.isArray(raw.choices) ? raw.choices : []).map((o) => (o && typeof o === 'object' ? (o as { name?: unknown }).name : o));
+    const order = named.filter((o): o is string => typeof o === 'string' && o in read.texts);
+    const when = conditionsOf(raw);
     for (const n of Object.keys(read.texts).sort()) { if (!order.includes(n)) { order.push(n); } }
     return {
         id,
@@ -172,7 +192,8 @@ function unusableForEdit(id: string, raw: AspectSectionYaml, read: ReturnType<ty
         label: typeof raw.label === 'string' ? raw.label : '',
         placement: raw.placement === 'user' ? 'user' : 'system',
         defaultOption: typeof raw.default === 'string' && order.includes(raw.default) ? raw.default : '',
-        options: order.map((name) => optionForEdit(name, read)),
+        options: order.map((name) => optionForEdit(name, read, when[name])),
+        ...(typeof raw.remove_when === 'string' ? { removeWhen: raw.remove_when } : {}),
         problems: [...new Set(problems)],
     };
 }
@@ -187,10 +208,15 @@ export function aspectSectionRefusal(section: Omit<AspectSectionEdit, 'problems'
             return `"${o.name}" is not a choice short name: not empty, no "/", no line break, no space at either end.`;
         }
         if (o.name === ASPECT_REMOVE) { return `A choice may not be named "${ASPECT_REMOVE}": it is the levels' Remove.`; }
+        if (o.name.startsWith('+')) { return `A choice name may not start with "+": it marks a choice added to the levels below.`; }
+        const bad = o.when?.trim() ? conditionProblem(o.when) : undefined;
+        if (bad) { return `The condition of "${o.name}" is no valid expression: ${bad}.`; }
         if (seen.has(o.name)) { return `The choice "${o.name}" is there twice.`; }
         seen.add(o.name);
     }
     if (section.defaultOption && !seen.has(section.defaultOption)) { return `The default "${section.defaultOption}" is no choice of the aspect.`; }
+    const badRemove = section.removeWhen?.trim() ? conditionProblem(section.removeWhen) : undefined;
+    if (badRemove) { return `Remove when is no valid expression: ${badRemove}.`; }
     return undefined;
 }
 
@@ -200,7 +226,8 @@ export function sectionYamlText(section: Omit<AspectSectionEdit, 'problems'>, sc
     if (section.label && section.label.trim()) { doc.label = section.label.trim(); }
     doc.placement = section.placement;
     if (section.defaultOption) { doc.default = section.defaultOption; }
-    if (section.options.length) { doc.choices = section.options.map((o) => o.name); }
+    if (section.options.length) { doc.choices = section.options.map((o) => (o.when?.trim() ? { name: o.name, when: o.when.trim() } : o.name)); }
+    if (section.removeWhen?.trim()) { doc.remove_when = section.removeWhen.trim(); }
     return (schemaRef ? `# yaml-language-server: $schema=${schemaRef}\n` : '') + stringifyYaml(doc);
 }
 

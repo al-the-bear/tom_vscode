@@ -1055,6 +1055,17 @@ function lookupVariable(key: string, values: Record<string, string>, now: Date):
 // ============================================================================
 
 /**
+ * A variable lookup as `${{ … }}` expressions read variables: the chat
+ * variables and every placeholder `${name}` resolves, with `extra` over them
+ * (aspect conditions, gsel20). The map is built once per call.
+ */
+export function variableLookup(extra: Record<string, string> = {}, options?: ResolveOptions): (name: string) => string | undefined {
+    const values = { ...buildVariableMap(options), ...extra };
+    const now = new Date();
+    return (name) => lookupVariable(name, values, now);
+}
+
+/**
  * Perform a single resolution pass, replacing placeholders with values.
  *
  * Resolution order:

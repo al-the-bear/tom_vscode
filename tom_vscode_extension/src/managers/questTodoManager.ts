@@ -163,7 +163,7 @@ export interface QuestTodoItem {
      * name or `remove`; the todo level, the lowest of all
      * (utils/aspectGuidelines.ts). Absent or {}: none.
      */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /** Worktracker orchestration: the todo this one was derived from. */
     derived_from?: string;
     /** Worktracker orchestration: the feedback that raised this todo. */

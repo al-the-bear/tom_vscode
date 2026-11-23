@@ -2960,10 +2960,10 @@ export function postTodoAspectsToAllViews(): number {
     return posted;
 }
 
-function _todoAspectMessage(): { type: 'qtAspects'; aspects: unknown; runGuidelines?: Record<string, string>; runDefaultRole?: string } {
+function _todoAspectMessage(): { type: 'qtAspects'; aspects: unknown; runGuidelines?: Record<string, string | string[]>; runDefaultRole?: string } {
     let aspects: unknown;
     try { aspects = aspectPickerState(); } catch { aspects = undefined; }
-    let runGuidelines: Record<string, string> | undefined;
+    let runGuidelines: Record<string, string | string[]> | undefined;
     let runDefaultRole: string | undefined;
     try {
         const { PromptQueueManager: pqm } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');

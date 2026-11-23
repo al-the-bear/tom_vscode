@@ -309,7 +309,7 @@ describe('the Aspect Guidelines editor and the Role Editor (gsel7)', () => {
         const row = (id: string): Win => doc.querySelector(`#tomAspectPopup .tom-aspect-section[data-section="${id}"]`);
         assert.equal(row('answer').querySelector('.tom-aspect-origin').textContent, 'from role type');
         assert.equal(row('night').querySelector('.tom-aspect-origin').textContent, '\u2713 here');
-        row('answer').querySelector('.tom-aspect-option[data-value="brief"]').click();
+        row('answer').querySelector('.tom-aspect-option[data-choice="brief"]').click();
         assert.equal($('guideChoices').textContent, 'Night: on · Answer: brief');
         $('btnGuidelines').click();
         row('night').querySelector('.tom-aspect-option[data-value=""]').click();

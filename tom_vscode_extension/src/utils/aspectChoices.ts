@@ -17,10 +17,10 @@
  * Pure: tested in `__tests__/aspectChoices.test.ts`.
  */
 
-import { ASPECT_LEVELS, ASPECT_REMOVE, isAspectName, type AspectLevel, type AspectLevelChoices, type AspectSection } from './aspectGuidelines';
+import { ASPECT_LEVELS, ASPECT_REMOVE, aspectValueText, formatAspectValue, isAspectName, parseAspectValue, type AspectChoiceValue, type AspectLevel, type AspectLevelChoices, type AspectSection } from './aspectGuidelines';
 
-/** One level's choices: section id → option name or `remove`. */
-export type AspectChoices = Record<string, string>;
+/** One level's choices: aspect id → a choice, `remove`, or a list of choices (replacing; `+` on every entry: adding). */
+export type AspectChoices = Record<string, AspectChoiceValue>;
 
 /** The levels a level choice may name, the section default excluded. */
 export type AspectChoiceLevel = Exclude<AspectLevel, 'sectionDefault'>;
@@ -34,7 +34,8 @@ export function normalizeAspectChoices(value: unknown): AspectChoices | undefine
     if (typeof value !== 'object' || value === null || Array.isArray(value)) { return undefined; }
     const out: AspectChoices = {};
     for (const [section, option] of Object.entries(value as Record<string, unknown>)) {
-        if (typeof option === 'string' && isAspectName(section) && isAspectName(option)) { out[section] = option; }
+        const entry = isAspectName(section) ? parseAspectValue(option) : undefined;
+        if (entry) { out[section] = formatAspectValue(entry); }
     }
     return Object.keys(out).length ? out : undefined;
 }
@@ -47,7 +48,7 @@ export function normalizeAspectChoices(value: unknown): AspectChoices | undefine
 export function aspectChoicesRefusal(value: unknown, sections: readonly AspectSection[]): string | undefined {
     if (value === null || value === undefined) { return undefined; }
     if (typeof value !== 'object' || Array.isArray(value)) {
-        return '`guidelines` must be an object mapping an aspect to a choice name or "remove".';
+        return '`guidelines` must be an object mapping an aspect to a choice name, a list of choice names (replacing the levels below; each entry with a leading "+": added to them) or "remove".';
     }
     const problems: string[] = [];
     const byId = new Map(sections.map((s) => [s.id, s]));
@@ -57,25 +58,30 @@ export function aspectChoicesRefusal(value: unknown, sections: readonly AspectSe
             problems.push(`"${section}" is no guideline aspect (aspects: ${sections.map((s) => s.id).join(', ') || 'none — _ai/aspect_guidelines/ has none'})`);
             continue;
         }
-        if (typeof option !== 'string') {
-            problems.push(`"${section}" must map to a choice name or "${ASPECT_REMOVE}"`);
+        const entry = parseAspectValue(option);
+        if (!entry) {
+            problems.push(`"${section}" must map to a choice name, a list of choice names (all with "+" to add) or "${ASPECT_REMOVE}"`);
             continue;
         }
-        if (option !== ASPECT_REMOVE && !known.options.some((o) => o.name === option)) {
-            problems.push(`"${option}" is no choice of "${section}" (choices: ${[...known.options.map((o) => o.name), ASPECT_REMOVE].join(', ')})`);
+        if (entry.kind === 'remove') { continue; }
+        for (const c of entry.choices) {
+            if (!known.options.some((o) => o.name === c)) {
+                problems.push(`"${c}" is no choice of "${section}" (choices: ${[...known.options.map((o) => o.name), ASPECT_REMOVE].join(', ')})`);
+            }
         }
     }
     return problems.length ? `Unknown guideline choices: ${problems.join('; ')}.` : undefined;
 }
 
 /**
- * `choices` with `section` set to `option` (an option name or `remove`), or
- * without it when `option` is undefined or `''` (*Don't add*). Undefined when
- * nothing is left.
+ * `choices` with `section` set to `value` (a choice, `remove`, or a list), or
+ * without it when `value` is undefined, `''` (*Don't add*) or no valid value.
+ * Undefined when nothing is left.
  */
-export function withSectionChoice(choices: AspectChoices | undefined, section: string, option: string | undefined): AspectChoices | undefined {
+export function withSectionChoice(choices: AspectChoices | undefined, section: string, value: AspectChoiceValue | undefined): AspectChoices | undefined {
     const out: AspectChoices = { ...(choices ?? {}) };
-    if (option) { out[section] = option; } else { delete out[section]; }
+    const entry = value === undefined || value === '' ? undefined : parseAspectValue(value);
+    if (entry) { out[section] = formatAspectValue(entry); } else { delete out[section]; }
     return Object.keys(out).length ? out : undefined;
 }
 
@@ -88,6 +94,16 @@ export interface AspectCatalogueSection {
     options: string[];
     /** Per choice, the file its text comes from (own text or a guideline file, gsel17), as shown. */
     files?: Record<string, string>;
+    /** Per conditional choice, its condition (gsel20). */
+    when?: Record<string, string>;
+    /** The aspect's `remove_when`. */
+    removeWhen?: string;
+    /**
+     * Whether each condition holds for a prompt of a kind (`chat` / `queue` /
+     * `todo`), evaluated by the host (aspectPickerState); `error` when it cannot
+     * be evaluated. `removeWhen` under the key `''`.
+     */
+    holds?: Record<string, Record<string, boolean | 'error'>>;
 }
 
 /** The sections the guideline picker offers (media/shared/aspectPicker.js), and the problems reading them. */
@@ -106,6 +122,8 @@ export function aspectCatalogueOf(sections: readonly AspectSection[]): AspectCat
             ...(s.defaultOption ? { defaultOption: s.defaultOption } : {}),
             options: s.options.map((o) => o.name),
             ...(s.options.some((o) => o.source) ? { files: Object.fromEntries(s.options.filter((o) => o.source).map((o) => [o.name, o.source!.display])) } : {}),
+            ...(s.options.some((o) => o.when !== undefined) ? { when: Object.fromEntries(s.options.filter((o) => o.when !== undefined).map((o) => [o.name, o.when!])) } : {}),
+            ...(s.removeWhen !== undefined ? { removeWhen: s.removeWhen } : {}),
         })),
     };
 }
@@ -134,5 +152,5 @@ export function overrideLevels(base: AspectLevelChoices, explicit: AspectLevelCh
 export function sameAspectChoices(a: AspectChoices | undefined, b: AspectChoices | undefined): boolean {
     const ka = Object.keys(a ?? {}).sort();
     const kb = Object.keys(b ?? {}).sort();
-    return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a![k] === b![k]);
+    return ka.length === kb.length && ka.every((k, i) => k === kb[i] && aspectValueText(a![k]) === aspectValueText(b![k]) && Array.isArray(a![k]) === Array.isArray(b![k]));
 }

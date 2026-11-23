@@ -43,7 +43,7 @@ export interface ChatSendForQueue {
     /** The panel's role (its role dropdown, gsel6): the queued item's own role. */
     role?: string;
     /** The panel's sticky guideline choices (gsel6): the queued item's own choices. */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 /** The sessions a send could go to instead: the queue's and the panel's own, then the quest's named ones. */

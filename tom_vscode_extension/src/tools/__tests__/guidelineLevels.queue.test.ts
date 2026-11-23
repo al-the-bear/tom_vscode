@@ -234,7 +234,7 @@ describe('guideline choices per level', () => {
         assert.deepEqual(windowChoices(), { language: 'de' }, 'this window: only night changed');
         // The other window takes the request.
         configureWindowRequests(dir, 'bbbb2222_mach0001');
-        const calls: Array<[string, string | undefined]> = [];
+        const calls: Array<[string, string | string[] | undefined]> = [];
         const handled = takeWindowRequests({ answerAsk: () => false, resumeRun: () => false, setAspectChoice: (s, o) => { calls.push([s, o]); return true; } });
         assert.equal(handled, 1);
         assert.deepEqual(calls, [['night', undefined]]);
@@ -335,7 +335,8 @@ describe('guideline choices per level', () => {
         // The schemas accept them, and only as a map of names.
         assert.equal(parseRoleConfig('roleType: author\nguidelines:\n  language: de\n').ok, true);
         assert.equal(parseRoleType('tools:\n  mode: profileDefault\nguidelines:\n  night: off\n').ok, true);
-        assert.equal(parseRoleConfig('guidelines:\n  language: [de]\n').ok, false);
+        assert.equal(parseRoleConfig('guidelines:\n  language: [de, +en]\n').ok, true, 'a list is a valid value (gsel20)');
+        assert.equal(parseRoleConfig('guidelines:\n  language: {de: 1}\n').ok, false);
     });
 
     test('GL-8: the wiring', () => {

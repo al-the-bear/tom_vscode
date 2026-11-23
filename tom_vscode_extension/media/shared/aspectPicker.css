@@ -119,3 +119,11 @@
     border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-widget-border, #555));
     cursor: pointer;
 }
+
+/* gsel20: several choices per aspect — the replace / add switch and the conditional mark. */
+.tom-aspect-modes { display: flex; gap: 4px; padding: 3px 8px 5px; border-bottom: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-widget-border, transparent)); }
+.tom-aspect-mode { cursor: pointer; padding: 1px 6px; border-radius: 3px; opacity: 0.75; border: 1px solid transparent; }
+.tom-aspect-mode.active { opacity: 1; border-color: var(--vscode-focusBorder); }
+.tom-aspect-mode:hover { background: var(--vscode-list-hoverBackground); }
+.tom-aspect-choice .tom-aspect-mark.codicon { font-size: 12px; }
+.tom-aspect-cond { opacity: 0.7; font-weight: 600; }

@@ -32,13 +32,13 @@ export function effectiveChatRole(stored: unknown, roles: readonly string[]): st
 }
 
 /** The role a chat send runs as (`runWithQueueRole`); undefined with *Default role*. */
-export function chatRoleSource(role: string, guidelines?: Record<string, string>): QueueRoleSource | undefined {
+export function chatRoleSource(role: string, guidelines?: Record<string, string | string[]>): QueueRoleSource | undefined {
     if (!role) { return undefined; }
-    return { itemRole: role, ...(guidelines && Object.keys(guidelines).length ? { itemGuidelines: { ...guidelines } } : {}) };
+    return { itemRole: role, kind: 'chat', ...(guidelines && Object.keys(guidelines).length ? { itemGuidelines: { ...guidelines } } : {}) };
 }
 
 /** What a queued chat send carries as its own: the panel's role and sticky choices. */
-export function chatQueueItemFields(role: string, guidelines: Record<string, string> | undefined): { role?: string; guidelines?: Record<string, string> } {
+export function chatQueueItemFields(role: string, guidelines: Record<string, string | string[]> | undefined): { role?: string; guidelines?: Record<string, string | string[]> } {
     return {
         ...(role ? { role } : {}),
         ...(guidelines && Object.keys(guidelines).length ? { guidelines: { ...guidelines } } : {}),

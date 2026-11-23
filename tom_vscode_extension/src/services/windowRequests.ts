@@ -32,7 +32,7 @@ import type { InteractionView } from './userInteractions';
 export type WindowRequest =
     | { type: 'answerAsk'; id: string; response: Record<string, unknown>; from?: string }
     | { type: 'resumeRun'; run: string; from?: string }
-    | { type: 'setAspectChoice'; section: string; option?: string; from?: string }
+    | { type: 'setAspectChoice'; section: string; option?: string | string[]; from?: string }
     | { type: 'renameAspectChoices'; rename: AspectRename; from?: string };
 
 /** What a window does with the requests it is sent. */
@@ -40,7 +40,7 @@ export interface WindowRequestHandlers {
     answerAsk(id: string, response: Record<string, unknown>): boolean;
     resumeRun(run: string): boolean;
     /** Set `section` to `option` in this window's guideline choices (undefined: *Don't add*). */
-    setAspectChoice?(section: string, option: string | undefined): boolean;
+    setAspectChoice?(section: string, option: string | string[] | undefined): boolean;
     /** A guideline section or option renamed: carry this window's choices in memory over. */
     renameAspectChoices?(rename: AspectRename): boolean;
 }
@@ -124,7 +124,7 @@ export function takeWindowRequests(handlers: WindowRequestHandlers): number {
                 ? handlers.answerAsk(String(request.id), request.response ?? {})
                 : request.type === 'resumeRun' ? handlers.resumeRun(String(request.run))
                     : request.type === 'setAspectChoice' && handlers.setAspectChoice
-                        ? handlers.setAspectChoice(String(request.section), typeof request.option === 'string' && request.option ? request.option : undefined)
+                        ? handlers.setAspectChoice(String(request.section), (typeof request.option === 'string' && request.option) || (Array.isArray(request.option) && request.option.length) ? request.option : undefined)
                         : request.type === 'renameAspectChoices' ? takeRename(handlers, request.rename)
                             : false;
             if (ok) { done++; }

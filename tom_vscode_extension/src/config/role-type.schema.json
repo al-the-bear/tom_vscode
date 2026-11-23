@@ -29,9 +29,9 @@
         },
         "guidelines": {
             "type": "object",
-            "description": "The guideline choices of the type's roles (a role's own win): an aspect (a folder of _ai/aspect_guidelines/) mapped to a choice's short name, or to `remove` (nothing is sent for that aspect). An aspect without an entry inherits from the levels above (Don't add). Absent: no choices.",
+            "description": "The guideline choices of the type's roles (a role's own win): an aspect (a folder of _ai/aspect_guidelines/) mapped to a choice's short name, or to `remove` (nothing is sent for that aspect). An aspect without an entry inherits from the levels above (Don't add). Absent: no choices. Several choices are a list: it replaces the levels below's choices, or adds to them when every entry starts with `+` (`[+react]`); a single choice stays a string.",
             "propertyNames": { "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" },
-            "additionalProperties": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" }
+            "additionalProperties": { "oneOf": [{ "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" }, { "type": "array", "items": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" }, "uniqueItems": true }] }
         }
     }
 }

@@ -587,7 +587,11 @@ name: Answer mode        # required
 label: Answer            # short label for the selection's hover help; default: the name
 placement: system        # system (default) or user
 default: trail only      # the choice used when no level chooses; absent: nothing
-choices: [trail only, answer tool]   # the order; choice files not listed follow by name
+choices:                 # the order; choice files not listed follow by name
+  - trail only
+  - name: answer tool    # a choice with its condition (gsel20)
+    when: prompt.transport != "copilot"
+remove_when: prompt.kind == "timed"   # while it holds the aspect sends nothing
 ```
 
 Each `<choice>.md` is one choice: its file name without `.md` is the choice's
@@ -643,17 +647,44 @@ queue settings, queue items, templates and inbox items, every quest's todos,
 roles and role types — and the other open windows on this machine carry over
 what they hold in memory; the editor says what was rewritten.
 
-**The levels**, the lowest winning per aspect: the aspect's default
+**The levels**, each over the ones before it: the aspect's default
 (`aspectDefault` in tomAi_getAspectGuidelines) < workspace < quest default <
 window < run < role type < role < queue item < todo. On each level an aspect is one of
-three things:
+these:
 
 - *Don't add*: no entry. A higher level's choice is inherited.
 - `remove`: nothing is sent for the aspect, whatever the levels above chose
   and whatever the default is.
-- A choice: its text is sent.
+- Choices that **replace** the levels below's: a choice (`night: on`) or a list
+  (`js_ts: [vscode_extension, react]`).
+- Choices **added** to the levels below's: a choice or a list with `+` on every
+  entry (`js_ts: +react`, `dart: [+flutter]`). A list mixing both is no valid
+  entry. Added after a `remove`, they start afresh.
 
-An entry naming a choice the aspect does not have is skipped, and the level
+The resolution (`resolveAspects`) walks from the default up; the effective set
+is sent in the aspect's choice order, under one `### <aspect>: <a>, <b>`
+heading. Every store keeps this form (quest default, window, workspace files,
+runs, queue items, todos — tom_todo_model 6.0.0 —, roles, role types), the
+rename carry-over renames list entries and keeps their `+`, and the tools'
+`guidelines` argument takes it.
+
+**Conditions** (`services/aspectGuidelinesStore.ts` `conditionEvaluator`,
+`services/aspectPromptFacts.ts`): a choice's `when:` is evaluated while the
+prompt is prepared, with the template expression language (`${{ … }}`,
+`src/utils/templateExpression.ts` `evaluateCondition`); the chosen choice is
+sent only while it holds, and nothing steps in for it. `remove_when:` holding
+sends nothing for the aspect. They read the prompt facts — `prompt.transport`
+(direct / agentSdk / copilot / localLlm / vscodeLm), `prompt.kind` (chat /
+queue / todo / proceed / timed, from the queue stage's context), `prompt.todo`,
+`prompt.role`, `prompt.roleType`, `prompt.run`, `prompt.process`,
+`prompt.quest`, `prompt.workspace`, `prompt.night` (the effective choices of
+the `night_mode` or `night` aspect) — then the chat variables and every
+placeholder `${name}` resolves. An expression that cannot be evaluated is
+logged and counts as not holding: the choice is not sent, an invalid
+`remove_when` removes nothing.
+
+An entry with no choice the aspect has is skipped (a partly unknown one keeps
+the known choices), and the level
 above it decides. **The workspace level** (`src/services/workspaceAspects.ts`) is read from
 `workspace_aspects.md` and `workspace_aspects.yaml` in the Tom root, then in
 each workspace folder down to the window's (the same folders as the guideline

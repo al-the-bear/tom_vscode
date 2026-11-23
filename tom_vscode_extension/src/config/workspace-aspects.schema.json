@@ -10,6 +10,12 @@
             "description": "The aspects (folders of _ai/aspect_guidelines/) this workspace sends nothing for: Remove on the workspace level. It wins over a choice of the same aspect in workspace_aspects.md beside it.",
             "items": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" },
             "uniqueItems": true
+        },
+        "add": {
+            "type": "array",
+            "description": "The aspects whose choices in workspace_aspects.md beside it are added to those of the levels below (the aspect's default, a farther workspace folder's), instead of replacing them.",
+            "items": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" },
+            "uniqueItems": true
         }
     },
     "additionalProperties": false

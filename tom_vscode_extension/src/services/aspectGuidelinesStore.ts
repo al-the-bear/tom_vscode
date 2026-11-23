@@ -38,6 +38,7 @@ import {
     type AssembledAspects,
 } from '../utils/aspectGuidelines';
 import { expandLineImports } from '../utils/lineImports';
+import { evaluateCondition } from '../utils/templateExpression';
 import { aspectFileLayers, choiceSources, type AspectChoiceSource, type AspectFileLayer } from '../utils/aspectChoiceFiles';
 
 /** The store's folder name under `_ai/`. */
@@ -159,6 +160,33 @@ export function readLiveAspectSections(): { sections: AspectSection[]; problems:
     return readAspectSections(dir, layers);
 }
 
+/** What a send's conditions read (gsel20): the prompt facts, the variables, and where an invalid expression is logged. */
+export interface AspectConditionContext {
+    facts: Partial<Record<string, string>>;
+    /** The chat variables and placeholders (variableResolver.variableLookup); unset: only the facts. */
+    lookup?: (name: string) => string | undefined;
+    log?: (message: string) => void;
+}
+
+/** The ids an aspect has whose effective choices are `prompt.night`. */
+export const NIGHT_ASPECT_IDS = ['night_mode', 'night'];
+
+/**
+ * The evaluator of `conditions`: the facts first, then the variables;
+ * `prompt.night` is the effective choices of the night-mode aspect (resolved
+ * without conditions), `''` when there is none or it sends nothing.
+ */
+export function conditionEvaluator(sections: readonly AspectSection[], choices: AspectLevelChoices, conditions: AspectConditionContext): (expression: string) => boolean {
+    const facts: Record<string, string> = { ...(conditions.facts as Record<string, string>) };
+    if (!facts['prompt.night']) {
+        const night = sections.filter((s) => NIGHT_ASPECT_IDS.includes(s.id));
+        const r = night.length ? resolveAspects(night, choices).sections[0] : undefined;
+        facts['prompt.night'] = r && !r.removed ? r.options.join(',') : '';
+    }
+    const lookup = (name: string): string | undefined => (name in facts ? facts[name] : conditions.lookup?.(name));
+    return (expression) => evaluateCondition(expression, lookup);
+}
+
 /** What one send gets: the text placed for its transport, and how it was made. */
 export interface AspectsForSend {
     systemSegments: string[];
@@ -180,6 +208,7 @@ export function aspectsForSend(
     choices: AspectLevelChoices | undefined,
     resolve: (text: string) => string,
     layers: readonly AspectFileLayer[] = [],
+    conditions?: AspectConditionContext,
 ): AspectsForSend {
     const read = readAspectSections(dir, layers);
     const problems = read.problems;
@@ -189,7 +218,13 @@ export function aspectsForSend(
         ...s,
         options: s.options.map((o) => (o.source ? { ...o, text: expandLineImports(o.text, o.source.path, { seen }) } : o)),
     }));
-    const resolution = resolveAspects(sections, choices ?? {});
+    const resolution = resolveAspects(sections, choices ?? {}, conditions ? { evaluate: conditionEvaluator(sections, choices ?? {}, conditions) } : {});
+    if (conditions) {
+        for (const r of resolution.sections) {
+            for (const c of r.chosen) { if (c.error) { conditions.log?.(`aspect ${r.section}, choice ${c.option}: when ${c.when}: ${c.error}; the choice is not sent`); } }
+            if (r.removeWhen?.error) { conditions.log?.(`aspect ${r.section}: remove_when ${r.removeWhen.expression}: ${r.removeWhen.error}; it removes nothing`); }
+        }
+    }
     for (const i of resolution.ignored) { problems.push(`${i.level}: "${i.section}" → "${i.option}" names no choice of an aspect; skipped`); }
     const assembled = assembleAspects(sections, resolution, resolve);
     return { ...placeAspects(transport, prompt, assembled), assembled, problems };
@@ -205,6 +240,8 @@ export function liveAspectsForSend(
     choices?: AspectLevelChoices,
 ): AspectsForSend {
     /* eslint-disable @typescript-eslint/no-require-imports */
+    const { livePromptFacts } = require('./aspectPromptFacts') as typeof import('./aspectPromptFacts');
+    const { variableLookup } = require('../utils/variableResolver') as typeof import('../utils/variableResolver');
     const { resolveVariables, unescapePlaceholders } = require('../utils/variableResolver') as typeof import('../utils/variableResolver');
     /* eslint-enable @typescript-eslint/no-require-imports */
     const { dir, layers } = liveAspectStore();
@@ -215,6 +252,11 @@ export function liveAspectsForSend(
         choices,
         (text) => unescapePlaceholders(resolveVariables(text)),
         layers,
+        {
+            facts: livePromptFacts(transport),
+            lookup: variableLookup(),
+            log: (message) => { console.warn(`[aspect guidelines] ${message}`); },
+        },
     );
 }
 

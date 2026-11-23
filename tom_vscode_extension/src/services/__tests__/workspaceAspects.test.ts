@@ -90,8 +90,8 @@ describe('the workspace aspect level (gsel19)', () => {
         put('x/_ai/aspect_guidelines/mode/plain.md', 'p'); put('x/_ai/aspect_guidelines/mode/fancy.md', 'f'); put('x/_ai/aspect_guidelines/night/on.md', 'o');
         put('x/workspace_aspects.yaml', 'remove: [night]\n');
         const twice = readWorkspaceAspectsFolder(path.join(base, 'x'), 'x');
-        assert.deepEqual(twice.choices, { mode: 'fancy', night: 'remove' }, 'the later line wins; remove wins');
-        assert.match(twice.problems.join('|'), /x\/workspace_aspects\.md:2: a second choice of mode \(x\/workspace_aspects\.md:1 chose plain\); this line wins/);
+        assert.deepEqual(twice.choices, { mode: ['plain', 'fancy'], night: 'remove' }, 'two lines of one aspect: two choices (gsel20); remove wins');
+        assert.equal(twice.sources.mode, 'x/workspace_aspects.md:1, 2');
         assert.match(twice.problems.join('|'), /x\/workspace_aspects\.yaml: night is removed and chosen \(x\/workspace_aspects\.md:3\); remove wins/);
         put('y/workspace_aspects.yaml', 'remove: [unclosed\n');
         assert.match(readWorkspaceAspectsFolder(path.join(base, 'y'), 'y').problems[0], /^y\/workspace_aspects\.yaml: does not read/);

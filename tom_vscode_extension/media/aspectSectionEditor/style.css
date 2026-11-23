@@ -34,3 +34,12 @@ textarea { min-height: 110px; font-family: var(--vscode-editor-font-family); }
 .save-row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
 button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 5px 14px; cursor: pointer; }
 button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 4px 10px; cursor: pointer; }
+/* gsel20: conditions */
+.cond { margin-top: 4px; }
+.cond-label { font-size: 0.9em; opacity: 0.8; margin-right: 6px; }
+.cond-input { width: 100%; font-family: var(--vscode-editor-font-family); }
+.cond-error { display: none; color: var(--vscode-errorForeground); font-size: 0.9em; }
+.cond-error.shown { display: block; }
+.cond-boxes { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.9em; margin-top: 2px; }
+.cond-box { white-space: nowrap; }
+.cond-roles { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; }

@@ -32,10 +32,10 @@
     var POPUP_ID = 'tomAspectPopup';
 
     /**
-     * @typedef {{ id: string, name: string, label: string, defaultOption?: string, options: string[], files?: Record<string, string> }} AspectCatalogueSection
+     * @typedef {{ id: string, name: string, label: string, defaultOption?: string, options: string[], files?: Record<string, string>, when?: Record<string, string>, removeWhen?: string, holds?: Record<string, Record<string, boolean | 'error'>> }} AspectCatalogueSection
      * @typedef {{ sections: AspectCatalogueSection[], problems?: string[] }} AspectCatalogue
-     * @typedef {Record<string, Record<string, string> | undefined>} AspectLevels
-     * @typedef {{ id: string, name: string, label: string, options: string[], option?: string, removed: boolean, from?: string, here?: string, files?: Record<string, string> }} AspectViewSection
+     * @typedef {Record<string, Record<string, string | string[]> | undefined>} AspectLevels
+     * @typedef {{ id: string, name: string, label: string, options: string[], chosen?: string[], fromBy?: Record<string, string>, option?: string, removed: boolean, from?: string, here?: string | string[], files?: Record<string, string>, when?: Record<string, string>, removeWhen?: string, holds?: Record<string, Record<string, boolean | 'error'>>, kind?: string }} AspectViewSection
      * @typedef {{ level: string, sections: AspectViewSection[], own: boolean }} AspectView
      */
 
@@ -45,31 +45,78 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    /** A level's value read (gsel20): `remove`, or the choices it replaces with or (every entry with `+`) adds; undefined when it is none. */
+    /** @param {unknown} value @returns {{ kind: string, choices: string[] } | undefined} */
+    function parseValue(value) {
+        if (typeof value === 'string') {
+            if (value === REMOVE) { return { kind: 'remove', choices: [] }; }
+            if (value.charAt(0) === '+') { return value.length > 1 ? { kind: 'add', choices: [value.slice(1)] } : undefined; }
+            return value ? { kind: 'replace', choices: [value] } : undefined;
+        }
+        if (!Array.isArray(value)) { return undefined; }
+        var list = /** @type {unknown[]} */ (value).filter(function (v) { return typeof v === 'string'; }).map(String);
+        if (list.length !== value.length) { return undefined; }
+        var adds = list.filter(function (v) { return v.charAt(0) === '+'; }).length;
+        if (adds && adds !== list.length) { return undefined; }
+        var names = list.map(function (v) { return adds ? v.slice(1) : v; });
+        return { kind: adds ? 'add' : 'replace', choices: names.filter(function (n, k) { return n && names.indexOf(n) === k; }) };
+    }
+
+    /** A level's entry in its stored form: one choice as a string, else a list (`+` on every entry that adds). */
+    /** @param {{ kind: string, choices: string[] }} entry @returns {string | string[]} */
+    function formatValue(entry) {
+        if (entry.kind === 'remove') { return REMOVE; }
+        if (entry.kind === 'replace') { return entry.choices.length === 1 ? entry.choices[0] : entry.choices.slice(); }
+        return entry.choices.map(function (c) { return '+' + c; });
+    }
+
     /**
-     * The effective choice of one section over the levels up to `level`: the
-     * lowest level with an entry decides; an entry naming no option of the
-     * section is skipped; with none, the section's default.
+     * The effective choices of one aspect over the levels up to `level`, as
+     * utils/aspectGuidelines.ts resolveAspects combines them: from the default
+     * up, `remove` clears the set, a replacing entry sets it, an adding one adds
+     * to it; an entry with no choice the aspect has is skipped. In the aspect's
+     * choice order, with the level each comes from.
      * @param {AspectCatalogueSection} section @param {AspectLevels} levels @param {string} level
-     * @returns {{ option?: string, removed: boolean, from?: string }}
+     * @returns {{ options: string[], option?: string, fromBy: Record<string, string>, removed: boolean, from?: string }}
      */
     function resolveSection(section, levels, level) {
         var top = LEVELS.indexOf(level);
         if (top < 0) { top = LEVELS.length - 1; }
-        for (var i = top; i > 0; i--) {
+        /** @type {Record<string, string>} */
+        var set = {};
+        var removed = false;
+        /** @type {string | undefined} */
+        var from;
+        if (section.defaultOption) { set[section.defaultOption] = 'sectionDefault'; from = 'sectionDefault'; }
+        for (var i = 1; i <= top; i++) {
             var choices = levels[LEVELS[i]];
-            var entry = choices ? choices[section.id] : undefined;
-            if (entry === undefined) { continue; }
-            if (entry === REMOVE) { return { removed: true, from: LEVELS[i] }; }
-            if (section.options.indexOf(entry) >= 0) { return { option: entry, removed: false, from: LEVELS[i] }; }
+            var entry = parseValue(choices ? choices[section.id] : undefined);
+            if (!entry) { continue; }
+            if (entry.kind === 'remove') { set = {}; removed = true; from = LEVELS[i]; continue; }
+            var usable = entry.choices.filter(function (c) { return section.options.indexOf(c) >= 0; });
+            if (!usable.length && entry.choices.length) { continue; }
+            if (entry.kind === 'replace') { set = {}; }
+            for (var k = 0; k < usable.length; k++) { if (!set[usable[k]]) { set[usable[k]] = LEVELS[i]; } }
+            removed = false;
+            from = LEVELS[i];
         }
-        return section.defaultOption
-            ? { option: section.defaultOption, removed: false, from: 'sectionDefault' }
-            : { removed: false };
+        var options = section.options.filter(function (o) { return !!set[o]; });
+        /** @type {{ options: string[], option?: string, fromBy: Record<string, string>, removed: boolean, from?: string }} */
+        var out = { options: options, fromBy: set, removed: removed };
+        if (options.length) { out.option = options[0]; }
+        if (from !== undefined) { out.from = from; }
+        return out;
+    }
+
+    /** The prompt kind a level stands for, for the conditions (gsel20): a todo's, a queue prompt's, else a chat send's. */
+    /** @param {string} level */
+    function kindOfLevel(level) {
+        return level === 'todo' ? 'todo' : (level === 'item' || level === 'run') ? 'queue' : 'chat';
     }
 
     /**
-     * The picker's view of `level`: every section with its effective choice,
-     * where it comes from and this level's own entry; `own` when this level
+     * The picker's view of `level`: every aspect with its effective choices,
+     * where each comes from and this level's own entry; `own` when this level
      * chose anything.
      * @param {AspectCatalogue | null | undefined} catalogue @param {AspectLevels} levels @param {string} level
      * @returns {AspectView}
@@ -80,42 +127,99 @@
         var sections = ((catalogue && catalogue.sections) || []).map(function (s) {
             var r = resolveSection(s, lv, level);
             /** @type {AspectViewSection} */
-            var out = { id: s.id, name: s.name, label: s.label || s.name, options: s.options.slice(), removed: r.removed };
+            var out = { id: s.id, name: s.name, label: s.label || s.name, options: s.options.slice(), chosen: r.options, fromBy: r.fromBy, removed: r.removed, kind: kindOfLevel(level) };
             if (r.option !== undefined) { out.option = r.option; }
             if (r.from !== undefined) { out.from = r.from; }
             if (mine[s.id] !== undefined) { out.here = mine[s.id]; }
             if (s.files) { out.files = s.files; }
+            if (s.when) { out.when = s.when; }
+            if (s.removeWhen !== undefined) { out.removeWhen = s.removeWhen; }
+            if (s.holds) { out.holds = s.holds; }
             return out;
         });
         return { level: level, sections: sections, own: sections.some(function (s) { return s.here !== undefined; }) };
     }
 
+    /** Whether a condition of `s` (a choice's, or `''` for remove_when) holds for the view's prompt kind: true, false, or 'error'. */
+    /** @param {AspectViewSection} s @param {string} choice @returns {boolean | 'error' | undefined} */
+    function holdsFor(s, choice) {
+        var h = s.holds && s.holds[choice];
+        return h ? h[s.kind || 'chat'] : undefined;
+    }
+
+    /** @param {AspectViewSection} s @param {string} c */
+    function choiceText(s, c) {
+        return c + (s.when && s.when[c] !== undefined ? '?' : '');
+    }
+
     /**
-     * The effective selection in a line (`Answer: brief · Night: on`); with
-     * `star`, a section this level chose itself is starred.
+     * The effective selection in a line (`Answer: brief, long · Night: on?`, a
+     * conditional choice with `?`); with `star`, an aspect this level chose
+     * itself is starred.
      * @param {AspectView} v @param {{ star?: boolean }} [opts]
      */
     function summary(v, opts) {
         var star = !!(opts && opts.star);
-        var parts = v.sections.filter(function (s) { return s.removed || s.option !== undefined; }).map(function (s) {
-            return s.label + ': ' + (s.removed ? 'removed' : s.option) + (star && s.from === v.level ? '*' : '');
+        var parts = v.sections.filter(function (s) { return s.removed || (s.chosen || []).length; }).map(function (s) {
+            return s.label + ': ' + (s.removed ? 'removed' : (s.chosen || []).map(function (c) { return choiceText(s, c); }).join(', ')) + (star && s.from === v.level ? '*' : '');
         });
-        return parts.length ? parts.join(' \u00b7 ') : 'nothing chosen';
+        return parts.length ? parts.join(' · ') : 'nothing chosen';
+    }
+
+    /** @param {string | string[]} value */
+    function valueLine(value) {
+        var e = parseValue(value);
+        if (!e) { return String(value); }
+        if (e.kind === 'remove') { return 'Remove'; }
+        return (e.kind === 'add' ? 'add ' : '') + e.choices.join(', ');
+    }
+
+    /** @param {string} level */
+    function originWord(level) {
+        var o = ORIGIN[/** @type {keyof typeof ORIGIN} */ (level)] || level;
+        return o.indexOf('from ') === 0 ? o.slice(5) : o;
     }
 
     /**
      * The hover help: the title, the effective selection, what this level
-     * chose itself, and the file each effective choice's text comes from (own
-     * text or a guideline file, gsel17).
+     * chose itself, where each effective choice comes from, the file of each
+     * (own text or a guideline file, gsel17), and the conditions with whether
+     * they hold for the level's prompt kind (gsel20).
      * @param {AspectView} v @param {string} title
      */
     function hoverText(v, title) {
         var own = v.sections.filter(function (s) { return s.here !== undefined; })
-            .map(function (s) { return s.label + ': ' + (s.here === REMOVE ? 'Remove' : s.here); });
-        var files = v.sections.filter(function (s) { return !s.removed && s.option !== undefined && s.files && s.files[s.option]; })
-            .map(function (s) { return s.label + ': ' + /** @type {Record<string, string>} */ (s.files)[/** @type {string} */ (s.option)]; });
-        return title + ': ' + summary(v) + (own.length ? '\nChosen here: ' + own.join(' \u00b7 ') : '')
-            + (files.length ? '\nFrom: ' + files.join(' \u00b7 ') : '');
+            .map(function (s) { return s.label + ': ' + valueLine(/** @type {string | string[]} */ (s.here)); });
+        var where = v.sections.filter(function (s) { return !s.removed && (s.chosen || []).length; })
+            .map(function (s) {
+                return s.label + ': ' + (s.chosen || []).map(function (c) {
+                    var lv = (s.fromBy || {})[c];
+                    return c + ' (' + (lv === v.level ? 'here' : originWord(lv || '')) + ')';
+                }).join(', ');
+            });
+        var files = v.sections.filter(function (s) { return !s.removed && s.files; })
+            .flatMap(function (s) {
+                return (s.chosen || []).filter(function (c) { return s.files && s.files[c]; })
+                    .map(function (c) { return s.label + ': ' + /** @type {Record<string, string>} */ (s.files)[c]; });
+            });
+        var conditions = v.sections.flatMap(function (s) {
+            var out = (s.chosen || []).filter(function (c) { return s.when && s.when[c] !== undefined; }).map(function (c) {
+                return s.label + ': ' + c + ' — when ' + /** @type {Record<string, string>} */ (s.when)[c] + ' (' + holdsWord(holdsFor(s, c), s.kind) + ')';
+            });
+            if (s.removeWhen !== undefined) { out.push(s.label + ': removed when ' + s.removeWhen + ' (' + holdsWord(holdsFor(s, ''), s.kind) + ')'); }
+            return out;
+        });
+        return title + ': ' + summary(v)
+            + (own.length ? '\nChosen here: ' + own.join(' · ') : '')
+            + (where.length ? '\nWhere from: ' + where.join(' · ') : '')
+            + (files.length ? '\nFrom: ' + files.join(' · ') : '')
+            + (conditions.length ? '\nConditions: ' + conditions.join(' · ') : '');
+    }
+
+    /** @param {boolean | 'error' | undefined} h @param {string | undefined} kind */
+    function holdsWord(h, kind) {
+        var k = kind === 'todo' ? 'a todo prompt' : kind === 'queue' ? 'a queue prompt' : 'a chat prompt';
+        return h === true ? 'holds now for ' + k : h === false ? 'does not hold now for ' + k : h === 'error' ? 'cannot be evaluated: not sent' : 'decided at send';
     }
 
     /**
@@ -170,7 +274,7 @@
 
     /** @param {AspectViewSection} s */
     function valueText(s) {
-        return s.removed ? 'removed' : (s.option !== undefined ? s.option : 'none');
+        return s.removed ? 'removed' : ((s.chosen || []).length ? (s.chosen || []).map(function (c) { return choiceText(s, c); }).join(', ') : 'none');
     }
 
     /** @param {AspectViewSection} s @param {string} level */
@@ -180,21 +284,70 @@
         return '<span class="tom-aspect-origin">' + esc(ORIGIN[/** @type {keyof typeof ORIGIN} */ (s.from)] || s.from) + '</span>';
     }
 
+    /** This level's own entry of `s`, read; undefined for Don't add. @param {AspectViewSection} s */
+    function hereEntry(s) {
+        return s.here === undefined ? undefined : parseValue(s.here);
+    }
+
     /**
-     * One option row of a section's submenu.
+     * The Don't add and Remove rows of an aspect's submenu (radio-like).
      * @param {AspectViewSection} s @param {string} value @param {string} text
      */
     function optionHtml(s, value, text) {
         var here = value === '' ? s.here === undefined : s.here === value;
-        var effective = value === REMOVE ? s.removed : (value !== '' && !s.removed && s.option === value);
+        var effective = value === REMOVE && s.removed;
         return '<div class="tom-aspect-option' + (here ? ' mine' : '') + (effective ? ' effective' : '') + '" role="menuitemradio"'
             + ' aria-checked="' + (here ? 'true' : 'false') + '" tabindex="-1"'
-            + ' data-section="' + esc(s.id) + '" data-value="' + esc(value) + '"'
-            + (s.files && value && s.files[value] ? ' title="' + esc(s.files[value]) + '"' : '') + '>'
-            + '<span class="tom-aspect-mark">' + (here ? '\u25cf' : '') + '</span>'
+            + ' data-section="' + esc(s.id) + '" data-value="' + esc(value) + '">'
+            + '<span class="tom-aspect-mark">' + (here ? '●' : '') + '</span>'
             + '<span class="tom-aspect-option-text">' + esc(text) + '</span>'
-            + (effective && !here ? '<span class="tom-aspect-origin">\u2713</span>' : '')
+            + (effective && !here ? '<span class="tom-aspect-origin">✓</span>' : '')
             + '</div>';
+    }
+
+    /**
+     * A choice's row: a checkbox for this level's entry (gsel20), the effective
+     * mark, the file and the condition in its hover help.
+     * @param {AspectViewSection} s @param {string} choice
+     */
+    function choiceHtml(s, choice) {
+        var e = hereEntry(s);
+        var checked = !!e && e.kind !== 'remove' && e.choices.indexOf(choice) >= 0;
+        var effective = !s.removed && (s.chosen || []).indexOf(choice) >= 0;
+        var when = s.when && s.when[choice];
+        var tip = [s.files && s.files[choice] ? s.files[choice] : '', when !== undefined ? 'when ' + when + ' (' + holdsWord(holdsFor(s, choice), s.kind) + ')' : ''].filter(Boolean).join('\n');
+        return '<div class="tom-aspect-option tom-aspect-choice' + (checked ? ' mine' : '') + (effective ? ' effective' : '') + '" role="menuitemcheckbox"'
+            + ' aria-checked="' + (checked ? 'true' : 'false') + '" tabindex="-1"'
+            + ' data-section="' + esc(s.id) + '" data-choice="' + esc(choice) + '"'
+            + (tip ? ' title="' + esc(tip) + '"' : '') + '>'
+            + '<span class="tom-aspect-mark codicon ' + (checked ? 'codicon-pass-filled' : 'codicon-circle-large-outline') + '"></span>'
+            + '<span class="tom-aspect-option-text">' + esc(choice) + (when !== undefined ? ' <span class="tom-aspect-cond" title="' + esc('when ' + when) + '">?</span>' : '') + '</span>'
+            + (effective && !checked ? '<span class="tom-aspect-origin">✓</span>' : '')
+            + '</div>';
+    }
+
+    /**
+     * The replace / add switch of the level shown (gsel20): whether this level's
+     * choices of the aspect replace those of the levels below or are added to them.
+     * @param {AspectViewSection} s @param {string} mode
+     */
+    function modeHtml(s, mode) {
+        var b = function (/** @type {string} */ m, /** @type {string} */ text, /** @type {string} */ tip) {
+            return '<span class="tom-aspect-mode' + (m === mode ? ' active' : '') + '" role="menuitemradio" aria-checked="' + (m === mode ? 'true' : 'false') + '" tabindex="-1"'
+                + ' data-section="' + esc(s.id) + '" data-mode="' + m + '" title="' + esc(tip) + '">' + text + '</span>';
+        };
+        return '<div class="tom-aspect-modes">'
+            + b('replace', 'Replace', 'This level\'s choices replace those of the levels below')
+            + b('add', 'Add', 'This level\'s choices are added to those of the levels below')
+            + '</div>';
+    }
+
+    /** The submenu of an aspect: the switch, Don't add, the choices, Remove. @param {AspectViewSection} s @param {string} mode */
+    function submenuHtml(s, mode) {
+        return modeHtml(s, mode)
+            + optionHtml(s, '', 'Don\'t add')
+            + s.options.map(function (o) { return choiceHtml(s, o); }).join('')
+            + optionHtml(s, REMOVE, 'Remove');
     }
 
     /** Open one section's submenu (and close the others). @param {HTMLElement} popup @param {HTMLElement | null} row */
@@ -214,11 +367,18 @@
      * sections…* at the bottom. A choice closes it.
      * @param {HTMLElement | null} anchor
      * @param {AspectView} v
-     * @param {{ title: string, note?: string, onChoose: (section: string, value: string) => void, onEditSections?: () => void }} opts
+     * @param {{ title: string, note?: string, onChoose: (section: string, value: string | string[]) => void, onEditSections?: () => void }} opts
      * @returns {HTMLElement}
      */
     function open(anchor, v, opts) {
         close();
+        /** The replace / add switch per aspect while the popup is open. @type {Record<string, string>} */
+        var modes = {};
+        /** @param {AspectViewSection} s */
+        function modeOf(s) {
+            var e = hereEntry(s);
+            return modes[s.id] || (e && e.kind === 'add' ? 'add' : 'replace');
+        }
         var popup = document.createElement('div');
         popup.id = POPUP_ID;
         popup.className = 'tom-aspect-popup';
@@ -231,9 +391,7 @@
                 + originHtml(s, v.level)
                 + '<span class="codicon codicon-chevron-right"></span>'
                 + '<div class="tom-aspect-options" role="menu">'
-                + optionHtml(s, '', 'Don\'t add')
-                + s.options.map(function (o) { return optionHtml(s, o, o); }).join('')
-                + optionHtml(s, REMOVE, 'Remove')
+                + submenuHtml(s, modeOf(s))
                 + '</div></div>';
         }).join('');
         popup.innerHTML = '<div class="tom-aspect-popup-title">' + esc(opts.title) + '</div>'
@@ -258,16 +416,48 @@
                 openSection(popup, el.classList.contains('open') ? null : el);
             });
         });
-        popup.querySelectorAll('.tom-aspect-option').forEach(function (opt) {
-            opt.addEventListener('click', function (ev) {
-                ev.stopPropagation();
-                var el = /** @type {HTMLElement} */ (opt);
-                var section = el.getAttribute('data-section') || '';
-                var value = el.getAttribute('data-value') || '';
+        // Don't add, Remove, a choice's checkbox, the replace / add switch (gsel20).
+        popup.addEventListener('click', function (ev) {
+            var t = /** @type {HTMLElement | null} */ (ev.target);
+            var el = t && t.closest ? /** @type {HTMLElement | null} */ (t.closest('.tom-aspect-option, .tom-aspect-mode')) : null;
+            if (!el) { return; }
+            ev.stopPropagation();
+            var section = el.getAttribute('data-section') || '';
+            var s = v.sections.find(function (x) { return x.id === section; });
+            if (!s) { return; }
+            if (el.classList.contains('tom-aspect-mode')) {
+                var mode = el.getAttribute('data-mode') || 'replace';
+                modes[section] = mode;
+                var cur = hereEntry(s);
+                if (cur && cur.kind !== 'remove' && cur.choices.length && cur.kind !== mode) { choose(s, formatValue({ kind: mode, choices: cur.choices })); }
+                redraw(s);
+                return;
+            }
+            var choice = el.getAttribute('data-choice');
+            if (choice === null) {
                 close();
-                opts.onChoose(section, value);
-            });
+                opts.onChoose(section, el.getAttribute('data-value') || '');
+                return;
+            }
+            var e = hereEntry(s);
+            var list = e && e.kind !== 'remove' ? e.choices.slice() : [];
+            var at = list.indexOf(choice);
+            if (at >= 0) { list.splice(at, 1); } else { list.push(choice); }
+            // In the aspect's choice order.
+            list = s.options.filter(function (o) { return list.indexOf(o) >= 0; });
+            choose(s, list.length ? formatValue({ kind: modeOf(s), choices: list }) : '');
+            redraw(s);
         });
+        /** The value of this level written, the popup kept open with it. @param {AspectViewSection} s @param {string | string[]} value */
+        function choose(s, value) {
+            if (value === '') { delete s.here; } else { s.here = value; }
+            opts.onChoose(s.id, value);
+        }
+        /** @param {AspectViewSection} s */
+        function redraw(s) {
+            var row = popup.querySelector('.tom-aspect-section[data-section="' + (window.CSS && CSS.escape ? CSS.escape(s.id) : s.id) + '"] .tom-aspect-options');
+            if (row) { row.innerHTML = submenuHtml(s, modeOf(s)); }
+        }
         var edit = popup.querySelector('.tom-aspect-edit');
         if (edit) {
             edit.addEventListener('click', function () {
@@ -287,6 +477,8 @@
         LEVELS: LEVELS.slice(),
         ORIGIN: ORIGIN,
         resolveSection: resolveSection,
+        parseValue: parseValue,
+        formatValue: formatValue,
         view: view,
         summary: summary,
         hoverText: hoverText,

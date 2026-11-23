@@ -106,7 +106,7 @@ describe('guideline picker: the component', () => {
         const run = P.view(CATALOGUE, { questDefault: { night: 'on' }, run: { answer: 'full' } }, 'run');
         assert.equal(P.summary(run, { star: true }), 'Answer: full* \u00b7 Night: on');
         assert.equal(P.summary(P.view({ sections: [CATALOGUE.sections[1]] }, {}, 'window')), 'nothing chosen');
-        assert.equal(P.hoverText(run, 'Guidelines'), 'Guidelines: Answer: full \u00b7 Night: on\nChosen here: Answer: full');
+        assert.equal(P.hoverText(run, 'Guidelines'), 'Guidelines: Answer: full \u00b7 Night: on\nChosen here: Answer: full\nWhere from: Answer: full (here) \u00b7 Night: on (quest)', 'each choice with where it comes from (gsel20)');
 
         const host = w.document.createElement('div');
         host.innerHTML = P.buttonHtml(run, { title: 'Guidelines of run x', attrs: Object.fromEntries([['data-aspect-open', 'run']]) });
@@ -142,7 +142,8 @@ describe('guideline picker: the component', () => {
         assert.ok(rows[0].classList.contains('open'), 'hovering a section opens its options');
         const opts = [...rows[0].querySelectorAll('.tom-aspect-option')];
         assert.deepEqual(opts.map((o: Win) => o.querySelector('.tom-aspect-option-text').textContent), ['Don\'t add', 'brief', 'full', 'Remove']);
-        assert.deepEqual(opts.map((o: Win) => o.getAttribute('data-value')), ['', 'brief', 'full', 'remove']);
+        assert.deepEqual(opts.map((o: Win) => o.getAttribute('data-value') ?? `choice:${o.getAttribute('data-choice')}`), ['', 'choice:brief', 'choice:full', 'remove']);
+        assert.equal(opts[1].getAttribute('role'), 'menuitemcheckbox', 'the choices are checkboxes (gsel20)');
         assert.deepEqual(opts.map((o: Win) => o.classList.contains('mine')), [true, false, false, false], 'the run chose nothing for Answer: Don\'t add is marked');
         assert.ok(opts[2].classList.contains('effective'));
         rows[1].dispatchEvent(new w.MouseEvent('mouseenter'));
@@ -163,17 +164,37 @@ describe('guideline picker: the component', () => {
         const P = w.TomAspectPicker;
         const anchor = w.document.getElementById('anchor');
         const v = P.view(CATALOGUE, { window: { answer: 'full' } }, 'window');
-        const chosen: Array<[string, string]> = [];
+        const chosen: Array<[string, string | string[]]> = [];
         let edits = 0;
-        const open = (): Win => P.open(anchor, v, { title: 'w', onChoose: (s: string, val: string) => chosen.push([s, val]), onEditSections: () => { edits++; } });
-        const click = (popup: Win, section: string, value: string): void => {
-            popup.querySelector(`.tom-aspect-option[data-section="${section}"][data-value="${value}"]`).click();
-        };
-        click(open(), 'night', 'off');
-        assert.equal(w.document.getElementById('tomAspectPopup'), null, 'a choice closes it');
-        click(open(), 'answer', '');
-        click(open(), 'answer', 'remove');
-        assert.deepEqual(chosen, [['night', 'off'], ['answer', ''], ['answer', 'remove']]);
+        const open = (view: Win = v): Win => P.open(anchor, view, { title: 'w', onChoose: (s: string, val: string | string[]) => chosen.push([s, JSON.parse(JSON.stringify(val))]), onEditSections: () => { edits++; } });
+        const choice = (popup: Win, section: string, name: string): Win => popup.querySelector(`.tom-aspect-option[data-section="${section}"][data-choice="${name}"]`);
+        const radio = (popup: Win, section: string, value: string): Win => popup.querySelector(`.tom-aspect-option[data-section="${section}"][data-value="${value}"]`);
+        // Choices are checkboxes (gsel20): a click writes this level's list and keeps the popup open.
+        let popup = open();
+        choice(popup, 'night', 'off').click();
+        assert.ok(w.document.getElementById('tomAspectPopup'), 'a choice keeps it open');
+        assert.equal(choice(popup, 'night', 'off').getAttribute('aria-checked'), 'true', 'redrawn checked');
+        choice(popup, 'answer', 'brief').click();
+        assert.deepEqual(chosen.splice(0), [['night', 'off'], ['answer', ['brief', 'full']]], 'several choices, in the aspect\'s order');
+        choice(popup, 'answer', 'full').click();
+        choice(popup, 'answer', 'brief').click();
+        assert.deepEqual(chosen.splice(0), [['answer', 'brief'], ['answer', '']], 'unchecking the last: Don\'t add');
+        // The replace / add switch: with choices on this level it rewrites them as added ones.
+        choice(popup, 'answer', 'full').click();
+        popup.querySelector('.tom-aspect-mode[data-section="answer"][data-mode="add"]').click();
+        assert.deepEqual(chosen.splice(0), [['answer', 'full'], ['answer', ['+full']]]);
+        assert.equal(popup.querySelector('.tom-aspect-mode[data-section="answer"][data-mode="add"]').classList.contains('active'), true);
+        choice(popup, 'answer', 'brief').click();
+        assert.deepEqual(chosen.splice(0), [['answer', ['+brief', '+full']]], 'a choice checked while adding is added');
+        // Don't add and Remove close it.
+        radio(popup, 'answer', '').click();
+        assert.equal(w.document.getElementById('tomAspectPopup'), null, 'Don\'t add closes it');
+        radio(open(), 'answer', 'remove').click();
+        assert.deepEqual(chosen.splice(0), [['answer', ''], ['answer', 'remove']]);
+        // An adding entry is shown with the switch on Add.
+        popup = open(P.view(CATALOGUE, { window: { answer: ['+brief'] } }, 'window'));
+        assert.equal(popup.querySelector('.tom-aspect-mode[data-section="answer"][data-mode="add"]').classList.contains('active'), true);
+        P.close();
         open().querySelector('.tom-aspect-edit').click();
         assert.equal(edits, 1);
         assert.equal(w.document.getElementById('tomAspectPopup'), null);
@@ -182,7 +203,7 @@ describe('guideline picker: the component', () => {
         await flush();
         w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' }));
         assert.equal(w.document.getElementById('tomAspectPopup'), null, 'Escape closes it');
-        const popup = open();
+        popup = open();
         await flush();
         popup.querySelector('.tom-aspect-section').dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true }));
         assert.ok(w.document.getElementById('tomAspectPopup'), 'a click inside keeps it');
@@ -230,7 +251,7 @@ describe('guideline picker: the Prompt Queue editor', () => {
         const popup = doc.getElementById('tomAspectPopup');
         assert.equal(popup.getAttribute('data-level'), 'window');
         assert.deepEqual([...popup.querySelectorAll('.tom-aspect-section > .tom-aspect-origin')].map((e: Win) => e.textContent), ['\u2713 here', 'from quest']);
-        popup.querySelector('.tom-aspect-option[data-section="night"][data-value="off"]').click();
+        popup.querySelector('.tom-aspect-option[data-section="night"][data-choice="off"]').click();
         all.click();
         assert.match(doc.getElementById('tomAspectPopup').querySelector('.tom-aspect-popup-note').textContent, /every window/);
         doc.getElementById('tomAspectPopup').querySelector('.tom-aspect-option[data-section="answer"][data-value=""]').click();
@@ -291,7 +312,7 @@ describe('guideline picker: the Prompt Queue editor', () => {
         const popup = doc.getElementById('tomAspectPopup');
         assert.equal(popup.getAttribute('data-level'), 'item');
         assert.deepEqual([...popup.querySelectorAll('.tom-aspect-section > .tom-aspect-origin')].map((e: Win) => e.textContent), ['from role', '\u2713 here']);
-        popup.querySelector('.tom-aspect-option[data-section="answer"][data-value="brief"]').click();
+        popup.querySelector('.tom-aspect-option[data-section="answer"][data-choice="brief"]').click();
         assert.deepEqual(chosen(posted), [{ type: 'aspectChoose', level: 'item', itemId: 'i1', section: 'answer', value: 'brief' }]);
     });
 });
@@ -315,7 +336,7 @@ describe('guideline picker: the todo panel', () => {
         assert.equal(posted.some((m) => m.type === 'qtGetAspects'), true, 'the panel asks for the sections');
         const mine = w.qtRenderTodoRow({ id: 'a1', title: 'A', status: 'not-started', guidelines: { night: 'off' } });
         const plain = w.qtRenderTodoRow({ id: 'a2', title: 'B', status: 'not-started' });
-        assert.match(mine, /class="tom-aspect-ind" title="Guidelines of this todo: Answer: full · Night: off\nChosen here: Night: off"/);
+        assert.match(mine, /class="tom-aspect-ind" title="Guidelines of this todo: Answer: full · Night: off\nChosen here: Night: off\nWhere from: /);
         assert.doesNotMatch(plain, /tom-aspect-ind/);
 
         const todo = { id: 'a1', title: 'A', status: 'not-started', role: '', guidelines: { night: 'remove' }, _resolvedQuestId: 'q2' };
@@ -328,7 +349,7 @@ describe('guideline picker: the todo panel', () => {
         const popup = w.document.getElementById('tomAspectPopup');
         assert.equal(popup.getAttribute('data-level'), 'todo');
         assert.deepEqual([...popup.querySelectorAll('.tom-aspect-section > .tom-aspect-origin')].map((e: Win) => e.textContent), ['from run', '\u2713 here']);
-        popup.querySelector('.tom-aspect-option[data-section="answer"][data-value="brief"]').click();
+        popup.querySelector('.tom-aspect-option[data-section="answer"][data-choice="brief"]').click();
         assert.deepEqual(posted.filter((m) => m.type === 'aspectChoose'), [{ type: 'aspectChoose', level: 'todo', questId: 'q2', todoId: 'a1', section: 'answer', value: 'brief' }]);
 
         // The host's answer redraws the row; a role change does too (the role's choices count).

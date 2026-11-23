@@ -59,13 +59,13 @@ export interface RoleType {
     description?: string;
     tools: { mode: RoleToolsMode; enabled?: string[] };
     /** The guideline choices of the type's roles (gsel4): aspect → choice or `remove`; none: *Don't add* everywhere. */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 export interface RoleConfig {
     roleType?: string;
     /** The role's own guideline choices (gsel4), over its type's. */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 /** A folder name a role or role type may have. */
@@ -123,7 +123,7 @@ export function schemaLine(file: string, topTom: string, kind: 'roleType' | 'rol
 }
 
 /** Whether `g` is a guideline-choice map with at least one entry (an empty one is not written). */
-function nonEmptyChoices(g: Record<string, string> | undefined): g is Record<string, string> {
+function nonEmptyChoices(g: Record<string, string | string[]> | undefined): g is Record<string, string | string[]> {
     return typeof g === 'object' && g !== null && Object.keys(g).length > 0;
 }
 
@@ -196,9 +196,9 @@ export interface RoleGuidelines {
     role: string;
     roleType?: string;
     /** The role type's choices (`role-type.yaml` `guidelines`). */
-    roleTypeChoices?: Record<string, string>;
+    roleTypeChoices?: Record<string, string | string[]>;
     /** The role's own choices (`role-config.yaml` `guidelines`). */
-    roleChoices?: Record<string, string>;
+    roleChoices?: Record<string, string | string[]>;
     /** Files that could not be read (their choices are left out). */
     notes: string[];
 }

@@ -59,13 +59,49 @@ export function aspectPickerState(): AspectPickerState {
     const window = attempt(() => windowChoices());
     const ws = attempt(() => liveWorkspaceAspects());
     const workspace = ws && Object.keys(ws.choices).length ? ws.choices : undefined;
+    const catalogue = aspectCatalogueOf(read.sections);
+    addConditionHolds(catalogue, read.sections);
     return {
-        ...aspectCatalogueOf(read.sections),
+        ...catalogue,
         problems: [...read.problems, ...(ws?.problems ?? [])],
         ...(workspace ? { workspace } : {}),
         ...(questDefault ? { questDefault } : {}),
         ...(window ? { window } : {}),
         roles,
+    };
+}
+
+/** The prompt kinds the picker's levels stand for: a todo's, a queue item's (and a run's), else a chat send's. */
+export const PICKER_CONDITION_KINDS = ['chat', 'queue', 'todo'] as const;
+
+/**
+ * Whether each condition of the catalogue holds for a prompt of each kind
+ * (gsel20): the live facts of this window with that kind (the transport is
+ * not known before a send: `''`), the chat variables and placeholders.
+ */
+export function addConditionHolds(catalogue: AspectCatalogue, sections: readonly AspectSection[], evaluate?: (expression: string, kind: string) => boolean): void {
+    const ev = evaluate ?? liveConditionEvaluate(sections);
+    for (const c of catalogue.sections) {
+        const exprs: Array<[string, string]> = [...Object.entries(c.when ?? {}), ...(c.removeWhen !== undefined ? [['', c.removeWhen] as [string, string]] : [])];
+        if (!exprs.length) { continue; }
+        c.holds = Object.fromEntries(exprs.map(([choice, expression]) => [choice, Object.fromEntries(PICKER_CONDITION_KINDS.map((kind) => {
+            try { return [kind, ev(expression, kind)]; } catch { return [kind, 'error']; }
+        }))]));
+    }
+}
+
+function liveConditionEvaluate(sections: readonly AspectSection[]): (expression: string, kind: string) => boolean {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { livePromptFacts } = require('./aspectPromptFacts') as typeof import('./aspectPromptFacts');
+    const { variableLookup } = require('../utils/variableResolver') as typeof import('../utils/variableResolver');
+    const { conditionEvaluator } = require('./aspectGuidelinesStore') as typeof import('./aspectGuidelinesStore');
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const lookup = attempt(() => variableLookup());
+    const base = attempt(() => livePromptFacts('')) ?? {};
+    const byKind = new Map<string, (e: string) => boolean>();
+    return (expression, kind) => {
+        if (!byKind.has(kind)) { byKind.set(kind, conditionEvaluator(sections, {}, { facts: { ...base, 'prompt.kind': kind }, lookup })); }
+        return byKind.get(kind)!(expression);
     };
 }
 

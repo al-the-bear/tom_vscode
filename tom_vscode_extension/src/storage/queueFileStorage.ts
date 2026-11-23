@@ -183,7 +183,7 @@ export interface QueuePromptYaml {
     /** The role the item runs as (a folder of `_ai/roles/`; gsel3). */
     role?: string;
     /** The item's guideline choices: aspect → choice or `remove` (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */
     'process-run'?: unknown;
     /** The process run of the quest the item belongs to (`default` for the quest's own position). */

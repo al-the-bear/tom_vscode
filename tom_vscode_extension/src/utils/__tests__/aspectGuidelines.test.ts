@@ -54,6 +54,11 @@ const section = (id: string, opts: Partial<AspectSection> = {}): AspectSection =
     id, name: id, label: id, placement: 'system', options: [{ name: 'a', text: `${id} a` }, { name: 'b', text: `${id} b` }], ...opts,
 });
 
+/** The fields of a resolution these tests check (gsel20 added the choice set and the conditions). */
+const core = (r: { section: string; option?: string; removed: boolean; from?: string }): Record<string, unknown> => ({
+    section: r.section, ...(r.option !== undefined ? { option: r.option } : {}), removed: r.removed, ...(r.from ? { from: r.from } : {}),
+});
+
 describe('aspect guidelines', () => {
     test('AG-1: the store', () => {
         const store = path.join(base, 'store1');
@@ -105,10 +110,10 @@ describe('aspect guidelines', () => {
         ];
         // Adding each lower level in turn: it wins.
         const choices: AspectLevelChoices = {};
-        assert.deepEqual(resolveAspects(sections, choices).sections[0], { section: 's', option: 'a', removed: false, from: 'sectionDefault' });
+        assert.deepEqual(core(resolveAspects(sections, choices).sections[0]), { section: 's', option: 'a', removed: false, from: 'sectionDefault' });
         for (const [level, option] of lower) {
             choices[level] = { s: option };
-            assert.deepEqual(resolveAspects(sections, choices).sections[0], { section: 's', option, removed: false, from: level }, level);
+            assert.deepEqual(core(resolveAspects(sections, choices).sections[0]), { section: 's', option, removed: false, from: level }, level);
         }
         // Per section: one section's choice does not touch another's.
         const two = [section('x'), section('y')];
@@ -119,12 +124,12 @@ describe('aspect guidelines', () => {
     test('AG-3: Remove vs Don\'t add', () => {
         const sections = [section('s', { defaultOption: 'a' })];
         // Don't add on the item (no entry): the run's choice is inherited.
-        assert.deepEqual(resolveAspects(sections, { run: { s: 'b' }, item: {} }).sections[0], { section: 's', option: 'b', removed: false, from: 'run' });
+        assert.deepEqual(core(resolveAspects(sections, { run: { s: 'b' }, item: {} }).sections[0]), { section: 's', option: 'b', removed: false, from: 'run' });
         // Remove on the item: nothing, though the run and the default chose.
-        assert.deepEqual(resolveAspects(sections, { run: { s: 'b' }, item: { s: 'remove' } }).sections[0], { section: 's', removed: true, from: 'item' });
+        assert.deepEqual(core(resolveAspects(sections, { run: { s: 'b' }, item: { s: 'remove' } }).sections[0]), { section: 's', removed: true, from: 'item' });
         // Remove on the window suppresses the default; a lower option sends again.
-        assert.deepEqual(resolveAspects(sections, { window: { s: 'remove' } }).sections[0], { section: 's', removed: true, from: 'window' });
-        assert.deepEqual(resolveAspects(sections, { window: { s: 'remove' }, todo: { s: 'b' } }).sections[0], { section: 's', option: 'b', removed: false, from: 'todo' });
+        assert.deepEqual(core(resolveAspects(sections, { window: { s: 'remove' } }).sections[0]), { section: 's', removed: true, from: 'window' });
+        assert.deepEqual(core(resolveAspects(sections, { window: { s: 'remove' }, todo: { s: 'b' } }).sections[0]), { section: 's', option: 'b', removed: false, from: 'todo' });
         const assembled = assembleAspects(sections, resolveAspects(sections, { item: { s: 'remove' } }));
         assert.deepEqual(assembled, { system: '', user: '', sections: [] }, 'a removed section sends nothing');
     });
@@ -132,12 +137,12 @@ describe('aspect guidelines', () => {
     test('AG-4: defaults and entries that name no option', () => {
         const sections = [section('with', { defaultOption: 'b' }), section('without')];
         const r = resolveAspects(sections, { role: { with: 'zzz', ghost: 'a' } });
-        assert.deepEqual(r.sections, [
+        assert.deepEqual(r.sections.map(core), [
             { section: 'with', option: 'b', removed: false, from: 'sectionDefault' },
             { section: 'without', removed: false },
         ]);
         assert.deepEqual(r.ignored, [{ level: 'role', section: 'ghost', option: 'a' }, { level: 'role', section: 'with', option: 'zzz' }]);
-        const skipped = resolveAspects(sections, { run: { with: 'a' }, todo: { with: 'nope' } }).sections[0];
+        const skipped = core(resolveAspects(sections, { run: { with: 'a' }, todo: { with: 'nope' } }).sections[0]);
         assert.deepEqual(skipped, { section: 'with', option: 'a', removed: false, from: 'run' }, 'the level above the skipped entry decides');
     });
 

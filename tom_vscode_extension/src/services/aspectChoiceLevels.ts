@@ -129,7 +129,7 @@ export function setWindowChoices(choices: AspectChoices | undefined, questId?: s
 }
 
 /** Set one section of the window level (`option` undefined or `''`: *Don't add*). */
-export function setWindowSectionChoice(section: string, option: string | undefined, questId?: string): void {
+export function setWindowSectionChoice(section: string, option: string | string[] | undefined, questId?: string): void {
     setWindowChoices(withSectionChoice(windowChoices(questId), section, option), questId);
 }
 
@@ -228,7 +228,7 @@ export interface AspectBroadcastDeps {
     /** The open windows on this machine (this one may be among them). */
     windowIds(): string[];
     /** Send the change to one window; answers whether it was written. */
-    send(windowId: string, section: string, option: string | undefined): boolean;
+    send(windowId: string, section: string, option: string | string[] | undefined): boolean;
 }
 
 /**
@@ -237,7 +237,7 @@ export interface AspectBroadcastDeps {
  * window on this machine, which sets it in its own window level. Only that
  * section changes anywhere. Answers the windows it was sent to.
  */
-export function setSectionChoiceInAllWindows(section: string, option: string | undefined, broadcast: AspectBroadcastDeps, questId?: string): string[] {
+export function setSectionChoiceInAllWindows(section: string, option: string | string[] | undefined, broadcast: AspectBroadcastDeps, questId?: string): string[] {
     setWindowSectionChoice(section, option, questId);
     const sent: string[] = [];
     for (const id of new Set(broadcast.windowIds())) {

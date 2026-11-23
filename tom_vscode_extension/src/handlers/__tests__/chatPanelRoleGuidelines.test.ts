@@ -127,8 +127,8 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
         assert.equal(effectiveChatRole(undefined, ['reviewer']), '');
         assert.equal(effectiveChatRole('default', ['default']), '', 'default is Default role');
         assert.equal(chatRoleSource(''), undefined, 'Default role: no source');
-        assert.deepEqual(chatRoleSource('reviewer'), { itemRole: 'reviewer' });
-        assert.deepEqual(chatRoleSource('reviewer', { night: 'on' }), { itemRole: 'reviewer', itemGuidelines: { night: 'on' } });
+        assert.deepEqual(chatRoleSource('reviewer'), { itemRole: 'reviewer', kind: 'chat' }, 'a chat send (prompt.kind, gsel20)');
+        assert.deepEqual(chatRoleSource('reviewer', { night: 'on' }), { itemRole: 'reviewer', kind: 'chat', itemGuidelines: { night: 'on' } });
         assert.deepEqual(chatQueueItemFields('', undefined), {});
         assert.deepEqual(chatQueueItemFields('writer', {}), { role: 'writer' });
         assert.deepEqual(chatQueueItemFields('', { answer: 'brief' }), { guidelines: { answer: 'brief' } });
@@ -289,7 +289,7 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             aBtn.click();
             const popup = $('tomAspectPopup');
             assert.ok(popup, 'the popup opens');
-            popup.querySelector('.tom-aspect-option[data-section="answer"][data-value="brief"]').click();
+            popup.querySelector('.tom-aspect-option[data-section="answer"][data-choice="brief"]').click();
             assert.deepEqual(sent.filter((m) => m.type === 'aspectChoose').at(-1), { type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'answer', value: 'brief' });
             $('copilot-aspects-btn').click();
             $('tomAspectPopup').querySelector('.tom-aspect-option[data-section="night"][data-value="remove"]').click();

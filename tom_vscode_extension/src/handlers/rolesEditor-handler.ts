@@ -84,7 +84,7 @@ export function rolesEditorData(kind: RolesEditorKind, s: RoleStore | undefined,
 }
 
 /** The choices a save carries: `{}` (none) when the page sent none or nothing usable. */
-function choicesOf(value: unknown): Record<string, string> {
+function choicesOf(value: unknown): Record<string, string | string[]> {
     return normalizeAspectChoices(value) ?? {};
 }
 

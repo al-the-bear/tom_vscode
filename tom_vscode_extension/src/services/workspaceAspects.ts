@@ -11,8 +11,10 @@
  *   `workspace-aspects.schema.json`, generated into `.tom/json-schema/aspect-guidelines/`).
  * - **The order**: the root's folder first, then each workspace folder on the
  *   way to the window's, a nearer folder's entry replacing a farther one's per
- *   aspect. In one folder a `remove` wins over a choice of the same aspect; two
- *   choices of one aspect: the later line wins. Both are reported.
+ *   aspect — unless the nearer folder adds (`add: [<aspect> …]` in its yaml):
+ *   then its choices join the farther ones'. Several `@` lines of one aspect
+ *   are several choices (gsel20). In one folder a `remove` wins over a choice
+ *   of the same aspect (reported).
  * - **Problems**: a path that names no file, or a file that is no choice file,
  *   chooses nothing and is reported (the Aspect Guidelines editor, the Status
  *   Page, tomAi_getAspectGuidelines).
@@ -25,7 +27,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
-import { ASPECT_REMOVE, isAspectName, type AspectSection } from '../utils/aspectGuidelines';
+import { ASPECT_REMOVE, combineAspectEntries, formatAspectValue, isAspectName, parseAspectValue, type AspectChoiceValue, type AspectSection } from '../utils/aspectGuidelines';
 import type { AspectChoices } from '../utils/aspectChoices';
 import { aspectFileLayers, layerFolder } from '../utils/aspectChoiceFiles';
 import { FENCE, IMPORT_LINE } from '../utils/lineImports';
@@ -96,6 +98,7 @@ export function importLinesOf(text: string): Array<{ line: number; path: string 
 /** One folder's `workspace_aspects.md` and `.yaml`. */
 export function readWorkspaceAspectsFolder(folder: string, rel: string): WorkspaceAspectsFolder {
     const out: WorkspaceAspectsFolder = { folder, rel, choices: {}, sources: {}, problems: [] };
+    const picked: Record<string, string[]> = {};
     const md = path.join(folder, WORKSPACE_ASPECTS_MD);
     const yaml = path.join(folder, WORKSPACE_ASPECTS_YAML);
     if (isFile(md)) {
@@ -107,13 +110,13 @@ export function readWorkspaceAspectsFolder(folder: string, rel: string): Workspa
             if (!isFile(target)) { out.problems.push(`${where}: @${entry.path} names no file; it chooses nothing`); continue; }
             const named = choiceOfFile(target);
             if (!named) { out.problems.push(`${where}: @${entry.path} is no choice file (_agent_guidelines/aspects/<aspect>/<choice>.md or _ai/aspect_guidelines/<aspect>/<choice>.md); it chooses nothing`); continue; }
-            if (out.choices[named.aspect] !== undefined && out.choices[named.aspect] !== named.choice) {
-                out.problems.push(`${where}: a second choice of ${named.aspect} (${out.sources[named.aspect]} chose ${out.choices[named.aspect]}); this line wins`);
-            }
-            out.choices[named.aspect] = named.choice;
-            out.sources[named.aspect] = where;
+            // Several lines of one aspect: several choices (gsel20).
+            const list = (picked[named.aspect] ??= []);
+            if (!list.includes(named.choice)) { list.push(named.choice); }
+            out.sources[named.aspect] = out.sources[named.aspect] ? `${out.sources[named.aspect]}, ${entry.line}` : where;
         }
     }
+    let adds: string[] = [];
     if (isFile(yaml)) {
         out.yaml = yaml;
         const name = shown(rel, WORKSPACE_ASPECTS_YAML);
@@ -121,6 +124,15 @@ export function readWorkspaceAspectsFolder(folder: string, rel: string): Workspa
         if (doc.errors.length) {
             out.problems.push(`${name}: does not read: ${doc.errors[0].message}`);
         } else {
+            const add = (doc.toJS() as { add?: unknown } | null)?.add;
+            if (add !== undefined && add !== null) {
+                if (!Array.isArray(add)) { out.problems.push(`${name}: add must be a list of aspect names`); }
+                else {
+                    adds = add.filter((a): a is string => typeof a === 'string' && isAspectName(a));
+                    for (const a of add) { if (!adds.includes(a as string)) { out.problems.push(`${name}: add: "${String(a)}" is no aspect name`); } }
+                    for (const a of adds) { if (!picked[a]) { out.problems.push(`${name}: add: ${a} has no choice in ${shown(rel, WORKSPACE_ASPECTS_MD)}; nothing is added`); } }
+                }
+            }
             const remove = (doc.toJS() as { remove?: unknown } | null)?.remove;
             if (remove !== undefined && remove !== null) {
                 if (!Array.isArray(remove)) {
@@ -128,8 +140,9 @@ export function readWorkspaceAspectsFolder(folder: string, rel: string): Workspa
                 } else {
                     for (const aspect of remove) {
                         if (typeof aspect !== 'string' || !isAspectName(aspect)) { out.problems.push(`${name}: remove: "${String(aspect)}" is no aspect name`); continue; }
-                        if (out.choices[aspect] !== undefined && out.choices[aspect] !== ASPECT_REMOVE) {
+                        if (picked[aspect]) {
                             out.problems.push(`${name}: ${aspect} is removed and chosen (${out.sources[aspect]}); remove wins`);
+                            delete picked[aspect];
                         }
                         out.choices[aspect] = ASPECT_REMOVE;
                         out.sources[aspect] = `${name} remove`;
@@ -137,6 +150,9 @@ export function readWorkspaceAspectsFolder(folder: string, rel: string): Workspa
                 }
             }
         }
+    }
+    for (const [aspect, choices] of Object.entries(picked)) {
+        out.choices[aspect] = formatAspectValue({ kind: adds.includes(aspect) ? 'add' : 'replace', choices });
     }
     return out;
 }
@@ -147,8 +163,14 @@ export function readWorkspaceAspects(folders: ReadonlyArray<{ folder: string; re
     for (const f of folders) {
         const read = readWorkspaceAspectsFolder(f.folder, f.rel);
         level.folders.push(read);
-        Object.assign(level.choices, read.choices);
-        Object.assign(level.sources, read.sources);
+        for (const [aspect, value] of Object.entries(read.choices)) {
+            const upper = parseAspectValue(value);
+            if (!upper) { continue; }
+            const lower = level.choices[aspect] !== undefined ? parseAspectValue(level.choices[aspect]) : undefined;
+            const merged = combineAspectEntries(lower, upper);
+            level.choices[aspect] = formatAspectValue(merged);
+            level.sources[aspect] = upper.kind === 'add' && lower ? `${level.sources[aspect]}; ${read.sources[aspect]}` : read.sources[aspect];
+        }
         level.problems.push(...read.problems);
     }
     return level;
@@ -197,22 +219,28 @@ export function choiceLinePath(folder: string, file: string): string {
  * (its other keys kept, the schema line written; no file when nothing is
  * left). Answers the files written.
  */
-export function writeWorkspaceAspects(folder: string, entries: Record<string, { file: string } | 'remove'>, topTom?: string): { md: string; yaml?: string } {
+export function writeWorkspaceAspects(folder: string, entries: Record<string, WorkspaceAspectEntry>, topTom?: string): { md: string; yaml?: string } {
     const md = path.join(folder, WORKSPACE_ASPECTS_MD);
     const yaml = path.join(folder, WORKSPACE_ASPECTS_YAML);
     const aspects = Object.keys(entries).sort();
-    const lines = aspects.filter((a) => entries[a] !== 'remove').map((a) => `@${choiceLinePath(folder, (entries[a] as { file: string }).file)}`);
+    const filesOf = (e: WorkspaceAspectEntry): string[] => (e === 'remove' ? [] : 'files' in e ? e.files : [e.file]);
+    const lines = aspects.flatMap((a) => filesOf(entries[a]).map((f) => `@${choiceLinePath(folder, f)}`));
+    const adds = aspects.filter((a) => entries[a] !== 'remove' && (entries[a] as { add?: boolean }).add);
     const head = isFile(md) ? freeTextOf(fs.readFileSync(md, 'utf8')) : DEFAULT_MD_HEAD;
     fs.writeFileSync(md, `${[head, lines.join('\n')].filter(Boolean).join('\n\n')}\n`, 'utf8');
     const removes = aspects.filter((a) => entries[a] === 'remove');
-    return { md, ...(writeRemoveList(yaml, removes, topTom) ? { yaml } : {}) };
+    return { md, ...(writeRemoveList(yaml, removes, topTom, adds) ? { yaml } : {}) };
 }
 
+/** One aspect's entry to write: its choice files (`add`: added to the levels below), or `remove`. */
+export type WorkspaceAspectEntry = { file: string } | { files: string[]; add?: boolean } | 'remove';
+
 /** `remove:` of a `workspace_aspects.yaml` set (none: the key dropped; the file deleted when nothing is left). Answers whether the file exists after. */
-function writeRemoveList(yaml: string, removes: string[], topTom?: string): boolean {
+function writeRemoveList(yaml: string, removes: string[], topTom?: string, adds: string[] = []): boolean {
     const doc = isFile(yaml) ? parseDocument(fs.readFileSync(yaml, 'utf8')) : parseDocument('{}');
     if (doc.errors.length) { throw new Error(`${yaml} does not read: ${doc.errors[0].message}`); }
     if (removes.length) { doc.set('remove', removes); } else { doc.delete('remove'); }
+    if (adds.length) { doc.set('add', adds); } else { doc.delete('add'); }
     const left = doc.toJS() as Record<string, unknown> | null;
     if (!left || !Object.keys(left).length) {
         if (isFile(yaml)) { fs.unlinkSync(yaml); }
@@ -226,7 +254,7 @@ function writeRemoveList(yaml: string, removes: string[], topTom?: string): bool
     return true;
 }
 
-/** *Clear workspace default*: `folder`'s `workspace_aspects.md` keeps only its free text, `remove:` goes from the yaml. */
+/** *Clear workspace default*: `folder`'s `workspace_aspects.md` keeps only its free text, `remove:` and `add:` go from the yaml. */
 export function clearWorkspaceAspects(folder: string): void {
     const md = path.join(folder, WORKSPACE_ASPECTS_MD);
     if (isFile(md)) { fs.writeFileSync(md, `${freeTextOf(fs.readFileSync(md, 'utf8'))}\n`, 'utf8'); }
@@ -239,13 +267,19 @@ export function clearWorkspaceAspects(folder: string): void {
  * file (its own text or guideline file). A choice the aspects do not have is
  * left out and named in `skipped`.
  */
-export function workspaceEntriesOf(choices: AspectChoices | undefined, sections: readonly AspectSection[]): { entries: Record<string, { file: string } | 'remove'>; skipped: string[] } {
-    const entries: Record<string, { file: string } | 'remove'> = {};
+export function workspaceEntriesOf(choices: AspectChoices | undefined, sections: readonly AspectSection[]): { entries: Record<string, WorkspaceAspectEntry>; skipped: string[] } {
+    const entries: Record<string, WorkspaceAspectEntry> = {};
     const skipped: string[] = [];
-    for (const [aspect, choice] of Object.entries(choices ?? {})) {
-        if (choice === ASPECT_REMOVE) { entries[aspect] = 'remove'; continue; }
-        const source = sections.find((s) => s.id === aspect)?.options.find((o) => o.name === choice)?.source;
-        if (source) { entries[aspect] = { file: source.path }; } else { skipped.push(`${aspect}: ${choice}`); }
+    for (const [aspect, value] of Object.entries(choices ?? {}) as Array<[string, AspectChoiceValue]>) {
+        const entry = parseAspectValue(value);
+        if (!entry) { skipped.push(`${aspect}: ${String(value)}`); continue; }
+        if (entry.kind === 'remove') { entries[aspect] = 'remove'; continue; }
+        const files: string[] = [];
+        for (const choice of entry.choices) {
+            const source = sections.find((s) => s.id === aspect)?.options.find((o) => o.name === choice)?.source;
+            if (source) { files.push(source.path); } else { skipped.push(`${aspect}: ${choice}`); }
+        }
+        if (files.length) { entries[aspect] = { files, ...(entry.kind === 'add' ? { add: true } : {}) }; }
     }
     return { entries, skipped };
 }

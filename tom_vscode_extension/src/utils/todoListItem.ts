@@ -45,7 +45,7 @@ export interface TodoListSource {
     /** The role the todo runs in (gsel3). */
     role?: string;
     /** The todo's own guideline choices: section → option or `remove` (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 export interface TodoListItem {
@@ -84,7 +84,7 @@ export interface TodoListItem {
     /** The role it runs in, when it names one (the row's guideline indicator resolves its role levels). */
     role?: string;
     /** Its own guideline choices, when it has any (the row's guideline indicator, gsel5). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     sourceFile: string;
 }
 

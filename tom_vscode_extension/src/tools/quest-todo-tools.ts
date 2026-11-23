@@ -111,7 +111,7 @@ export interface QuestTodoFull {
     /** The role the todo runs in (a folder of `_ai/roles/`). */
     role?: string;
     /** The todo's guideline choices: aspect → choice or `remove` (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     derived_from?: string;
     feedback_source?: string;
     /** The todo is the user's to do: a `<prefix>*` walk passes it. */
@@ -544,7 +544,7 @@ export interface CreateQuestTodoInput {
         orchestration_role?: string;
         bundle_id?: string;
         role?: string;
-        guidelines?: Record<string, string> | null;
+        guidelines?: Record<string, string | string[]> | null;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;
@@ -825,7 +825,7 @@ export interface UpdateQuestTodoInput {
         orchestration_role?: string;
         bundle_id?: string;
         role?: string;
-        guidelines?: Record<string, string> | null;
+        guidelines?: Record<string, string | string[]> | null;
         derived_from?: string;
         feedback_source?: string;
         user_action?: boolean;

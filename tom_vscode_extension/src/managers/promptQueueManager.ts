@@ -483,7 +483,7 @@ export interface QueuedPrompt {
      * The item's guideline choices (gsel4): aspect section → option or
      * `remove`; the item level, under its todo's (utils/aspectGuidelines.ts).
      */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
     /**
      * How to create `session` when it is missing at dispatch (the item's
      * session was given as a spec `{name, basedOn, mode, profile}`); absent
@@ -1089,7 +1089,7 @@ export class PromptQueueManager {
             })
             : (item.todoClaim?.todoId ?? item.repeatTodoId));
         let todoRole: string | undefined;
-        let todoGuidelines: Record<string, string> | undefined;
+        let todoGuidelines: Record<string, string | string[]> | undefined;
         if (id && questId) {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1108,6 +1108,10 @@ export class PromptQueueManager {
             ...(todoGuidelines ? { todoGuidelines } : {}),
             ...(item.guidelines && Object.keys(item.guidelines).length ? { itemGuidelines: { ...item.guidelines } } : {}),
             ...(settings.guidelines && Object.keys(settings.guidelines).length ? { runGuidelines: { ...settings.guidelines } } : {}),
+            // The prompt facts aspect conditions read (gsel20).
+            kind: id ? 'todo' : item.type === 'timed' ? 'timed' : item.processRun && !item.processItem ? 'proceed' : 'queue',
+            ...(id ? { todoId: id } : {}),
+            run: itemRun(item),
         };
     }
 
@@ -2644,7 +2648,7 @@ export class PromptQueueManager {
         /** The role the item runs as (a folder of `_ai/roles/`); unset or "": none of its own. */
         role?: string;
         /** The item's guideline choices (gsel4; the caller validated them); unset or {}: none. */
-        guidelines?: Record<string, string>;
+        guidelines?: Record<string, string | string[]>;
         /** The process position the item belongs to; default: the one the current send runs for, if any. */
         processRun?: ProcessRun;
         /** The process run the item belongs to; default the Proceed's, else the window's current run. */
@@ -7581,7 +7585,7 @@ export class PromptQueueManager {
      * {} clears them. False when the item cannot change them (missing, or past
      * pending); the caller checks them against the sections.
      */
-    updateItemGuidelines(id: string, guidelines: Record<string, string> | undefined): boolean {
+    updateItemGuidelines(id: string, guidelines: Record<string, string | string[]> | undefined): boolean {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.canChangeSession(item.status)) { return false; }
         const next = normalizeAspectChoices(guidelines);
@@ -7592,7 +7596,7 @@ export class PromptQueueManager {
     }
 
     /** The guideline choices of `run` (default: the window's run; gsel4); undefined or {} clears them. */
-    setRunGuidelines(guidelines: Record<string, string> | undefined, run?: string): void {
+    setRunGuidelines(guidelines: Record<string, string | string[]> | undefined, run?: string): void {
         this.setRunQueueSettings(run, { guidelines: normalizeAspectChoices(guidelines) });
     }
 

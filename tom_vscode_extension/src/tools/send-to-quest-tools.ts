@@ -40,7 +40,7 @@ export interface SendItemToQuestInput {
     /** The role the item runs as in the target quest (a folder of `_ai/roles/`). */
     role?: string;
     /** The item's guideline choices there: aspect → choice or `remove` (gsel4). */
-    guidelines?: Record<string, string> | null;
+    guidelines?: Record<string, string | string[]> | null;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
     /** How often the target repeats the item: a number, a chat variable there, or `<prefix>*` (a walk over the target quest's todos). */

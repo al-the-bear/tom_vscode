@@ -39,13 +39,33 @@
             "type": "array",
             "uniqueItems": true,
             "items": {
-                "type": "string",
-                "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$",
-                "not": {
-                    "const": "remove"
-                }
+                "oneOf": [
+                    { "$ref": "#/$defs/choiceName" },
+                    {
+                        "type": "object",
+                        "description": "A choice with its condition.",
+                        "properties": {
+                            "name": { "$ref": "#/$defs/choiceName" },
+                            "when": { "type": "string", "minLength": 1, "description": "A template expression (as in ${{ … }}) over the chat variables, the placeholders and the prompt facts prompt.transport, prompt.kind, prompt.todo, prompt.role, prompt.roleType, prompt.run, prompt.process, prompt.quest, prompt.workspace, prompt.night: the choice is sent only while it holds, whichever level chose it; nothing steps in for it otherwise." }
+                        },
+                        "required": ["name"],
+                        "additionalProperties": false
+                    }
+                ]
             },
-            "description": "The choices' order, by short name; each needs its `<name>.md`. Choice files not listed follow by name. `remove` is no choice name: it is the levels' Remove."
+            "description": "The choices' order, by short name, or as {name, when} with the choice's condition; each needs its `<name>.md` (own text or guideline file). Choice files not listed follow by name. `remove` is no choice name: it is the levels' Remove; a name does not start with `+` (it marks an added choice)."
+        },
+        "remove_when": {
+            "type": "string",
+            "minLength": 1,
+            "description": "While this expression holds the aspect sends nothing, whatever a level chose (e.g. prompt.transport == \"direct\")."
+        }
+    },
+    "$defs": {
+        "choiceName": {
+            "type": "string",
+            "pattern": "^[^/\\s+](?:[^/\\n\\r]*[^/\\s])?$",
+            "not": { "const": "remove" }
         }
     }
 }

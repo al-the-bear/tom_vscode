@@ -43,7 +43,7 @@ import {
     saveAspectSection,
     type AspectSectionEdit,
 } from '../services/aspectSectionsEdit';
-import { isAspectName } from '../utils/aspectGuidelines';
+import { conditionProblem, isAspectName } from '../utils/aspectGuidelines';
 import type { AspectFileLayer } from '../utils/aspectChoiceFiles';
 import { parseAspectRename, type AspectRename } from '../utils/aspectRename';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -66,6 +66,8 @@ export interface AspectSectionEditorEnv {
     layers?: AspectFileLayer[];
     /** The workspace level's problems (gsel19): broken `@<path>` lines of workspace_aspects.md / .yaml. */
     workspaceProblems?: () => string[];
+    /** The folders of `_ai/role-types/` (gsel20): the *only for role types* pick. */
+    roleTypes?: () => string[];
     /** A section changed: the pickers and the Role Editor read the sections again. */
     changed?: () => void;
     /** A section or options renamed: carry the stored choices over; answers what was rewritten. */
@@ -87,7 +89,11 @@ export interface AspectSectionEditorUi {
 export function aspectSectionEditorData(env: AspectSectionEditorEnv, selected?: string): Record<string, unknown> {
     if (!env.dir) { return { type: 'data', error: 'This workspace has no _ai folder: there are no guideline aspects.', sections: [] }; }
     const workspaceProblems = env.workspaceProblems?.() ?? [];
-    return { type: 'data', sections: readSectionsForEdit(env.dir, env.layers ?? []), layers: layersForEdit(env.layers ?? []), ...(workspaceProblems.length ? { workspaceProblems } : {}), ...(selected ? { selected } : {}) };
+    const roleTypes = env.roleTypes?.() ?? [];
+    return {
+        type: 'data', sections: readSectionsForEdit(env.dir, env.layers ?? []), layers: layersForEdit(env.layers ?? []),
+        ...(workspaceProblems.length ? { workspaceProblems } : {}), ...(roleTypes.length ? { roleTypes } : {}), ...(selected ? { selected } : {}),
+    };
 }
 
 /** The section a save carries, as the store takes it; undefined when it is none. */
@@ -102,12 +108,14 @@ function sectionOf(value: unknown): Omit<AspectSectionEdit, 'problems'> | undefi
         label: typeof v.label === 'string' ? v.label : '',
         placement: v.placement === 'user' ? 'user' : v.placement === 'system' || v.placement === undefined ? 'system' : (v.placement as 'system'),
         defaultOption: typeof v.defaultOption === 'string' ? v.defaultOption : '',
+        ...(typeof v.removeWhen === 'string' && v.removeWhen.trim() ? { removeWhen: v.removeWhen.trim() } : {}),
         options: options.map((o) => {
             const r = (typeof o === 'object' && o !== null ? o : {}) as Record<string, unknown>;
             return {
                 name: typeof r.name === 'string' ? r.name.trim() : '',
                 text: typeof r.text === 'string' ? r.text : '',
                 ...(r.mode === 'file' ? { mode: 'file' as const, ...(typeof r.fileBase === 'string' && r.fileBase ? { fileBase: r.fileBase } : {}) } : {}),
+                ...(typeof r.when === 'string' && r.when.trim() ? { when: r.when.trim() } : {}),
             };
         }),
     };
@@ -131,6 +139,12 @@ export async function handleAspectSectionEditorMessage(
 ): Promise<Record<string, unknown> | undefined> {
     const data = (selected?: string, extra?: Record<string, unknown>) => ({ ...aspectSectionEditorData(env, selected), ...(extra ?? {}) });
     if (msg.type === 'ready' || msg.type === 'refresh') { return data(typeof msg.selected === 'string' ? msg.selected : undefined); }
+    // A condition checked as it is typed (gsel20): the parser's message names the position.
+    if (msg.type === 'checkCondition') {
+        const expression = typeof msg.expression === 'string' ? msg.expression : '';
+        const error = expression.trim() ? conditionProblem(expression) : undefined;
+        return { type: 'conditionCheck', key: msg.key, expression, ...(error ? { error } : {}) };
+    }
     const dir = env.dir;
     if (!dir) { ui.error('This workspace has no _ai folder.'); return undefined; }
     const id = typeof msg.id === 'string' ? msg.id : '';
@@ -195,6 +209,14 @@ function liveEnv(): AspectSectionEditorEnv {
     return {
         dir,
         layers,
+        roleTypes: () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { WsPaths } = require('../utils/workspacePaths') as typeof import('../utils/workspacePaths');
+                const ai = WsPaths.aiRoot;
+                return ai ? fs.readdirSync(path.join(ai, 'role-types'), { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort() : [];
+            } catch { return []; }
+        },
         workspaceProblems: () => {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-require-imports

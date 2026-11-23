@@ -25,7 +25,7 @@ export interface RoleRecord {
     /** Why role-config.yaml could not be read. */
     configError?: string;
     /** The role's guideline choices (gsel4). */
-    guidelines?: Record<string, string>;
+    guidelines?: Record<string, string | string[]>;
 }
 
 export interface RoleTypeRecord {
@@ -95,7 +95,7 @@ export class RoleStore {
      * `guidelines` (gsel4): the role's guideline choices; undefined keeps the
      * file's, `{}` clears them.
      */
-    saveRole(id: string, roleMd: string, roleType: string | undefined, guidelines?: Record<string, string>): void {
+    saveRole(id: string, roleMd: string, roleType: string | undefined, guidelines?: Record<string, string | string[]>): void {
         if (!ROLE_ID_PATTERN.test(id)) { throw new Error(`"${id}" is not a role name (letters, digits, _ and -)`); }
         const type = roleType?.trim() || undefined;
         if (type && !fs.existsSync(path.join(this.typesDir(), type, ROLE_TYPE_FILE))) { throw new Error(`role type "${type}" does not exist`); }
