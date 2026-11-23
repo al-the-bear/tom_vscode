@@ -549,6 +549,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this.postChatAspects();
                         break;
                     }
+                    case 'pickChatRun': {
+                        // The Run link: VS Code's picker over the quest's runs, then as a run switch.
+                        const section = CHAT_RUN_SECTIONS.find((x) => x === message.section);
+                        if (!section) { break; }
+                        const { runs, windowRun, subjects } = this._questRuns();
+                        const current = this._chatRun(section);
+                        const picked = await vscode.window.showQuickPick(
+                            chatRunOptions(runs, windowRun, subjects).map((o) => ({ label: `${o.run === current ? '$(check) ' : ''}${o.label}`, run: o.run })),
+                            { title: `Run of the ${section === 'anthropic' ? 'ANTHROPIC/LLM' : 'Copilot'} subpanel`, placeHolder: `Current: ${current}` },
+                        );
+                        if (!picked) { break; }
+                        await this._setChatRun(section, picked.run);
+                        this._sendChatRuns();
+                        if (section === 'anthropic') { this._sendChatSession(); }
+                        this.postChatAspects();
+                        break;
+                    }
                     // The role dropdown and the guideline buttons (gsel6).
                     case 'getChatAspects':
                         this.postChatAspects();

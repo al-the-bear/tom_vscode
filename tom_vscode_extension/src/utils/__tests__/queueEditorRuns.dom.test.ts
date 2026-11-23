@@ -103,7 +103,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.ok(shared.compareDocumentPosition(row) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the shared models above the tabs');
         assert.ok(w.document.querySelector('h2').compareDocumentPosition(shared) & w.Node.DOCUMENT_POSITION_FOLLOWING);
         assert.ok(row.compareDocumentPosition(w.document.querySelector('.toolbar')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the toolbar is the tab\'s');
-        assert.ok(row.compareDocumentPosition(w.document.getElementById('queueDefaultPickerSlot')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'so is the defaults row');
+        assert.ok(row.compareDocumentPosition(w.document.getElementById('copilotDefaultsRow')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'so is the Copilot defaults row');
         assert.deepEqual(tabs(w), ['default 4', 'chg1 (this window) 1', 'chg2 2'], 'default first, the window\'s marked, open items counted (a running chat send too)');
         const states = [...row.querySelectorAll('.run-tab')].map((b: Win) => [b.dataset.run, b.dataset.state, b.classList.contains('active')]);
         assert.deepEqual(states, [['default', 'sending', false], ['chg1', 'waiting', true], ['chg2', 'paused', false]], 'the window\'s run selected first');
@@ -198,7 +198,9 @@ describe('Prompt Queue editor — one tab per run', () => {
             chg2: { run: 'chg2', process: '', position: '', role: '', variables: {}, stateFile: '/ws/ps.chg2.yaml' },
         };
         const { w, posted } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS, runContexts, context: { quest: 'q1', role: 'builder', activeProjects: [] } });
-        const bar = (): string => w.document.getElementById('contextSummary').textContent.replace(/\s+/g, ' ');
+        // The fields as `Label: value`, joined by ` | ` (each field is a label above its value).
+        const bar = (): string => [...w.document.querySelectorAll('#contextSummary .ctx-field')]
+            .map((f: Win) => `${f.querySelector('.ctx-label').textContent}: ${f.querySelector('.ctx-value').textContent}`).join(' | ') + ' |';
         const linkOf = (pick: string): Win => w.document.querySelector(`#contextSummary [data-pick="${pick}"]`);
         assert.match(bar(), /Run: chg1 \(this window's\) \| Position: Phase One › Build \| Role: builder \|/);
         assert.equal(linkOf('variables').textContent, '2');

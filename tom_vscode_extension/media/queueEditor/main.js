@@ -13,10 +13,11 @@
 // Two changes vs the original inline script:
 //   1. First-paint data now arrives via the loader's window.__INIT__ instead of
 //      a #__initial_state__ JSON block (state under __INIT__.state).
-//   2. The codicons stylesheet and the two transport-picker fragments are
-//      injected at runtime from __INIT__ (codiconsUri / queueDefaultPickerHtml /
-//      addFormPickerHtml) — see index.html for why (no node_modules placeholder,
-//      pickers rendered host-side).
+//   2. The codicons stylesheet and the add form's transport picker are
+//      injected at runtime from __INIT__ (codiconsUri / addFormPickerHtml) —
+//      see index.html for why (no node_modules placeholder, picker rendered
+//      host-side). The run's default transport, profile and template are links
+//      in the context bar (host pickers).
 
 // ── Bootstrap watchdog (was the first inline <script>) ──
 (function() {
@@ -262,8 +263,6 @@ function showFatalError(context, err) {
 }
 
 /* ---- Inject transport-picker fragments (rendered host-side, spec §4.15) ---- */
-var __qdSlot = document.getElementById('queueDefaultPickerSlot');
-if (__qdSlot && __INIT.queueDefaultPickerHtml) { __qdSlot.innerHTML = __INIT.queueDefaultPickerHtml; }
 // The context bar's links act on the tab's run: Role and Session open VS Code pickers on the host, Position
 // opens the run's process state file, Variables the Chat Variables editor for the run (vscimpb60c).
 var __ctxSummary = document.getElementById('contextSummary');
@@ -279,6 +278,9 @@ if (__ctxSummary) {
       : pick === 'position' ? { type: 'openRunStateFile', run: settingsRun() }
       : pick === 'variables' ? { type: 'openChatVariablesEditor', run: settingsRun() }
       : pick === 'defaultRole' ? { type: 'pickQueueDefaultRole', run: settingsRun() }
+      : pick === 'transport' ? { type: 'pickQueueDefaultTransport', run: settingsRun() }
+      : pick === 'profile' ? { type: 'pickQueueDefaultProfile', run: settingsRun() }
+      : pick === 'template' ? { type: 'pickQueueDefaultTemplate', run: settingsRun() }
       : { type: 'pickQueueDefaultSession', run: settingsRun() });
   });
 }
@@ -408,15 +410,16 @@ function showAddFeedback(text, cls) {
 }
 
 /**
- * The context bar: Quest, Role and the queue's default Agent SDK session, then
- * the active projects. Role and Session are links: a click opens a VS Code
- * picker on the host (pickRole / pickQueueDefaultSession).
+ * The context bar of the tab's run, one field per setting: its label above, its value below
+ * (`.ctx-field`: `.ctx-label` over `.ctx-value`). A value that can be changed is a link
+ * (`.ctx-link`, `data-pick`): a click opens a VS Code picker on the host (role, default role,
+ * transport, profile, template, session), the guideline picker, the run's state file or its chat
+ * variables. Quest, Run and Projects are plain text.
  */
 function updateContextSummary() {
   const el = document.getElementById('contextSummary');
   if (!el) return;
   el.textContent = '';
-  const sep = () => el.appendChild(document.createTextNode('  |  '));
   const link = (pick, text, title) => {
     const a = document.createElement('a');
     a.href = '#';
@@ -426,59 +429,80 @@ function updateContextSummary() {
     a.textContent = text;
     return a;
   };
+  const plain = (text, title) => {
+    const t = document.createElement('span');
+    t.className = 'ctx-text';
+    t.textContent = text;
+    if (title) { t.title = title; }
+    return t;
+  };
+  const field = (label, value, key) => {
+    const f = document.createElement('span');
+    f.className = 'ctx-field';
+    if (key) { f.dataset.field = key; }
+    const l = document.createElement('span');
+    l.className = 'ctx-label';
+    l.textContent = label;
+    const v = document.createElement('span');
+    v.className = 'ctx-value';
+    v.appendChild(value);
+    f.appendChild(l);
+    f.appendChild(v);
+    el.appendChild(f);
+    return f;
+  };
   // The tab's run's context (vscimpb60c): its position, role and chat variables.
   const run = settingsRun();
   const ctx = runContexts[run] || {};
+  const settings = runQueueSettings[run] || {};
   el.dataset.run = run;
-  if (currentContext.quest) { el.appendChild(document.createTextNode('Quest: ' + currentContext.quest)); sep(); }
-  el.appendChild(document.createTextNode('Run: ' + run + (run === currentRun ? ' (this window\'s)' : '')));
-  sep();
-  el.appendChild(document.createTextNode('Position: '));
-  el.appendChild(link('position', ctx.position || '(no process)',
-    'The process position of run ' + run + (ctx.process ? ' (' + ctx.process + ')' : '') + ' — click to open its state file'));
-  sep();
-  el.appendChild(document.createTextNode('Role: '));
+  if (currentContext.quest) { field('Quest', plain(currentContext.quest), 'quest'); }
+  field('Run', plain(run + (run === currentRun ? ' (this window\'s)' : '')), 'run');
+  field('Position', link('position', ctx.position || '(no process)',
+    'The process position of run ' + run + (ctx.process ? ' (' + ctx.process + ')' : '') + ' — click to open its state file'), 'position');
   if (run === currentRun) {
-    el.appendChild(link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'));
+    field('Role', link('role', currentContext.role || '(none)', 'The role of the prompts — click to choose another'), 'role');
   } else {
-    const roleText = document.createElement('span');
-    roleText.className = 'ctx-run-role';
-    roleText.textContent = ctx.role || '(none)';
-    roleText.title = 'The role run ' + run + '\'s step names (its Proceed prompts run in it)';
-    el.appendChild(roleText);
+    const roleText = plain(ctx.role || '(none)', 'The role run ' + run + '\'s step names (its Proceed prompts run in it)');
+    roleText.classList.add('ctx-run-role');
+    field('Role', roleText, 'role');
   }
-  sep();
   // The run's default role (gsel3): what its items run as when neither their todo, they nor a step name one.
-  const runDefaultRole = (runQueueSettings[settingsRun()] || {}).defaultRole || '';
-  el.appendChild(document.createTextNode('Default role: '));
-  el.appendChild(link('defaultRole', runDefaultRole || '(none)',
-    'The role run ' + settingsRun() + '\'s items run as when neither their todo, the item nor a process step names one — click to choose another'));
-  sep();
+  field('Default role', link('defaultRole', settings.defaultRole || '(none)',
+    'The role run ' + run + '\'s items run as when neither their todo, the item nor a process step names one — click to choose another'), 'defaultRole');
+  // The run's defaults for new items: transport, profile (Anthropic only) and template.
+  const transport = settings.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
+  field('Transport', link('transport', transport === 'anthropic' ? 'Anthropic' : 'Copilot',
+    'The transport run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'transport');
+  if (transport === 'anthropic') {
+    const pid = settings.defaultAnthropicProfileId || '';
+    const profile = (anthropicProfiles || []).find(function(p) { return p && p.id === pid; });
+    field('Profile', link('profile', pid ? (profile && profile.name ? profile.name : pid) : '(default profile)',
+      'The Anthropic profile run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'profile');
+  }
+  const tplId = settings.defaultMessageTemplateId || '';
+  const tpl = (anthropicUserMessageTemplates || []).find(function(t) { return t && t.id === tplId; });
+  field('Template', link('template', tplId ? (tpl && tpl.name ? tpl.name : tplId) : '(none)',
+    'The prompt template run ' + run + '\'s items take unless they name their own ("Run default") — click to choose'), 'template');
+  const sessionName = runQueueSessionName(queueDefaultSessionLabel, run);
+  const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
+  field('Session', link('session', sessionDisplayName(sessionName) + session.based,
+    session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'), 'session');
   // The run's guideline selection (gsel5, P-3): its effective choices, the run's own starred; a click opens its picker.
   const runAspects = runAspectView(run);
   if (runAspects) {
-    el.appendChild(document.createTextNode('Guidelines: '));
     const g = link('guidelines', window.TomAspectPicker.summary(runAspects, { star: true }),
       window.TomAspectPicker.hoverText(runAspects, 'Guidelines of run ' + run) + '\n(* chosen by the run) — click to choose');
     g.dataset.aspectOpen = 'run';
     g.id = 'runAspectLink';
-    el.appendChild(g);
-    sep();
+    field('Guidelines', g, 'guidelines');
   }
-  el.appendChild(document.createTextNode('Session: '));
-  const sessionName = runQueueSessionName(queueDefaultSessionLabel, settingsRun());
-  const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
-  el.appendChild(link('session', sessionDisplayName(sessionName) + session.based,
-    session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'));
-  sep();
   const vars = ctx.variables || {};
   const names = Object.keys(vars);
-  el.appendChild(document.createTextNode('Variables: '));
-  el.appendChild(link('variables', String(names.length),
-    'The chat variables of run ' + run + (names.length ? ': ' + names.map(function(k) { return k + '=' + vars[k]; }).join(', ') : ' (none of its own)') + ' — click to open them'));
+  field('Variables', link('variables', String(names.length),
+    'The chat variables of run ' + run + (names.length ? ': ' + names.map(function(k) { return k + '=' + vars[k]; }).join(', ') : ' (none of its own)') + ' — click to open them'), 'variables');
   if (currentContext.activeProjects && currentContext.activeProjects.length) {
-    sep();
-    el.appendChild(document.createTextNode('Projects: ' + currentContext.activeProjects.join(', ')));
+    field('Projects', plain(currentContext.activeProjects.join(', ')), 'projects');
   }
 }
 

@@ -249,8 +249,8 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
                 assert.notEqual($(id).previousElementSibling?.tagName, 'LABEL', `${id} unlabelled`);
                 assert.ok($(id).title, `${id} named by its tooltip`);
             }
-            assert.ok($('anthropic-run').classList.contains('chat-compact-run'));
-            assert.ok($('anthropic-session-name').classList.contains('chat-compact-session'));
+            assert.ok($('anthropic-run').classList.contains('chat-link'), 'the run: a link');
+            assert.ok($('anthropic-session-name').closest('.chat-link'), 'the session: a link');
             // Run default first (the panel's run's template), then No template.
             assert.deepEqual([...$('anthropic-userMessage').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
             assert.deepEqual([...$('copilot-template').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
@@ -258,7 +258,7 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.equal([...toolbar.querySelectorAll('label')].filter((l: Json) => /Profile|User Prompt/.test(l.textContent)).length, 0, 'no Profile / User Prompt labels');
             const css = fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'style.css'), 'utf8');
             assert.match(css, /\.toolbar select\.chat-compact-select \{ min-width: 36px; max-width: 72px; \}/, '60% of 60–120px');
-            assert.match(css, /\.session-btn \.session-name\.chat-compact-session \{ max-width: 66px; \}/, '60% of 110px');
+            assert.match(css, /\.session-run-lines \{ display: inline-flex; flex-direction: column;/, 'session above run');
             // The role dropdown: ANTHROPIC/LLM only.
             assert.equal($('copilot-role'), null);
             w.dispatchEvent(new w.MessageEvent('message', { data: {

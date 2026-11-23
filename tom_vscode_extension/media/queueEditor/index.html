@@ -16,8 +16,8 @@
 
   The codicons stylesheet is injected at runtime by main.js from
   window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
-  The two transport-picker fragments are rendered host-side and injected into
-  #queueDefaultPickerSlot / #addTransportRow from window.__INIT__ by main.js,
+  The add form's transport-picker fragment is rendered host-side and injected into
+  #addTransportRow from window.__INIT__ by main.js,
   then wired by transportPicker.js (loaded last). Component scripts load before
   main.js so their global functions exist when main.js's init runs; they read
   main.js's host globals at call-time (classic-script shared global scope).
@@ -58,7 +58,6 @@
      in the queue-settings YAML; new items without an explicit transport
      inherit this at dispatch. Per-item / per-stage overrides still win.
      Picker markup is rendered host-side and injected here by main.js. -->
-<div class="context-bar" id="queueDefaultPickerSlot" style="border-top:1px solid var(--vscode-panel-border);padding-top:6px;"></div>
 <!-- The run's Copilot answer timeout and reminder template: only while its default transport is Copilot. -->
 <div class="context-bar" id="copilotDefaultsRow">
   <span id="copilotQueueSettings" class="copilot-only">
@@ -92,13 +91,13 @@
   <button class="ctx-btn-icon" onclick="restartQueue()" title="Restart Queue (reset stuck items)"><span class="codicon codicon-debug-restart"></span></button>
   <button class="ctx-btn-icon" id="stopActiveBtn" onclick="stopActiveItem()" title="Stop currently running prompt (revert to staged)"><span class="codicon codicon-debug-stop"></span></button>
   <button class="ctx-btn-icon" id="interruptForContinuationBtn" onclick="interruptActiveForContinuation()" title="Interrupt for continuation: soft first — the next tool result is held; a hard interrupt after 15 s without a hold point, or on a second click"><span class="codicon codicon-debug-disconnect"></span></button>
-  <button onclick="sendAllStaged()">Send All Staged</button>
-  <button onclick="retryAllErrors()" title="Resend every item currently in error state — the first errored item takes the sending slot, the rest are requeued in place">Retry All Errors</button>
-  <button onclick="clearErrors()" title="Remove every item currently in error state">Delete Errors</button>
-  <button onclick="clearSent()">Clear Sent</button>
-  <button onclick="clearAll()">Clear All</button>
-  <button onclick="collapseAll()">Collapse All</button>
-  <button onclick="expandAll()">Expand All</button>
+  <button class="ctx-btn-icon ctx-btn-double" id="sendAllStagedBtn" onclick="sendAllStaged()" title="Send all staged: make every staged item of this run pending"><span class="codicon codicon-send"></span><span class="codicon codicon-layers"></span></button>
+  <button class="ctx-btn-icon ctx-btn-double" id="retryAllErrorsBtn" onclick="retryAllErrors()" title="Retry all errors: resend every item in error state — the first errored item takes the sending slot, the rest are requeued in place"><span class="codicon codicon-refresh"></span><span class="codicon codicon-error"></span></button>
+  <button class="ctx-btn-icon ctx-btn-double" id="clearErrorsBtn" onclick="clearErrors()" title="Delete errors: remove every item in error state"><span class="codicon codicon-trash"></span><span class="codicon codicon-error"></span></button>
+  <button class="ctx-btn-icon ctx-btn-double" id="clearSentBtn" onclick="clearSent()" title="Clear sent: remove the items that were sent"><span class="codicon codicon-trash"></span><span class="codicon codicon-check-all"></span></button>
+  <button class="ctx-btn-icon ctx-btn-double" id="clearAllBtn" onclick="clearAll()" title="Clear all: remove every item of this run"><span class="codicon codicon-trash"></span><span class="codicon codicon-layers"></span></button>
+  <button class="ctx-btn-icon" id="collapseAllBtn" onclick="collapseAll()" title="Collapse all items"><span class="codicon codicon-collapse-all"></span></button>
+  <button class="ctx-btn-icon" id="expandAllBtn" onclick="expandAll()" title="Expand all items"><span class="codicon codicon-expand-all"></span></button>
   <span id="countLabel" style="margin-left:auto; font-size:0.85em; opacity:0.7;"></span>
 </div>
 

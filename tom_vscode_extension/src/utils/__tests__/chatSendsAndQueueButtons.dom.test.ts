@@ -548,12 +548,25 @@ describe('chat sends and the queue buttons', () => {
         w.document.querySelector('[data-action="addToQueuePanelTarget"][data-id="copilot"]').click();
         const cm = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
         assert.deepEqual([cm.usePanelTarget, cm.section, cm.transport], [true, 'copilot', undefined]);
-        // The Run select: narrow, no "Run:" prefix in its options, the full name in its tooltip.
+        // Session above run: two lines of link text; the run's name, its full label in the tooltip, marked when
+        // it is not the PROCESS view's run; a click asks the host for VS Code's run picker.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { anthropic: 'collab' }, windowRun: 'default' } }));
-        const sel = w.document.getElementById('anthropic-run');
-        assert.deepEqual([...sel.options].map((o: Win) => o.textContent), ['default', 'collab — the subject']);
-        assert.match(sel.title, /^Run: collab — the subject/);
-        assert.match(media('chatPanel', 'style.css'), /\.run-select \{ max-width: 4\.5em;/, 'half its width');
+        const runLink = w.document.getElementById('anthropic-run');
+        assert.equal(runLink.tagName, 'A');
+        assert.equal(runLink.textContent, 'collab');
+        assert.match(runLink.title, /^Run: collab — the subject/);
+        assert.ok(runLink.classList.contains('run-other'), 'another run than the PROCESS view\'s');
+        const lines = runLink.parentElement;
+        assert.ok(lines.classList.contains('session-run-lines'));
+        assert.deepEqual([...lines.children].map((c: Win) => c.id), ['anthropic-session-link', 'anthropic-run'], 'session above run');
+        posted.length = 0;
+        runLink.click();
+        w.document.getElementById('anthropic-session-link').click();
+        w.document.getElementById('copilot-run').click();
+        assert.deepEqual(posted.map((m: Win) => m.type === 'pickChatRun' ? [m.type, m.section] : [m.type]), [['pickChatRun', 'anthropic'], ['pickAnthropicSession'], ['pickChatRun', 'copilot']]);
+        assert.equal(w.document.querySelector('select#anthropic-run, select#copilot-run'), null, 'no run dropdowns');
+        assert.match(media('chatPanel', 'style.css'), /\.chat-link \{ color: var\(--vscode-textLink-foreground\); text-decoration: underline; cursor: pointer;/, 'marked clickable');
+        assert.match(src('handlers', 'chatPanel-handler.ts'), /case 'pickChatRun':[\s\S]{0,800}showQuickPick\([\s\S]{0,600}this\._setChatRun\(section, picked\.run\)/, 'the host picks and switches');
     });
 
     test('CB-15: the run switch selects the run\'s default session', () => {

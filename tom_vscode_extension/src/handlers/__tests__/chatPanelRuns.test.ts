@@ -14,8 +14,9 @@
  *        switch in the ANTHROPIC/LLM subpanel selects that run's default session, created when missing
  *   CR-5 the fallback: a run deleted elsewhere is `default` again for the subpanel that was on it, the pick
  *        forgotten, and the webview is told
- *   CR-6 the webview: each subpanel has a run select; `chatRuns` fills both (the run each is on selected; one not
- *        on the PROCESS view's run marked); a change posts `setChatRun` with its subpanel
+ *   CR-6 the webview: each subpanel has a run link; `chatRuns` names the run each is on (its full label in the
+ *        tooltip; one not on the PROCESS view's run marked); a click posts `pickChatRun` with its subpanel, and the
+ *        host's picker switches the run as `setChatRun` does
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- chat-variable names */
@@ -216,20 +217,21 @@ describe('the chat panels\' run pickers', () => {
             w.__INIT__ = {};
             w.eval(fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'main.js'), 'utf8'));
             const sel = (s: string): Json => w.document.getElementById(`${s}-run`);
-            assert.ok(sel('anthropic') && sel('copilot'), 'a run select in each subpanel');
+            assert.ok(sel('anthropic') && sel('copilot'), 'a run link in each subpanel');
             w.dispatchEvent(new w.MessageEvent('message', { data: {
                 type: 'chatRuns', windowRun: 'default',
                 options: [{ run: 'default', label: 'default (PROCESS view)' }, { run: 'chg2', label: 'chg2' }],
                 selected: { anthropic: 'default', copilot: 'chg2' },
             } }));
-            assert.deepEqual([...sel('copilot').options].map((o: Json) => o.textContent), ['default (PROCESS view)', 'chg2'], 'no "Run:" prefix (vscimpb151)');
-            assert.equal(sel('copilot').value, 'chg2');
-            assert.equal(sel('anthropic').value, 'default');
+            assert.equal(sel('copilot').textContent, 'chg2', 'the run\'s name, no "Run:" prefix (vscimpb151)');
+            assert.equal(sel('anthropic').textContent, 'default');
+            assert.match(sel('anthropic').title, /^Run: default \(PROCESS view\)/, 'the full label in the tooltip');
             assert.equal(sel('copilot').classList.contains('run-other'), true, 'on another run than the PROCESS view\'s');
             assert.equal(sel('anthropic').classList.contains('run-other'), false);
-            sel('anthropic').value = 'chg2';
-            sel('anthropic').dispatchEvent(new w.Event('change'));
-            assert.deepEqual(sent.filter((m) => m.type === 'setChatRun').at(-1), { type: 'setChatRun', section: 'anthropic', run: 'chg2' });
+            sel('anthropic').click();
+            assert.deepEqual(sent.filter((m) => m.type === 'pickChatRun').at(-1), { type: 'pickChatRun', section: 'anthropic' });
+            const host = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');
+            assert.match(host, /case 'pickChatRun':[\s\S]{0,1200}await this\._setChatRun\(section, picked\.run\);\s*this\._sendChatRuns\(\);/);
         } finally { w.close(); }
     });
 });

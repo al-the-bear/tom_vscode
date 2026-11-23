@@ -8,7 +8,8 @@
  * and that state carried only id and name.
  *
  *   QK-1 the state carries `noApiKey` per profile and for the default profile; after a state update the
- *        queue-default and add-form pickers still mark the key-less profiles '(no API key)', and only them
+ *        add-form picker still marks the key-less profiles '(no API key)', and only them (the run's default
+ *        profile is a context-bar link whose host picker names the key-less profiles)
  *   QK-2 an item whose stages would fail for a missing key shows its 'No API key' chip in the editor
  *   QK-3 the chips come first in the item's body, right under its header and before the prompt text:
  *        the 'No API key' chip, and the interruption chip (why a send did not complete) beside it; the
@@ -64,7 +65,7 @@ describe('Prompt Queue editor — a missing API key', () => {
         window.dispatchEvent(new window.MessageEvent('message', {
             data: { type: 'state', items: [], anthropicProfiles: PROFILES, defaultProfileNoApiKey: true },
         }));
-        for (const id of ['queueDefault-transport-profile', 'addForm-transport-profile']) {
+        for (const id of ['addForm-transport-profile']) {
             assert.deepEqual(optionLabels(window, id), [
                 '(default profile) (no API key)',
                 'Sonnet 5.5 — Direct (sonnet-5-5-direct) (no API key)',

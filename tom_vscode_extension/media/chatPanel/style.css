@@ -42,9 +42,11 @@
 .slot-btn.answer-ready.active:hover { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: #111; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
 .answer-slot-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; margin-left: 6px; background: var(--vscode-editorWarning-foreground, #cca700); color: #111; font-size: 11px; font-weight: 700; }
 
-/* Agent SDK session button: the icon plus the session's name. */
-.icon-btn.session-btn { width: auto; gap: 3px; padding: 0 4px; }
-.session-btn .session-name { font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Session above run (ANTHROPIC/LLM; the Copilot subpanel has the run only): two lines of link text,
+   a click opens VS Code's picker. */
+.session-run-lines { display: inline-flex; flex-direction: column; justify-content: center; line-height: 1.15; margin: 0 4px; min-width: 0; }
+.chat-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; font-size: 11px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.chat-link:hover { color: var(--vscode-textLink-activeForeground); }
 
 /* Plan mode (CC-3, CC-27): the badge while it is on, and a proposed plan. */
 .plan-mode-badge { align-items: center; gap: 6px; margin: 4px 0; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid currentColor; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
@@ -54,17 +56,13 @@
 .plan-body { padding: 8px; max-height: 50vh; overflow: auto; }
 .plan-feedback { width: calc(100% - 16px); margin: 0 8px 8px; resize: vertical; font-family: inherit; }
 
-/* The run pickers (vscimpb48): a subpanel on another run than the PROCESS view's is marked. */
-.run-select { max-width: 4.5em; margin-left: 4px; }
-.run-select.run-other { border-color: var(--vscode-charts-yellow, #d29922); }
+/* The run links (vscimpb48): a subpanel on another run than the PROCESS view's is marked. */
+.chat-link.run-link.run-other { color: var(--vscode-charts-yellow, #d29922); }
 
-/* ANTHROPIC/LLM (gsel6): the profile, user-prompt template, session, Run and role dropdowns
-   unlabelled at 60% of their width (the toolbar select's 60–120px, the template's 40%,
-   the session name's 110px); each tooltip names what it is. */
+/* ANTHROPIC/LLM (gsel6): the profile, user-prompt template and role dropdowns unlabelled at 60%
+   of their width (the toolbar select's 60–120px, the template's 40%); each tooltip names what it is. */
 .toolbar select.chat-compact-select { min-width: 36px; max-width: 72px; }
 .toolbar select.chat-compact-template { width: 24%; }
-.toolbar select.run-select.chat-compact-run { min-width: 36px; max-width: 2.7em; }
-.session-btn .session-name.chat-compact-session { max-width: 66px; }
 .toolbar select.chat-role-select { margin-left: 4px; }
 /* The guideline button (gsel6): the shared picker's icon button, a dot and the hover help only. */
 .chat-aspects-slot { display: inline-flex; align-items: center; margin-left: 2px; }

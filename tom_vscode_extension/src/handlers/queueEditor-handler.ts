@@ -174,8 +174,8 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
 
     // Build initial state — handed to the webview as first-paint data via the
     // loader's window.__INIT__ (the loader handles </script> escaping). The
-    // codicons stylesheet URI and the two host-rendered transport-picker
-    // fragments (queue-default + add-form) travel the same way; main.js injects
+    // codicons stylesheet URI and the host-rendered add-form transport
+    // picker travel the same way; main.js injects
     // them into the DOM. See media/queueEditor/index.html for the panel's
     // hand-written 'unsafe-inline' CSP (it keeps inline on*= handlers).
     const initialState = buildState();
@@ -183,14 +183,6 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         init: {
             state: initialState,
             codiconsUri: webviewCodiconsUri.toString(),
-            queueDefaultPickerHtml: renderTransportPicker({
-                idPrefix: 'queueDefault',
-                context: 'queue-default',
-                value: { transport: 'copilot' },
-                showTargets: true,
-                onChangeEvent: 'setQueueDefaultTransport',
-                inline: true,
-            }),
             addFormPickerHtml: renderTransportPicker({
                 idPrefix: 'addForm',
                 context: 'queue-default',
@@ -385,6 +377,45 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const run = settingsRunOf(msg);
           PromptQueueManager.instance.setDefaultTransport(transport, pid, undefined, run);
           PromptQueueManager.instance.setDefaultMessageTemplate(tplId, run);
+          sendState();
+          return;
+        }
+        case 'pickQueueDefaultTransport':
+        case 'pickQueueDefaultProfile':
+        case 'pickQueueDefaultTemplate': {
+          // The context bar's Transport, Profile and Template: a VS Code picker each, for the tab's run.
+          const pqm = PromptQueueManager.instance;
+          const run = settingsRunOf(msg);
+          const s = pqm.runQueueSettings(run);
+          const transport: 'copilot' | 'anthropic' = s.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
+          const config = loadSendToChatConfig();
+          const mark = (on: boolean) => (on ? '$(check) ' : '');
+          if (msg.type === 'pickQueueDefaultTransport') {
+            const picked = await vscode.window.showQuickPick([
+              { label: `${mark(transport === 'copilot')}Copilot`, value: 'copilot' as const, description: 'GitHub Copilot Chat' },
+              { label: `${mark(transport === 'anthropic')}Anthropic`, value: 'anthropic' as const, description: 'an Anthropic profile (direct API, Agent SDK, VS Code LM, local LLM)' },
+            ], { title: `Default transport of run ${run ?? 'default'}`, placeHolder: `Current: ${transport}` });
+            if (picked && picked.value !== transport) { pqm.setDefaultTransport(picked.value, s.defaultAnthropicProfileId ?? '', s.defaultAnthropicConfigId, run); }
+          } else if (msg.type === 'pickQueueDefaultProfile') {
+            const keyless = new Map(profileKeyStates(config?.anthropic, process.env).map((k) => [k.id, k.noApiKey]));
+            const current = s.defaultAnthropicProfileId ?? '';
+            const picked = await vscode.window.showQuickPick([
+              { label: `${mark(!current)}(default profile)`, value: '', description: 'the profile marked as default' },
+              ...(config?.anthropic?.profiles ?? []).filter((p) => !!p && typeof p.id === 'string').map((p) => ({
+                label: `${mark(p.id === current)}${p.name || p.id}`, value: p.id,
+                description: [p.name && p.name !== p.id ? p.id : '', keyless.get(p.id) ? 'no API key in this window' : ''].filter(Boolean).join(' · '),
+              })),
+            ], { title: `Default profile of run ${run ?? 'default'}`, placeHolder: `Current: ${current || '(default profile)'}` });
+            // A picked profile derives its configuration (none kept from the old one).
+            if (picked && picked.value !== current) { pqm.setDefaultTransport(transport, picked.value, undefined, run); }
+          } else {
+            const current = s.defaultMessageTemplateId ?? '';
+            const picked = await vscode.window.showQuickPick([
+              { label: `${mark(!current)}(none)`, value: '', description: 'no template' },
+              ...userMessageTemplateOptions(config).map((t) => ({ label: `${mark(t.id === current)}${t.label}`, value: t.id, description: t.label !== t.id ? t.id : '' })),
+            ], { title: `Default template of run ${run ?? 'default'}`, placeHolder: `Current: ${current || '(none)'}` });
+            if (picked && picked.value !== current) { pqm.setDefaultMessageTemplate(picked.value, run); }
+          }
           sendState();
           return;
         }

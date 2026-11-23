@@ -403,24 +403,16 @@ function updateRunDefaultOptions() {
         if (opt) { opt.textContent = runDefaultOptionText(t[1], t[2]); }
     });
 }
+/** The Run links: the run's name (marked when it is not the PROCESS view's run), its full label in the tooltip. */
 function renderChatRunSelects() {
     ['anthropic', 'copilot'].forEach(function(section) {
-        var sel = document.getElementById(section + '-run');
-        if (!sel) { return; }
+        var link = document.getElementById(section + '-run');
+        if (!link) { return; }
         var current = chatRunsState.selected[section] || 'default';
-        sel.innerHTML = chatRunsState.options.map(function(o) {
-            return '<option value="' + escapeAttr(o.run) + '"' + (o.run === current ? ' selected' : '') + '>' + escapeAttr(o.label) + '</option>';
-        }).join('');
-        sel.value = current;
-        sel.classList.toggle('run-other', current !== chatRunsState.windowRun);
-        // The select is narrow: its tooltip names the run in full.
+        link.textContent = current;
+        link.classList.toggle('run-other', current !== chatRunsState.windowRun);
         var shown = chatRunsState.options.find(function(o) { return o.run === current; });
-        sel.title = 'Run: ' + (shown ? shown.label : current) + ' — the process run this subpanel works on: its session, chat variables and process position, the run of what it queues with the panel\'s target. Switching it selects the run\'s default session.';
-        sel.onchange = function() {
-            chatRunsState.selected[section] = sel.value;
-            sel.classList.toggle('run-other', sel.value !== chatRunsState.windowRun);
-            vscode.postMessage({ type: 'setChatRun', section: section, run: sel.value });
-        };
+        link.title = 'Run: ' + (shown ? shown.label : current) + ' — the process run this subpanel works on: its session, chat variables and process position, the run of what it queues with the panel\'s target. Click to pick another; switching selects the run\'s default session.';
     });
 }
 
@@ -540,7 +532,8 @@ function getSectionContent(id) {
                 queueModeToggleHtml('copilot') +
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue — in the default run, with the prompt queue&#39;s settings and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
-                '<select id="copilot-run" class="run-select" data-run-section="copilot" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                // A link (click: VS Code's run picker, pickChatRun).
+                '<span class="session-run-lines"><a href="#" id="copilot-run" class="chat-link run-link" data-action="pickChatRun" data-id="copilot" data-run-section="copilot" title="The process run this subpanel works on — click to pick another">default</a></span>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
                 '<span id="copilot-aspects-slot" class="chat-aspects-slot"></span>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
@@ -623,9 +616,12 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — in the default run (default@default), sent next, with the prompt queue&#39;s profile, session and default template; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-arrow-circle-up"></span></button>' +
                 // Agent SDK session: the button names the session the panel sends in; a click opens VS Code's picker
                 // (pick / new / based on). A run switch selects the run's default session (vscimpb151).
-                '<button class="icon-btn session-btn" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span class="codicon codicon-comment-discussion"></span><span id="anthropic-session-name" class="session-name chat-compact-session">chat</span></button>' +
+                // Session above run, two lines of link text: a click opens VS Code's picker (pickAnthropicSession, pickChatRun).
                 // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
-                '<select id="anthropic-run" class="run-select chat-compact-run" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
+                '<span class="session-run-lines">' +
+                    '<a href="#" id="anthropic-session-link" class="chat-link session-link" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span id="anthropic-session-name" class="session-name">chat</span></a>' +
+                    '<a href="#" id="anthropic-run" class="chat-link run-link" data-action="pickChatRun" data-id="anthropic" data-run-section="anthropic" title="The process run this subpanel works on — click to pick another">default</a>' +
+                '</span>' +
                 // The role of this subpanel's sends (gsel6): their item role; the run's chat variable is untouched.
                 '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Run default</option></select>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
@@ -999,6 +995,7 @@ function handleAction(action, id, slot) {
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
+        case 'pickChatRun': vscode.postMessage({ type: 'pickChatRun', section: id }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
@@ -1514,7 +1511,7 @@ window.addEventListener('message', function(e) {
         // The session as the queue's context bar shows it: name, base, lifetime, model.
         var sessionLabel = document.getElementById('anthropic-session-name');
         if (sessionLabel) { sessionLabel.textContent = msg.label || msg.name || 'chat'; }
-        var sessionBtn = sessionLabel ? sessionLabel.closest('.session-btn') : null;
+        var sessionBtn = sessionLabel ? sessionLabel.closest('.session-link') : null;
         if (sessionBtn && msg.tooltip) { sessionBtn.title = msg.tooltip + ' — click to pick another or create one'; }
         // A session just picked that names a profile: preselect it (the panel's choice still wins).
         if (msg.profileId) {
