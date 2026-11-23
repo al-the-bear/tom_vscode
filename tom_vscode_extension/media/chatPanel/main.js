@@ -366,8 +366,42 @@ function applyChatRuns(msg) {
         options: Array.isArray(msg.options) && msg.options.length ? msg.options : [{ run: 'default', label: 'default' }],
         selected: msg.selected || {},
         windowRun: msg.windowRun || 'default',
+        runDefaults: msg.runDefaults || {},
     };
     renderChatRunSelects();
+    updateRunDefaultOptions();
+}
+
+/*
+ * "Run default" in the profile and template selects: the value RUN_DEFAULT_CHOICE
+ * sets nothing of the panel's own — Send looks the panel's run's default up when
+ * it sends, and a queued item takes its run's default when it is sent. The label
+ * names what it stands for now (chatRuns' runDefaults, per subpanel).
+ */
+var RUN_DEFAULT_CHOICE = '__run_default__';
+function runDefaultOptionText(section, field) {
+    var d = (chatRunsState.runDefaults || {})[section] || {};
+    var v = d[field] || '';
+    if (field === 'profile' && v) {
+        var entry = (anthropicProfileEntries || []).find(function(e) { return e && e.id === v; });
+        if (entry && entry.name) { v = entry.name; }
+    }
+    return 'Run default (' + (v || (field === 'template' ? 'no template' : 'none')) + ')';
+}
+function runDefaultOptionHtml(section, field) {
+    return '<option value="' + RUN_DEFAULT_CHOICE + '" title="The ' + field + ' of the panel\'s run, looked up when it is sent">' + escapeAttr(runDefaultOptionText(section, field)) + '</option>';
+}
+/** The value a select had or was restored to before its options came (drafts may arrive first). */
+function wantedSelectValue(sel) {
+    return sel.value || sel.getAttribute('data-want') || '';
+}
+/** Keep the "Run default" labels current (the run or its defaults changed). */
+function updateRunDefaultOptions() {
+    [['anthropic-profile', 'anthropic', 'profile'], ['anthropic-userMessage', 'anthropic', 'template'], ['copilot-template', 'copilot', 'template']].forEach(function(t) {
+        var sel = document.getElementById(t[0]);
+        var opt = sel ? sel.querySelector('option[value="' + RUN_DEFAULT_CHOICE + '"]') : null;
+        if (opt) { opt.textContent = runDefaultOptionText(t[1], t[2]); }
+    });
 }
 function renderChatRunSelects() {
     ['anthropic', 'copilot'].forEach(function(section) {
@@ -395,7 +429,7 @@ function renderChatRunSelects() {
  * role_and_guideline_selector.vscode_extension.md R-3, L-7, P-5, AS-3).
  *
  * - The role dropdown (ANTHROPIC/LLM): the role of the panel's sends, their
- *   item role. *Default role* leaves the role to the step, the run's default
+ *   item role. *Run default* leaves the role to the step, the run's default
  *   and the chat variable. A change goes to the host at once (setChatRole).
  * - The guideline buttons (both subpanels): the item level of the panel's
  *   sends, kept by the host per quest until changed (aspectChoose, level
@@ -438,11 +472,11 @@ function renderChatRoleSelect() {
     var current = chatAspectsState.role;
     var roles = chatAspectsState.roles.slice();
     if (current && roles.indexOf(current) < 0) { roles.push(current); }
-    sel.innerHTML = '<option value="">Default role</option>' + roles.map(function(r) {
+    sel.innerHTML = '<option value="">Run default</option>' + roles.map(function(r) {
         return '<option value="' + escapeAttr(r) + '"' + (r === current ? ' selected' : '') + '>' + escapeAttr(r) + '</option>';
     }).join('');
     sel.value = current;
-    sel.title = 'Role of this panel\'s sends: ' + (current || 'Default role (the step\'s, the run\'s default or the chat variable)') + '. The run\'s chat variable role is not changed.';
+    sel.title = 'Role of this panel\'s sends: ' + (current || 'Run default (the step\'s, the run\'s default or the chat variable)') + '. The run\'s chat variable role is not changed.';
     sel.onchange = function() {
         chatAspectsState.role = sel.value;
         vscode.postMessage({ type: 'setChatRole', role: sel.value });
@@ -469,7 +503,7 @@ function openChatAspectPicker(section) {
     var anchor = document.getElementById(section + '-aspects-btn');
     if (!p || !v || !anchor) { return; }
     var note = section === 'anthropic' && !chatAspectsState.role
-        ? 'Default role: the role levels of the role the send runs as apply when it is sent.'
+        ? 'Run default role: the role levels of the role the send runs as apply when it is sent.'
         : '';
     p.open(anchor, v, {
         title: 'Guidelines \u2014 this panel\'s sends',
@@ -593,7 +627,7 @@ function getSectionContent(id) {
                 // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
                 '<select id="anthropic-run" class="run-select chat-compact-run" data-run-section="anthropic" title="The process run this subpanel works on: its session (&lt;session&gt;@&lt;run&gt;), its chat variables and process position, the run of what it queues"><option value="default">default</option></select>' +
                 // The role of this subpanel's sends (gsel6): their item role; the run's chat variable is untouched.
-                '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Default role</option></select>' +
+                '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Run default</option></select>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
                 '<span id="anthropic-aspects-slot" class="chat-aspects-slot"></span>' +
                 // What uses the panel's session and run: Send, Stop, and the two queue buttons with the panel's target.
@@ -1272,6 +1306,8 @@ function buildAnthropicStatusLine(historyMode) {
     // chat panel anymore.
     var profileSel = document.getElementById('anthropic-profile');
     var profileId = profileSel ? profileSel.value : '';
+    // "Run default": the profile of the panel's run.
+    if (profileId === RUN_DEFAULT_CHOICE) { profileId = ((chatRunsState.runDefaults || {}).anthropic || {}).profile || ''; }
     var profile = (anthropicProfileEntries || []).find(function(p) { return p.id === profileId; });
     var configs = anthropicConfigurations || [];
     var cfg = (profile && profile.configurationId ? configs.find(function(c) { return c.id === profile.configurationId; }) : undefined)
@@ -1412,11 +1448,11 @@ function getSelectedReusablePromptId(sectionId) {
 function populateSelect(id, options) {
     var sel = document.getElementById(id);
     if (!sel) {return;}
-    var cur = sel.value;
-    // The user-prompt template dropdown (its only caller): "No template" (gsel6).
-    var baseOptions = '<option value="">No template</option>';
+    var cur = wantedSelectValue(sel);
+    // The user-prompt template dropdown: "Run default" and "No template" (gsel6).
+    var baseOptions = runDefaultOptionHtml('anthropic', id === 'anthropic-profile' ? 'profile' : 'template') + '<option value="">No template</option>';
     sel.innerHTML = baseOptions + (options || []).map(function(o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
-    if (cur && options && options.includes(cur)) {sel.value = cur;}
+    sel.value = (cur === RUN_DEFAULT_CHOICE || (cur && options && options.includes(cur))) ? cur : '';
 }
 
 function escapeAttr(v) {
@@ -1428,24 +1464,24 @@ function escapeAttr(v) {
 function populateCopilotTemplates() {
     var sel = document.getElementById('copilot-template');
     if (!sel) {return;}
-    var cur = sel.value;
-    sel.innerHTML = '<option value="">No template</option>' + copilotTemplateEntries.map(function(t) {
+    var cur = wantedSelectValue(sel);
+    sel.innerHTML = runDefaultOptionHtml('copilot', 'template') + '<option value="">No template</option>' + copilotTemplateEntries.map(function(t) {
         return '<option value="' + escapeAttr(t.id) + '">' + escapeAttr(t.name || t.id) + '</option>';
     }).join('');
-    sel.value = copilotTemplateEntries.some(function(t) { return t.id === cur; }) ? cur : '';
+    sel.value = (cur === RUN_DEFAULT_CHOICE || copilotTemplateEntries.some(function(t) { return t.id === cur; })) ? cur : '';
 }
 
 function populateEntitySelect(id, options, defaultLabel) {
     var sel = document.getElementById(id);
     if (!sel) {return;}
-    var cur = sel.value;
-    sel.innerHTML = (options || []).map(function(o) {
+    var cur = wantedSelectValue(sel);
+    sel.innerHTML = (id === 'anthropic-profile' ? runDefaultOptionHtml('anthropic', 'profile') : '') + (options || []).map(function(o) {
         var value = (o && typeof o.id === 'string') ? o.id : '';
         var label = (o && typeof o.name === 'string' && o.name) ? o.name : value;
         return '<option value="' + value + '">' + label + '</option>';
     }).join('');
     // Restore previous selection if still available
-    if (cur && (options || []).some(function(o) { return o && o.id === cur; })) {
+    if ((cur === RUN_DEFAULT_CHOICE && id === 'anthropic-profile') || (cur && (options || []).some(function(o) { return o && o.id === cur; }))) {
         sel.value = cur;
     } else {
         // Preselect the default entry, or fall back to the first entry
@@ -1673,7 +1709,7 @@ window.addEventListener('message', function(e) {
             }
             var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
             var sel = document.getElementById(profileId);
-            if (sel && d.profile) {sel.value = d.profile;}
+            if (sel && d.profile) { sel.value = d.profile; sel.setAttribute('data-want', d.profile); }
             restoreQueueMode(s, d);
             updateSlotButtonsUI(s);
         });
@@ -1690,10 +1726,10 @@ window.addEventListener('message', function(e) {
             var anthrTa = document.getElementById('anthropic-text');
             if (anthrTa) { anthrTa.value = getSlotText('anthropic', anthrSectionState.activeSlot) || da.text || ''; }
             var anthrProfile = document.getElementById('anthropic-profile');
-            if (anthrProfile && da.profile) { anthrProfile.value = da.profile; }
+            if (anthrProfile && da.profile) { anthrProfile.value = da.profile; anthrProfile.setAttribute('data-want', da.profile); }
             // (Model + Config dropdowns removed — nothing to restore.)
             var anthrUserMsg = document.getElementById('anthropic-userMessage');
-            if (anthrUserMsg && da.userMessageTemplate) { anthrUserMsg.value = da.userMessageTemplate; }
+            if (anthrUserMsg && da.userMessageTemplate) { anthrUserMsg.value = da.userMessageTemplate; anthrUserMsg.setAttribute('data-want', da.userMessageTemplate); }
             updateSlotButtonsUI('anthropic');
             updateSlotKeepUI('anthropic');
         }
@@ -1955,6 +1991,11 @@ function saveDrafts() {
 ['anthropic-userMessage'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
+});
+// A pick replaces the value restored from the drafts (wantedSelectValue).
+['copilot-template', 'anthropic-profile', 'anthropic-userMessage'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) { el.addEventListener('change', function() { el.removeAttribute('data-want'); }); }
 });
 // The Fresh checkbox is one for the panel (not per slot), saved with the drafts.
 (function() {

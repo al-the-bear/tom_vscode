@@ -56,7 +56,8 @@ import { QuestRefreshService } from '../services/quest-refresh-service';
 import { resolveProfileTools } from '../tools/tool-executors';
 import { chatSessionFor, pickAgentSdkSession, sessionsFolder, setChatSessionFor } from './sessionPicker';
 import { createSession, ensureRunDefaultSession, readSession } from '../services/agentSdkSessionStore';
-import { canonicalSessionName, runDefaultSession, runSessionName } from '../utils/runSessions';
+import { canonicalSessionName, runQueueSession, runSessionName } from '../utils/runSessions';
+import { chatDraftsOnRunDefault, isRunDefaultChoice, resolveRunDefaultChoice, runDefaultLabel, RUN_DEFAULT_CHOICE } from '../utils/runDefaultChoice';
 import { createTemporarySession, discardSessionCompletely } from '../services/temporarySessions';
 import { sessionTransportMismatch } from '../services/directSessionHistory';
 import { resolveEffectiveHistoryMode } from '../services/anthropicPayload';
@@ -514,7 +515,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'sendCopilot':
                         if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'copilot', template: message.template })) { break; }
-                        await this._handleSendCopilot(message.text, message.template, message.slot, message.wrap === true);
+                        // "Run default": the panel's run's default template, looked up now.
+                        await this._handleSendCopilot(message.text, resolveRunDefaultChoice(message.template, this._runSettings(this._chatRun('copilot')).defaultMessageTemplateId), message.slot, message.wrap === true);
                         break;
                     case 'sendAnthropic':
                         if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'anthropic', profile: message.profile, template: message.userMessageTemplate })) {
@@ -523,7 +525,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             this._view?.webview.postMessage({ type: 'anthropicNotSent', message: 'Already sent: an identical send within 3 s was ignored.', ...(panelBusy ? { panelBusy } : {}) });
                             break;
                         }
-                        await this._handleSendAnthropic(message.text, message.profile, message.model, message.config, message.userMessageTemplate, false, typeof message.slot === 'number' ? message.slot : undefined, message.fresh === true);
+                        // "Run default" (profile, template): the panel's run's defaults, looked up now.
+                        const sendRun = this._runSettings(this._chatRun('anthropic'));
+                        const sendProfile = isRunDefaultChoice(message.profile) ? (sendRun.defaultAnthropicProfileId ?? '') : message.profile;
+                        const sendConfig = isRunDefaultChoice(message.profile) ? (sendRun.defaultAnthropicConfigId ?? message.config) : message.config;
+                        await this._handleSendAnthropic(message.text, sendProfile, message.model, sendConfig, resolveRunDefaultChoice(message.userMessageTemplate, sendRun.defaultMessageTemplateId, '__none__'), false, typeof message.slot === 'number' ? message.slot : undefined, message.fresh === true);
                         break;
                     case 'cancel':
                         this._handleCancel(String(message.section || ''));
@@ -565,7 +571,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         const quest = WsPaths.getWorkspaceQuestId();
                         const picked = await pickAgentSdkSession({
                             questId: quest,
-                            current: this._chatSessionKey(),
+                            current: this._chatSessionChoice(),
+                            runDefaultLabel: runDefaultLabel(this._runDefaultSession()),
                             title: 'Anthropic chat session',
                             defaultLabel: `The panel's own session (${ANTHROPIC_CHAT_SESSION_KEY})`,
                         });
@@ -613,7 +620,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // tool set (tools.getJsonVce) without a round-trip.
                         await this._context.workspaceState.update(
                             ACTIVE_ANTHROPIC_PROFILE_KEY,
-                            String(message.profileId || ''),
+                            resolveRunDefaultChoice(String(message.profileId || ''), this._runSettings(this._chatRun('anthropic')).defaultAnthropicProfileId),
                         );
                         break;
                     case 'getProfiles':
@@ -901,7 +908,40 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /** The session the panel sends in: the one chosen for the quest, else `chat`. */
     private _chatSessionKey(): string {
-        return canonicalSessionName(chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY));
+        const choice = this._chatSessionChoice();
+        return isRunDefaultChoice(choice) ? this._runDefaultSession() : canonicalSessionName(choice);
+    }
+
+    /** The panel's session choice as stored: a session name, or "Run default" ({@link RUN_DEFAULT_CHOICE}). */
+    private _chatSessionChoice(): string {
+        return chatSessionFor(this._context.workspaceState, WsPaths.getWorkspaceQuestId(), ANTHROPIC_CHAT_SESSION_KEY);
+    }
+
+    /** The default session of the ANTHROPIC/LLM subpanel's run (its queue settings), now. */
+    private _runDefaultSession(): string {
+        const run = this._chatRun('anthropic');
+        return runQueueSession(this._runSettings(run).defaultAgentSdkSession, run);
+    }
+
+    /** A run's queue settings (its defaults); none without a prompt queue. */
+    private _runSettings(run: string): { defaultTransport?: 'copilot' | 'anthropic'; defaultAnthropicProfileId?: string; defaultAnthropicConfigId?: string; defaultAgentSdkSession?: string; defaultMessageTemplateId?: string } {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const queue = (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance;
+            return queue ? queue.runQueueSettings(run) : {};
+        } catch { return {}; }
+    }
+
+    /** What "Run default" stands for in each subpanel (its run's profile, template, session), for the pickers' labels. */
+    private _chatRunDefaults(): Record<string, { profile: string; template: string; session?: string }> {
+        return Object.fromEntries(CHAT_RUN_SECTIONS.map((section) => {
+            const s = this._runSettings(this._chatRun(section));
+            return [section, {
+                profile: s.defaultAnthropicProfileId ?? '',
+                template: s.defaultMessageTemplateId ?? '',
+                ...(section === 'anthropic' ? { session: this._runDefaultSession() } : {}),
+            }];
+        }));
     }
 
     // ----- the run pickers (vscimpb48, src/utils/chatPanelRuns.ts) ---------------
@@ -934,11 +974,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const quest = WsPaths.getWorkspaceQuestId();
         const name = effectiveChatRun(run, this._questRuns().runs);
         await this._context.workspaceState.update(chatRunKey(quest, section), name === DEFAULT_RUN ? undefined : name);
-        // A run switch selects the run's default session, default@<run>, created when missing (vscimpb151).
-        // The session picker stays free afterwards.
+        // A run switch selects "Run default": the run's default session (default@<run> unless its queue settings
+        // name another), created when missing (vscimpb151). The session picker stays free afterwards.
         if (section === 'anthropic') {
             try { ensureRunDefaultSession(sessionsFolder(quest), name); } catch { /* made by the first send */ }
-            await setChatSessionFor(this._context.workspaceState, quest, runDefaultSession(name));
+            await setChatSessionFor(this._context.workspaceState, quest, RUN_DEFAULT_CHOICE);
         }
     }
 
@@ -980,7 +1020,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /** The ANTHROPIC/LLM subpanel's role (its role dropdown, gsel6): `''` is *Default role*; a deleted role is forgotten. */
+    /** The ANTHROPIC/LLM subpanel's role (its role dropdown, gsel6): `''` is *Run default*; a deleted role is forgotten. */
     private _chatRole(): string {
         const key = chatRoleKey(WsPaths.getWorkspaceQuestId());
         const stored = this._context.workspaceState.get<string>(key);
@@ -1018,6 +1058,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             options: chatRunOptions(runs, windowRun, subjects),
             windowRun,
             selected: Object.fromEntries(CHAT_RUN_SECTIONS.map((section) => [section, this._chatRun(section)])),
+            runDefaults: this._chatRunDefaults(),
         });
     }
 
@@ -1057,6 +1098,21 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 this._sendChatRuns();
             });
         } catch { /* no process store */ }
+        // A run's defaults changed (its queue settings): the "Run default" labels and the panel's session follow.
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const queue = (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance;
+            let lastDefaults = JSON.stringify(this._chatRunDefaults());
+            const sub = queue.onDidChange(() => {
+                if (this._view !== view) { return; }
+                const now = JSON.stringify(this._chatRunDefaults());
+                if (now === lastDefaults) { return; }
+                lastDefaults = now;
+                this._sendChatRuns();
+                this._sendChatSession();
+            });
+            view.onDidDispose(() => sub.dispose());
+        } catch { /* no prompt queue */ }
     }
 
     /** The panel's session file, if it has one. */
@@ -1076,7 +1132,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _sendChatSession(preselectProfile = false): void {
         const name = this._panelSession();
         const record = this._chatSessionRecord();
-        const { label, tooltip } = sessionLabel(name, record);
+        const shown = sessionLabel(name, record);
+        const runDefault = isRunDefaultChoice(this._chatSessionChoice());
+        const label = runDefault ? `Run default (${shown.label})` : shown.label;
+        const tooltip = runDefault ? `Run default: the run's default session, now ${shown.tooltip}` : shown.tooltip;
         void this._view?.webview.postMessage({
             type: 'anthropicSession',
             name,
@@ -2327,12 +2386,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // a send itself (deferSend): the queue's run loop takes the item.
                     deferSend: !next,
                     initialStatus: !next && transportOpts?.staged ? 'staged' : 'pending',
-                    transport: transport === 'anthropic' ? 'anthropic' : undefined,
+                    // "Run default" profile with the panel's target: no transport of its own, the run's (vscimpb: run default).
+                    transport: transport === 'anthropic' && !(panelTarget && isRunDefaultChoice(transportOpts?.anthropicProfileId)) ? 'anthropic' : undefined,
                     // Save to Queue / Queue next: the prompt queue's own profile and session (nothing pinned).
                     // With the panel's target (Save to Queue, Queue next): this panel's profile and session,
                     // so the queued prompt continues the panel's conversation as Send would.
                     ...(transport === 'anthropic' && panelTarget
-                        ? { anthropicProfileId: transportOpts?.anthropicProfileId, anthropicConfigId: transportOpts?.anthropicConfigId, session: this._chatSessionKey() }
+                        ? {
+                            // "Run default" (profile, session): nothing set on the item, it takes the run's when it is sent.
+                            ...(isRunDefaultChoice(transportOpts?.anthropicProfileId) ? {} : { anthropicProfileId: transportOpts?.anthropicProfileId, anthropicConfigId: transportOpts?.anthropicConfigId }),
+                            ...(isRunDefaultChoice(this._chatSessionChoice()) ? {} : { session: this._chatSessionKey() }),
+                        }
                         : {}),
                     // With the panel's target the item carries the panel's role (ANTHROPIC/LLM only) and its
                     // sticky guideline choices as its own (gsel6).
@@ -2384,7 +2448,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _loadDrafts(): Promise<void> {
-        const loaded = await loadChatDrafts();
+        let loaded = await loadChatDrafts();
+        // Once per window and quest: the panel switches to "Run default" — its templates, its role, and its session
+        // when that is the run's default session — so the run's defaults govern it until something is picked.
+        const resetKey = `tomAi.chatPanel.runDefaultReset.${WsPaths.getWorkspaceQuestId() || 'default'}`;
+        if (!this._context.workspaceState.get<boolean>(resetKey)) {
+            await this._context.workspaceState.update(resetKey, true);
+            loaded = chatDraftsOnRunDefault(loaded as Record<string, ChatDraftState>) as typeof loaded;
+            try { await saveChatDrafts(loaded as Record<string, ChatDraftState>); } catch { /* kept in the webview */ }
+            const quest = WsPaths.getWorkspaceQuestId();
+            await this._context.workspaceState.update(chatRoleKey(quest), undefined);
+            const choice = this._chatSessionChoice();
+            if (!isRunDefaultChoice(choice) && canonicalSessionName(choice) === this._runDefaultSession()) {
+                await setChatSessionFor(this._context.workspaceState, quest, RUN_DEFAULT_CHOICE);
+            }
+            this._sendChatSession();
+            this.postChatAspects();
+        }
         this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
     }
 

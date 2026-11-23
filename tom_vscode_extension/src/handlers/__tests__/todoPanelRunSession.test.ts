@@ -203,7 +203,7 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.match(picks[0].items[1].description ?? '', /inbox/);
         assert.deepEqual(labels(1), ['default', 'r2'], 'the window\'s runs, default first');
         assert.match(picks[1].items[0].description ?? '', /this window's run/);
-        assert.deepEqual(labels(2), ['work@r2', '$(list-ordered) default@r2', '$(add) New session…'], 'only the free sessions: chat (a chat send) and busy@r2 (a queue item) are not offered');
+        assert.deepEqual(labels(2), ['work@r2', '$(list-ordered) Run default (default@r2)', '$(add) New session…'], 'only the free sessions: chat (a chat send) and busy@r2 (a queue item) are not offered');
         assert.equal(enqueued.length, 1);
         assert.deepEqual([enqueued[0].how, enqueued[0].run, enqueued[0].session, enqueued[0].todoIdPattern], ['next', 'r2', 'work@r2', 'a1'], 'next: the front of the queue');
         assert.match(infos().at(-1)!, /Queued todo a1 — quest q1, run r2, session work@r2, next in the queue\./);
@@ -254,7 +254,7 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.deepEqual(labels(1), ['default', 'rq'], 'its runs from its window\'s run list');
         assert.match(picks[1].items[0].description ?? '', /^busy — running: item z, 1 pending/);
         assert.match(picks[1].items[1].description ?? '', /^paused/);
-        assert.deepEqual(labels(2), ['other', '$(list-ordered) default@default', '$(add) New session…'], 'other2 is busy (its queue entry on disk), no chat session there');
+        assert.deepEqual(labels(2), ['other', '$(list-ordered) Run default (default@default)', '$(add) New session…'], 'other2 is busy (its queue entry on disk), no chat session there');
         assert.equal(enqueued.length, 0, 'not this window\'s queue');
         let items = inbox();
         assert.equal(items.length, 1);
@@ -282,9 +282,9 @@ describe('the todo panel\'s queue-target flow', () => {
     test('QF-5: TODO / GROUP items, the walk, the stack', async () => {
         const { webview } = view();
         enqueued.length = 0;
-        answers = ['q1', 'default', '$(list-ordered) default@default'];
+        answers = ['q1', 'default', '$(list-ordered) Run default (default@default)'];
         await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'a1' });
-        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].run, enqueued[0].session, enqueued[0].template], ['a1', 'anthropic', 'default', 'default@default', 'execute-todo'], 'the run\'s default session, named');
+        assert.deepEqual([enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].run, enqueued[0].session, enqueued[0].template], ['a1', 'anthropic', 'default', undefined, 'execute-todo'], 'Run default: no session of its own, the run\'s default when it is sent');
         // A TODO item walks its own quest's todos: into another quest it is refused.
         enqueued.length = 0;
         const before = inbox().length;
@@ -294,7 +294,7 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.match(warnings().at(-1)!, /walks the todos of quest q1: queue it into q1, not q2/);
         // A group todo's Run row (asTodo): the group todo itself as a TODO item, its members not walked.
         enqueued.length = 0;
-        answers = ['q1', 'default', '$(list-ordered) default@default'];
+        answers = ['q1', 'default', '$(list-ordered) Run default (default@default)'];
         await send(webview, { type: 'qtQueueAsTodoItem', todoId: 'g1', asTodo: true });
         assert.deepEqual([enqueued[0].repeatCount, enqueued[0].todoIdPattern, enqueued[0].transport, enqueued[0].template], ['todo:q1/g1', 'g1', 'anthropic', 'execute-todo'], 'a TODO item over the group todo');
         // The todo's own quest is the default when it has a window (a list of several quests).

@@ -4,7 +4,7 @@
  *
  *   RDA-1 the helper: set writes the run's profile (transport, profile, configuration), template, session
  *         (`<session>@<run>` outside the default run) and role; clear removes the item's own values (the
- *         template: none); only the picked fields; the changed fields answered; an unknown field ignored
+ *         template: the run's default); only the picked fields; the changed fields answered; an unknown field ignored
  *   RDA-2 the picker lines name the run's current defaults; the summary says what was done and what was left
  *   RDA-3 on a real queue: every staged and pending item of the run gets the picked defaults, items of another
  *         run and items that already started stay as they are; clear removes them; a template change rebuilds
@@ -92,9 +92,9 @@ describe('apply run defaults to all items', () => {
         assert.deepEqual(item, { transport: 'anthropic', anthropicProfileId: 'opus', anthropicConfigId: 'cfg', template: 'execute-todo', session: 'work@collab', role: 'reviewer' });
         assert.deepEqual(applyRunDefaultsToItem(item, DEFAULTS, 'collab', ['profile', 'role'], 'set'), [], 'already the defaults');
         assert.deepEqual(applyRunDefaultsToItem(item, DEFAULTS, 'collab', ['role', 'template'], 'clear'), ['template', 'role'], 'only the picked fields, in picker order');
-        assert.deepEqual([item.role, item.template, item.session], [undefined, NO_TEMPLATE, 'work@collab']);
+        assert.deepEqual([item.role, item.template, item.session], [undefined, '(Run default)', 'work@collab']);
         applyRunDefaultsToItem(item, DEFAULTS, 'collab', ['profile', 'session'], 'clear');
-        assert.deepEqual(item, { template: NO_TEMPLATE }, 'clear removes the item\'s own profile and session');
+        assert.deepEqual(item, { template: '(Run default)' }, 'clear removes the item\'s own profile and session');
         const plain: RunDefaultsTarget = {};
         applyRunDefaultsToItem(plain, {}, 'default', ['profile', 'template', 'session', 'role'], 'set');
         assert.deepEqual(plain, { transport: 'copilot', template: NO_TEMPLATE, session: 'default@default' }, 'a run without defaults');
@@ -136,6 +136,24 @@ describe('apply run defaults to all items', () => {
         assert.equal(find(a.id).role, undefined, 'the item follows the run\'s default role again');
         const none = await queue().applyRunDefaultsToItems('collab', [], 'set');
         assert.equal(none.changed + none.unchanged, 0, 'nothing picked: nothing done');
+        clear();
+    });
+
+    test('RDA-4: move items to another run', async () => {
+        clear();
+        queue().setRunQueueSettings('target', { defaultTransport: 'copilot', defaultMessageTemplateId: '' });
+        const a = await queue().enqueue({ originalText: 'move me', transport: 'anthropic', anthropicProfileId: 'opus', deferSend: true, run: 'collab', role: 'writer', template: 'other', session: 'mine@collab' } as never);
+        const started = await queue().enqueue({ originalText: 'started', transport: 'copilot', deferSend: true, run: 'collab' } as never);
+        started.status = 'sending';
+        const r = await queue().moveItemsToRun([a.id, started.id, 'nope'], 'target');
+        const find = (id: string) => queue().items.find((i) => i.id === id)!;
+        assert.deepEqual(r.moved, [a.id]);
+        assert.deepEqual(r.refused.map((x) => x.id).sort(), ['nope', started.id].sort());
+        const moved = find(a.id);
+        assert.equal(moved.run, 'target');
+        assert.deepEqual([moved.transport, moved.anthropicProfileId, moved.role, moved.session, moved.template], [undefined, undefined, undefined, undefined, '(Run default)'],
+            'the item follows the target run\'s defaults');
+        assert.equal(find(started.id).run, 'collab', 'an item that started stays');
         clear();
     });
 });

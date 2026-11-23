@@ -10,14 +10,15 @@
  * - profile, session, role: an item without its own value takes the run's
  *   default when it is sent, so removing the item's value makes it follow the
  *   default from then on.
- * - template: the run's default template is stamped onto an item when it is
- *   queued and built into its text; an item has no template "of its own" to
- *   inherit from later. Removing it means *no template* (`(None)`).
+ * - template: removing it stores "Run default" (`(Run default)`,
+ *   utils/runDefaultChoice.ts): the item's text is built with the run's
+ *   default template each time it is sent.
  *
  * Pure: the queue manager decides which items may change and rebuilds their
  * text (src/managers/promptQueueManager.ts `applyRunDefaultsToItems`).
  */
 import { runQueueSession } from './runSessions';
+import { RUN_DEFAULT_TEMPLATE } from './runDefaultChoice';
 
 export type RunDefaultField = 'profile' | 'template' | 'session' | 'role';
 
@@ -114,7 +115,7 @@ export function applyRunDefaultsToItem(
                 break;
             }
             case 'template':
-                did = put(item, 'template', mode === 'set' ? values.template : NO_TEMPLATE);
+                did = put(item, 'template', mode === 'set' ? values.template : RUN_DEFAULT_TEMPLATE);
                 break;
             case 'session': {
                 const a = put(item, 'session', mode === 'set' ? values.session : undefined);

@@ -12,6 +12,7 @@ import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, 
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
+import { resolveItemTemplate, isRunDefaultChoice, RUN_DEFAULT_TEMPLATE } from '../utils/runDefaultChoice';
 import { applyRunDefaultsToItem, runDefaultFieldsOf, type RunDefaultField, type RunDefaultsApplyResult, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
 import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
@@ -1224,6 +1225,14 @@ export class PromptQueueManager {
             lastId: item.repeatTodoId,
         });
         return todoId ? readQuestTodoBlock(questId, todoId) : undefined;
+    }
+
+    /**
+     * The template an item's text is built with: "Run default" (RUN_DEFAULT_TEMPLATE) is the item's run's default
+     * template at this moment (utils/runDefaultChoice.ts), anything else the template as stored.
+     */
+    private _templateOf(template: string | undefined, item: { run?: string } | undefined): string | undefined {
+        return resolveItemTemplate(template, this._settingsOf(item ? itemRun(item as QueuedPrompt) : undefined).defaultMessageTemplateId);
     }
 
     private async _buildExpandedText(
@@ -2696,7 +2705,7 @@ export class PromptQueueManager {
             opts.transport ?? this._settingsOf(itemRun).defaultTransport ?? 'copilot';
         const expanded = await this._buildExpandedText(
             opts.originalText,
-            opts.template,
+            resolveItemTemplate(opts.template, this._settingsOf(itemRun).defaultMessageTemplateId),
             copilotWrapFor(resolveInitialTransport, opts.answerWrapper),
             {
                 repeatCount: resolvedRepeatCount,
@@ -2719,7 +2728,7 @@ export class PromptQueueManager {
 
         const item: QueuedPrompt = {
             id: randomUUID(),
-            template: opts.template ?? '(None)',
+            template: isRunDefaultChoice(opts.template) ? RUN_DEFAULT_TEMPLATE : (opts.template ?? '(None)'),
             ...(opts.answerWrapper !== undefined ? { answerWrapper: !!opts.answerWrapper } : {}),
             originalText: opts.originalText,
             expandedText: expanded,
@@ -3023,7 +3032,7 @@ export class PromptQueueManager {
         // the right store (spec §4.16). Falls back to the queue default
         // when the item has no explicit transport set.
         const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-        item.expandedText = await this._buildExpandedText(newText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
+        item.expandedText = await this._buildExpandedText(newText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -3042,7 +3051,7 @@ export class PromptQueueManager {
 
         let changed = false;
         if (patch.template !== undefined) {
-            item.template = patch.template || '(None)';
+            item.template = isRunDefaultChoice(patch.template) ? RUN_DEFAULT_TEMPLATE : (patch.template || '(None)');
             changed = true;
         }
         if (patch.answerWrapper !== undefined) {
@@ -3053,7 +3062,7 @@ export class PromptQueueManager {
         if (!changed) { return false; }
 
         const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-        item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
+        item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
@@ -3167,7 +3176,7 @@ export class PromptQueueManager {
         }
         for (const item of rebuild) {
             const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-            item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
+            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
                 repeatCount: resolveRepeatCount(item.repeatCount),
                 repeatIndex: item.repeatIndex,
                 repeatPrefix: item.repeatPrefix,
@@ -6850,7 +6859,7 @@ export class PromptQueueManager {
                 // right store (spec §4.16).
                 const prePromptExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'prePrompt'), () => this._buildExpandedText(
                     pp.text,
-                    pp.template,
+                    this._templateOf(pp.template, item),
                     resolved.transport === 'copilot',
                     { repeatCount: ppRepeatCount, repeatIndex: ppSentCount },
                     resolved.transport,
@@ -7038,7 +7047,7 @@ export class PromptQueueManager {
             const effectiveWrap = copilotWrapFor(resolved.transport, item.answerWrapper);
             item.expandedText = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'main', iterationTodo?.id), () => this._buildExpandedText(
                 item.originalText,
-                item.template,
+                this._templateOf(item.template, item),
                 effectiveWrap,
                 {
                     repeatCount: mainRepeatCount,
@@ -7145,7 +7154,7 @@ export class PromptQueueManager {
                 const resolved = { ...this.resolveStageTransport(item, nextFollowUp), iterationKey: iterationKeyFor(item, 'followUp'), item };
                 const followUpExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'followUp'), () => this._buildExpandedText(
                     nextFollowUp.originalText,
-                    nextFollowUp.template,
+                    this._templateOf(nextFollowUp.template, item),
                     resolved.transport === 'copilot',
                     { repeatCount: fuRepeatCount, repeatIndex: fuSentCount },
                     resolved.transport,
@@ -7648,6 +7657,44 @@ export class PromptQueueManager {
         this.persist();
         this._onDidChange.fire();
         return { ok: true, moved: true };
+    }
+
+    /**
+     * Move several items into the queue of run `run` (the queue editor's *Move items to another run* overlay), in
+     * their queue order: each as {@link moveItemToRun}, and then its own profile (transport, profile,
+     * configuration), session, role and template removed, so it follows the target run's defaults — the template
+     * as "Run default" (utils/runDefaultChoice.ts). The text of each moved item is built again. Items that cannot
+     * move (started, a Proceed run's, a process-move marker) are answered with the reason.
+     */
+    async moveItemsToRun(ids: readonly string[], run: string): Promise<{ run: string; moved: string[]; refused: Array<{ id: string; reason: string }> }> {
+        const to = normalizeRun(run);
+        const wanted = new Set(ids);
+        const order = this._items.filter((i) => wanted.has(i.id));
+        const moved: string[] = [];
+        const refused: Array<{ id: string; reason: string }> = [];
+        for (const id of ids) { if (!order.some((i) => i.id === id)) { refused.push({ id, reason: 'no such item' }); } }
+        for (const item of order) {
+            const r = this.moveItemToRun(item.id, to);
+            if (!r.ok) { refused.push({ id: item.id, reason: r.reason }); continue; }
+            applyRunDefaultsToItem(item, this._settingsOf(to), to, ['profile', 'template', 'session', 'role'], 'clear');
+            const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
+            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
+                repeatCount: resolveRepeatCount(item.repeatCount),
+                repeatIndex: item.repeatIndex,
+                repeatPrefix: item.repeatPrefix,
+                repeatSuffix: item.repeatSuffix,
+            }, effectiveTransport, {
+                templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+                templateRepeatIndex: item.templateRepeatIndex,
+            });
+            moved.push(item.id);
+        }
+        if (moved.length) {
+            logQueue(`Moved ${moved.length} item(s) to run ${to} (their own profile, session, role and template removed)`);
+            this.persist();
+            this._onDidChange.fire();
+        }
+        return { run: to, moved, refused };
     }
 
     /**

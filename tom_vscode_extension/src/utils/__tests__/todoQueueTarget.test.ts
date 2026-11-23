@@ -77,14 +77,15 @@ describe('the queue-target flow\'s picks', () => {
         assert.deepEqual(runSessionCandidates(names, 'r2', false), ['work@r2', 'other@r2'], 'never the run\'s default session');
         assert.deepEqual(runSessionCandidates(names, 'r2', true), ['chat', 'work@r2', 'other@r2'], 'chat is shared by every run');
         const items = sessionPickItems(['work@r2'], 'r2');
-        assert.deepEqual(items.map((i) => i.label), ['work@r2', '$(list-ordered) default@r2', '$(add) New session…']);
-        assert.equal(active(items), '$(list-ordered) default@r2', 'a picked run selects its default session');
-        assert.deepEqual(items[1].value, { session: 'default@r2' });
-        assert.equal(sessionPickItems([], 'default')[0].label, '$(list-ordered) default@default');
+        assert.deepEqual(items.map((i) => i.label), ['work@r2', '$(list-ordered) Run default (default@r2)', '$(add) New session…']);
+        assert.equal(active(items), '$(list-ordered) Run default (default@r2)', 'a picked run selects Run default');
+        assert.deepEqual(items[1].value, {}, 'Run default sets no session on the item');
+        assert.equal(sessionPickItems([], 'r2', undefined, 'work@r2')[0].label, '$(list-ordered) Run default (work@r2)', 'the run\'s configured default session');
+        assert.equal(sessionPickItems([], 'default')[0].label, '$(list-ordered) Run default (default@default)');
         assert.deepEqual(items[2].value, { newSession: true });
         assert.equal(active(sessionPickItems(['a', 'b'], 'r', { session: 'b' })), 'b');
-        assert.equal(active(sessionPickItems(['a'], 'r', {})), '$(list-ordered) default@r', 'last: the run\'s default session');
-        assert.equal(active(sessionPickItems(['a'], 'r', { session: 'default@r' })), '$(list-ordered) default@r');
+        assert.equal(active(sessionPickItems(['a'], 'r', {})), '$(list-ordered) Run default (default@r)', 'last: Run default');
+        assert.equal(active(sessionPickItems(['a'], 'r', { session: 'default@r' })), '$(list-ordered) Run default (default@r)', 'a last default session: Run default');
         assert.equal(active(sessionPickItems(['a'], 'r', { session: 'gone' })), 'a', 'a last session no longer free: the first');
     });
 

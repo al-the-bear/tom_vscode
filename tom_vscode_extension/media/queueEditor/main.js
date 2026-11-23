@@ -821,6 +821,91 @@ function makeRunSettingsDefault() {
   if (!defaultSettingsDiff().length) { return; }
   vscode.postMessage({ type: 'makeRunSettingsDefault', run: settingsRun() });
 }
+/** The run's default template (its queue settings), for the "Run default" entry of an item's template select. */
+function runDefaultTemplateOf(item) {
+  const s = runQueueSettings[item ? tabRunOf(item) : settingsRun()];
+  return (s && s.defaultMessageTemplateId) || '';
+}
+
+// ---- Move items to another run: an overlay over the queue ----
+/** Why an item of the tab cannot move, or '' (as PromptQueueManager.moveItemToRun refuses). */
+function moveBlockedReason(item) {
+  if (item.processMove) { return 'a process-move marker stays with its Proceed run'; }
+  if (item.processRun) { return 'it belongs to a Proceed run'; }
+  if (item.status !== 'staged' && item.status !== 'pending') { return 'only staged and pending items move (this one is ' + item.status + ')'; }
+  return '';
+}
+
+/** The overlay: the tab's items with a peek of their prompt, checkboxes, Select all, the target run, Move. */
+function openMoveItemsOverlay() {
+  closeMoveItemsOverlay();
+  const run = settingsRun();
+  const items = currentItems.filter(function(i) { return tabRunOf(i) === run; });
+  const targets = processRuns.filter(function(r) { return r !== run; });
+  const overlay = document.createElement('div');
+  overlay.className = 'move-items-overlay';
+  overlay.id = 'moveItemsOverlay';
+  const rows = items.map(function(item) {
+    const why = moveBlockedReason(item);
+    const text = String(item.originalText || item.expandedText || '');
+    const first = (text.split('\n').find(function(l) { return l.trim(); }) || '(empty)').trim();
+    const meta = [item.status, item.transport || '', item.session ? 'session ' + item.session : '', item.role ? 'role ' + item.role : '',
+      item.template && item.template !== '(None)' ? 'template ' + item.template : ''].filter(Boolean);
+    return '<label class="move-item' + (why ? ' disabled' : '') + '"' + (why ? ' title="' + escapeHtml(why) + '"' : '') + '>' +
+      '<input type="checkbox" data-move-id="' + escapeHtml(item.id) + '"' + (why ? ' disabled' : '') + '>' +
+      '<span class="move-item-body"><span class="move-item-meta"><b>' + escapeHtml(first.length > 90 ? first.slice(0, 88) + '…' : first) + '</b>' +
+      meta.map(function(m) { return '<span>' + escapeHtml(m) + '</span>'; }).join('') + (why ? '<span>— ' + escapeHtml(why) + '</span>' : '') + '</span>' +
+      '<pre class="move-item-peek" title="Click to see more of the prompt">' + escapeHtml(text.slice(0, 4000)) + '</pre></span></label>';
+  }).join('');
+  overlay.innerHTML = '<div class="move-items-box" role="dialog" aria-label="Move items to another run">' +
+    '<div class="move-items-head"><span class="codicon codicon-arrow-swap"></span><span class="grow">Move items of run ' + escapeHtml(run) + ' to another run</span>' +
+      '<button class="ctx-btn-icon" id="moveItemsClose" title="Close"><span class="codicon codicon-close"></span></button></div>' +
+    '<div class="move-items-head" style="font-weight:normal"><label><input type="checkbox" id="moveItemsAll"> Select all</label><span class="grow"></span>' +
+      '<span class="move-items-note" id="moveItemsCount"></span></div>' +
+    '<div class="move-items-list">' + (rows || '<div class="move-items-note">This run has no items.</div>') + '</div>' +
+    '<div class="move-items-foot"><label>To run <select id="moveItemsTarget">' +
+      targets.map(function(r) { return '<option value="' + escapeHtml(r) + '">' + escapeHtml(r) + '</option>'; }).join('') + '</select></label>' +
+      '<span class="move-items-note grow">' + (targets.length ? 'Moved items lose their own profile, session, role and template: they follow the target run\'s defaults.' : 'The quest has no other run (create one in the PROCESS view).') + '</span>' +
+      '<button id="moveItemsCancel">Cancel</button><button id="moveItemsGo" class="primary">Move</button></div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  const boxes = function() { return Array.prototype.slice.call(overlay.querySelectorAll('input[data-move-id]:not([disabled])')); };
+  const update = function() {
+    const all = boxes();
+    const picked = all.filter(function(b) { return b.checked; });
+    const allBox = document.getElementById('moveItemsAll');
+    allBox.checked = all.length > 0 && picked.length === all.length;
+    allBox.indeterminate = picked.length > 0 && picked.length < all.length;
+    allBox.disabled = all.length === 0;
+    document.getElementById('moveItemsCount').textContent = picked.length + ' of ' + all.length + ' movable item' + (all.length === 1 ? '' : 's') + ' selected';
+    document.getElementById('moveItemsGo').disabled = picked.length === 0 || targets.length === 0;
+  };
+  overlay.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'moveItemsAll') { boxes().forEach(function(b) { b.checked = e.target.checked; }); }
+    update();
+  });
+  overlay.addEventListener('click', function(e) {
+    const t = e.target;
+    if (t === overlay || (t.closest && (t.closest('#moveItemsClose') || t.closest('#moveItemsCancel')))) { closeMoveItemsOverlay(); return; }
+    if (t.classList && t.classList.contains('move-item-peek')) { e.preventDefault(); t.classList.toggle('open'); return; }
+    if (t.closest && t.closest('#moveItemsGo')) {
+      const ids = boxes().filter(function(b) { return b.checked; }).map(function(b) { return b.getAttribute('data-move-id'); });
+      const to = document.getElementById('moveItemsTarget').value;
+      if (!ids.length || !to) { return; }
+      vscode.postMessage({ type: 'moveItemsToRun', ids: ids, run: to });
+      closeMoveItemsOverlay();
+    }
+  });
+  document.addEventListener('keydown', moveItemsEscape);
+  update();
+}
+function moveItemsEscape(e) { if (e.key === 'Escape') { closeMoveItemsOverlay(); } }
+function closeMoveItemsOverlay() {
+  const old = document.getElementById('moveItemsOverlay');
+  if (old) { old.remove(); }
+  document.removeEventListener('keydown', moveItemsEscape);
+}
+
 /** Apply run defaults to all items: the host asks which settings (profile, template, session, role) and whether to remove the items' own. */
 function applyRunDefaultsToItems() { vscode.postMessage({ type: 'applyRunDefaultsToItems', run: settingsRun() }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue', run: settingsRun() }); }

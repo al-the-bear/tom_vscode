@@ -277,3 +277,19 @@ body.queue-editor-page > .queue-scroll { flex: 1 1 auto; min-height: 0; overflow
 .soft-interrupt-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; padding: 4px 8px; border: 1px solid #29b6f6; border-radius: 3px; font-size: 11px; }
 .soft-interrupt-line { flex: 1 1 auto; }
 .soft-interrupt-actions { display: inline-flex; gap: 4px; }
+
+/* The queue editor's Move items to another run overlay. */
+.move-items-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 24px 12px; }
+.move-items-box { background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); border-radius: 4px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0,0,0,0.4)); width: min(900px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.move-items-head, .move-items-foot { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
+.move-items-head { border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; }
+.move-items-head .grow, .move-items-foot .grow { flex: 1 1 auto; }
+.move-items-foot { border-top: 1px solid var(--vscode-panel-border); }
+.move-items-list { overflow: auto; padding: 4px 10px; }
+.move-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+.move-item.disabled { opacity: 0.55; }
+.move-item-body { flex: 1 1 auto; min-width: 0; }
+.move-item-meta { font-size: 0.85em; color: var(--vscode-descriptionForeground); display: flex; gap: 8px; flex-wrap: wrap; }
+.move-item-peek { margin: 3px 0 0; font-family: var(--vscode-editor-font-family); font-size: 0.85em; white-space: pre-wrap; word-break: break-word; max-height: 4.2em; overflow: hidden; cursor: pointer; border-left: 2px solid var(--vscode-panel-border); padding-left: 6px; }
+.move-item-peek.open { max-height: 24em; overflow: auto; }
+.move-items-note { font-size: 0.85em; color: var(--vscode-descriptionForeground); }

@@ -706,6 +706,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'toggleSendBetween':
             qm.toggleSendBetween(msg.id);
             break;
+        case 'moveItemsToRun': {
+            // The Move items overlay: the picked items into another run's queue, their own settings removed.
+            const ids = Array.isArray(msg.ids) ? (msg.ids as unknown[]).map(String) : [];
+            if (!ids.length || typeof msg.run !== 'string') { break; }
+            const r = await qm.moveItemsToRun(ids, msg.run);
+            const refused = r.refused.length ? `; not moved: ${r.refused.length} (${[...new Set(r.refused.map((x) => x.reason))].join('; ')})` : '';
+            void vscode.window.showInformationMessage(`Moved ${r.moved.length} item${r.moved.length === 1 ? '' : 's'} to run ${r.run}: they follow its defaults (profile, session, role, template)${refused}.`);
+            sendState();
+            break;
+        }
         case 'moveItemToRun': {
             // The run tag of a staged or pending item: pick another run of the quest, the item goes into its queue.
             const id = String(msg.id ?? '');
@@ -1034,7 +1044,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const run = settingsRunOf(msg) ?? qm.windowRun;
             const removeEntry = {
                 label: '$(clear-all) Remove per-item settings',
-                description: 'instead of setting the defaults: the items follow the run\'s defaults (template: none)',
+                description: 'instead of setting the defaults: the items follow the run\'s defaults, now and when they change',
                 remove: true as const,
             };
             const entries = runDefaultPickerEntries(qm.runQueueSettings(run), run).map((e) => ({ ...e, picked: true }));

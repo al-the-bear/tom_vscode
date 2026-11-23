@@ -276,7 +276,8 @@ function renderEntry(item, idx) {
     var templateSelectHtml = showTemplateSelect
       ? ('<label style="font-size:0.85em;font-weight:600;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</label>' +
          '<select onchange="updateItemTemplate(\'' + safeId + '\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
-           '<option value="">(None)</option>' +
+           runDefaultTemplateOption(item, item.template) +
+           '<option value=""' + (!item.template || item.template === '(None)' ? ' selected' : '') + '>(None)</option>' +
            mpTplOptions +
          '</select>')
       : '';
@@ -1412,7 +1413,8 @@ function renderPrePrompts(item, status) {
             var ppTplHtml = ppShowTpl
               ? ('<label style="font-size:0.85em;font-weight:600;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</label>' +
                  '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'template\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
-                   '<option value="">(None)</option>' +
+                   runDefaultTemplateOption(item, pp.template) +
+                   '<option value=""' + (!pp.template || pp.template === '(None)' ? ' selected' : '') + '>(None)</option>' +
                    ((pp.transport || item.transport) === 'anthropic'
                      ? (anthropicUserMessageTemplates || []).map(function(t) {
                          return '<option value="' + escapeHtml(t.id) + '"' + ((pp.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
@@ -1497,7 +1499,8 @@ function renderFollowUps(item, status) {
             var fuTplHtml = fuShowTpl
               ? ('<span style="font-size:0.8em;opacity:0.85;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</span>' +
                  '<select onchange="updateFollowUpTemplate(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
-                   '<option value="">(None)</option>' +
+                   runDefaultTemplateOption(item, f.template) +
+                   '<option value=""' + (!f.template || f.template === '(None)' ? ' selected' : '') + '>(None)</option>' +
                    ((f.transport || item.transport) === 'anthropic'
                      ? (anthropicUserMessageTemplates || []).map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + ((f.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
                      : (promptTemplates || []).map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('')) +
@@ -1643,4 +1646,21 @@ function interruptButtonTitle(item) {
     return 'Interrupt for continuation: a Copilot prompt has no hold point — it is interrupted at once (hard) and resent when auto-send is re-enabled';
   }
   return 'Interrupt for continuation: soft first — the next tool result is held and the turn goes on where it stopped when auto-send is re-enabled; a hard interrupt after 15 s without a hold point. A second click waits for the hold point without a limit, a third is the hard interrupt';
+}
+
+
+/**
+ * The "Run default" entry of a template select (utils/runDefaultChoice.ts): the item's text is built with its run's
+ * default template when it is sent. Selected for a template stored as `(Run default)` / `__run_default__`. Its label
+ * names the run's current default where the page knows it (the queue editor's `runDefaultTemplateOf`).
+ * @param {any} item
+ * @param {string | undefined} template
+ * @returns {string}
+ */
+function runDefaultTemplateOption(item, template) {
+  var isRunDefault = template === '(Run default)' || template === '__run_default__';
+  // @ts-ignore -- defined by the queue editor only
+  var known = typeof runDefaultTemplateOf === 'function' ? runDefaultTemplateOf(item) : null;
+  var label = 'Run default' + (known === null ? '' : ' (' + (known || 'no template') + ')');
+  return '<option value="__run_default__"' + (isRunDefault ? ' selected' : '') + ' title="The run\'s default template when the item is sent">' + escapeHtml(label) + '</option>';
 }

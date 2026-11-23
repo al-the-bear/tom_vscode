@@ -11,7 +11,7 @@
  * tested without the panel. The side-effecting send lives in the handler.
  */
 
-import { EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID } from './sendToChatConfig';
+import { RUN_DEFAULT_CHOICE, runDefaultLabel } from './runDefaultChoice';
 
 export type TodoSendTransport = 'copilot' | 'anthropic';
 
@@ -83,29 +83,24 @@ export interface TodoTemplateSourceConfig {
  * templates; on Copilot the send is put into the Copilot Queue Wrapper as well
  * (src/utils/copilotTemplates.ts), so there is no wrapper option to pick.
  *
- * Selection precedence:
- *   1. the queue's default template id (when it names an offered option),
- *   2. the template flagged `isDefault`,
- *   3. the seeded "Execute TODO" template when present,
- *   4. `__none__`.
+ * "Run default" comes first and is preselected: the item gets no template of
+ * its own and takes its run's default template when it is sent (a direct send
+ * looks it up then); its label names the run's template now.
  *
- * @param queueDefaultTemplateId  `PromptQueueManager.defaultMessageTemplateId`.
- *   Ignored when it does not match an offered option.
+ * @param runDefaultTemplateId  The run's default template (its queue settings),
+ *   for the "Run default" label only.
  */
 export function buildTodoSendTemplateChoices(
     transport: TodoSendTransport,
     config: TodoTemplateSourceConfig | undefined,
-    queueDefaultTemplateId?: string,
+    runDefaultTemplateId?: string,
 ): TodoSendTemplateChoices {
     const userTemplates = config?.anthropic?.userMessageTemplates ?? [];
+    const runTemplate = runDefaultTemplateId ? (userTemplates.find((t) => t.id === runDefaultTemplateId)?.name || runDefaultTemplateId) : undefined;
     const templates: TodoTemplateOption[] = [
+        { id: RUN_DEFAULT_CHOICE, label: runDefaultLabel(runTemplate, 'no template') },
         { id: '__none__', label: '(None)' },
         ...userTemplates.map((t) => ({ id: t.id, label: t.name || t.id })),
     ];
-    const ids = new Set(templates.map((t) => t.id));
-    const queuePick = queueDefaultTemplateId && ids.has(queueDefaultTemplateId) ? queueDefaultTemplateId : undefined;
-    const flagged = userTemplates.find((t) => t.isDefault)?.id;
-    const executeTodo = ids.has(EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID) ? EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID : undefined;
-    const selected = queuePick || flagged || executeTodo || '__none__';
-    return { transport, templates, selected };
+    return { transport, templates, selected: RUN_DEFAULT_CHOICE };
 }

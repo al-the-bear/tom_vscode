@@ -18,8 +18,9 @@ import type { ProfileSection } from '../utils/sessionSpecs';
 import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, type DefinitionSessionSpec } from '../utils/sessionPickerPlan';
 import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { RUN_DEFAULT_CHOICE } from '../utils/runDefaultChoice';
 
-type SessionItem = vscode.QuickPickItem & { action: 'pick' | 'new' | 'based' | 'clear'; name?: string };
+type SessionItem = vscode.QuickPickItem & { action: 'pick' | 'new' | 'based' | 'clear' | 'runDefault'; name?: string };
 
 /** The quest's session folder. */
 export function sessionsFolder(questId: string): string {
@@ -36,10 +37,22 @@ export async function pickAgentSdkSession(opts: {
     current?: string;
     title?: string;
     defaultLabel?: string;
+    /**
+     * Offer "Run default" first (the chat panel): its label (e.g. `Run default (default@collab)`);
+     * picking it answers {@link RUN_DEFAULT_CHOICE}, and `current` equal to it marks it current.
+     */
+    runDefaultLabel?: string;
 }): Promise<string | undefined> {
     const folder = sessionsFolder(opts.questId);
     const sessions = listSessions(folder);
     const items: SessionItem[] = [];
+    if (opts.runDefaultLabel !== undefined) {
+        items.push({
+            label: `${opts.current === RUN_DEFAULT_CHOICE ? '$(check)' : '$(arrow-circle-right)'} ${opts.runDefaultLabel}`,
+            action: 'runDefault',
+            description: 'the panel\'s run\'s default session, now and when it changes',
+        });
+    }
     if (opts.defaultLabel !== undefined) {
         items.push({ label: `$(circle-slash) ${opts.defaultLabel}`, action: 'clear', description: !opts.current ? '(current)' : '' });
     }
@@ -63,6 +76,7 @@ export async function pickAgentSdkSession(opts: {
     });
     if (!chosen) { return undefined; }
     if (chosen.action === 'clear') { return ''; }
+    if (chosen.action === 'runDefault') { return RUN_DEFAULT_CHOICE; }
     if (chosen.action === 'pick') { return chosen.name; }
     return createSessionInteractively(folder, sessions, chosen.action === 'based');
 }

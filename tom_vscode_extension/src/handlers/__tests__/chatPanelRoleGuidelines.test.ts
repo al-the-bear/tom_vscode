@@ -14,7 +14,7 @@
  *        send carries the Copilot subpanel's choices
  *   CG-4 queued sends carry them: Save to Queue with the panel's target (role and choices; Copilot choices only),
  *        a send into a busy session queued; plain Save to Queue carries neither
- *   CG-5 the webview: the role dropdown (Default role, the roles, the panel's selected; a change posts
+ *   CG-5 the webview: the role dropdown (Run default, the roles, the panel's selected; a change posts
  *        setChatRole) in ANTHROPIC/LLM only; a guideline button in both subpanels (dot when the panel chose,
  *        the effective selection on hover, no list); its popup posts aspectChoose at level chat with the
  *        subpanel; the profile, template, session, Run and role dropdowns unlabelled and compact; No template;
@@ -251,8 +251,9 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             }
             assert.ok($('anthropic-run').classList.contains('chat-compact-run'));
             assert.ok($('anthropic-session-name').classList.contains('chat-compact-session'));
-            assert.equal($('anthropic-userMessage').options[0].textContent, 'No template');
-            assert.equal($('copilot-template').options[0].textContent, 'No template');
+            // Run default first (the panel's run's template), then No template.
+            assert.deepEqual([...$('anthropic-userMessage').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
+            assert.deepEqual([...$('copilot-template').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
             const toolbar = $('anthropic-role').parentElement;
             assert.equal([...toolbar.querySelectorAll('label')].filter((l: Json) => /Profile|User Prompt/.test(l.textContent)).length, 0, 'no Profile / User Prompt labels');
             const css = fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'style.css'), 'utf8');
@@ -271,7 +272,7 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
                 },
                 panels: { anthropic: { run: {}, item: { night: 'on' } }, copilot: { run: {}, item: {} } },
             } }));
-            assert.deepEqual([...$('anthropic-role').options].map((o: Json) => o.textContent), ['Default role', 'reviewer', 'writer']);
+            assert.deepEqual([...$('anthropic-role').options].map((o: Json) => o.textContent), ['Run default', 'reviewer', 'writer']);
             assert.equal($('anthropic-role').value, 'reviewer');
             $('anthropic-role').value = 'writer';
             $('anthropic-role').dispatchEvent(new w.Event('change'));

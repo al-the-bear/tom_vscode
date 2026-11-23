@@ -18,8 +18,8 @@
  *        "Queue next with this panel's session and run" posts addToQueue with next and usePanelTarget; Copilot —
  *        Save to Queue before its Run select, Send and Save to Queue in this panel's run after it; every action
  *        button an icon button; the Run select narrow, its options without a "Run:" prefix
- *   CB-15 the host's run switch (vscimpb151): switching the ANTHROPIC/LLM run selects that run's default session,
- *        created when missing
+ *   CB-15 the host's run switch (vscimpb151): switching the ANTHROPIC/LLM run selects Run default, that run's
+ *        default session, created when missing
  *   CB-6 Queue next (+ and the send-between icon) posts addToQueue with next, on Anthropic, nothing pinned
  *   CB-8 a chat send in the queue shown like a normal entry: the complete prompt (every line, nothing cut, as
  *        mainprompt-content), the header without a prompt excerpt; a long answer's first 600 characters with
@@ -162,8 +162,8 @@ describe('chat sends and the queue buttons', () => {
 
     test('CB-5: the hosts', () => {
         const panel = src('handlers', 'chatPanel-handler.ts');
-        assert.match(panel, /transport === 'anthropic' && panelTarget\s*\?\s*\{ anthropicProfileId: transportOpts\?\.anthropicProfileId, anthropicConfigId: transportOpts\?\.anthropicConfigId, session: this\._chatSessionKey\(\) \}/,
-            'the panel\'s profile and session with its target, Queue next too');
+        assert.match(panel, /transport === 'anthropic' && panelTarget\s*\?\s*\{[\s\S]{0,200}isRunDefaultChoice\(transportOpts\?\.anthropicProfileId\) \? \{\} : \{ anthropicProfileId: transportOpts\?\.anthropicProfileId, anthropicConfigId: transportOpts\?\.anthropicConfigId \}\),\s*\.\.\.\(isRunDefaultChoice\(this\._chatSessionChoice\(\)\) \? \{\} : \{ session: this\._chatSessionKey\(\) \}\)/,
+            'the panel\'s profile and session with its target, Queue next too; Run default sets neither');
         assert.match(panel, /const run = panelTarget \? this\._chatRun\(section\) : DEFAULT_RUN;/, 'the default run unless the panel\'s target');
         assert.match(panel, /const queueTemplate = queue\.runQueueSettings\(DEFAULT_RUN\)\.defaultMessageTemplateId \|\| undefined;/);
         assert.match(panel, /template: panelTarget \? \(template \|\| undefined\) : queueTemplate,/, 'the queue\'s default template unless the panel\'s target');
@@ -559,6 +559,7 @@ describe('chat sends and the queue buttons', () => {
     test('CB-15: the run switch selects the run\'s default session', () => {
         const panel = src('handlers', 'chatPanel-handler.ts');
         assert.match(panel, /case 'setChatRun':[\s\S]{0,300}this\._setChatRun\(section, message\.run\)/);
-        assert.match(panel, /if \(section === 'anthropic'\) \{\s*try \{ ensureRunDefaultSession\(sessionsFolder\(quest\), name\); \} catch[^\n]*\n\s*await setChatSessionFor\(this\._context\.workspaceState, quest, runDefaultSession\(name\)\);/);
+        assert.match(panel, /if \(section === 'anthropic'\) \{\s*try \{ ensureRunDefaultSession\(sessionsFolder\(quest\), name\); \} catch[^\n]*\n\s*await setChatSessionFor\(this\._context\.workspaceState, quest, RUN_DEFAULT_CHOICE\);/,
+            'the panel goes to Run default: the run\'s default session');
     });
 });

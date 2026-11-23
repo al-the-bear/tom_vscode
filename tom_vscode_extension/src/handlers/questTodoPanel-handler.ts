@@ -45,7 +45,7 @@ import { applyAspectChoice, aspectPickerState, liveAspectChoiceWriters } from '.
 import { handleAspectPickerMessage } from './aspectPickerMessages';
 import { storedQueueTarget, storedSendTarget, TODO_PANEL_FRESH_KEY, TODO_PANEL_QUEUE_NEXT_KEY, todoPanelDoneNotificationKey, todoPanelDoneNotificationOn, todoPanelLastQueueTargetKey, todoPanelLastSendTargetKey, todoPanelQueuePosition } from '../utils/todoPanelRunSession';
 import { busySessionsOfEntries, defaultTargetQuest, questPickItems, queueTargetSentence, runPickItems, runSessionCandidates, sendSessionPickItems, sessionPickItems, type TodoPickItem, type TodoQueuePosition, type TodoQueueTarget, type TodoRunChoice, type TodoSendTarget } from '../utils/todoQueueTarget';
-import { runSessionName } from '../utils/runSessions';
+import { runQueueSession, runSessionName } from '../utils/runSessions';
 import { isAnthropicSendInFlight } from './sendToChatState.js';
 import type { RunActivityEntry } from '../utils/runActivity';
 import type { InboxItem } from '../utils/questInbox';
@@ -65,6 +65,7 @@ import { FINALIZER_INDEX, newGroupTodoId, todoIdInputError, numberIn, renamesRea
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
 import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
+import { isRunDefaultChoice, itemTemplateOfChoice } from '../utils/runDefaultChoice';
 import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, todoSendBlock, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
 import { todoYamlBlock } from '../utils/todoIterationRecord';
 import { unescapePlaceholders } from '../utils/placeholderEscape';
@@ -455,6 +456,15 @@ async function _sendTodoInTarget<T>(target: TodoSendTarget, send: (session: stri
     try { return await send(made.session); } finally { _discardFreshSession(made.session); }
 }
 
+/** This window's run's default session (its queue settings), for the session pick's "Run default" label. */
+function _runQueueDefaultSession(run: string): string | undefined {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { PromptQueueManager } = require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager');
+        return runQueueSession(PromptQueueManager.instance.runQueueSettings(run).defaultAgentSdkSession, run);
+    } catch { return undefined; }
+}
+
 async function pickTodoQueueTarget(instance: string, todoQuest: string | undefined, what: string): Promise<TodoQueueTarget | undefined> {
     const windowQuest = _windowQuest();
     if (_queueToDefaultTarget) { return defaultTodoQueueTarget(todoQuest, windowQuest, _todoQueuePosition()); }
@@ -480,7 +490,7 @@ async function pickTodoQueueTarget(instance: string, todoQuest: string | undefin
         const busy = _busyTest(quest);
         const free = runSessionCandidates(_sessionNamesOf(quest), run, quest === windowQuest).filter((s) => !busy(s));
         const lastSession = lastHere && lastHere.run === run ? lastHere : undefined;
-        const s = await _pickTargetItem(sessionPickItems(free, run, lastSession), `${title} — 3/3 session in run ${run}`, 'A free session: no item sends in it and no chat send runs in it');
+        const s = await _pickTargetItem(sessionPickItems(free, run, lastSession, quest === windowQuest ? _runQueueDefaultSession(run) : undefined), `${title} — 3/3 session in run ${run}`, 'A free session: no item sends in it and no chat send runs in it');
         if (!s) { return undefined; }
         let session: string | undefined;
         let newSession = false;
@@ -2216,7 +2226,8 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 return true;
             }
             const wrappedText = _todoPromptFragment(todo, questId, msg.sourceFile).yaml;
-            const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
+            // "Run default": the item takes its run's default template when it is sent.
+            const selectedTemplate = itemTemplateOfChoice(msg.template ? String(msg.template) : undefined);
             if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'queue', selectedTemplate, `queued: todo ${todo.id}`)) { return true; }
             // Where it goes: quest → run → free session (vscimpb139); next or end is the Next toggle.
             await queueTodoEntriesWithFlow(instance, _todoQuestOf(questId, msg.sourceFile, todo.id), `todo ${todoId}`, [{
@@ -2281,7 +2292,8 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 vscode.window.showErrorMessage('Todo stack is empty.');
                 return true;
             }
-            const selectedTemplate = (msg.template && msg.template !== '__none__') ? String(msg.template) : undefined;
+            // "Run default": the item takes its run's default template when it is sent.
+            const selectedTemplate = itemTemplateOfChoice(msg.template ? String(msg.template) : undefined);
             const prepared: Array<{ text: string; todoId: string }> = [];
             const missing: string[] = [];
             for (const entry of entries) {
@@ -3488,6 +3500,14 @@ function _latestAgentAnswer(questId: string, todoId: string, sourceFile?: string
     return best;
 }
 
+/** A run's default template (its queue settings), or `__none__`. */
+async function _runDefaultTemplate(run: string): Promise<string> {
+    try {
+        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
+        return PromptQueueManager.instance.runQueueSettings(run).defaultMessageTemplateId || '__none__';
+    } catch { return '__none__'; }
+}
+
 async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templateId?: string }> {
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
@@ -3519,13 +3539,15 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
             vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
             return;
         }
-        const tplBody = (selectedTemplate && selectedTemplate !== '__none__')
-            ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === selectedTemplate)?.template
-            : undefined;
         const { runAnthropicSend } = await import('./sendToChatRouter.js');
         // In a free session of this window's runs, asked for (vscimpb139).
         const sendTarget = await pickTodoSendTarget(instance);
         if (!sendTarget) { return; }
+        // "Run default": the default template of the run it is sent in, looked up now.
+        const template = isRunDefaultChoice(selectedTemplate) ? (await _runDefaultTemplate(sendTarget.run)) : selectedTemplate;
+        const tplBody = (template && template !== '__none__')
+            ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === template)?.template
+            : undefined;
         const outcome = await _sendTodoInTarget(sendTarget, (session) => runAnthropicSend(ctx, todoPrompt, {
             source: 'todo panel', session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
             // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
@@ -3541,7 +3563,8 @@ async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemp
 
     // A todo button waits for the answer: the template (one store) inside the
     // Copilot Queue Wrapper (src/utils/copilotTemplates.ts).
-    const body = userMessageTemplateBody(config, selectedTemplate);
+    // "Run default": the default template of this window's run, looked up now.
+    const body = userMessageTemplateBody(config, isRunDefaultChoice(selectedTemplate) ? (await _queueSendTarget()).templateId ?? '' : selectedTemplate);
     const inner = body ? await expandTemplate(fillTemplate(body, todoPrompt)) : todoPrompt;
     const expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner));
 

@@ -131,12 +131,16 @@ export function runSessionCandidates(sessionNames: readonly string[], run: strin
  * the last choice in this run preselected, else the run's default session — picking a run selects its default
  * session (vscimpb151).
  */
-export function sessionPickItems(free: readonly string[], run: string, preselect?: { session?: string; newSession?: boolean }): Array<TodoPickItem<{ session?: string } | { newSession: true }>> {
+export function sessionPickItems(free: readonly string[], run: string, preselect?: { session?: string; newSession?: boolean }, runDefault?: string): Array<TodoPickItem<{ session?: string } | { newSession: true }>> {
     const items: Array<TodoPickItem<{ session?: string } | { newSession: true }>> = free.map((s) => ({ label: s, description: 'free', value: { session: s } }));
-    items.push({ label: `$(list-ordered) ${runDefaultSession(run)}`, description: `the default session of run ${run}`, value: { session: runDefaultSession(run) } });
+    // "Run default": no session on the item, it runs in its run's default session (now `runDefault`, default@<run>
+    // unless the run's queue settings name another) — and follows when that default changes.
+    const shownDefault = runDefault || runDefaultSession(run);
+    items.push({ label: `$(list-ordered) Run default (${shownDefault})`, description: `the default session of run ${run}, when the item is sent`, value: {} });
     items.push({ label: '$(add) New session…', description: 'a name; made when the item is sent', value: { newSession: true } });
     const idx = preselect?.newSession ? items.length - 1
-        : preselect?.session ? items.findIndex((i) => 'session' in i.value && i.value.session === preselect.session)
+        : preselect?.session && preselect.session !== shownDefault && preselect.session !== runDefaultSession(run)
+            ? items.findIndex((i) => 'session' in i.value && i.value.session === preselect.session)
             : items.length - 2;
     const at = idx >= 0 ? idx : 0;
     return items.map((i, k) => (k === at ? { ...i, active: true } : i));
