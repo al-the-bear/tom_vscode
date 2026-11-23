@@ -4,7 +4,8 @@
  * tom_bs bridge from source), also when `dart` is not on PATH.
  *
  *   node scripts/find-dart.cjs        prints the folder holding `dart`, exit 0;
- *                                     names every place it looked, exit 1
+ *                                     names every place it looked, exit 1;
+ *                                     a lookup that fails, exit 2 (never 1)
  *
  * The install scripts run it first and put that folder on PATH, so a missing
  * SDK stops the install before anything is built or packaged. Before, an
@@ -118,12 +119,20 @@ function notFoundMessage(looked, disabled = false) {
 module.exports = { findDart, notFoundMessage, fixedDirs };
 
 if (require.main === module) {
-    const { found, looked, disabled } = findDart();
-    if (found) {
-        process.stdout.write(`${found.dir}\n`);
-        if (found.via !== 'PATH') { process.stderr.write(`ℹ️  Dart SDK: ${found.dart} (${found.via})\n`); }
-    } else {
-        process.stderr.write(`❌ ${notFoundMessage(looked, disabled)}\n`);
-        process.exitCode = 1;
+    // Exit 1 means "no Dart SDK" and nothing else: the install scripts build
+    // without Dart then. A lookup that fails is exit 2 (vscimpb157), which they
+    // take for an error — an uncaught exception would exit 1 too.
+    try {
+        const { found, looked, disabled } = findDart();
+        if (found) {
+            process.stdout.write(`${found.dir}\n`);
+            if (found.via !== 'PATH') { process.stderr.write(`ℹ️  Dart SDK: ${found.dart} (${found.via})\n`); }
+        } else {
+            process.stderr.write(`❌ ${notFoundMessage(looked, disabled)}\n`);
+            process.exitCode = 1;
+        }
+    } catch (err) {
+        process.stderr.write(`❌ The Dart SDK lookup failed: ${err && err.stack ? err.stack : String(err)}\n`);
+        process.exitCode = 2;
     }
 }

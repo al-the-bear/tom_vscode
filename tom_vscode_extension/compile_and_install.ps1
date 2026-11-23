@@ -52,8 +52,16 @@ if ($BinariesOnly) { $env:TOM_BINARIES_ONLY = '1' }
 if ($NoLayer) { $env:TOM_NO_LAYER = '1' }
 
 $env:TOM_BRIDGE_FROM_SOURCE = '1'
+# Node first: the Dart lookup below runs in Node, and a missing node must stop
+# here, not pass for "no Dart SDK found" (vscimpb157).
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "node not found: Node.js >= 20 is needed on PATH (with nvm-windows: 'nvm use 20' first). Nothing was built." -ForegroundColor Red
+    exit 1
+}
+
 # Settle the no-Dart mode here, so this wrapper and install_extension.ps1 agree
-# on it (the closing warning is printed here).
+# on it (the closing warning is printed here). Only find-dart's "not found" (1)
+# means no Dart; a lookup that could not run stops the install.
 if ($NoDart) {
     $env:TOM_NO_DART = '1'
     $env:TOM_NO_DART_REASON = '--no-dart given'
@@ -62,13 +70,17 @@ if ($NoDart) {
 } else {
     Push-Location $ScriptDir
     $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = $null
     $null = & node scripts/find-dart.cjs
-    $Found = ($LASTEXITCODE -eq 0)
+    $DartLookup = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
     Pop-Location
-    if (-not $Found) {
+    if ($DartLookup -eq 1) {
         $env:TOM_NO_DART = '1'
         $env:TOM_NO_DART_REASON = 'no Dart SDK found'
+    } elseif ($DartLookup -ne 0) {
+        Write-Host "The Dart SDK lookup could not run (node scripts/find-dart.cjs exited $DartLookup). This is not 'no Dart SDK': fix it (is node on PATH?), or pass --no-dart to build without Dart." -ForegroundColor Red
+        exit 1
     }
 }
 $NoDartMode = ($env:TOM_NO_DART -eq '1')

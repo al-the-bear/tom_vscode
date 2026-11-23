@@ -118,7 +118,11 @@ Options (bash / PowerShell):
 
 It runs end to end:
 
-1. Checks Node (switches via nvm if below 20), builds the TomSpecs SOM packages
+1. Checks Node: from `PATH`, else from nvm (its default, else Node 20; also
+   when the Node on `PATH` is below 20). Without one it stops before anything
+   is built, saying `node not found`. Then it looks for the Dart SDK
+   (`scripts/find-dart.cjs`). Only "not found" means a build without Dart; a
+   lookup that could not run stops the install. It builds the TomSpecs SOM packages
    from ai_build's current state (`npm run som:pack`), installs npm deps, checks
    that the installed model is the one just packed (`npm run som:check` — the
    install stops if npm kept a stale copy), compiles the TypeScript.
@@ -166,7 +170,11 @@ It runs end to end:
 Without a Dart SDK, or with `./compile_and_install.sh --no-dart`
 (`.\compile_and_install.ps1 -NoDart`), steps 2–5 are skipped: the VSIX has no
 `tom_bs` and no `tomspecs` for the host, and a red warning before and
-after the closing line says so. Such a VSIX lacks two things only:
+after the closing line says so. When no Dart SDK was found and `--no-dart` was
+not given, `compile_and_install.sh` / `install_extension.sh` do not install such
+a build over an installed extension that carries `tom_bs` for this platform:
+they stop before building and say how to go on (Dart on `PATH`, or `--no-dart`
+on purpose). Such a VSIX lacks two things only:
 
 - **DartScript** (`tom_bs`): the Dart bridge, running `.dart` / D4rt scripts,
   the CLI integration server, the bridge-side Agent SDK, the bridge debug

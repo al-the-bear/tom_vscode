@@ -111,7 +111,8 @@ describe('finding the Dart SDK', () => {
             ['install_extension.ps1', ps1, /\$env:Path = "\$DartDir;\$env:Path"/, /if \(\$Arg -eq '--no-dart'\) \{ \$NoDart = \$true \}/,
                 /if \(\$NoDartMode\) \{\s+Write-Host "No Dart: tomspecs is not built[^"]*"\s+\} else \{\s+Push-Location \$ExtensionDir\s+Invoke-Native \{ node scripts\/build-validate-codespecs\.cjs \}/],
         ] as const) {
-            const find = text.indexOf('node scripts/find-dart.cjs');
+            // The .sh runs it through tom_find_dart (scripts/node_and_dart.sh: 1 = no Dart, other = error; vscimpb157).
+            const find = name.endsWith('.sh') ? text.indexOf('tom_find_dart "$SCRIPT_DIR"') : text.indexOf('node scripts/find-dart.cjs');
             assert.ok(find > 0, `${name} runs find-dart.cjs`);
             assert.ok(find < text.indexOf('scripts/build-som-packages.cjs'), `${name} looks before its first build step`);
             assert.match(text, onPath, `${name} puts the found folder on PATH`);
@@ -133,8 +134,9 @@ describe('finding the Dart SDK', () => {
         ] as const) {
             const text = read(name);
             assert.match(text, /--no-dart/, `${name} takes --no-dart`);
-            assert.ok(text.indexOf('node scripts/find-dart.cjs') > 0, `${name} looks for Dart itself`);
-            assert.ok(text.indexOf('node scripts/find-dart.cjs') < text.indexOf(call), `${name} settles the mode before the base runs`);
+            const lookup = name.endsWith('.sh') ? 'tom_find_dart "$SCRIPT_DIR"' : 'node scripts/find-dart.cjs';
+            assert.ok(text.indexOf(lookup) > 0, `${name} looks for Dart itself`);
+            assert.ok(text.indexOf(lookup) < text.indexOf(call), `${name} settles the mode before the base runs`);
             assert.match(text, closing, `${name} closes with the VSIX path and the warning around the Finished line`);
         }
     });

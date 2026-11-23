@@ -188,8 +188,15 @@ if ($NoDartMode) {
     Write-Warning "No-Dart mode ($($env:TOM_NO_DART_REASON)): the Dart steps are skipped."
 } else {
     Write-Host "Looking for the Dart SDK..."
+    $global:LASTEXITCODE = $null
     $DartDir = Invoke-Native { node scripts/find-dart.cjs }
-    if ($LASTEXITCODE -ne 0 -or -not $DartDir) {
+    $DartLookup = $LASTEXITCODE
+    # Only find-dart's "not found" (1) means no Dart; a lookup that could not run stops the install (vscimpb157).
+    if ($DartLookup -ne 0 -and $DartLookup -ne 1) {
+        Write-Host "The Dart SDK lookup could not run (node scripts/find-dart.cjs exited $DartLookup). This is not 'no Dart SDK': fix it, or pass --no-dart to build without Dart." -ForegroundColor Red
+        exit 1
+    }
+    if ($DartLookup -eq 1 -or -not $DartDir) {
         $NoDartMode = $true
         $env:TOM_NO_DART = '1'
         $env:TOM_NO_DART_REASON = 'no Dart SDK found'

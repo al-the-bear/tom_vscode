@@ -30,6 +30,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/install_summary.sh
 source "$SCRIPT_DIR/scripts/install_summary.sh"
+# shellcheck source=scripts/node_and_dart.sh
+source "$SCRIPT_DIR/scripts/node_and_dart.sh"
 
 export TOM_BRIDGE_FROM_SOURCE=1
 
@@ -43,13 +45,25 @@ for ARG in "$@"; do
     esac
 done
 
+# Node first (nvm when it is not on PATH): the Dart lookup below runs in Node, and a
+# missing node must stop here, not pass for "no Dart SDK found" (vscimpb157).
+tom_ensure_node || exit 1
+
 # Settle the no-Dart mode here, so this wrapper and install_extension.sh agree
-# on it (the closing warning is printed here).
+# on it (the closing warning is printed here). Only find-dart's "not found"
+# means no Dart; a lookup that could not run stops the install.
 if [ "${TOM_NO_DART:-0}" = "1" ]; then
     export TOM_NO_DART_REASON="${TOM_NO_DART_REASON:-TOM_NO_DART=1}"
-elif ! ( cd "$SCRIPT_DIR" && node scripts/find-dart.cjs > /dev/null ); then
-    export TOM_NO_DART=1
-    export TOM_NO_DART_REASON="no Dart SDK found"
+elif tom_find_dart "$SCRIPT_DIR" > /dev/null; then
+    :
+else
+    DART_LOOKUP=$?
+    if [ "$DART_LOOKUP" = "1" ]; then
+        export TOM_NO_DART=1
+        export TOM_NO_DART_REASON="no Dart SDK found"
+    else
+        exit 1
+    fi
 fi
 
 # One build at a time on this checkout (qrfix5): npm test, a compile or another install refuses while this runs.

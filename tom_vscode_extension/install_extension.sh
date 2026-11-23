@@ -76,50 +76,11 @@ fi
 
 echo "🔧 Installing tom_vscode_extension..."
 
-# Check Node.js version
-if ! command -v node &> /dev/null; then
-    echo "❌ Error: Node.js is not installed"
-    exit 1
-fi
-
-CURRENT_NODE_VERSION=$(node --version | sed 's/v//')
-NODE_MAJOR_VERSION=$(echo "$CURRENT_NODE_VERSION" | cut -d. -f1)
-
-echo "📋 Current Node.js version: v$CURRENT_NODE_VERSION"
-
-# Check if Node.js version is >= 20
-if [ "$NODE_MAJOR_VERSION" -lt 20 ]; then
-    echo "⚠️  Node.js version $NODE_MAJOR_VERSION is below the required version 20"
-    
-    # Check if nvm is installed
-    if [ -s "$HOME/.nvm/nvm.sh" ]; then
-        echo "✅ Node Version Manager (nvm) is installed"
-        
-        # Load nvm
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        
-        # Check if Node 20 is already installed
-        if nvm list | grep -q "v20"; then
-            echo "📦 Node.js 20 is already installed, switching to it..."
-            nvm use 20
-        else
-            echo "📦 Installing Node.js 20 (LTS)..."
-            nvm install 20
-            nvm use 20
-        fi
-        
-        # Get new version
-        CURRENT_NODE_VERSION=$(node --version | sed 's/v//')
-        echo "✅ Now using Node.js v$CURRENT_NODE_VERSION"
-    else
-        echo "❌ Error: Node Version Manager (nvm) is not installed"
-        echo "Please install Node.js >= 20 or install nvm first"
-        exit 1
-    fi
-else
-    echo "✅ Node.js version meets requirements (>= 20)"
-fi
+# Node.js >= 20: from PATH, else from nvm (its default, else Node 20); without
+# one the install stops here (scripts/node_and_dart.sh, vscimpb157).
+# shellcheck source=scripts/node_and_dart.sh
+source "$SCRIPT_DIR/scripts/node_and_dart.sh"
+tom_ensure_node || exit 1
 
 echo ""
 
@@ -132,15 +93,23 @@ if [ "$NO_DART" = "1" ]; then
     echo "⚠️  No-Dart mode ($TOM_NO_DART_REASON): the Dart steps are skipped."
 else
     echo "🔎 Looking for the Dart SDK..."
-    if DART_DIR="$(node scripts/find-dart.cjs)"; then
+    # Only find-dart's "not found" (1) means no Dart; a lookup that could not run (2) stops the install.
+    if DART_DIR="$(tom_find_dart "$SCRIPT_DIR")"; then
         export PATH="$DART_DIR:$PATH"
         echo "✅ Dart SDK: $DART_DIR"
-    else
+    elif [ $? -eq 1 ]; then
         NO_DART=1
         export TOM_NO_DART=1
-        TOM_NO_DART_REASON="no Dart SDK found"
+        export TOM_NO_DART_REASON="no Dart SDK found"
         echo "⚠️  No Dart SDK found: building without DartScript and CodeSpecs validation (see the warning at the end)."
+    else
+        exit 1
     fi
+fi
+# Refused now rather than after the build: a build without Dart nobody asked for
+# does not replace an installed extension that has tom_bs (vscimpb157).
+if [ "$PACKAGE_ONLY" != "1" ] && [ "$BINARIES_ONLY" != "1" ]; then
+    tom_refuse_degrading_install || exit 1
 fi
 echo ""
 
@@ -530,6 +499,8 @@ if [ $? -eq 0 ]; then
             exit 1
         fi
         if [ -n "$CODE_CLI" ]; then
+            # A build without Dart nobody asked for does not replace an installed extension that has tom_bs (vscimpb157).
+            tom_refuse_degrading_install || exit 1
             echo ""
             echo "🚀 Installing extension in VS Code..."
             if "$CODE_CLI" --install-extension "$VSIX_FILE"; then
