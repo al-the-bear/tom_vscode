@@ -207,16 +207,38 @@ export async function readGlobalGuidelineImpl(root: string | undefined | Guideli
         relPath = classification.relPath;
     }
     const resolved = resolveInFiles(files, relPath);
+    // A root document in a folder of the root (`sysadm/machines.md`, gsel23): a rule heading may name one.
+    // An exact root path wins over a guideline found only by its file name.
+    const rootDoc = resolved && !resolved.byName ? undefined : rootDocumentAt(scope.root, ref.name);
+    if (rootDoc) { return readWithSection(scope, rootDoc, ref.section, []); }
     if (!resolved) {
         const filesPreview = files.map((f) => f.path).slice(0, 30).join('\n  - ');
         return `Global guideline file not found: '${input.fileName}'.\n\n` +
             `Tried path relative to the guidelines folders: '${relPath}'` +
-            (bare ? `, and the name on every level (the workspace folder's guidelines, the root's, the root's own documents)` : '') + `.\n\n` +
+            (bare ? `, and the name on every level (the workspace folder's guidelines, the root's, the root's own documents)` : `, and the root's own documents (${relPath})`) + `.\n\n` +
             `If this is a project-level guideline, use tomAi_readProjectGuideline with the correct projectPath. ` +
             `Available global guideline files (first 30):\n  - ${filesPreview}`;
     }
     if (resolved.byName) { scope.onFoundByName?.(ref.name, relForDisplay(scope, resolved.file.abs)); }
     return readWithSection(scope, resolved.file, ref.section, []);
+}
+
+/**
+ * A Markdown document of the Tom root named by a root-relative path with a
+ * folder (`sysadm/machines.md`; `.md` added when missing): the file when it
+ * exists inside the root; undefined for a bare name, an absolute path, a path
+ * leaving the root, or a hidden segment.
+ */
+export function rootDocumentAt(root: string | undefined, name: string): GuidelineFile | undefined {
+    const s = name.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+    if (!root || !s.includes('/') || path.isAbsolute(s) || s.split('/').some((seg) => !seg || seg === '..' || seg.startsWith('.'))) { return undefined; }
+    const rel = s.endsWith('.md') ? s : `${s}.md`;
+    const abs = path.resolve(root, ...rel.split('/'));
+    if (!abs.startsWith(path.resolve(root) + path.sep)) { return undefined; }
+    try {
+        const st = fs.statSync(abs);
+        return st.isFile() ? { path: rel, level: 'rootDocument', dir: root, abs, size: st.size } : undefined;
+    } catch { return undefined; }
 }
 
 /** A bare file name (no folder, not absolute), `.md` added; '' for anything else. */
@@ -273,7 +295,7 @@ export const READ_GLOBAL_GUIDELINE_TOOL: SharedToolDefinition<ReadGlobalGuidelin
         `then the root's own \`*.md\` documents; the first match wins and the others of that name are named. ` +
         `\`§ <n>\` / \`§ <title>\` returns only that section. ` +
         `A path (\`dart/coding_guidelines.md\`, \`${GUIDELINE_FOLDER}/…\`) is read relative to the guidelines folders ` +
-        `(the workspace folder's file of the same path wins); one that does not exist is looked up by its file name, and the user is told. ` +
+        `(the workspace folder's file of the same path wins), else as a document of the root (\`sysadm/machines.md\`); one that does not exist is looked up by its file name, and the user is told. ` +
         `A project path ("tom_ai/.../${GUIDELINE_FOLDER}/local_llm.md") is read with tomAi_readProjectGuideline. ` +
         `Omit fileName for the file list and the levels' indexes. Details: doc/llm_tools.md § 4.10.`,
     tags: ['guidelines', 'tom-ai-chat'],
