@@ -64,6 +64,8 @@ export interface AspectSectionEditorEnv {
     topTom?: string;
     /** The window's guideline layers (gsel17): where Guideline file choices are. */
     layers?: AspectFileLayer[];
+    /** The workspace level's problems (gsel19): broken `@<path>` lines of workspace_aspects.md / .yaml. */
+    workspaceProblems?: () => string[];
     /** A section changed: the pickers and the Role Editor read the sections again. */
     changed?: () => void;
     /** A section or options renamed: carry the stored choices over; answers what was rewritten. */
@@ -84,7 +86,8 @@ export interface AspectSectionEditorUi {
 /** What the page shows: every section as it is on disk. */
 export function aspectSectionEditorData(env: AspectSectionEditorEnv, selected?: string): Record<string, unknown> {
     if (!env.dir) { return { type: 'data', error: 'This workspace has no _ai folder: there are no guideline aspects.', sections: [] }; }
-    return { type: 'data', sections: readSectionsForEdit(env.dir, env.layers ?? []), layers: layersForEdit(env.layers ?? []), ...(selected ? { selected } : {}) };
+    const workspaceProblems = env.workspaceProblems?.() ?? [];
+    return { type: 'data', sections: readSectionsForEdit(env.dir, env.layers ?? []), layers: layersForEdit(env.layers ?? []), ...(workspaceProblems.length ? { workspaceProblems } : {}), ...(selected ? { selected } : {}) };
 }
 
 /** The section a save carries, as the store takes it; undefined when it is none. */
@@ -192,6 +195,12 @@ function liveEnv(): AspectSectionEditorEnv {
     return {
         dir,
         layers,
+        workspaceProblems: () => {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                return (require('../services/workspaceAspects') as typeof import('../services/workspaceAspects')).liveWorkspaceAspects().problems;
+            } catch { return []; }
+        },
         topTom: WsPaths.topTom,
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         renamed: (rename) => (require('./aspectChoiceCommands') as typeof import('./aspectChoiceCommands')).carryAspectChoicesOver(rename),

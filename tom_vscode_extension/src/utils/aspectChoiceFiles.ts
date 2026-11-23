@@ -70,6 +70,11 @@ export function aspectFileLayers(root: string, workspaceFolder: string, isWorksp
     return layers;
 }
 
+/** The folder a layer belongs to (the root or a workspace folder): `base` without `_agent_guidelines/aspects`. */
+export function layerFolder(layer: Pick<AspectFileLayer, 'base'>): string {
+    return path.dirname(path.dirname(layer.base));
+}
+
 /** A guideline file of `layer` as shown: relative to the Tom root. */
 export function displayOfLayerFile(layer: Pick<AspectFileLayer, 'folder'>, aspect: string, choice: string): string {
     return `${layer.folder === '.' ? '' : `${layer.folder}/`}${ASPECT_FILES_DIR.join('/')}/${aspect}/${choice}.md`;

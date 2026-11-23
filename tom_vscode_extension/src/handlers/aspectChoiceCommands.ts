@@ -8,6 +8,11 @@
  *   `extension_config.<quest>.yaml`).
  * - `@T: Clear Quest Default Guideline Choices` (`tomAi.clearQuestDefaultGuidelines`):
  *   the quest default has no choices.
+ * - `@T: Set Guideline Choices as Workspace Default` (`tomAi.setWorkspaceDefaultGuidelines`):
+ *   the window's choices written into the window workspace folder's
+ *   `workspace_aspects.md` / `.yaml` (the workspace level, gsel19).
+ * - `@T: Clear Workspace Default Guideline Choices` (`tomAi.clearWorkspaceDefaultGuidelines`):
+ *   those files keep only their free text.
  * - {@link setSectionChoiceForAllWindows}: one section's choice in this window
  *   and every other open window on this machine (services/windowRequests.ts
  *   `setAspectChoice`); only that section changes.
@@ -24,6 +29,7 @@ import { PromptQueueManager } from '../managers/promptQueueManager';
 import { aspectRenameSummary, rewriteStoredAspectChoices } from '../services/aspectChoiceRename';
 import { clearQuestDefault, openWindowsOnThisMachine, setQuestDefaultFromWindow, setSectionChoiceInAllWindows, setWindowSectionChoice } from '../services/aspectChoiceLevels';
 import { sendWindowRequest, windowRequestsOwnWindow } from '../services/windowRequests';
+import { clearLiveWorkspaceAspects, setWorkspaceFromWindow } from '../services/workspaceAspects';
 import { getQueueFolder } from '../storage/queueFileStorage';
 import { aspectRenameText, type AspectRename } from '../utils/aspectRename';
 import { WsPaths } from '../utils/workspacePaths';
@@ -42,6 +48,24 @@ export function setQuestDefaultGuidelines(): Record<string, string> | undefined 
 /** *Clear quest default*. */
 export function clearQuestDefaultGuidelines(): void {
     clearQuestDefault();
+}
+
+export const SET_WORKSPACE_DEFAULT_GUIDELINES_COMMAND = 'tomAi.setWorkspaceDefaultGuidelines';
+export const CLEAR_WORKSPACE_DEFAULT_GUIDELINES_COMMAND = 'tomAi.clearWorkspaceDefaultGuidelines';
+
+/** *Set as workspace default*: the window's choices into the window workspace folder's files; answers a message. Throws without a workspace folder. */
+export function setWorkspaceDefaultGuidelines(): string {
+    const done = setWorkspaceFromWindow();
+    if (!done) { throw new Error('this window has no Tom workspace folder'); }
+    const skipped = done.skipped.length ? ` Not written (no such choice): ${done.skipped.join(', ')}.` : '';
+    return `Workspace guideline choices written to ${done.written.map((f) => f.split(/[\\/]/).pop()).join(' and ')} in ${done.folder}.${skipped}`;
+}
+
+/** *Clear workspace default*: answers a message. */
+export function clearWorkspaceDefaultGuidelines(): string {
+    const folder = clearLiveWorkspaceAspects();
+    if (!folder) { throw new Error('this window has no Tom workspace folder'); }
+    return `The workspace guideline choices of ${folder} are cleared.`;
 }
 
 /** The other open windows on this machine. */
@@ -98,7 +122,7 @@ export function applyAspectRenameRequest(rename: AspectRename): boolean {
     return true;
 }
 
-/** Register the two commands. */
+/** Register the commands (quest default, workspace default). */
 export function registerAspectChoiceCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand(SET_QUEST_DEFAULT_GUIDELINES_COMMAND, () => {
@@ -118,6 +142,24 @@ export function registerAspectChoiceCommands(context: vscode.ExtensionContext): 
                 void vscode.window.showInformationMessage('The quest default guideline choices are cleared.');
             } catch (err) {
                 void vscode.window.showErrorMessage(`Clearing the quest default failed: ${(err as Error).message}`);
+            }
+        }),
+        vscode.commands.registerCommand(SET_WORKSPACE_DEFAULT_GUIDELINES_COMMAND, () => {
+            try {
+                const text = setWorkspaceDefaultGuidelines();
+                refreshAspectViews();
+                void vscode.window.showInformationMessage(text);
+            } catch (err) {
+                void vscode.window.showErrorMessage(`Setting the workspace default failed: ${(err as Error).message}`);
+            }
+        }),
+        vscode.commands.registerCommand(CLEAR_WORKSPACE_DEFAULT_GUIDELINES_COMMAND, () => {
+            try {
+                const text = clearWorkspaceDefaultGuidelines();
+                refreshAspectViews();
+                void vscode.window.showInformationMessage(text);
+            } catch (err) {
+                void vscode.window.showErrorMessage(`Clearing the workspace default failed: ${(err as Error).message}`);
             }
         }),
     );

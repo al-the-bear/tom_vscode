@@ -1892,7 +1892,7 @@ function qtTodoAspectView(todo, role) {
     var roleName = role !== undefined ? role : (todo.role || '');
     var r = (qtAspects.roles || {})[roleName || qtAspectRunRole] || {};
     return window.TomAspectPicker.view(qtAspects, {
-        questDefault: qtAspects.questDefault, window: qtAspects.window, run: qtAspectRun,
+        workspace: qtAspects.workspace, questDefault: qtAspects.questDefault, window: qtAspects.window, run: qtAspectRun,
         roleType: r.roleType, role: r.role, todo: todo.guidelines,
     }, 'todo');
 }

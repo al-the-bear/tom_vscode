@@ -98,7 +98,7 @@ describe('aspect guidelines', () => {
     });
 
     test('AG-2: precedence over the eight levels', () => {
-        assert.deepEqual([...ASPECT_LEVELS], ['sectionDefault', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo']);
+        assert.deepEqual([...ASPECT_LEVELS], ['sectionDefault', 'workspace', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo']);
         const sections = [section('s', { defaultOption: 'a', options: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((n) => ({ name: n, text: n })) })];
         const lower: Array<[keyof AspectLevelChoices, string]> = [
             ['questDefault', 'b'], ['window', 'c'], ['run', 'd'], ['roleType', 'e'], ['role', 'f'], ['item', 'g'], ['todo', 'h'],

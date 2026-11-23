@@ -178,6 +178,14 @@ function optionHtml(o, i, count, d) {
     + '</div>';
 }
 
+/** The workspace level's problems (gsel19): broken @<path> lines of workspace_aspects.md / .yaml. */
+function workspaceProblemsHtml() {
+  const list = data.workspaceProblems || [];
+  return list.length
+    ? '<div class="field"><label class="title">Workspace level</label><ul class="problems workspace-problems">' + list.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') + '</ul></div>'
+    : '';
+}
+
 function render() {
   renderList();
   const form = document.getElementById('form');
@@ -185,10 +193,10 @@ function render() {
   const s = onDisk(selected);
   const d = draft();
   if (!s || !d) {
-    form.innerHTML = '<p class="muted">' + ((data.sections || []).length ? 'Pick an aspect on the left.' : 'No aspects yet: add one with +.') + '</p>';
+    form.innerHTML = workspaceProblemsHtml() + '<p class="muted">' + ((data.sections || []).length ? 'Pick an aspect on the left.' : 'No aspects yet: add one with +.') + '</p>';
     return;
   }
-  form.innerHTML = (carried ? '<div class="hint carried" role="status"><span class="codicon codicon-check"></span> ' + escapeHtml(carried) + '</div>' : '')
+  form.innerHTML = workspaceProblemsHtml() + (carried ? '<div class="hint carried" role="status"><span class="codicon codicon-check"></span> ' + escapeHtml(carried) + '</div>' : '')
     + '<div class="field"><label class="title">Aspect</label><div>' + escapeHtml(s.id) + ' <span class="muted">(_ai/aspect_guidelines/' + escapeHtml(s.id) + '/)</span></div>'
     + '<div class="hint">The short name every level\'s choice names; rename it with the pencil above the list (the choices stored on every level follow).</div></div>'
     + (s.problems && s.problems.length ? '<ul class="problems">' + s.problems.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') + '</ul>' : '')

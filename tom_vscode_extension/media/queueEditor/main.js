@@ -1389,7 +1389,7 @@ function aspectPicker() { return window.TomAspectPicker || null; }
 
 /** The quest default and the window: every picker of this page starts from them. */
 function baseAspectLevels() {
-  return { questDefault: aspectState ? aspectState.questDefault : undefined, window: aspectState ? aspectState.window : undefined };
+  return { workspace: aspectState ? aspectState.workspace : undefined, questDefault: aspectState ? aspectState.questDefault : undefined, window: aspectState ? aspectState.window : undefined };
 }
 
 /** The levels of `run`: the quest default, the window and the run's own choices. */
@@ -1463,13 +1463,18 @@ function renderAspectToolbar() {
   const v = windowAspectView();
   if (!p || !v) { slot.innerHTML = ''; return; }
   const hasQuestDefault = !!(aspectState.questDefault && Object.keys(aspectState.questDefault).length);
+  const hasWorkspace = !!(aspectState.workspace && Object.keys(aspectState.workspace).length);
   slot.innerHTML = p.buttonHtml(v, { title: 'Guidelines of this window', id: 'aspectWindowBtn', attrs: { 'data-aspect-open': 'window' } })
     // The all-windows button has no level of its own: no dot.
     + p.buttonHtml(Object.assign({}, v, { own: false }), { title: 'Guidelines of every open window (each change one aspect)', icon: 'codicon-broadcast', id: 'aspectAllWindowsBtn', attrs: { 'data-aspect-open': 'allWindows' } })
     + '<button type="button" class="ctx-btn" id="aspectSetQuestDefault" data-aspect-quest-default="set"'
     + ' title="Copy this window\'s guideline choices to the quest default (shared by every machine)">Set as quest default</button>'
     + '<button type="button" class="ctx-btn" id="aspectClearQuestDefault" data-aspect-quest-default="clear"' + (hasQuestDefault ? '' : ' disabled')
-    + ' title="' + (hasQuestDefault ? 'Clear the quest default\'s guideline choices' : 'The quest default has no guideline choices') + '">Clear quest default</button>';
+    + ' title="' + (hasQuestDefault ? 'Clear the quest default\'s guideline choices' : 'The quest default has no guideline choices') + '">Clear quest default</button>'
+    + '<button type="button" class="ctx-btn" id="aspectSetWorkspaceDefault" data-aspect-workspace-default="set"'
+    + ' title="Write this window\'s guideline choices into the workspace folder\'s workspace_aspects.md / .yaml (the workspace level)">Set as workspace default</button>'
+    + '<button type="button" class="ctx-btn" id="aspectClearWorkspaceDefault" data-aspect-workspace-default="clear"' + (hasWorkspace ? '' : ' disabled')
+    + ' title="' + (hasWorkspace ? 'Empty this workspace folder\'s workspace_aspects.md / .yaml (their free text stays)' : 'The workspace level has no guideline choices') + '">Clear workspace default</button>';
 }
 
 /** Open the picker of a level: the window, all windows, the tab's run, an item. */
@@ -1503,11 +1508,15 @@ function openQueueAspectPicker(kind, anchor, itemId) {
 
 // The picker's buttons and links (the toolbar, the run's info line, an item's button): one delegated listener.
 document.addEventListener('click', function(ev) {
-  const t = ev.target && ev.target.closest ? ev.target.closest('[data-aspect-open],[data-aspect-quest-default]') : null;
+  const t = ev.target && ev.target.closest ? ev.target.closest('[data-aspect-open],[data-aspect-quest-default],[data-aspect-workspace-default]') : null;
   if (!t || t.disabled) { return; }
   ev.preventDefault();
   if (t.dataset.aspectQuestDefault) {
     vscode.postMessage({ type: 'aspectQuestDefault', action: t.dataset.aspectQuestDefault });
+    return;
+  }
+  if (t.dataset.aspectWorkspaceDefault) {
+    vscode.postMessage({ type: 'aspectWorkspaceDefault', action: t.dataset.aspectWorkspaceDefault });
     return;
   }
   openQueueAspectPicker(t.dataset.aspectOpen, t, t.dataset.aspectItem);

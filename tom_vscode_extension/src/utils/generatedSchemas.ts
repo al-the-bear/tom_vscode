@@ -12,7 +12,7 @@
  * | `json-schema/roles/`      | `role-config.schema.json`, `role-type.schema.json` |
  * | `json-schema/processes/`  | `process.schema.json`                           |
  * | `json-schema/extension/`  | `tom_vscode_extension.schema.json`              |
- * | `json-schema/aspect-guidelines/` | `aspect-guideline.schema.json` (`_ai/aspect_guidelines/<aspect>/aspect.yaml`); `aspect-guideline-section.schema.json` (`section.yaml`, before format version 10, for the migration) |
+ * | `json-schema/aspect-guidelines/` | `aspect-guideline.schema.json` (`_ai/aspect_guidelines/<aspect>/aspect.yaml`); `aspect-guideline-section.schema.json` (`section.yaml`, before format version 10, for the migration); `workspace-aspects.schema.json` (`workspace_aspects.yaml`, the workspace level) |
  *
  * Each folder written gets a `.generated-by` file (extension id, version,
  * build) telling a generated copy apart from a schema under development:
@@ -54,7 +54,7 @@ export const GENERATED_SCHEMA_SETS: readonly GeneratedSchemaSet[] = [
     { folder: 'json-schema/roles', files: ['role-config', 'role-type'].map((n) => ({ name: `${n}.schema.json`, source: `out/config/${n}.schema.json` })) },
     { folder: 'json-schema/processes', files: [{ name: 'process.schema.json', source: 'out/config/process.schema.json' }] },
     { folder: 'json-schema/extension', files: [{ name: 'tom_vscode_extension.schema.json', source: 'out/config/tom_vscode_extension.schema.json' }] },
-    { folder: 'json-schema/aspect-guidelines', files: ['aspect-guideline', 'aspect-guideline-section'].map((n) => ({ name: `${n}.schema.json`, source: `out/config/${n}.schema.json` })) },
+    { folder: 'json-schema/aspect-guidelines', files: ['aspect-guideline', 'aspect-guideline-section', 'workspace-aspects'].map((n) => ({ name: `${n}.schema.json`, source: `out/config/${n}.schema.json` })) },
 ];
 
 /** Who wrote a generated folder. */

@@ -23,10 +23,13 @@ export { applyAspectChoice, aspectValueRefusal, ASPECT_PICKER_LEVELS, type Aspec
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
 import { readLiveAspectSections } from './aspectGuidelinesStore';
+import { liveWorkspaceAspects } from './workspaceAspects';
 import { chatPanelChoices, questDefaultChoices, roleLevelChoices, setChatPanelChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
 
 /** The picker's shared data. */
 export interface AspectPickerState extends AspectCatalogue {
+    /** The workspace level (workspace_aspects.md / .yaml, gsel19). */
+    workspace?: AspectChoices;
     questDefault?: AspectChoices;
     window?: AspectChoices;
     /** Per role under `_ai/roles` with choices: its role type's and its own. */
@@ -54,9 +57,12 @@ export function aspectPickerState(): AspectPickerState {
     }
     const questDefault = attempt(() => questDefaultChoices());
     const window = attempt(() => windowChoices());
+    const ws = attempt(() => liveWorkspaceAspects());
+    const workspace = ws && Object.keys(ws.choices).length ? ws.choices : undefined;
     return {
         ...aspectCatalogueOf(read.sections),
-        problems: read.problems,
+        problems: [...read.problems, ...(ws?.problems ?? [])],
+        ...(workspace ? { workspace } : {}),
         ...(questDefault ? { questDefault } : {}),
         ...(window ? { window } : {}),
         roles,

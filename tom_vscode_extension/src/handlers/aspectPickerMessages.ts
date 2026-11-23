@@ -6,6 +6,9 @@
  * - `aspectChoose` `{ level, section, value, run?, itemId?, questId?, todoId?, panel? }`:
  *   one section's choice on one level (services/aspectPickerState.ts
  *   applyAspectChoice); a refusal is shown as a warning.
+ * - `aspectWorkspaceDefault` `{ action: 'set' | 'clear' }`: *Set as workspace default*
+ *   / *Clear workspace default* (the window workspace folder's
+ *   `workspace_aspects.md` / `.yaml`, gsel19).
  * - `aspectQuestDefault` `{ action: 'set' | 'clear' }`: *Set as quest default*
  *   / *Clear quest default* (handlers/aspectChoiceCommands.ts).
  * - `aspectEditSections`: *Edit aspects…* — the Aspect Guidelines editor page
@@ -20,14 +23,14 @@
 import * as vscode from 'vscode';
 
 import { applyAspectChoice, liveAspectChoiceWriters, type AspectChoiceRequest } from '../services/aspectPickerState';
-import { clearQuestDefaultGuidelines, setQuestDefaultGuidelines } from './aspectChoiceCommands';
+import { clearQuestDefaultGuidelines, clearWorkspaceDefaultGuidelines, setQuestDefaultGuidelines, setWorkspaceDefaultGuidelines } from './aspectChoiceCommands';
 import { ASPECT_SECTION_EDITOR_COMMAND } from './aspectSectionEditor-handler';
 import { refreshAspectViews } from './aspectViewsRefresh';
 
 export { ASPECT_SECTION_EDITOR_COMMAND };
 
 /** The message types the picker posts. */
-export const ASPECT_PICKER_MESSAGE_TYPES = ['aspectChoose', 'aspectQuestDefault', 'aspectEditSections'] as const;
+export const ASPECT_PICKER_MESSAGE_TYPES = ['aspectChoose', 'aspectQuestDefault', 'aspectWorkspaceDefault', 'aspectEditSections'] as const;
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 
@@ -74,6 +77,17 @@ export async function handleAspectPickerMessage(msg: { type?: unknown; [key: str
                 }
             } catch (err) {
                 void vscode.window.showErrorMessage(`The quest default could not be written: ${(err as Error).message}`);
+                return { handled: true, changed: false };
+            }
+            refreshAspectViews();
+            return { handled: true, changed: true };
+        }
+        case 'aspectWorkspaceDefault': {
+            try {
+                const text = msg.action === 'clear' ? clearWorkspaceDefaultGuidelines() : setWorkspaceDefaultGuidelines();
+                vscode.window.setStatusBarMessage(text, 5000);
+            } catch (err) {
+                void vscode.window.showErrorMessage(`The workspace default could not be written: ${(err as Error).message}`);
                 return { handled: true, changed: false };
             }
             refreshAspectViews();

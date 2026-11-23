@@ -447,7 +447,7 @@ function applyChatAspects(msg) {
 function chatAspectLevels(section) {
     var a = chatAspectsState.aspects || {};
     var p = chatAspectsState.panels[section] || {};
-    var levels = { questDefault: a.questDefault, window: a.window, run: p.run, item: p.item };
+    var levels = { workspace: a.workspace, questDefault: a.questDefault, window: a.window, run: p.run, item: p.item };
     var role = section === 'anthropic' ? chatAspectsState.role : '';
     var r = (role && a.roles && a.roles[role]) || {};
     levels.roleType = r.roleType;

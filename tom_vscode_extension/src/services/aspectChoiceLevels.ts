@@ -3,6 +3,9 @@
  * with (gsel4; design `role_and_guideline_selector.vscode_extension.md`,
  * L-1..L-8, P-6). The levels, lowest winning (utils/aspectGuidelines.ts):
  *
+ * - **workspace** — `workspace_aspects.md` / `.yaml` of the Tom root and of
+ *   each workspace folder down to the window's, the nearer winning per aspect
+ *   (services/workspaceAspects.ts; gsel19).
  * - **quest default** — `aspectGuidelines:` in the quest's shared
  *   `extension_config.<quest>.yaml` (a flat map), the same on every host;
  *   *Set as quest default* copies the window's choices there, *Clear quest
@@ -47,6 +50,8 @@ export interface AspectChoiceDeps {
     aiRoot(): string | undefined;
     /** The guideline choices of `run` (default: the window's run). */
     runChoices(run?: string): AspectChoices | undefined;
+    /** The workspace level's entries (aspect → choice or `remove`). */
+    workspaceChoices(): AspectChoices | undefined;
 }
 
 const liveDeps: AspectChoiceDeps = {
@@ -59,6 +64,11 @@ const liveDeps: AspectChoiceDeps = {
         /* eslint-disable-next-line @typescript-eslint/no-require-imports */
         const { PromptQueueManager } = require('../managers/promptQueueManager') as typeof import('../managers/promptQueueManager');
         return PromptQueueManager.instance.runQueueSettings(run).guidelines;
+    },
+    workspaceChoices: () => {
+        /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+        const { liveWorkspaceAspects } = require('./workspaceAspects') as typeof import('./workspaceAspects');
+        return liveWorkspaceAspects().choices;
     },
 };
 let deps: AspectChoiceDeps = liveDeps;
@@ -165,7 +175,7 @@ export interface AspectChoiceContext {
 }
 
 /**
- * The levels of a send: quest default, window, run, role type, role, item and
+ * The levels of a send: workspace, quest default, window, run, role type, role, item and
  * todo. Inside a queue stage the run, item and todo come from its role source;
  * outside, the run is the window's.
  */
@@ -175,6 +185,7 @@ export function gatherAspectChoices(ctx: AspectChoiceContext = {}): AspectLevelC
         const clean = normalizeAspectChoices(choices);
         if (clean) { levels[level] = clean; }
     };
+    put('workspace', attempt(() => deps.workspaceChoices()));
     put('questDefault', attempt(() => questDefaultChoices(ctx.questId)));
     put('window', attempt(() => windowChoices(ctx.questId)));
     put('run', ctx.queued ? ctx.queued.runGuidelines : attempt(() => deps.runChoices(ctx.run)));

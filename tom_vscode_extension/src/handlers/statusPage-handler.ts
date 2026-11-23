@@ -2150,7 +2150,7 @@ export async function gatherStatusData(): Promise<StatusData> {
             maxTokens: typeof v?.maxTokens === 'number' ? v.maxTokens : 8192,
             toolsEnabled: typeof v?.toolsEnabled === 'boolean' ? v.toolsEnabled : true,
         })),
-        configErrors: [...layoutConfigErrors(), ...generatedSchemaErrors(), ...(agentsMdProblem ? [agentsMdProblem] : []), ...strictErrors],
+        configErrors: [...layoutConfigErrors(), ...generatedSchemaErrors(), ...workspaceAspectErrors(), ...(agentsMdProblem ? [agentsMdProblem] : []), ...strictErrors],
         staleSchemaCopies: hasStaleSchemaCopies(),
         missingUseAgentsMdFile: !!agentsMdProblem,
         build: checkBuildStatus(),
@@ -3416,4 +3416,16 @@ function layoutConfigErrors(): string[] {
     const layout = getLayout();
     const aiMissing = layout ? describeAiMissing(layout) : undefined;
     return aiMissing ? [aiMissing] : [];
+}
+
+
+/** The workspace level's broken `@<path>` lines and file problems (gsel19), as Configuration Errors. */
+function workspaceAspectErrors(): string[] {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { liveWorkspaceAspects } = require('../services/workspaceAspects') as typeof import('../services/workspaceAspects');
+        return liveWorkspaceAspects().problems.map((p) => `Aspect guidelines, workspace level: ${p}`);
+    } catch {
+        return [];
+    }
 }

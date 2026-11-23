@@ -254,6 +254,16 @@
         "category": "@Tom"
       },
       {
+        "command": "tomAi.setWorkspaceDefaultGuidelines",
+        "title": "@T: Set Guideline Choices as Workspace Default",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.clearWorkspaceDefaultGuidelines",
+        "title": "@T: Clear Workspace Default Guideline Choices",
+        "category": "@Tom"
+      },
+      {
         "command": "tomAi.commandline.add",
         "title": "@T: Add Commandline",
         "category": "@Tom"

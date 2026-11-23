@@ -644,8 +644,8 @@ roles and role types — and the other open windows on this machine carry over
 what they hold in memory; the editor says what was rewritten.
 
 **The levels**, the lowest winning per aspect: the aspect's default
-(`aspectDefault` in tomAi_getAspectGuidelines) < quest default < window < run
-< role type < role < queue item < todo. On each level an aspect is one of
+(`aspectDefault` in tomAi_getAspectGuidelines) < workspace < quest default <
+window < run < role type < role < queue item < todo. On each level an aspect is one of
 three things:
 
 - *Don't add*: no entry. A higher level's choice is inherited.
@@ -654,7 +654,28 @@ three things:
 - A choice: its text is sent.
 
 An entry naming a choice the aspect does not have is skipped, and the level
-above it decides. A send resolves the levels it has (`liveAspectChoices`: the
+above it decides. **The workspace level** (`src/services/workspaceAspects.ts`) is read from
+`workspace_aspects.md` and `workspace_aspects.yaml` in the Tom root, then in
+each workspace folder down to the window's (the same folders as the guideline
+layers), a nearer folder's entry replacing a farther one's per aspect. In
+`workspace_aspects.md` each line that holds only `@<path>` (relative to the
+file, outside fenced code) names one choice file —
+`_agent_guidelines/aspects/<aspect>/<choice>.md` or
+`_ai/aspect_guidelines/<aspect>/<choice>.md` —; the other lines are free text.
+`workspace_aspects.yaml` holds `remove: [<aspect> …]` (schema
+`.tom/json-schema/aspect-guidelines/workspace-aspects.schema.json`); in one
+folder a remove wins over a choice of the same aspect, and of two choices of
+one aspect the later line wins. A path that names no file, or a file that is no
+choice file, chooses nothing and is reported: in the Aspect Guidelines editor,
+under the Status Page's Configuration Errors and in tomAi_getAspectGuidelines
+(`workspace: {files, sources, problems}`). *Set as workspace default*
+(`aspectWorkspaceDefault {action: 'set'}`, `tomAi.setWorkspaceDefaultGuidelines`)
+writes the window's choices into the window workspace folder's two files — an
+own text as `@_ai/aspect_guidelines/…`, a guideline file relative to the folder,
+a `remove` into the yaml — keeping their free text and other keys; *Clear*
+(`tomAi.clearWorkspaceDefaultGuidelines`) empties them.
+
+A send resolves the levels it has (`liveAspectChoices`: the workspace, the
 quest default, the window, its run, its role, its queue item and todo) and any
 choices a caller passes in `aspectGuidelineChoices`.
 

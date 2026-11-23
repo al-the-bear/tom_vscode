@@ -90,6 +90,8 @@ export interface AspectGuidelineToolsDeps {
     folder(): string | undefined;
     /** Every level's choices for the context, and what the context resolved to. */
     levels(input: GetAspectGuidelinesInput): { levels: AspectLevelChoices; context: AspectLevelsContext; notes: string[] } | { error: string };
+    /** The workspace level's files (gsel19): per folder, root first, the files that exist and its problems. */
+    workspace?(): { files: Array<{ folder: string; md?: string; yaml?: string }>; sources: Record<string, string>; problems: string[] };
 }
 
 export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: GetAspectGuidelinesInput): string {
@@ -116,6 +118,7 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
             ...(store.problems.length ? { problems: store.problems } : {}),
             context: read.context,
             levels: read.levels,
+            ...((ws) => (ws && (ws.files.some((f) => f.md || f.yaml) || ws.problems.length) ? { workspace: ws } : {}))(deps.workspace?.()),
             level: toolLevel(level),
             selection: resolved.sections.map((r) => {
                 const source = !r.removed && r.option ? store.sections.find((s) => s.id === r.section)?.options.find((o) => o.name === r.option)?.source : undefined;
@@ -136,12 +139,12 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
 
 export const GET_ASPECT_GUIDELINES_DESCRIPTION =
     'The guideline aspects (`_ai/aspect_guidelines/<aspect>/`, e.g. language or night mode) with their choices, ' +
-    'every level\'s stored choices and the effective selection. Levels, lowest winning: aspectDefault, questDefault (the quest\'s shared ' +
+    'every level\'s stored choices and the effective selection. Levels, lowest winning: aspectDefault, workspace (workspace_aspects.md / .yaml of the root and workspace folders), questDefault (the quest\'s shared ' +
     '`extension_config`), window (this host), run (its queue settings), roleType, role, item (a queue item), todo. ' +
     'Context: `questId` (default this window\'s), `run` (default the window\'s), `role` (default the live role), `todoId` (its role and ' +
     'choices), `itemId` (a queue item: its run, role, todo and choices). `level` cuts the selection at that level (default `todo`: all). ' +
     'Response: `{ok, folder, aspects: [{id, label, placement, default?, choices}], context, levels, level, selection: [{aspect, choice ' +
-    '(a name, "remove" or null), from (the deciding level), file (where its text is: own text or a guideline file, guidelineFile)}], ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
+    '(a name, "remove" or null), from (the deciding level), file (where its text is: own text or a guideline file, guidelineFile)}], workspace? ({files, sources, problems}), ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
     '`guidelines` argument of tomAi_addQueueItem / tomAi_updateQueueItem / tomAi_sendItemToQuest / tomAi_createQuestTodo / tomAi_updateQuestTodo.';
 
 export function makeGetAspectGuidelinesTool(deps: () => AspectGuidelineToolsDeps): SharedToolDefinition<GetAspectGuidelinesInput> {
@@ -173,6 +176,14 @@ function liveDeps(): AspectGuidelineToolsDeps {
     const { WsPaths } = require('../utils/workspacePaths') as typeof import('../utils/workspacePaths');
     const { liveAspectStore, readAspectSections } = require('../services/aspectGuidelinesStore') as typeof import('../services/aspectGuidelinesStore');
     return {
+        workspace: () => {
+            const ws = (require('../services/workspaceAspects') as typeof import('../services/workspaceAspects')).liveWorkspaceAspects();
+            return {
+                files: ws.folders.map((f) => ({ folder: f.rel, ...(f.md ? { md: f.md } : {}), ...(f.yaml ? { yaml: f.yaml } : {}) })),
+                sources: ws.sources,
+                problems: ws.problems,
+            };
+        },
         folder: () => liveAspectStore().dir,
         readSections: () => {
             const { dir, layers } = liveAspectStore();

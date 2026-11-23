@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://tom.ai/schemas/aspect-guidelines/workspace-aspects.schema.json",
+    "title": "Workspace aspects (workspace_aspects.yaml)",
+    "description": "The settings of the aspect guidelines' workspace level beside workspace_aspects.md, in the Tom root or a workspace folder. The workspace level sits between each aspect's default and the quest default; a nearer workspace folder's entry overrides the root's per aspect. The choices themselves are the `@<path>` lines of workspace_aspects.md.",
+    "type": "object",
+    "properties": {
+        "remove": {
+            "type": "array",
+            "description": "The aspects (folders of _ai/aspect_guidelines/) this workspace sends nothing for: Remove on the workspace level. It wins over a choice of the same aspect in workspace_aspects.md beside it.",
+            "items": { "type": "string", "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$" },
+            "uniqueItems": true
+        }
+    },
+    "additionalProperties": false
+}

@@ -2143,6 +2143,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
         }
         case 'aspectChoose':
         case 'aspectQuestDefault':
+        case 'aspectWorkspaceDefault':
         case 'aspectEditSections': {
             if (msg.type === 'aspectChoose' && msg.level === 'todo') {
                 if (isSessionMode || isWorkspaceFileMode) {

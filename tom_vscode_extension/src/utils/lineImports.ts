@@ -28,8 +28,8 @@ import { MAX_IMPORT_DEPTH, resolveImportPath } from '../services/claudeMd';
 export { MAX_IMPORT_DEPTH };
 
 /** A line that is one `@<path>` and nothing else. */
-const IMPORT_LINE = /^\s*@((?:~\/|\/|\.{1,2}\/)?[^\s`'"<>()[\]{}]+)\s*$/;
-const FENCE = /^\s*(```|~~~)/;
+export const IMPORT_LINE = /^\s*@((?:~\/|\/|\.{1,2}\/)?[^\s`'"<>()[\]{}]+)\s*$/;
+export const FENCE = /^\s*(```|~~~)/;
 
 export interface LineImportOptions {
     /** The home folder for `@~/…` (default `os.homedir()`). */

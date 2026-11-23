@@ -22,11 +22,11 @@
 
 (function () {
     /** The levels, the highest (overridden by every other) first. */
-    var LEVELS = ['sectionDefault', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'];
+    var LEVELS = ['sectionDefault', 'workspace', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'];
     var REMOVE = 'remove';
     /** Where a choice comes from, as the popup says it (grey). */
     var ORIGIN = {
-        sectionDefault: 'default', questDefault: 'from quest', window: 'from window', run: 'from run',
+        sectionDefault: 'default', workspace: 'from workspace', questDefault: 'from quest', window: 'from window', run: 'from run',
         roleType: 'from role type', role: 'from role', item: 'from item', todo: 'from todo',
     };
     var POPUP_ID = 'tomAspectPopup';

@@ -9,8 +9,9 @@
  *   (services/aspectGuidelinesStore.ts reads it; the schema is
  *   `src/config/aspect-guideline.schema.json`). `section.yaml` with `options:`
  *   is the format before version 10: the `_ai` format migration renames it.
- * - **The levels**, lowest winning per aspect: aspect default < quest
- *   default < window < run < role type < role < item < todo. On each level an
+ * - **The levels**, lowest winning per aspect: aspect default < workspace
+ *   (`workspace_aspects.md` / `.yaml` of the Tom root and the workspace
+ *   folders, services/workspaceAspects.ts) < quest default < window < run < role type < role < item < todo. On each level an
  *   aspect is absent (*Don't add*: inherit), `remove` (nothing for the
  *   aspect, whatever is above, the default included) or a choice.
  * - **The text**: each effective choice's text (placeholders resolved by the
@@ -33,7 +34,7 @@
 import type { AspectChoiceSource } from './aspectChoiceFiles';
 
 /** The levels, the highest (overridden by every other) first. */
-export const ASPECT_LEVELS = ['sectionDefault', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'] as const;
+export const ASPECT_LEVELS = ['sectionDefault', 'workspace', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'] as const;
 export type AspectLevel = typeof ASPECT_LEVELS[number];
 
 /** The value of a level's entry that sends nothing for its aspect. */
