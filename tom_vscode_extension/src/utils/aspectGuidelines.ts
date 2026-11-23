@@ -22,8 +22,15 @@
  * `sectionDefault`): they are not user-visible; the stored field
  * `guidelines:` stays too.
  *
+ * - **Choice files** (gsel17, utils/aspectChoiceFiles.ts): a choice's text is
+ *   its own text in the aspect's folder or a guideline file
+ *   `_agent_guidelines/aspects/<aspect>/<choice>.md` of the root or a
+ *   workspace folder; the store passes the texts and their sources in.
+ *
  * Pure (no `vscode`, no `fs`): tested in `__tests__/aspectGuidelines.test.ts`.
  */
+
+import type { AspectChoiceSource } from './aspectChoiceFiles';
 
 /** The levels, the highest (overridden by every other) first. */
 export const ASPECT_LEVELS = ['sectionDefault', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'] as const;
@@ -41,10 +48,12 @@ export const LEGACY_ASPECT_FILE = 'section.yaml';
 /** Where a section's text goes. */
 export type AspectPlacement = 'system' | 'user';
 
-/** One option: its short name (the file name without `.md`) and its text. */
+/** One option: its short name (the file name without `.md`), its text and where the text comes from. */
 export interface AspectOption {
     name: string;
     text: string;
+    /** Own text or a guideline file (gsel17); unset when the caller did not say. */
+    source?: AspectChoiceSource;
 }
 
 /** One section as the store holds it. */
@@ -87,7 +96,8 @@ export interface AspectSectionYaml {
 
 /**
  * Builds an aspect from its folder name, its `aspect.yaml` and its choice
- * files (`name` → text, in any order). Answers the aspect and the problems
+ * texts (`name` → text, in any order: own texts and guideline files alike;
+ * `sources` says where each comes from). Answers the aspect and the problems
  * found; an aspect that cannot be used (no name, a bad placement, a folder
  * name that is no name) is answered as `undefined` with its problems.
  *
@@ -102,6 +112,7 @@ export function buildAspectSection(
     id: string,
     yaml: AspectSectionYaml | undefined,
     files: Readonly<Record<string, string>>,
+    sources?: Readonly<Record<string, AspectChoiceSource>>,
 ): { section?: AspectSection; problems: string[] } {
     const problems: string[] = [];
     if (!isAspectName(id)) { return { problems: [`aspect folder "${id}": not an aspect name`] }; }
@@ -126,7 +137,7 @@ export function buildAspectSection(
             problems.push(`${id}: choices must be a list of choice names`);
         } else {
             for (const o of yaml.choices) {
-                if (typeof o !== 'string' || !usable.includes(o)) { problems.push(`${id}: choice "${String(o)}" has no ${String(o)}.md`); continue; }
+                if (typeof o !== 'string' || !usable.includes(o)) { problems.push(`${id}: choice "${String(o)}" has no ${String(o)}.md (own text or guideline file)`); continue; }
                 if (!order.includes(o)) { order.push(o); }
             }
         }
@@ -141,7 +152,7 @@ export function buildAspectSection(
         }
     }
     return {
-        section: { id, name: yaml.name.trim(), label, placement, defaultOption, options: order.map((name) => ({ name, text: files[name] })) },
+        section: { id, name: yaml.name.trim(), label, placement, defaultOption, options: order.map((name) => ({ name, text: files[name], ...(sources?.[name] ? { source: sources[name] } : {}) })) },
         problems,
     };
 }

@@ -86,6 +86,8 @@ export interface AspectCatalogueSection {
     label: string;
     defaultOption?: string;
     options: string[];
+    /** Per choice, the file its text comes from (own text or a guideline file, gsel17), as shown. */
+    files?: Record<string, string>;
 }
 
 /** The sections the guideline picker offers (media/shared/aspectPicker.js), and the problems reading them. */
@@ -103,6 +105,7 @@ export function aspectCatalogueOf(sections: readonly AspectSection[]): AspectCat
             label: s.label,
             ...(s.defaultOption ? { defaultOption: s.defaultOption } : {}),
             options: s.options.map((o) => o.name),
+            ...(s.options.some((o) => o.source) ? { files: Object.fromEntries(s.options.filter((o) => o.source).map((o) => [o.name, o.source!.display])) } : {}),
         })),
     };
 }

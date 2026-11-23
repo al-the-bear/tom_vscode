@@ -32,10 +32,10 @@
     var POPUP_ID = 'tomAspectPopup';
 
     /**
-     * @typedef {{ id: string, name: string, label: string, defaultOption?: string, options: string[] }} AspectCatalogueSection
+     * @typedef {{ id: string, name: string, label: string, defaultOption?: string, options: string[], files?: Record<string, string> }} AspectCatalogueSection
      * @typedef {{ sections: AspectCatalogueSection[], problems?: string[] }} AspectCatalogue
      * @typedef {Record<string, Record<string, string> | undefined>} AspectLevels
-     * @typedef {{ id: string, name: string, label: string, options: string[], option?: string, removed: boolean, from?: string, here?: string }} AspectViewSection
+     * @typedef {{ id: string, name: string, label: string, options: string[], option?: string, removed: boolean, from?: string, here?: string, files?: Record<string, string> }} AspectViewSection
      * @typedef {{ level: string, sections: AspectViewSection[], own: boolean }} AspectView
      */
 
@@ -84,6 +84,7 @@
             if (r.option !== undefined) { out.option = r.option; }
             if (r.from !== undefined) { out.from = r.from; }
             if (mine[s.id] !== undefined) { out.here = mine[s.id]; }
+            if (s.files) { out.files = s.files; }
             return out;
         });
         return { level: level, sections: sections, own: sections.some(function (s) { return s.here !== undefined; }) };
@@ -103,14 +104,18 @@
     }
 
     /**
-     * The hover help: the title, the effective selection, and what this level
-     * chose itself.
+     * The hover help: the title, the effective selection, what this level
+     * chose itself, and the file each effective choice's text comes from (own
+     * text or a guideline file, gsel17).
      * @param {AspectView} v @param {string} title
      */
     function hoverText(v, title) {
         var own = v.sections.filter(function (s) { return s.here !== undefined; })
             .map(function (s) { return s.label + ': ' + (s.here === REMOVE ? 'Remove' : s.here); });
-        return title + ': ' + summary(v) + (own.length ? '\nChosen here: ' + own.join(' \u00b7 ') : '');
+        var files = v.sections.filter(function (s) { return !s.removed && s.option !== undefined && s.files && s.files[s.option]; })
+            .map(function (s) { return s.label + ': ' + /** @type {Record<string, string>} */ (s.files)[/** @type {string} */ (s.option)]; });
+        return title + ': ' + summary(v) + (own.length ? '\nChosen here: ' + own.join(' \u00b7 ') : '')
+            + (files.length ? '\nFrom: ' + files.join(' \u00b7 ') : '');
     }
 
     /**
@@ -184,7 +189,8 @@
         var effective = value === REMOVE ? s.removed : (value !== '' && !s.removed && s.option === value);
         return '<div class="tom-aspect-option' + (here ? ' mine' : '') + (effective ? ' effective' : '') + '" role="menuitemradio"'
             + ' aria-checked="' + (here ? 'true' : 'false') + '" tabindex="-1"'
-            + ' data-section="' + esc(s.id) + '" data-value="' + esc(value) + '">'
+            + ' data-section="' + esc(s.id) + '" data-value="' + esc(value) + '"'
+            + (s.files && value && s.files[value] ? ' title="' + esc(s.files[value]) + '"' : '') + '>'
             + '<span class="tom-aspect-mark">' + (here ? '\u25cf' : '') + '</span>'
             + '<span class="tom-aspect-option-text">' + esc(text) + '</span>'
             + (effective && !here ? '<span class="tom-aspect-origin">\u2713</span>' : '')

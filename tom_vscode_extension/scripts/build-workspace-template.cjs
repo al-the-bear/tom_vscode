@@ -13,7 +13,8 @@
  *     command lines emptied: genericConfig), .tom/json-schema/workspaces/ (the
  *     schemas the extension does not write itself; its own are generated at
  *     start, utils/generatedSchemas.ts)
- *   - the root guidelines folder (`_agent_guidelines/`, else `_copilot_guidelines/`)
+ *   - the root guidelines folder (`_agent_guidelines/`, else `_copilot_guidelines/`), its
+ *     `aspects/` (aspect choices as guideline files) included, and `_ai/aspect_guidelines/`
  *     with the shared `workspace_agents.md`
  *   - CLAUDE.md, and AGENTS.md as a generic stub the build writes (ROOT_AGENTS_STUB)
  *   - _ai/roles/, role-types/, processes/, schemas/, prompt/, format-version.yaml,
@@ -106,11 +107,15 @@ function partSources(rootDir) {
             { path: '.tom/json-schema/workspaces', kind: 'dir', optional: true },
             { path: rootGuidelines, kind: 'dir' },
             { path: `${rootGuidelines}/workspace_agents.md`, kind: 'file' },
+            // Aspect choices as guideline files (gsel17): packed with the guidelines; named so a template without them says so.
+            { path: `${rootGuidelines}/aspects`, kind: 'dir', optional: true },
             { path: 'CLAUDE.md', kind: 'file' },
             { path: 'AGENTS.md', kind: 'file', generated: ROOT_AGENTS_STUB },
             { path: '_ai/roles', kind: 'dir' },
             { path: '_ai/role-types', kind: 'dir', optional: true },
             { path: '_ai/processes', kind: 'dir' },
+            // The aspect definitions (aspect.yaml) and own texts the guideline files belong to.
+            { path: '_ai/aspect_guidelines', kind: 'dir', optional: true },
             { path: '_ai/schemas', kind: 'dir' },
             { path: '_ai/prompt', kind: 'dir' },
             { path: '_ai/format-version.yaml', kind: 'file' },

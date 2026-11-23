@@ -117,11 +117,15 @@ export function getAspectGuidelinesImpl(deps: AspectGuidelineToolsDeps, input: G
             context: read.context,
             levels: read.levels,
             level: toolLevel(level),
-            selection: resolved.sections.map((r) => ({
-                aspect: r.section,
-                choice: r.removed ? 'remove' : (r.option ?? null),
-                from: toolLevel(r.from) ?? null,
-            })),
+            selection: resolved.sections.map((r) => {
+                const source = !r.removed && r.option ? store.sections.find((s) => s.id === r.section)?.options.find((o) => o.name === r.option)?.source : undefined;
+                return {
+                    aspect: r.section,
+                    choice: r.removed ? 'remove' : (r.option ?? null),
+                    from: toolLevel(r.from) ?? null,
+                    ...(source ? { file: source.display, ...(source.kind === 'file' ? { guidelineFile: true } : {}) } : {}),
+                };
+            }),
             ...(resolved.ignored.length ? { ignored: resolved.ignored.map((i) => ({ level: toolLevel(i.level), aspect: i.section, choice: i.option })) } : {}),
             ...(read.notes.length ? { notes: read.notes } : {}),
         });
@@ -137,7 +141,7 @@ export const GET_ASPECT_GUIDELINES_DESCRIPTION =
     'Context: `questId` (default this window\'s), `run` (default the window\'s), `role` (default the live role), `todoId` (its role and ' +
     'choices), `itemId` (a queue item: its run, role, todo and choices). `level` cuts the selection at that level (default `todo`: all). ' +
     'Response: `{ok, folder, aspects: [{id, label, placement, default?, choices}], context, levels, level, selection: [{aspect, choice ' +
-    '(a name, "remove" or null), from (the deciding level)}], ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
+    '(a name, "remove" or null), from (the deciding level), file (where its text is: own text or a guideline file, guidelineFile)}], ignored?, problems?, notes?}`. Agents set the item and todo levels with the ' +
     '`guidelines` argument of tomAi_addQueueItem / tomAi_updateQueueItem / tomAi_sendItemToQuest / tomAi_createQuestTodo / tomAi_updateQuestTodo.';
 
 export function makeGetAspectGuidelinesTool(deps: () => AspectGuidelineToolsDeps): SharedToolDefinition<GetAspectGuidelinesInput> {
@@ -167,13 +171,12 @@ export function makeGetAspectGuidelinesTool(deps: () => AspectGuidelineToolsDeps
 /* eslint-disable @typescript-eslint/no-require-imports */
 function liveDeps(): AspectGuidelineToolsDeps {
     const { WsPaths } = require('../utils/workspacePaths') as typeof import('../utils/workspacePaths');
-    const { ASPECT_GUIDELINES_FOLDER, readAspectSections } = require('../services/aspectGuidelinesStore') as typeof import('../services/aspectGuidelinesStore');
-    const folder = (): string | undefined => WsPaths.ai(ASPECT_GUIDELINES_FOLDER);
+    const { liveAspectStore, readAspectSections } = require('../services/aspectGuidelinesStore') as typeof import('../services/aspectGuidelinesStore');
     return {
-        folder,
+        folder: () => liveAspectStore().dir,
         readSections: () => {
-            const dir = folder();
-            return dir ? readAspectSections(dir) : undefined;
+            const { dir, layers } = liveAspectStore();
+            return dir ? readAspectSections(dir, layers) : undefined;
         },
         levels: (input) => {
             const levelsMod = require('../services/aspectChoiceLevels') as typeof import('../services/aspectChoiceLevels');

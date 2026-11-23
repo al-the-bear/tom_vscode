@@ -208,7 +208,7 @@ describe('the workspace template in two parts', () => {
         fs.writeFileSync(path.join(ws, 'CLAUDE.md'), '# Rules\n');
         fs.mkdirSync(path.join(root, '_ai', 'processes'));
         fs.writeFileSync(path.join(root, '_ai', 'processes', 'x.md'), 'x\n');
-        assert.deepEqual((tpl.buildTemplate(root, ws) as { skipped: string[] }).skipped, ['root/_ai/quests/tomai_introduction']);
+        assert.deepEqual((tpl.buildTemplate(root, ws) as { skipped: string[] }).skipped, ['root/_agent_guidelines/aspects', 'root/_ai/aspect_guidelines', 'root/_ai/quests/tomai_introduction']);
         assert.match((tpl.buildTemplate(undefined, ws) as { errors: string[] }).errors[0], /no root: no folder with \.tom\/tom_root\.yaml above the extension \(pass --root\)/);
         fs.rmSync(root, { recursive: true, force: true });
     });

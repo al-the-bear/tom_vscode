@@ -12,6 +12,15 @@
  *   schema line) and one `<choice>.md` per choice; a choice file no longer
  *   listed is deleted (a choice renamed is its old file deleted and the new
  *   one written).
+ * - Choice files (gsel17, utils/aspectChoiceFiles.ts): a choice is **Own
+ *   text** (`<choice>.md` in the aspect's folder) or a **Guideline file**
+ *   (`_agent_guidelines/aspects/<aspect>/<choice>.md` of one of the window's
+ *   guideline layers). The page gets each choice's own text and its copies in
+ *   the layers; a save writes a Guideline file choice's text into the file of
+ *   the layer it names (`fileBase`: the file it edits in place, or the window
+ *   workspace folder's layer for its own copy), drops the own text of a choice
+ *   switched to Guideline file, and deletes the file a Guideline file choice
+ *   removed or renamed in the draft had. Switching to Own text keeps the file.
  * - {@link createAspectSection}, {@link renameAspectSection},
  *   {@link deleteAspectSection}: the aspect folders.
  *
@@ -24,6 +33,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { schemaRefFromFile } from '../utils/generatedSchemas';
+import { layerLabel, type AspectFileLayer } from '../utils/aspectChoiceFiles';
+import { orphanGuidelineAspects, readAspectChoiceTexts } from './aspectGuidelinesStore';
 import {
     ASPECT_REMOVE,
     buildAspectSection,
@@ -40,7 +51,32 @@ export const ASPECT_SECTION_SCHEMA_REL = 'json-schema/aspect-guidelines/aspect-g
 /** One option as the page edits it. */
 export interface AspectOptionEdit {
     name: string;
+    /** The text in the choice's mode: its own text, or the guideline file's of `fileBase`. */
     text: string;
+    /** Own text (the default) or a guideline file (gsel17). */
+    mode?: 'own' | 'file';
+    /** A guideline file choice: the layer (its `base`) whose file it edits and writes. */
+    fileBase?: string;
+    /** As read: the own text, when the choice has one. */
+    ownText?: string;
+    /** As read: the choice's guideline files, nearest layer first. */
+    files?: Array<{ base: string; text: string }>;
+}
+
+/** A guideline layer as the page shows it. */
+export interface AspectLayerEdit {
+    base: string;
+    level: 'root' | 'workspace';
+    folder: string;
+    /** The window's own workspace folder's layer. */
+    own: boolean;
+    /** `the root's`, `workspace <folder>`. */
+    label: string;
+}
+
+/** The layers as the page shows them. */
+export function layersForEdit(layers: readonly AspectFileLayer[]): AspectLayerEdit[] {
+    return layers.map((l) => ({ base: l.base, level: l.level, folder: l.folder, own: l.own, label: layerLabel(l) }));
 }
 
 /** One section as the page edits it. */
@@ -63,23 +99,28 @@ function sectionFolder(dir: string, id: string): string {
     return path.join(dir, id);
 }
 
-/** The option files of a section folder: name → text. */
-function optionFiles(folder: string): Record<string, string> {
-    const files: Record<string, string> = {};
-    let names: string[] = [];
-    try { names = fs.readdirSync(folder); } catch { return files; }
-    for (const f of names) {
-        if (!f.endsWith('.md') || f.startsWith('.')) { continue; }
-        try { files[f.slice(0, -3)] = fs.readFileSync(path.join(folder, f), 'utf8'); } catch { /* gone meanwhile */ }
-    }
-    return files;
+/** A choice as the page edits it, from the texts read (own text and guideline files). */
+function optionForEdit(name: string, read: ReturnType<typeof readAspectChoiceTexts>): AspectOptionEdit {
+    const files = [...read.layerFiles].reverse().filter((l) => name in l.files).map((l) => ({ base: l.layer.base, text: l.files[name] }));
+    const own = name in read.own;
+    return {
+        name,
+        text: own ? read.own[name] : (files[0]?.text ?? ''),
+        mode: own ? 'own' : 'file',
+        ...(files.length ? { fileBase: files[0].base, files } : {}),
+        ...(own ? { ownText: read.own[name] } : {}),
+    };
 }
 
-/** Every section folder of `dir`, by folder name, as the page edits it. */
-export function readSectionsForEdit(dir: string | undefined): AspectSectionEdit[] {
+/**
+ * Every aspect folder of `dir`, by folder name, as the page edits it; with
+ * `layers`, each choice's guideline files too, and the aspect folders of the
+ * layers that `dir` does not define (with their problem, repaired by a save).
+ */
+export function readSectionsForEdit(dir: string | undefined, layers: readonly AspectFileLayer[] = []): AspectSectionEdit[] {
     if (!dir) { return []; }
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
     const out: AspectSectionEdit[] = [];
     for (const e of entries.filter((x) => x.isDirectory() && !x.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name))) {
         const folder = path.join(dir, e.name);
@@ -95,8 +136,8 @@ export function readSectionsForEdit(dir: string | undefined): AspectSectionEdit[
         } else {
             problems.push(`no ${ASPECT_FILE}`);
         }
-        const files = optionFiles(folder);
-        const built = buildAspectSection(e.name, yaml, files);
+        const read = readAspectChoiceTexts(dir, e.name, layers);
+        const built = buildAspectSection(e.name, yaml, read.texts, read.sources);
         problems.push(...built.problems.map((p) => p.replace(new RegExp(`^${e.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '')));
         const raw = (yaml && typeof yaml === 'object' ? yaml : {}) as AspectSectionYaml;
         if (built.section) {
@@ -107,25 +148,33 @@ export function readSectionsForEdit(dir: string | undefined): AspectSectionEdit[
                 label: typeof raw.label === 'string' ? raw.label : '',
                 placement: s.placement,
                 defaultOption: s.defaultOption ?? '',
-                options: s.options.map((o) => ({ name: o.name, text: o.text })),
+                options: s.options.map((o) => optionForEdit(o.name, read)),
                 problems: [...new Set(problems)],
             });
         } else {
             // Not a usable aspect: shown as far as it reads, to be repaired by a save.
-            const order = Array.isArray(raw.choices) ? raw.choices.filter((o): o is string => typeof o === 'string' && o in files) : [];
-            for (const n of Object.keys(files).sort()) { if (!order.includes(n)) { order.push(n); } }
-            out.push({
-                id: e.name,
-                name: typeof raw.name === 'string' ? raw.name : '',
-                label: typeof raw.label === 'string' ? raw.label : '',
-                placement: raw.placement === 'user' ? 'user' : 'system',
-                defaultOption: typeof raw.default === 'string' && order.includes(raw.default) ? raw.default : '',
-                options: order.map((name) => ({ name, text: files[name] })),
-                problems: [...new Set(problems)],
-            });
+            out.push(unusableForEdit(e.name, raw, read, problems));
         }
     }
-    return out;
+    for (const o of orphanGuidelineAspects(dir, layers)) {
+        const read = readAspectChoiceTexts(dir, o.id, layers);
+        out.push(unusableForEdit(o.id, {}, read, [`no ${ASPECT_FILE} in _ai/aspect_guidelines/${o.id}/: only guideline files; Save creates it`]));
+    }
+    return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function unusableForEdit(id: string, raw: AspectSectionYaml, read: ReturnType<typeof readAspectChoiceTexts>, problems: string[]): AspectSectionEdit {
+    const order = Array.isArray(raw.choices) ? raw.choices.filter((o): o is string => typeof o === 'string' && o in read.texts) : [];
+    for (const n of Object.keys(read.texts).sort()) { if (!order.includes(n)) { order.push(n); } }
+    return {
+        id,
+        name: typeof raw.name === 'string' ? raw.name : '',
+        label: typeof raw.label === 'string' ? raw.label : '',
+        placement: raw.placement === 'user' ? 'user' : 'system',
+        defaultOption: typeof raw.default === 'string' && order.includes(raw.default) ? raw.default : '',
+        options: order.map((name) => optionForEdit(name, read)),
+        problems: [...new Set(problems)],
+    };
 }
 
 /** Why `section` cannot be saved; undefined when it can. */
@@ -156,28 +205,51 @@ export function sectionYamlText(section: Omit<AspectSectionEdit, 'problems'>, sc
 }
 
 /**
- * Write `section` as a whole into its folder of `dir` (which must exist):
- * `aspect.yaml`, each choice's `<name>.md`, and the choice files no longer
- * listed deleted (a leftover `section.yaml` too). Throws with the reason when
- * it cannot be saved.
+ * Write `section` as a whole into its folder of `dir`: `aspect.yaml`, each Own
+ * text choice's `<name>.md`, each Guideline file choice's text into the file of
+ * its layer (`fileBase`, one of `layers`; unset: the file it has, else the
+ * root's layer), the own texts no longer listed as own deleted (a leftover
+ * `section.yaml` too), and the guideline file of a Guideline file choice no
+ * longer listed deleted. The folder must exist, or the aspect be one the
+ * layers' files make (it is created). Throws with the reason when it cannot be
+ * saved.
  */
-export function saveAspectSection(dir: string, section: Omit<AspectSectionEdit, 'problems'>, topTom?: string): void {
+export function saveAspectSection(dir: string, section: Omit<AspectSectionEdit, 'problems'>, topTom?: string, layers: readonly AspectFileLayer[] = []): void {
     const folder = sectionFolder(dir, section.id);
-    if (!fs.existsSync(folder)) { throw new Error(`The aspect ${section.id} does not exist (any more).`); }
+    if (!fs.existsSync(folder)) {
+        if (!layers.some((l) => fs.existsSync(path.join(l.base, section.id)))) { throw new Error(`The aspect ${section.id} does not exist (any more).`); }
+        fs.mkdirSync(folder, { recursive: true });
+    }
     const refusal = aspectSectionRefusal(section);
     if (refusal) { throw new Error(refusal); }
-    const file = path.join(folder, ASPECT_FILE);
-    const keep = new Set(section.options.map((o) => `${o.name}.md`));
+    const prior = readAspectChoiceTexts(dir, section.id, layers);
+    const writes: Array<{ target: string; text: string }> = [];
     for (const o of section.options) {
-        const target = path.join(folder, `${o.name}.md`);
-        const text = o.text ?? '';
-        let before: string | undefined;
-        try { before = fs.readFileSync(target, 'utf8'); } catch { /* new */ }
-        if (before !== text) { fs.writeFileSync(target, text, 'utf8'); }
+        if (o.mode !== 'file') { writes.push({ target: path.join(folder, `${o.name}.md`), text: o.text ?? '' }); continue; }
+        const priorBase = prior.sources[o.name]?.kind === 'file' ? prior.sources[o.name].base : undefined;
+        const base = o.fileBase ?? priorBase ?? layers[0]?.base;
+        if (!base) { throw new Error(`The choice "${o.name}" is a guideline file, but this window has no guideline folder.`); }
+        if (!layers.some((l) => l.base === base)) { throw new Error(`The choice "${o.name}": ${base} is no guideline folder of this window.`); }
+        writes.push({ target: path.join(base, section.id, `${o.name}.md`), text: o.text ?? '' });
     }
+    for (const w of writes) {
+        let before: string | undefined;
+        try { before = fs.readFileSync(w.target, 'utf8'); } catch { /* new */ }
+        if (before !== w.text) {
+            fs.mkdirSync(path.dirname(w.target), { recursive: true });
+            fs.writeFileSync(w.target, w.text, 'utf8');
+        }
+    }
+    const keep = new Set(section.options.filter((o) => o.mode !== 'file').map((o) => `${o.name}.md`));
     for (const f of fs.readdirSync(folder)) {
         if (f.endsWith('.md') && !f.startsWith('.') && !keep.has(f)) { fs.unlinkSync(path.join(folder, f)); }
     }
+    // A Guideline file choice removed or renamed in the draft: the file it had goes.
+    const names = new Set(section.options.map((o) => o.name));
+    for (const [name, source] of Object.entries(prior.sources)) {
+        if (source.kind === 'file' && !names.has(name) && fs.existsSync(source.path)) { fs.unlinkSync(source.path); }
+    }
+    const file = path.join(folder, ASPECT_FILE);
     fs.writeFileSync(file, sectionYamlText(section, topTom ? schemaRefFromFile(file, topTom, ASPECT_SECTION_SCHEMA_REL) : undefined), 'utf8');
     // The definition is aspect.yaml only: an older section.yaml beside it would be read by an older build only.
     const legacy = path.join(folder, LEGACY_ASPECT_FILE);
@@ -192,13 +264,20 @@ export function createAspectSection(dir: string, id: string, name: string, topTo
     saveAspectSection(dir, { id, name: name.trim() || id, label: '', placement: 'system', defaultOption: '', options: [] }, topTom);
 }
 
-/** The folder `from` of `dir` renamed to `to` (its id: choices naming `from` no longer apply). */
-export function renameAspectSection(dir: string, from: string, to: string, topTom?: string): void {
+/**
+ * The folder `from` of `dir` renamed to `to` (its id: choices naming `from` no
+ * longer apply), and the aspect's folder in every guideline layer with it.
+ */
+export function renameAspectSection(dir: string, from: string, to: string, topTom?: string, layers: readonly AspectFileLayer[] = []): void {
     const source = sectionFolder(dir, from);
     const target = sectionFolder(dir, to);
     if (!fs.existsSync(source)) { throw new Error(`The aspect ${from} does not exist (any more).`); }
     if (fs.existsSync(target)) { throw new Error(`An aspect ${to} exists already.`); }
+    const moves = layers.map((l) => ({ from: path.join(l.base, from), to: path.join(l.base, to) })).filter((m) => fs.existsSync(m.from));
+    const taken = moves.find((m) => fs.existsSync(m.to));
+    if (taken) { throw new Error(`Guideline files of an aspect ${to} exist already: ${taken.to}.`); }
     fs.renameSync(source, target);
+    for (const m of moves) { fs.renameSync(m.from, m.to); }
     // The schema line is relative to the folder: the same depth, written again only to stay exact.
     const file = path.join(target, ASPECT_FILE);
     if (topTom && fs.existsSync(file)) {
@@ -209,7 +288,7 @@ export function renameAspectSection(dir: string, from: string, to: string, topTo
     }
 }
 
-/** The aspect folder `id` of `dir` deleted with its choices. */
+/** The aspect folder `id` of `dir` deleted with its own texts; guideline files stay (they are listed as such then). */
 export function deleteAspectSection(dir: string, id: string): void {
     // sectionFolder refuses "/", "\", "." and "..": the folder is always a direct child of dir.
     const folder = sectionFolder(dir, id);

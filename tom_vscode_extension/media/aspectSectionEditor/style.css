@@ -26,6 +26,10 @@ textarea { min-height: 110px; font-family: var(--vscode-editor-font-family); }
 .option-head { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
 .option-head input { flex: 1; }
 .option-head .is-default { opacity: 0.75; font-size: 0.85em; white-space: nowrap; }
+.option-head .opt-mode { flex: 0 0 auto; }
+.file-line { margin: 2px 0 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.file-line code { font-size: 0.95em; }
+.file-line.error { color: var(--vscode-errorForeground); }
 .error { color: var(--vscode-errorForeground); }
 .save-row { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
 button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 5px 14px; cursor: pointer; }

@@ -22,7 +22,7 @@ import type { AspectChoiceWriters } from '../utils/aspectPickerChoice';
 export { applyAspectChoice, aspectValueRefusal, ASPECT_PICKER_LEVELS, type AspectChoiceRequest, type AspectChoiceResult, type AspectChoiceWriters, type AspectPickerLevel } from '../utils/aspectPickerChoice';
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
-import { ASPECT_GUIDELINES_FOLDER, readAspectSections } from './aspectGuidelinesStore';
+import { readLiveAspectSections } from './aspectGuidelinesStore';
 import { chatPanelChoices, questDefaultChoices, roleLevelChoices, setChatPanelChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
 
 /** The picker's shared data. */
@@ -37,10 +37,9 @@ function attempt<T>(read: () => T): T | undefined {
     try { return read(); } catch { return undefined; }
 }
 
-/** The sections as `_ai/aspect_guidelines/` holds them (none without an `_ai` folder). */
+/** The aspects as `_ai/aspect_guidelines/` and the window's guideline layers hold them (none without an `_ai` folder). */
 export function readPickerSections(): { sections: AspectSection[]; problems: string[] } {
-    const dir = attempt(() => WsPaths.ai(ASPECT_GUIDELINES_FOLDER));
-    return (dir ? attempt(() => readAspectSections(dir)) : undefined) ?? { sections: [], problems: [] };
+    return attempt(() => readLiveAspectSections()) ?? { sections: [], problems: [] };
 }
 
 /** The picker's shared data, read now. */

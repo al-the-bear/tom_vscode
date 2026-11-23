@@ -596,6 +596,22 @@ placeholders (`${guidelines-<name>}`, `${file-<path>}`, `${role}`, …); they
 are resolved recursively before the text is sent. `remove` is no choice name:
 on a level it is Remove.
 
+**Guideline files** (`src/utils/aspectChoiceFiles.ts`): a choice's text is
+either its **own text** above or a **guideline file**
+`_agent_guidelines/aspects/<aspect>/<choice>.md`, which Claude Code can import
+outside the extension. The window's guideline layers are the Tom root's
+`_agent_guidelines/aspects/`, then each workspace folder's on the way down to
+the window's workspace folder (a nested workspace folder sees the root's, the
+outer folder's and its own). For the same aspect and choice the nearest layer
+wins, and an own text wins over every file; the files a text wins over are
+named (`shadows`). The aspect's `aspect.yaml` stays in `_ai/aspect_guidelines/`;
+its `choices` may name choices that only a guideline file has. An aspect folder
+of a layer that `_ai/aspect_guidelines/` does not define is a problem.
+`tomAi_getAspectGuidelines` names each selected choice's file (`file`,
+`guidelineFile: true` for a guideline file), and the picker's hover help and
+popup name it too. The workspace template packs the root's
+`_agent_guidelines/aspects/` with `_ai/aspect_guidelines/`.
+
 Before `_ai` format version 10 the file was `section.yaml` with `options:`
 (schema `aspect-guideline-section.schema.json`). The format migration
 (Upgrade the workspace, `npm run migrate:ai-formats`) renames it to
@@ -608,9 +624,15 @@ and left as it is. The reader takes only `aspect.yaml`: a folder with
 aspects…* in every picker, Extension Tools; `src/handlers/aspectSectionEditor-handler.ts`,
 `src/services/aspectSectionsEdit.ts`) edits the store: aspects are added,
 renamed (the folder) and deleted; an aspect's name, label, placement, default
-and choices (short name, text, order) are edited as a draft and saved as a
-whole, `aspect.yaml` with its schema line and one `<choice>.md` per choice,
-a choice file no longer listed deleted. A save the rules refuse writes
+and choices (short name, Own text or Guideline file, text, order) are edited
+as a draft and saved as a whole, `aspect.yaml` with its schema line and one
+`<choice>.md` per Own text choice, a choice file no longer listed deleted. A
+Guideline file choice's text is written into the file it edits (the layer it
+names, `fileBase`) or, after *Create the workspace's own copy*, into the window
+workspace folder's; switching a choice to Guideline file drops its own text,
+switching it to Own text keeps the file (the page offers to copy its text), and
+a Guideline file choice removed or renamed takes its file with it. A rename of
+the aspect moves its folders in the layers too. A save the rules refuse writes
 nothing. An aspect renamed, or a choice renamed in the draft (Save sends the
 renames), keeps the choices in effect: every stored choice naming the old id
 is rewritten to the new one (`src/services/aspectChoiceRename.ts`) — every

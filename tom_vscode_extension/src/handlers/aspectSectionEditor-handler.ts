@@ -19,7 +19,11 @@
  *   (aspectChoiceCommands.ts carryAspectChoicesOver), and the page and a
  *   VS Code message say what was rewritten.
  *
- * Opened from *Edit sections…* in every guideline picker and from Extension
+ * - A choice is Own text or a Guideline file (gsel17): the page edits a
+ *   guideline file in place (the layer it names) or the window workspace
+ *   folder's own copy; the data carries the layers (`layers`).
+ *
+ * Opened from *Edit aspects…* in every guideline picker and from Extension
  * Tools (utils/extensionToolsCatalog.ts). After every write the pickers are
  * redrawn (aspectViewsRefresh.ts) and the Role Editor reads the sections
  * again.
@@ -29,16 +33,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { ASPECT_GUIDELINES_FOLDER } from '../services/aspectGuidelinesStore';
+import { liveAspectStore } from '../services/aspectGuidelinesStore';
 import {
     createAspectSection,
     deleteAspectSection,
+    layersForEdit,
     readSectionsForEdit,
     renameAspectSection,
     saveAspectSection,
     type AspectSectionEdit,
 } from '../services/aspectSectionsEdit';
 import { isAspectName } from '../utils/aspectGuidelines';
+import type { AspectFileLayer } from '../utils/aspectChoiceFiles';
 import { parseAspectRename, type AspectRename } from '../utils/aspectRename';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { WsPaths } from '../utils/workspacePaths';
@@ -56,6 +62,8 @@ export interface AspectSectionEditorEnv {
     dir: string | undefined;
     /** The top `.tom`, for the schema line of `aspect.yaml`. */
     topTom?: string;
+    /** The window's guideline layers (gsel17): where Guideline file choices are. */
+    layers?: AspectFileLayer[];
     /** A section changed: the pickers and the Role Editor read the sections again. */
     changed?: () => void;
     /** A section or options renamed: carry the stored choices over; answers what was rewritten. */
@@ -76,7 +84,7 @@ export interface AspectSectionEditorUi {
 /** What the page shows: every section as it is on disk. */
 export function aspectSectionEditorData(env: AspectSectionEditorEnv, selected?: string): Record<string, unknown> {
     if (!env.dir) { return { type: 'data', error: 'This workspace has no _ai folder: there are no guideline aspects.', sections: [] }; }
-    return { type: 'data', sections: readSectionsForEdit(env.dir), ...(selected ? { selected } : {}) };
+    return { type: 'data', sections: readSectionsForEdit(env.dir, env.layers ?? []), layers: layersForEdit(env.layers ?? []), ...(selected ? { selected } : {}) };
 }
 
 /** The section a save carries, as the store takes it; undefined when it is none. */
@@ -93,7 +101,11 @@ function sectionOf(value: unknown): Omit<AspectSectionEdit, 'problems'> | undefi
         defaultOption: typeof v.defaultOption === 'string' ? v.defaultOption : '',
         options: options.map((o) => {
             const r = (typeof o === 'object' && o !== null ? o : {}) as Record<string, unknown>;
-            return { name: typeof r.name === 'string' ? r.name.trim() : '', text: typeof r.text === 'string' ? r.text : '' };
+            return {
+                name: typeof r.name === 'string' ? r.name.trim() : '',
+                text: typeof r.text === 'string' ? r.text : '',
+                ...(r.mode === 'file' ? { mode: 'file' as const, ...(typeof r.fileBase === 'string' && r.fileBase ? { fileBase: r.fileBase } : {}) } : {}),
+            };
         }),
     };
 }
@@ -125,7 +137,7 @@ export async function handleAspectSectionEditorMessage(
                 const section = sectionOf(msg.section);
                 if (!section) { return undefined; }
                 const renames = optionRenamesOf(msg.renames, section);
-                saveAspectSection(dir, section, env.topTom);
+                saveAspectSection(dir, section, env.topTom, env.layers ?? []);
                 const carried = renames ? env.renamed?.(renames) : undefined;
                 env.changed?.();
                 ui.info(`Aspect ${section.id} saved.`);
@@ -146,7 +158,7 @@ export async function handleAspectSectionEditorMessage(
                 const to = (await ui.ask(`New short name of the aspect ${id} (its folder). The choices saved under "${id}" on every level are carried over to the new name.`, id))?.trim();
                 if (!to || to === id) { return undefined; }
                 if (!isAspectName(to) || to.includes('\\') || to === '.' || to === '..') { ui.error(`"${to}" is not an aspect name: ${NAME_RULE}.`); return undefined; }
-                renameAspectSection(dir, id, to, env.topTom);
+                renameAspectSection(dir, id, to, env.topTom, env.layers ?? []);
                 const carried = env.renamed?.({ kind: 'section', from: id, to });
                 env.changed?.();
                 if (carried) { ui.notice?.(carried); }
@@ -154,8 +166,11 @@ export async function handleAspectSectionEditorMessage(
             }
             case 'deleteSection': {
                 if (!id) { return undefined; }
-                const count = readSectionsForEdit(dir).find((s) => s.id === id)?.options.length ?? 0;
-                if (!await ui.confirm(`Delete the aspect ${id} with its ${count} choice${count === 1 ? '' : 's'}? Its folder _ai/aspect_guidelines/${id}/ is deleted.`, 'Delete')) { return undefined; }
+                const options = readSectionsForEdit(dir, env.layers ?? []).find((s) => s.id === id)?.options ?? [];
+                const count = options.filter((o) => o.mode !== 'file').length;
+                const files = options.filter((o) => o.files?.length).length;
+                const kept = files ? ` Its guideline files (${files} choice${files === 1 ? '' : 's'}) stay.` : '';
+                if (!await ui.confirm(`Delete the aspect ${id} with its ${count} choice${count === 1 ? '' : 's'}? Its folder _ai/aspect_guidelines/${id}/ is deleted.${kept}`, 'Delete')) { return undefined; }
                 deleteAspectSection(dir, id);
                 env.changed?.();
                 return data(undefined, { deleted: id });
@@ -173,10 +188,10 @@ export async function handleAspectSectionEditorMessage(
 }
 
 function liveEnv(): AspectSectionEditorEnv {
-    let dir: string | undefined;
-    try { dir = WsPaths.ai(ASPECT_GUIDELINES_FOLDER); } catch { dir = undefined; }
+    const { dir, layers } = liveAspectStore();
     return {
         dir,
+        layers,
         topTom: WsPaths.topTom,
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         renamed: (rename) => (require('./aspectChoiceCommands') as typeof import('./aspectChoiceCommands')).carryAspectChoicesOver(rename),

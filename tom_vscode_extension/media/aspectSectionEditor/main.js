@@ -9,6 +9,15 @@
  * files and answers with the data (`saved`: that draft is done). Sections are
  * added, renamed and deleted through the host (it asks).
  *
+ * A choice is Own text (<choice>.md in the aspect's folder) or a Guideline
+ * file (_agent_guidelines/aspects/<aspect>/<choice>.md of a guideline layer,
+ * gsel17): the data carries the layers (`layers`: base, label, own) and per
+ * choice its own text (`ownText`) and its files (`files`, nearest first). A
+ * draft choice keeps both texts (`ownText`, `fileText`) and the layer it
+ * writes (`fileBase`); the text area edits the one of its mode. Switching to
+ * Own text offers the file's text; *Create the workspace's own copy* points
+ * the choice at the window workspace folder's layer, its text kept.
+ *
  * Each draft option keeps the name it has on disk (`origin`); Save sends the
  * options renamed in the draft as `renames` (old name → new name), and the host
  * carries the stored choices over (gsel7b) and answers what it rewrote
@@ -37,7 +46,45 @@ function escapeHtml(s) {
 function onDisk(id) { return (data.sections || []).find(function(s) { return s.id === id; }); }
 
 function copyOf(s) {
-  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, options: s.options.map(function(o) { return { name: o.name, text: o.text, origin: o.name }; }) };
+  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, options: s.options.map(function(o) {
+    const mode = o.mode === 'file' ? 'file' : 'own';
+    const files = o.files || [];
+    const base = o.fileBase || '';
+    const file = files.find(function(f) { return f.base === base; });
+    return {
+      name: o.name, origin: o.name, mode: mode, fileBase: base,
+      ownText: o.ownText !== undefined ? o.ownText : (mode === 'own' ? o.text : ''),
+      fileText: file ? file.text : (mode === 'file' ? o.text : ''),
+      files: files,
+    };
+  }) };
+}
+
+function layers() { return data.layers || []; }
+function layerOf(base) { return layers().find(function(l) { return l.base === base; }); }
+function ownLayer() { return layers().find(function(l) { return l.own; }); }
+
+/** The guideline file of `name` in `layer`, as shown (relative to the Tom root). */
+function fileDisplay(layer, aspect, name) {
+  return (layer.folder === '.' ? '' : layer.folder + '/') + '_agent_guidelines/aspects/' + aspect + '/' + (name || '<choice>') + '.md';
+}
+
+/** The text of the file `o` has in the layer `base`, undefined when it has none there. */
+function fileTextIn(o, base) {
+  const f = (o.files || []).find(function(x) { return x.base === base; });
+  return f ? f.text : undefined;
+}
+
+/** Switch a draft choice's mode (gsel17). */
+function setMode(o, mode) {
+  if (mode === o.mode) { return; }
+  if (mode === 'file') {
+    if (!o.fileBase) { o.fileBase = (o.files && o.files[0] && o.files[0].base) || (layers()[0] && layers()[0].base) || ''; }
+    const onDiskText = fileTextIn(o, o.fileBase);
+    // A new file starts with the own text: the text moves into the file.
+    if (onDiskText === undefined && !o.fileText) { o.fileText = o.ownText; }
+  }
+  o.mode = mode;
 }
 
 /** The options renamed in the draft: { name on disk: new name }, those with a name on disk and a new name only. */
@@ -95,16 +142,39 @@ function defaultOptionsHtml(d) {
   }).join('');
 }
 
+function fileLineHtml(o, d) {
+  if (o.mode !== 'file') {
+    // Own text: offer the guideline file's text when there is one.
+    const text = o.fileText || ((o.files || [])[0] || {}).text || '';
+    return text && text !== o.ownText
+      ? '<div class="hint file-line"><button class="secondary opt-copy" title="Put the guideline file\'s text into the field">Copy the guideline file\'s text into the field</button></div>'
+      : '';
+  }
+  const layer = layerOf(o.fileBase);
+  if (!layer) { return '<div class="hint file-line error">This window has no guideline folder: the choice cannot be a guideline file here.</div>'; }
+  const exists = fileTextIn(o, o.fileBase) !== undefined;
+  const own = ownLayer();
+  return '<div class="hint file-line">' + (exists ? 'Edits ' : 'New file ') + '<code>' + escapeHtml(fileDisplay(layer, d.id, o.name)) + '</code> (' + escapeHtml(layer.label) + ')'
+    + (own && own.base !== o.fileBase ? ' <button class="secondary opt-own-copy" title="Write this text into the window workspace folder\'s own file instead; the other file stays">Create the workspace\'s own copy</button>' : '')
+    + '</div>';
+}
+
 function optionHtml(o, i, count, d) {
+  const text = o.mode === 'file' ? o.fileText : o.ownText;
   return '<div class="option" data-index="' + i + '">'
     + '<div class="option-head">'
     + '<input type="text" class="opt-name" placeholder="short name (the file name, e.g. brief)" value="' + escapeHtml(o.name) + '" aria-label="Choice short name">'
+    + '<select class="opt-mode" aria-label="Where the choice\'s text is" title="Own text: in this aspect\'s folder. Guideline file: _agent_guidelines/aspects/, which Claude Code can import outside the extension.">'
+    + '<option value="own"' + (o.mode !== 'file' ? ' selected' : '') + '>Own text</option>'
+    + '<option value="file"' + (o.mode === 'file' ? ' selected' : '') + (layers().length ? '' : ' disabled') + '>Guideline file</option>'
+    + '</select>'
     + (o.name && o.name === d.defaultOption ? '<span class="is-default">default</span>' : '')
     + '<button class="icon-btn opt-up" title="Move up"' + (i === 0 ? ' disabled' : '') + '><span class="codicon codicon-arrow-up"></span></button>'
     + '<button class="icon-btn opt-down" title="Move down"' + (i === count - 1 ? ' disabled' : '') + '><span class="codicon codicon-arrow-down"></span></button>'
-    + '<button class="icon-btn opt-delete" title="Delete the choice (its file goes with Save)"><span class="codicon codicon-trash"></span></button>'
+    + '<button class="icon-btn opt-delete" title="Delete the choice (its file goes with Save: the own text, or the guideline file it edits)"><span class="codicon codicon-trash"></span></button>'
     + '</div>'
-    + '<textarea class="opt-text" spellcheck="false" aria-label="Choice text">' + escapeHtml(o.text) + '</textarea>'
+    + fileLineHtml(o, d)
+    + '<textarea class="opt-text" spellcheck="false" aria-label="Choice text">' + escapeHtml(text) + '</textarea>'
     + '</div>';
 }
 
@@ -134,7 +204,7 @@ function render() {
     + '<div class="hint">Chosen when no level chooses.</div></div>'
     + '</div>'
     + '<div class="field"><label class="title">Choices</label>'
-    + '<div class="hint">Each choice is &lt;short name&gt;.md: Markdown; placeholders (${guidelines-…}, ${file-…} …) are resolved when the text is sent. "remove" is no choice name: it is the levels\' Remove.</div>'
+    + '<div class="hint">Each choice is &lt;short name&gt;.md, Markdown: <b>Own text</b> in this aspect\'s folder, or a <b>Guideline file</b> _agent_guidelines/aspects/' + escapeHtml(s.id) + '/&lt;short name&gt;.md of the root or a workspace folder (the nearest wins; Claude Code can import it). Placeholders (${guidelines-…}, ${file-…} …) are resolved when the text is sent. "remove" is no choice name: it is the levels\' Remove.</div>'
     + '<div id="options">' + d.options.map(function(o, i) { return optionHtml(o, i, d.options.length, d); }).join('') + '</div>'
     + '<button class="secondary" id="btnAddOption"><span class="codicon codicon-add"></span> Add choice</button></div>'
     + '<div class="save-row"><button class="primary" id="btnSave">Save</button><button class="secondary" id="btnRevert">Revert</button><span class="muted">Ctrl/Cmd+S</span></div>';
@@ -159,7 +229,22 @@ function wireForm(d) {
       document.getElementById('secDefault').innerHTML = defaultOptionsHtml(d);
       changed();
     });
-    block.querySelector('.opt-text').addEventListener('input', function(e) { d.options[i].text = e.target.value; changed(); });
+    block.querySelector('.opt-text').addEventListener('input', function(e) {
+      const o = d.options[i];
+      if (o.mode === 'file') { o.fileText = e.target.value; } else { o.ownText = e.target.value; }
+      changed();
+    });
+    block.querySelector('.opt-mode').addEventListener('change', function(e) { setMode(d.options[i], e.target.value); render(); });
+    const copy = block.querySelector('.opt-copy');
+    if (copy) {
+      copy.addEventListener('click', function() {
+        const o = d.options[i];
+        o.ownText = o.fileText || ((o.files || [])[0] || {}).text || '';
+        render();
+      });
+    }
+    const ownCopy = block.querySelector('.opt-own-copy');
+    if (ownCopy) { ownCopy.addEventListener('click', function() { const own = ownLayer(); if (own) { d.options[i].fileBase = own.base; render(); } }); }
     block.querySelector('.opt-up').addEventListener('click', function() { move(d, i, -1); });
     block.querySelector('.opt-down').addEventListener('click', function() { move(d, i, 1); });
     block.querySelector('.opt-delete').addEventListener('click', function() {
@@ -169,7 +254,7 @@ function wireForm(d) {
     });
   });
   document.getElementById('btnAddOption').addEventListener('click', function() {
-    d.options.push({ name: '', text: '', origin: '' });
+    d.options.push({ name: '', origin: '', mode: 'own', fileBase: '', ownText: '', fileText: '', files: [] });
     render();
     const names = document.querySelectorAll('.opt-name');
     if (names.length) { names[names.length - 1].focus(); }
@@ -190,7 +275,11 @@ function save() {
   const d = draft();
   if (!d) { return; }
   const renames = renamesOf(d);
-  const message = { type: 'save', section: { id: d.id, name: d.name, label: d.label, placement: d.placement, defaultOption: d.defaultOption, options: d.options.map(function(o) { return { name: o.name.trim(), text: o.text }; }) } };
+  const message = { type: 'save', section: { id: d.id, name: d.name, label: d.label, placement: d.placement, defaultOption: d.defaultOption, options: d.options.map(function(o) {
+    return o.mode === 'file'
+      ? { name: o.name.trim(), text: o.fileText, mode: 'file', fileBase: o.fileBase }
+      : { name: o.name.trim(), text: o.ownText };
+  }) } };
   if (Object.keys(renames).length) { message.renames = renames; }
   vscode.postMessage(message);
 }

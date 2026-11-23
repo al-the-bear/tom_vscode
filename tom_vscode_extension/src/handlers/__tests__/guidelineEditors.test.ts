@@ -111,10 +111,11 @@ describe('the Aspect Guidelines editor and the Role Editor (gsel7)', () => {
         assert.deepEqual(parseYaml(yamlText), { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'brief', choices: ['full', 'brief'] });
         assert.equal(fs.readFileSync(path.join(dir, 'answer', 'brief.md'), 'utf8'), 'Answer briefly: ${role}.\n');
         const edit = readSectionsForEdit(dir)[0];
-        assert.deepEqual({ ...edit, problems: undefined }, { ...section(), problems: undefined }, 'the page reads what it saved');
+        assert.deepEqual({ ...edit, problems: undefined, options: edit.options.map((o) => ({ name: o.name, text: o.text })) }, { ...section(), problems: undefined }, 'the page reads what it saved');
+        assert.deepEqual(edit.options.map((o) => [o.mode, o.ownText === o.text]), [['own', true], ['own', true]], 'own texts (gsel17)');
         const picked = readAspectSections(dir);
         assert.deepEqual(picked.problems, []);
-        assert.deepEqual(aspectCatalogueOf(picked.sections).sections, [{ id: 'answer', name: 'Answer mode', label: 'Answer', defaultOption: 'brief', options: ['full', 'brief'] }], 'the pickers read it');
+        assert.deepEqual(aspectCatalogueOf(picked.sections).sections, [{ id: 'answer', name: 'Answer mode', label: 'Answer', defaultOption: 'brief', options: ['full', 'brief'], files: { full: '_ai/aspect_guidelines/answer/full.md', brief: '_ai/aspect_guidelines/answer/brief.md' } }], 'the pickers read it');
 
         // An option renamed and one deleted: the old files go; the default follows what the page sent.
         saveAspectSection(dir, section({ defaultOption: 'short', options: [{ name: 'short', text: 'Short.\n' }] }), topTom);
@@ -171,7 +172,7 @@ describe('the Aspect Guidelines editor and the Role Editor (gsel7)', () => {
             error: (m: string) => { shown.push(`error: ${m}`); },
             info: (m: string) => { shown.push(m); },
         };
-        assert.deepEqual(await handleAspectSectionEditorMessage({ type: 'ready' }, env, ui), { type: 'data', sections: [] });
+        assert.deepEqual(await handleAspectSectionEditorMessage({ type: 'ready' }, env, ui), { type: 'data', sections: [], layers: [] });
         const added = await handleAspectSectionEditorMessage({ type: 'addSection' }, env, ui);
         assert.equal(added?.selected, 'answer');
         assert.deepEqual((added?.sections as AspectSectionEdit[]).map((s) => s.id), ['answer']);

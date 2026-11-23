@@ -296,13 +296,13 @@ describe('guideline choices per level', () => {
         assert.equal(all.ok, true, JSON.stringify(all));
         assert.deepEqual(all.aspects.map((s: { id: string; choices: string[]; placement: string; default?: string }) => [s.id, s.placement, s.default, s.choices]), [['language', 'system', 'en', ['de', 'en']], ['night', 'user', 'off', ['on', 'off']]]);
         assert.deepEqual(all.levels, { questDefault: { language: 'de' }, window: { night: 'on' }, roleType: { night: 'off' }, role: { language: 'de' }, item: { night: 'off' }, todo: { language: 'remove' } });
-        assert.deepEqual(all.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'off', from: 'item' }]);
+        assert.deepEqual(all.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'off', from: 'item', file: '_ai/aspect_guidelines/night/off.md' }], 'the file a choice comes from (gsel17)');
         assert.equal(all.context.role, 'writer');
         assert.equal(all.context.roleType, 'author');
         const atWindow = JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ itemId: item.id, level: 'window' }));
-        assert.deepEqual(atWindow.selection, [{ aspect: 'language', choice: 'de', from: 'questDefault' }, { aspect: 'night', choice: 'on', from: 'window' }], 'cut at the window level');
+        assert.deepEqual(atWindow.selection, [{ aspect: 'language', choice: 'de', from: 'questDefault', file: '_ai/aspect_guidelines/language/de.md' }, { aspect: 'night', choice: 'on', from: 'window', file: '_ai/aspect_guidelines/night/on.md' }], 'cut at the window level');
         const byTodo = JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ todoId: 't1_aktl-chosen', role: 'plain' }));
-        assert.deepEqual(byTodo.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'on', from: 'window' }]);
+        assert.deepEqual(byTodo.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'on', from: 'window', file: '_ai/aspect_guidelines/night/on.md' }]);
         assert.match(JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ level: 'nowhere' })).error, /Unknown level/);
         assert.match(JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ itemId: 'nope' })).error, /No queue item/);
         clearQuestDefault();
