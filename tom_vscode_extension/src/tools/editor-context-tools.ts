@@ -137,11 +137,11 @@ export interface TabSnapshot {
 export interface WorkspaceInfoSource {
     /**
      * Build the workspace snapshot. Production reads from
-     * `vscode.workspace.*`, lists the projects with buildkit,
-     * and (optionally) runs git rev-parse/status. Tests pass a
-     * pre-built snapshot.
+     * `vscode.workspace.*`, lists the projects with buildkit only
+     * with `includeProjects`, and (optionally) runs git
+     * rev-parse/status. Tests pass a pre-built snapshot.
      */
-    snapshot(opts: { includeGit: boolean }): Promise<WorkspaceInfoSnapshot>;
+    snapshot(opts: { includeGit: boolean; includeProjects?: boolean }): Promise<WorkspaceInfoSnapshot>;
 }
 
 export interface ActiveEditorSource {
@@ -165,14 +165,14 @@ export interface OpenEditorsSource {
 export interface GetWorkspaceInfoInput {
     /** Default true. Set false to skip the git CLI calls. */
     includeGit?: boolean;
-    /** Parts to add (02_wslayout-11): `layout`, `workspaceFolders`, `quests`. */
+    /** Parts to add (02_wslayout-11): `projects`, `layout`, `workspaceFolders`, `quests`. */
     include?: string[];
     /** With `workspaceFolders`: scan the root again instead of the window's cached scan. */
     refresh?: boolean;
 }
 
 /** The parts `include` may add. */
-export const WORKSPACE_INFO_PARTS = ['layout', 'workspaceFolders', 'quests'] as const;
+export const WORKSPACE_INFO_PARTS = ['projects', 'layout', 'workspaceFolders', 'quests'] as const;
 
 /** Where the `include` parts come from (02_wslayout-11). */
 export interface WorkspaceInfoExtras {
@@ -193,7 +193,9 @@ export async function getWorkspaceInfoImpl(
     if (unknown.length) {
         return JSON.stringify({ ok: false, error: `Unknown include part(s): ${unknown.join(', ')}. Known: ${WORKSPACE_INFO_PARTS.join(', ')}.` });
     }
-    const snap = await deps.source.snapshot({ includeGit: input.includeGit !== false });
+    // The project list (~130 KB in a large workspace) only on request: `include: ["projects"]` (gsel14).
+    const withProjects = include.includes('projects');
+    const snap = await deps.source.snapshot({ includeGit: input.includeGit !== false, includeProjects: withProjects });
     const ex = deps.extras;
     const scan = include.includes('workspaceFolders') && ex ? ex.workspaceFolders(input.refresh === true) : undefined;
     return JSON.stringify({
@@ -201,10 +203,12 @@ export async function getWorkspaceInfoImpl(
         workspaceFile: snap.workspaceFile,
         workspaceFolders: snap.workspaceFolders.map((f, i) => ({ index: i, name: f.name, path: f.fsPath })),
         quest: snap.questId === 'default' ? '' : snap.questId,
-        projects: snap.projects,
-        projectsSource: snap.projectsSource,
-        ...(snap.projectsError ? { projectsError: snap.projectsError } : {}),
-        ...(snap.projectsFallback ? { projectsFallback: snap.projectsFallback } : {}),
+        ...(withProjects ? {
+            projects: snap.projects,
+            projectsSource: snap.projectsSource,
+            ...(snap.projectsError ? { projectsError: snap.projectsError } : {}),
+            ...(snap.projectsFallback ? { projectsFallback: snap.projectsFallback } : {}),
+        } : {}),
         git: snap.git,
         ...(snap.build ? { build: snap.build } : {}),
         ...(snap.dartBinaries ? { dartBinaries: snap.dartBinaries } : {}),
@@ -216,13 +220,14 @@ export async function getWorkspaceInfoImpl(
 
 export const GET_WORKSPACE_INFO_DESCRIPTION =
     'Workspace context as JSON: `workspaceName`, `workspaceFile`, `workspaceFolders` (index/name/path), `quest` ' +
-    '(active quest id, \'\' when none), `projects` (as tomAi_listProjects; `projectsFallback` says why when buildkit ' +
-    'did not; null with `projectsError` when no listing), `projectsSource`, `git` (`{branch, commit, dirty, remote}`, ' +
+    '(active quest id, \'\' when none), `git` (`{branch, commit, dirty, remote}`, ' +
     'null when not a repo), `build`: the build this window runs and the one installed (`running` / `installed`, each ' +
     '`{commit, dirty, builtAt}`) with `reloadNeeded: true` when a newer build is installed — a live check of a new ' +
     'feature stops there and asks for a reload. `dartBinaries`: this platform and, for `tom_bs` and `tomspecs`, ' +
     '`configured` / `bundled` / `missing` (the command tomAi.showDartBinariesHelp explains them). `includeGit: false` ' +
-    'skips git. `include` adds parts: `layout` (root, workspace folder, standalone, `aiRoot`, config layers, guideline ' +
+    'skips git. `include` adds parts: `projects` (the project list as tomAi_listProjects answers it, with ' +
+    '`projectsSource`, `projectsFallback` when buildkit did not list, null with `projectsError` when nothing did; ' +
+    'large — tomAi_listProjects narrows it), `layout` (root, workspace folder, standalone, `aiRoot`, config layers, guideline ' +
     'folders, overrides, `aiMissing`), `workspaceFolders` (`workspaceFolderScan`: the root\'s workspace folders, ' +
     'relative; cached, `refresh: true` scans again), `quests` (each quest\'s recorded workspace folder and the ' +
     '`_ai/workspaces/` lists naming it).';
@@ -237,7 +242,7 @@ export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput
         type: 'object',
         properties: {
             includeGit: { type: 'boolean', description: 'Include git branch/commit/dirty. Default true.' },
-            include: { type: 'array', items: { type: 'string', enum: ['layout', 'workspaceFolders', 'quests'] }, description: 'Parts to add: layout, workspaceFolders, quests.' },
+            include: { type: 'array', items: { type: 'string', enum: [...WORKSPACE_INFO_PARTS] }, description: 'Parts to add: projects (the project list), layout, workspaceFolders, quests.' },
             refresh: { type: 'boolean', description: 'With workspaceFolders: scan the root again. Default false (the window\'s cached scan).' },
         },
     },

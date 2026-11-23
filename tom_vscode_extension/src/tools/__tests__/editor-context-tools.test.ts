@@ -103,8 +103,8 @@ const TYPICAL_TABS: TabSnapshot[] = [
 // getWorkspaceInfo
 // ===========================================================================
 
-function makeWsSource(snapshot: WorkspaceInfoSnapshot): WorkspaceInfoSource & { calls: Array<{ includeGit: boolean }> } {
-    const calls: Array<{ includeGit: boolean }> = [];
+function makeWsSource(snapshot: WorkspaceInfoSnapshot): WorkspaceInfoSource & { calls: Array<{ includeGit: boolean; includeProjects?: boolean }> } {
+    const calls: Array<{ includeGit: boolean; includeProjects?: boolean }> = [];
     return {
         calls,
         async snapshot(opts) {
@@ -116,11 +116,26 @@ function makeWsSource(snapshot: WorkspaceInfoSnapshot): WorkspaceInfoSource & { 
 
 describe('getWorkspaceInfoImpl', () => {
 
-    test('typical call returns the full envelope with projects + git', async () => {
+    test('typical call returns the envelope with git and no project list (gsel14)', async () => {
         const src = makeWsSource(TYPICAL_WORKSPACE);
         const raw = await withTiming('tomAi_getWorkspaceInfo:typical', () =>
             getWorkspaceInfoImpl({ source: src }, {}));
         const r = JSON.parse(raw);
+        assert.equal(r.workspaceName, 'tom_agent_container');
+        assert.equal(r.quest, 'vscode_extension');
+        assert.equal(r.git.branch, 'main');
+        for (const key of ['projects', 'projectsSource', 'projectsError', 'projectsFallback']) {
+            assert.equal(key in r, false, `${key} only with include: ["projects"]`);
+        }
+        assert.equal(src.calls[0].includeProjects, false, 'the source is not asked to list (no buildkit run)');
+    });
+
+    test('include: ["projects"] answers the project list as before', async () => {
+        const src = makeWsSource(TYPICAL_WORKSPACE);
+        const raw = await withTiming('tomAi_getWorkspaceInfo:projects', () =>
+            getWorkspaceInfoImpl({ source: src }, { include: ['projects'] }));
+        const r = JSON.parse(raw);
+        assert.equal(src.calls[0].includeProjects, true);
         assert.equal(r.workspaceName, 'tom_agent_container');
         assert.equal(r.workspaceFile, '/ws/.tom.code-workspace');
         assert.equal(r.quest, 'vscode_extension');
@@ -143,7 +158,7 @@ describe('getWorkspaceInfoImpl', () => {
 
     test('no buildkit listing → projects: null, projectsSource: null, projectsError says why', async () => {
         const src = makeWsSource({ ...TYPICAL_WORKSPACE, projects: null, projectsSource: null, projectsError: 'buildkit not found' });
-        const r = JSON.parse(await getWorkspaceInfoImpl({ source: src }, {}));
+        const r = JSON.parse(await getWorkspaceInfoImpl({ source: src }, { include: ['projects'] }));
         assert.equal(r.projects, null);
         assert.equal(r.projectsSource, null);
         assert.equal(r.projectsError, 'buildkit not found');
@@ -159,6 +174,17 @@ describe('getWorkspaceInfoImpl', () => {
         const src = makeWsSource(TYPICAL_WORKSPACE);
         await getWorkspaceInfoImpl({ source: src }, { includeGit: false });
         assert.equal(src.calls[0].includeGit, false);
+    });
+
+    test('the include parts: projects with the others; an unknown part is refused', async () => {
+        const src = makeWsSource({ ...TYPICAL_WORKSPACE, projectsFallback: { kind: 'notFound', reason: 'r', searched: [], hint: 'h' } });
+        const r = JSON.parse(await getWorkspaceInfoImpl({ source: src }, { include: ['projects', 'quests'] }));
+        assert.equal(r.projects.length, 2);
+        assert.equal(r.projectsFallback.kind, 'notFound', 'the fallback comes with the projects');
+        assert.deepEqual(r.quests, []);
+        const bad = JSON.parse(await getWorkspaceInfoImpl({ source: src }, { include: ['projectz'] }));
+        assert.equal(bad.ok, false);
+        assert.match(bad.error, /Known: projects, layout, workspaceFolders, quests/);
     });
 
     test('includeGit defaults to true when omitted', async () => {

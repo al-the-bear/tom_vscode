@@ -439,7 +439,7 @@ const editorExecFileAsync = promisify(execFile);
 // --- Live deps for the editor-context tools. The bridges live here so the
 //     impl file stays vscode-free + testable.
 
-async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Promise<WorkspaceInfoSnapshot> {
+async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean; includeProjects?: boolean }): Promise<WorkspaceInfoSnapshot> {
     const wsFile = vscode.workspace.workspaceFile?.fsPath ?? '';
     const wsName = vscode.workspace.name ?? '';
     const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
@@ -450,7 +450,8 @@ async function buildLiveWorkspaceInfoSnapshot(opts: { includeGit: boolean }): Pr
     let projectsSource: string | null = null;
     let projectsError: string | undefined;
     let projectsFallback: WorkspaceInfoSnapshot['projectsFallback'];
-    if (root) {
+    // Listed only when asked for (`include: ["projects"]`): buildkit runs, and the list is large.
+    if (root && opts.includeProjects) {
         const listing = await listWorkspaceProjects(root);
         if (listing.ok) {
             projects = listing.projects;
