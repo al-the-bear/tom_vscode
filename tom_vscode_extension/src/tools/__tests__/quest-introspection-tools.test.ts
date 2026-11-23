@@ -330,6 +330,58 @@ describe('listProjectsImpl', () => {
         assert.deepEqual(r.projects, []);
     });
 
+    test('unfiltered: the answer is the whole listing, no total, every field', async () => {
+        const r = JSON.parse(await listProjectsImpl(projectSource, {}));
+        assert.deepEqual(Object.keys(r), ['ok', 'discoveredFrom', 'binary', 'root', 'count', 'projects']);
+        assert.equal(r.count, 3);
+        assert.deepEqual(r.projects, PROJECTS_DOC.projects, 'every field, as listed');
+        const blank = JSON.parse(await listProjectsImpl(projectSource, { under: ' ', name: '', compact: false }));
+        assert.deepEqual(blank, r, 'empty filters and compact false change nothing');
+    });
+
+    test('filters: under, language, type, name; combined; compact', async () => {
+        const ids = async (input: Record<string, unknown>): Promise<string[]> =>
+            JSON.parse(await withTiming('tomAi_listProjects:filtered', () => listProjectsImpl(projectSource, input))).projects.map((p: ProjectInfo) => p.id);
+        assert.deepEqual(await ids({ under: 'tom_ai/core' }), ['tom_core_kernel']);
+        assert.deepEqual(await ids({ under: './tom_ai/' }), ['TBA', 'tom_core_kernel', 'tom-ai'], '`./` and a trailing `/` ignored');
+        assert.deepEqual(await ids({ under: 'tom_ai/basics/tom_basics' }), ['TBA'], 'the project\'s own path');
+        assert.deepEqual(await ids({ under: 'tom_ai/cor' }), [], 'whole segments only');
+        assert.deepEqual(await ids({ language: 'TypeScript' }), ['tom-ai'], 'any case');
+        assert.deepEqual(await ids({ type: 'dart_package' }), ['TBA', 'tom_core_kernel']);
+        assert.deepEqual(await ids({ name: 'basics' }), ['TBA'], 'in the name and the path');
+        assert.deepEqual(await ids({ name: 'tba' }), ['TBA'], 'in the id, any case');
+        assert.deepEqual(await ids({ name: 'vscode_extension' }), ['tom-ai'], 'in the path');
+        assert.deepEqual(await ids({ language: 'dart', name: 'kernel', under: 'tom_ai' }), ['tom_core_kernel'], 'combined');
+        const r = JSON.parse(await listProjectsImpl(projectSource, { type: 'dart_package', compact: true }));
+        assert.equal(r.count, 2);
+        assert.equal(r.total, 3, 'filtered: the whole listing\'s count');
+        assert.deepEqual(r.projects, [
+            { id: 'TBA', path: 'tom_ai/basics/tom_basics', type: 'dart_package' },
+            { id: 'tom_core_kernel', path: 'tom_ai/core/tom_core_kernel', type: 'dart_package' },
+        ], 'compact: id, path and type only');
+        const compactAll = JSON.parse(await listProjectsImpl(projectSource, { compact: true }));
+        assert.deepEqual([compactAll.count, compactAll.total, Object.keys(compactAll.projects[0])], [3, 3, ['id', 'path', 'type']]);
+        assert.equal(r.discoveredFrom, 'buildkit :projects --all --json', 'the rest of the answer as before');
+    });
+
+    test('the filters apply to the JavaScript port too', async () => {
+        const src: ProjectSource = {
+            readProjects: () => listWorkspaceProjects(w('nowhere'), {
+                fresh: true,
+                config: { binaryPath: { '*': w('no-layer') } }, // eslint-disable-line @typescript-eslint/naming-convention -- the '*' platform key
+                env: { PATH: w('no-path') }, // eslint-disable-line @typescript-eslint/naming-convention -- PATH
+                extensionRoot: null,
+                jsLister: () => ({ projects: PROJECTS_DOC.projects.map((p) => ({ ...p })) as never }),
+            }),
+        };
+        const r = JSON.parse(await listProjectsImpl(src, { language: 'dart', compact: true }));
+        assert.match(r.discoveredFrom, /JavaScript port/);
+        assert.equal(r.fallback.kind, 'notFound');
+        assert.deepEqual([r.count, r.total], [2, 3]);
+        assert.deepEqual(r.projects.map((p: { id: string }) => p.id), ['TBA', 'tom_core_kernel']);
+        assert.deepEqual(Object.keys(r.projects[0]), ['id', 'path', 'type']);
+    });
+
     test('a failing or foreign listing → the JavaScript port, with buildkit\'s message', async () => {
         const failing = projectSourceFor(async () => ({ exitCode: 2, stdout: '', stderr: 'Error: boom' }));
         const r1 = JSON.parse(await listProjectsImpl(failing, {}));

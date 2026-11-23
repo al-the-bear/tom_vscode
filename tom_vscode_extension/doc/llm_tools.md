@@ -419,7 +419,7 @@ shows, else `default`.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. buildkit is looked for in turn — `bridge.executables.buildkit`, `bridge.binaryPath` (passed with a note when its `${env:…}` variable is unset, as in a VS Code started from the Dock), the workspace's binaries layer, `$TOM_BINARY_PATH/<platform>/`, PATH (never `~/.tom/bin`). Without one, or when it cannot list (a buildkit before tom_build_kit 1.19.0 has no `:projects`), the extension's JavaScript port of the same rules lists them (`discoveredFrom` says so; `fallback` `{kind, reason, searched, binary?, buildkitError?, hint}`), and a notification once per reason shows the diagnostic and how to fix it. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. Optional filters `under`, `language`, `type`, `name` and `compact: true` (each entry `{id, path, type}`; with any of them the answer adds `total`). buildkit is looked for in turn — `bridge.executables.buildkit`, `bridge.binaryPath` (passed with a note when its `${env:…}` variable is unset, as in a VS Code started from the Dock), the workspace's binaries layer, `$TOM_BINARY_PATH/<platform>/`, PATH (never `~/.tom/bin`). Without one, or when it cannot list (a buildkit before tom_build_kit 1.19.0 has no `:projects`), the extension's JavaScript port of the same rules lists them (`discoveredFrom` says so; `fallback` `{kind, reason, searched, binary?, buildkitError?, hint}`), and a notification once per reason shows the diagnostic and how to fix it. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listRepositories` | The repositories of the Tom root's `repos.yaml`: `{path, name, url, kind, branch?, pin?, cloned, workspaceFolder?, projects?}` per entry of its `repos:` list — `kind` and `under` filters, `includeProjects` adds the buildkit project ids inside each. Without repos.yaml `{ok: false, error, file}`. Read-only (MCP read-only floor). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
@@ -1411,6 +1411,18 @@ The quests (folders under `_ai/quests/`). By default (`scope: "workspace"`) the 
 ### `tomAi_listProjects`
 
 The workspace's projects as the build tools see them: `buildkit :projects --all --json` run in the workspace root — every Dart, Flutter, TypeScript, JavaScript, Python, Java, Go, Rust, C and C++ project of the tree, also those the `navigation:` excludes of `buildkit_master.yaml` keep from the build commands. Not listed: folders under a skip marker (`buildkit_master.yaml` of a nested workspace, `tom_skip.yaml`, `buildkit_skip.yaml`), projects nested inside another project (samples, test fixtures) and `zom_` test projects. Each entry: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. The answer is `{ok, discoveredFrom, binary, root, count, projects}`. Listings are cached for 30 s per root.
+
+**Narrowing the answer.** The whole tree is a few hundred projects; these optional arguments keep only what is asked for, combined, in the listing's order, on buildkit's listing and the JavaScript port's alike:
+
+| Argument | Keeps |
+| --- | --- |
+| `under` | The projects at or below a workspace-relative path, whole segments only (`tom_ai/core` does not match `tom_ai/corelib`); a leading `./` or a trailing `/` is ignored. |
+| `language` | The projects of that language (`dart`, `typescript`, …), any case. |
+| `type` | The projects of that primary nature (`dart_package`, `flutter`, …), any case. |
+| `name` | The projects whose id, name or path contains the text, any case. |
+| `compact` | `true`: each entry only `{id, path, type}` (no `name`, `absolutePath`, `language`, `natures`, `version`, `description`). |
+
+With any of them the answer also carries `total`, the whole listing's count (`count` is then the number answered); without them it is as above. An empty string filters nothing.
 
 **Where buildkit is looked for**, in turn, the first place that has the file winning:
 

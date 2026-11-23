@@ -120,7 +120,48 @@ export interface ListQuestsInput {
 }
 
 export interface ListProjectsInput {
-    // no parameters
+    /** Only projects at or below this workspace-relative path (whole segments; `./` and a trailing `/` ignored). */
+    under?: string;
+    /** Only projects of this language (`dart`, `typescript`, ...; any case). */
+    language?: string;
+    /** Only projects of this primary nature (`dart_package`, `flutter`, ...; any case). */
+    type?: string;
+    /** Only projects whose id, name or path contains this text (any case). */
+    name?: string;
+    /** Each entry only `{id, path, type}`. */
+    compact?: boolean;
+}
+
+/** A project as `compact: true` answers it. */
+export interface CompactProjectInfo { id: string; path: string; type: string }
+
+/** Whether `input` narrows or shortens the answer. */
+export function projectFiltersGiven(input: ListProjectsInput): boolean {
+    return [input.under, input.language, input.type, input.name].some((v) => typeof v === 'string' && v.trim() !== '') || input.compact === true;
+}
+
+/**
+ * The projects `input` keeps, in listing order: `under` (the path or below it, whole segments), `language` and
+ * `type` (equal, any case), `name` (a substring of id, name or path, any case). Empty strings filter nothing.
+ */
+export function filterProjects(projects: readonly WorkspaceProject[], input: ListProjectsInput): WorkspaceProject[] {
+    const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+    const under = text(input.under).replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '').replace(/\/+$/, '');
+    const language = text(input.language).toLowerCase();
+    const type = text(input.type).toLowerCase();
+    const name = text(input.name).toLowerCase();
+    return projects.filter((p) => {
+        if (under && under !== '.' && p.path !== under && !p.path.startsWith(`${under}/`)) { return false; }
+        if (language && p.language.toLowerCase() !== language) { return false; }
+        if (type && p.type.toLowerCase() !== type) { return false; }
+        if (name && ![p.id, p.name, p.path].some((v) => v.toLowerCase().includes(name))) { return false; }
+        return true;
+    });
+}
+
+/** The answer's entries: every field, or with `compact` only `{id, path, type}`. */
+export function projectEntries(projects: readonly WorkspaceProject[], compact: boolean | undefined): Array<WorkspaceProject | CompactProjectInfo> {
+    return compact ? projects.map((p) => ({ id: p.id, path: p.path, type: p.type })) : [...projects];
 }
 
 export interface ListDocumentsInput {
@@ -267,9 +308,18 @@ export const LIST_QUESTS_TOOL: SharedToolDefinition<ListQuestsInput> = {
 // `tomAi_listProjects`
 // ===========================================================================
 
-export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListProjectsInput): Promise<string> {
+export async function listProjectsImpl(projectsSrc: ProjectSource, input: ListProjectsInput = {}): Promise<string> {
     try {
         const result = await projectsSrc.readProjects();
+        // The filters and the compact form, on buildkit's listing and the JavaScript port's alike. Unfiltered: the
+        // answer as it always was; filtered: `count` the projects answered, `total` the whole listing.
+        const filtered = projectFiltersGiven(input);
+        const shaped = (all: WorkspaceProject[]): Record<string, unknown> => {
+            const kept = filterProjects(all, input);
+            return filtered
+                ? { count: kept.length, total: all.length, projects: projectEntries(kept, input.compact) }
+                : { count: all.length, projects: all };
+        };
         if (!result.ok) {
             return err(result.error, {
                 discoveredFrom: PROJECTS_SOURCE,
@@ -284,16 +334,14 @@ export async function listProjectsImpl(projectsSrc: ProjectSource, _input: ListP
                 discoveredFrom: PROJECTS_SOURCE_JS,
                 fallback: result.fallback,
                 root: result.root,
-                count: result.projects.length,
-                projects: result.projects,
+                ...shaped(result.projects),
             });
         }
         return ok({
             discoveredFrom: PROJECTS_SOURCE,
             binary: result.binary,
             root: result.root,
-            count: result.projects.length,
-            projects: result.projects,
+            ...shaped(result.projects),
         });
     } catch (e) {
         return err((e as Error).message);
@@ -304,18 +352,18 @@ export const LIST_PROJECTS_DESCRIPTION =
     'List the workspace\'s projects as the build tools see them, from ' +
     '`buildkit :projects --all --json` run in the workspace root: every Dart, ' +
     'Flutter, TypeScript, JavaScript, Python, Java, Go, Rust, C and C++ ' +
-    'project of the tree (also those the `navigation:` excludes of ' +
-    '`buildkit_master.yaml` keep from the build commands; folders under a ' +
-    'skip marker, projects nested inside another project, e.g. samples and ' +
-    'test fixtures, and `zom_` test projects are not listed). Each entry: `{id, name, path, absolutePath, language, type, ' +
-    'natures, version?, description?}` — `id` and `name` from the project\'s ' +
-    '`buildkit.yaml` (`project_id`, `name`), else the project file\'s name; ' +
-    '`path` workspace-relative with `/`; `type` the primary nature (e.g. ' +
-    '`flutter`, `dart_package`, `python`); `natures` every nature (e.g. ' +
-    '`git`, `buildkit`). Answer `{ok, discoveredFrom, binary, root, count, ' +
-    'projects}`. Without a buildkit that can list, the extension\'s JavaScript ' +
-    'port of the same rules lists them, with `fallback` `{kind, reason, ' +
-    'searched, hint}`. Cached 30 s. Where buildkit is looked for: tomAi_describeTool.';
+    'project of the tree (not: folders under a skip marker, projects nested ' +
+    'inside another project, `zom_` test projects). Each entry: `{id, name, path, absolutePath, language, type, ' +
+    'natures, version?, description?}` — `path` workspace-relative with `/`, ' +
+    '`type` the primary nature (e.g. `flutter`, `dart_package`). Answer `{ok, ' +
+    'discoveredFrom, binary, root, count, projects}`. Filters (optional, ' +
+    'combined): `under` (a workspace-relative path: the projects at or below ' +
+    'it), `language`, `type` (any case), `name` (a substring of id, name or ' +
+    'path); `compact: true`: each entry only `{id, path, type}`. With any of ' +
+    'them the answer adds `total`, the whole listing\'s count. Without a ' +
+    'buildkit that can list, the extension\'s JavaScript port of the same rules ' +
+    'lists them (filtered the same way), with `fallback` `{kind, reason, ' +
+    'searched, hint}`. Cached 30 s. Where buildkit is looked for, and more: tomAi_describeTool.';
 
 export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
     name: 'tomAi_listProjects',
@@ -323,7 +371,16 @@ export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
     description: LIST_PROJECTS_DESCRIPTION,
     tags: ['workspace', 'projects', 'tom-ai-chat'],
     readOnly: true,
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: {
+        type: 'object',
+        properties: {
+            under: { type: 'string', description: 'Only projects at or below this workspace-relative path (whole segments).' },
+            language: { type: 'string', description: 'Only projects of this language, e.g. `dart`, `typescript` (any case).' },
+            type: { type: 'string', description: 'Only projects of this primary nature, e.g. `dart_package`, `flutter` (any case).' },
+            name: { type: 'string', description: 'Only projects whose id, name or path contains this text (any case).' },
+            compact: { type: 'boolean', description: 'Each entry only `{id, path, type}`. Default false.' },
+        },
+    },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
 };
 
