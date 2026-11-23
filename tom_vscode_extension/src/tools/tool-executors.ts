@@ -402,6 +402,7 @@ export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
 // ============================================================================
 
 import { CHAT_ENHANCEMENT_TOOLS } from './chat-enhancement-tools';
+import { LIST_REPOSITORIES_TOOL } from './repository-tools';
 import {
     EDITOR_CONTEXT_TOOLS,
     GET_WORKSPACE_INFO_TOOL as GET_WORKSPACE_INFO_DEF,
@@ -1256,6 +1257,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
 
     // --- Families defined in dedicated files ---
     ...CHAT_ENHANCEMENT_TOOLS,  // quest/session todos, notify, queue, timed, templates, reminders
+    LIST_REPOSITORIES_TOOL,     // the repositories of the root's repos.yaml (read-only)
     ...EDITOR_CONTEXT_TOOLS,    // getWorkspaceInfoFull, getActiveEditor, getOpenEditors
     ...MD_BROWSER_TOOLS,        // listMdBrowserPanels
     ...DIAGNOSTICS_TOOLS,       // getProblems, getOutputChannel, getTerminalOutput

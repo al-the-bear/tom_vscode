@@ -117,6 +117,15 @@ function seedFixture(): void {
         '    priority: low',
         '',
     ].join('\n'));
+    // The root's repository manifest, for tomAi_listRepositories (the sandbox is a standalone root).
+    put('repos.yaml', [
+        'version: 1',
+        'root: {url: git@github.com:sandbox/ws.git, branch: main}',
+        'repos:',
+        '  - {path: pkg, url: git@github.com:sandbox/pkg.git, kind: code, branch: main}',
+        '  - {path: vendor/lib, url: https://github.com/sandbox/lib.git, kind: upstream, pin: 0123456789abcdef0123456789abcdef01234567}',
+        '',
+    ].join('\n'));
     put('_copilot_guidelines/index.md', '# Guidelines\n\nThe fixture guidelines.\n');
     put('_copilot_guidelines/pattern_prompts/continue.md', 'Continue the work.\n');
     put('pkg/_copilot_guidelines/index.md', '# Package guidelines\n');
@@ -357,6 +366,7 @@ function inputs(): Record<string, Input> {
         tomAi_searchGlobalGuidelines: { query: 'fixture' },
         tomAi_readPatternPrompt: { name: 'continue' },
         tomAi_listDocuments: { category: 'guidelines' },
+        tomAi_listRepositories: { kind: 'code' },
         tomAi_saveMemory: { content: 'a fact from the MCP test' },
         tomAi_updateMemory: { file: 'facts.md', heading: 'Test', content: 'updated' },
         tomAi_forgetMemory: { file: 'facts.md', heading: 'Test' },
@@ -778,6 +788,7 @@ describe('every tool over MCP, in a sandbox', () => {
 
     test('MA-4: the right answers', () => {
         assert.match(answerOf('tomAi_readFile'), /# Demo workspace/);
+        assert.match(answerOf('tomAi_listRepositories'), /"count": 1,[\s\S]*"path": "pkg",[\s\S]*"cloned": true/, 'the sandbox repos.yaml, kind code only');
         assert.match(answerOf('tomAi_getQuestWindowStatus'), /"quest": "other"[\s\S]*"name": "default@default"/, 'the quest asked for, with its implicit sessions');
         assert.match(answerOf('tomAi_findTextInFiles'), /notes\/plain\.md:3:alpha/);
         assert.match(answerOf('tomAi_gitRead'), /fixture/);

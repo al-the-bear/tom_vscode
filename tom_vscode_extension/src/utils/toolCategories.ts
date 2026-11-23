@@ -209,6 +209,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_getQuestTodo',
         'tomAi_listDocuments',
         'tomAi_listProjects',
+        'tomAi_listRepositories',
         'tomAi_listQuests',
         'tomAi_listQuestTodos',
         'tomAi_listWorkspaceQuestTodos',

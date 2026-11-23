@@ -420,6 +420,7 @@ shows, else `default`.
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. buildkit is looked for in turn — `bridge.executables.buildkit`, `bridge.binaryPath` (passed with a note when its `${env:…}` variable is unset, as in a VS Code started from the Dock), the workspace's binaries layer, `$TOM_BINARY_PATH/<platform>/`, PATH (never `~/.tom/bin`). Without one, or when it cannot list (a buildkit before tom_build_kit 1.19.0 has no `:projects`), the extension's JavaScript port of the same rules lists them (`discoveredFrom` says so; `fallback` `{kind, reason, searched, binary?, buildkitError?, hint}`), and a notification once per reason shows the diagnostic and how to fix it. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listRepositories` | The repositories of the Tom root's `repos.yaml`: `{path, name, url, kind, branch?, pin?, cloned, workspaceFolder?, projects?}` per entry of its `repos:` list — `kind` and `under` filters, `includeProjects` adds the buildkit project ids inside each. Without repos.yaml `{ok: false, error, file}`. Read-only (MCP read-only floor). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listDocuments` | Files in prompts / answers / notes / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)
@@ -1420,6 +1421,32 @@ The workspace's projects as the build tools see them: `buildkit :projects --all 
 5. PATH.
 
 **Without buildkit, or when it cannot list** (it exits non-zero — a buildkit before tom_build_kit 1.19.0 has no `:projects` — or answers no document), the extension's JavaScript port of the same rules lists the projects (`services/projectListingJs.ts`: the walk, natures, identities and build order of tom_build_base's `listProjectsFor`; the same JSON, order included). The answer then says `discoveredFrom: "the extension's JavaScript port …"` and carries `fallback`: `{kind: "notFound" | "failed", reason, searched, binary?, buildkitError?, hint}` — what happened, every place looked at, what buildkit answered, and how to fix it (set the variable for GUI apps, e.g. `launchctl setenv TOM_BINARY_PATH <path>` and restart VS Code; pull the binaries into the layer (also found through `TOM_BINARY_PATH`); point `bridge.executables.buildkit` at the file; update an old buildkit). The window shows a notification once per reason with **Show details**. `ok: false` comes only when the JavaScript listing fails as well.
+
+### `tomAi_listRepositories`
+
+The repositories of the Tom root's `repos.yaml` (schema `.tom/json-schema/repos/repos.schema.json`) — the root of the window's layout, where `.tom/tom_root.yaml` is; a standalone workspace is its own root. One entry per item of the file's `repos:` list; `links:` and `unmanaged:` are no repositories and are not listed. Read-only, on the MCP read-only floor.
+
+The answer is `{ok, root, file, count, repositories}`, and with a filter the `kind` / `under` it applied. Each repository:
+
+| Field | What it is |
+| --- | --- |
+| `path` | Root-relative, with `/`, as repos.yaml writes it. |
+| `name` | The last segment of `path`. |
+| `url` | The origin remote. |
+| `kind` | `code`, `fork`, `ai`, `binaries` or `upstream`. |
+| `branch` | The branch it follows; an `upstream` has none. |
+| `pin` | The SHA an `upstream` is pinned to. |
+| `cloned` | Whether its folder exists on this machine (a repository for some hosts only, `hosts: []` on demand, is often not). |
+| `workspaceFolder` | The deepest of the root's workspace folders (as `tomAi_getWorkspaceInfo`'s `workspaceFolderScan` finds them) that the repository is in or is; absent when it is in none. |
+| `projects` | With `includeProjects: true`: the ids of the buildkit projects inside it, sorted — the listing `tomAi_listProjects` answers, each project given to the deepest repository holding its folder, so a nested repository's projects are not also its parent's. A listing that fails answers `projectsError` and the repositories without projects; the JavaScript fallback listing adds `projectsFallback`. |
+
+**Inputs (all optional):**
+
+- `kind` — only repositories of this kind.
+- `under` — a root-relative path: that repository and the repositories below it, whole segments only (`tom_ai/core` does not match `tom_ai/corelib`); a leading `./` or a trailing `/` is ignored.
+- `includeProjects` — add `projects` (default false).
+
+**Refused:** no repos.yaml at the root (`{ok: false, error, file}`, `file` the path looked at), no workspace open, a file that does not parse or has no `repos:` list, an unknown `kind`. An entry without `path`, `url` or `kind` is left out and named in `skipped`.
 
 ### `tomAi_listPromptPairs`
 

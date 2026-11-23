@@ -163,6 +163,7 @@ export const AVAILABLE_LLM_TOOLS = [
     // Quest / workspace introspection
     'tomAi_getActiveQuest',
     'tomAi_listProjects',
+    'tomAi_listRepositories',
     'tomAi_listDocuments',
     // Session todos
     'tomAi_addSessionTodo',
