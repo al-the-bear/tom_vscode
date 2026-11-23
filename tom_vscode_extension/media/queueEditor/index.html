@@ -54,6 +54,10 @@
   <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
   <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
 </div>
+<!-- The run's defaults for its items: transport, model (the Anthropic profile), session, template. -->
+<div class="context-bar" id="runDefaultsBar">
+  <span id="runDefaultsSummary" class="context-summary"></span>
+</div>
 <!-- Queue-level default transport (spec §4.10 header row). Persists
      in the queue-settings YAML; new items without an explicit transport
      inherit this at dispatch. Per-item / per-stage overrides still win.

@@ -157,8 +157,8 @@ describe('Prompt Queue editor — one tab per run', () => {
         posted.length = 0;
         w.collapseAll();
         assert.deepEqual(posted.find((m) => m.type === 'setAllDetailsExpanded').ids.sort(), ['a', 'd', 'g'], 'Collapse acts on the tab\'s items');
-        // The context bar's Session link picks the tab's run's default session.
-        const sessionLink = w.document.querySelector('#contextSummary [data-pick="session"]');
+        // The defaults bar's Session link picks the tab's run's default session.
+        const sessionLink = w.document.querySelector('#runDefaultsSummary [data-pick="session"]');
         assert.ok(sessionLink, 'the Session link');
         posted.length = 0;
         sessionLink.click();
@@ -202,12 +202,12 @@ describe('Prompt Queue editor — one tab per run', () => {
         const bar = (): string => [...w.document.querySelectorAll('#contextSummary .ctx-field')]
             .map((f: Win) => `${f.querySelector('.ctx-label').textContent}: ${f.querySelector('.ctx-value').textContent}`).join(' | ') + ' |';
         const linkOf = (pick: string): Win => w.document.querySelector(`#contextSummary [data-pick="${pick}"]`);
-        assert.match(bar(), /Run: chg1 \(this window's\) \| Position: Phase One › Build \| Role: builder \|/);
+        assert.match(bar(), /^Position: Phase One › Build \| Role: builder \|/);
         assert.equal(linkOf('variables').textContent, '2');
         assert.match(linkOf('variables').title, /mode=careful, limit=7/);
         assert.ok(linkOf('role'), 'the window\'s run: the role is picked');
         clickTab(w, 'default');
-        assert.match(bar(), /Run: default \| Position: Phase One › Plan \| Role: planner \|/, 'the links follow the tab');
+        assert.match(bar(), /^Position: Phase One › Plan \| Role: planner \|/, 'the links follow the tab');
         assert.equal(linkOf('role'), null, 'another run\'s role is its step\'s: shown, not picked');
         assert.equal(linkOf('variables').textContent, '1');
         clickTab(w, 'chg2');

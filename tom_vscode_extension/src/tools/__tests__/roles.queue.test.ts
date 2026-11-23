@@ -321,7 +321,7 @@ describe('roles per todo, item and run default', () => {
         assert.match(editor, /case 'pickQueueDefaultRole':\n\s*case 'editItemRole':[\s\S]*pqm\.setDefaultRole\(picked\.role, run\)[\s\S]*pqm\.updateItemRole\(id, picked\.role\)/);
         const queueMain = EXT('media', 'queueEditor', 'main.js');
         assert.match(queueMain, /pick === 'defaultRole' \? \{ type: 'pickQueueDefaultRole', run: settingsRun\(\) \}/);
-        assert.match(queueMain, /field\('Default role', link\('defaultRole', settings\.defaultRole \|\| '\(none\)'/);
+        assert.match(queueMain, /field\(el, 'Default role', link\('defaultRole', settings\.defaultRole \|\| '\(none\)'/);
         assert.match(queueMain, /'defaultMessageTemplateId', 'defaultRole'\];/, 'Make default copies it');
         const panel = EXT('media', 'questTodoPanel', 'main.js');
         assert.match(panel, /qtFormRow\('Role', '<select id="qt-d-role"[^\n]*qtRoleOptions\(todo\.role\)/, 'the detail form');

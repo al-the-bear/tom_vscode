@@ -1,11 +1,11 @@
 /**
- * The Prompt Queue editor's context bar (media/queueEditor): one field per setting of the tab's run, its label
- * above its value; a value that can be changed is a link — each opens a VS Code picker on the host.
+ * The Prompt Queue editor's two context bars (media/queueEditor): one field per setting of the tab's run, its
+ * label above its value; a value that can be changed is a link — each opens a VS Code picker on the host.
  *
- *   QC-1 the fields: Quest, Run, Position, Role, Default role, Transport, Profile (Anthropic only), Template,
- *        Session, Variables (then Projects) — the tab's run's (vscimpb60c); each a `.ctx-label` over a `.ctx-value`;
- *        Position, Role, Default role, Transport, Profile, Template, Session and Variables are links; there is no
- *        separate session row and no transport-picker row
+ *   QC-1 the first bar (with the icon buttons): Position, Role, Default role, Guidelines, Variables; the second the
+ *        run's defaults: Transport, Model (the Anthropic profile; Anthropic only), Session, Template — the tab's
+ *        run's (vscimpb60c); each a `.ctx-label` over a `.ctx-value`; no Quest, Run or Projects field; every value
+ *        but another run's role is a link; there is no separate session row and no transport-picker row
  *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession`, Transport / Profile / Template
  *        `pickQueueDefaultTransport` / `…Profile` / `…Template` with the settings run; a state update refreshes the
  *        session shown; the host opens a picker for each and writes the run's defaults
@@ -56,32 +56,36 @@ function setup(t: { after(fn: () => void): void }, state: Record<string, unknown
 }
 
 describe('Prompt Queue editor — the context bar', () => {
-    test('QC-1: Quest, Role and Session in one line', (t) => {
+    test('QC-1: the run\'s context and its defaults in two bars', (t) => {
         const { window } = setup(t, { context: { quest: 'tom_uam', role: 'spec_author', activeProjects: ['tom_uam'] }, queueDefaultSession: 'p2s3r1ss1' });
         const bar = window.document.getElementById('contextSummary');
+        const defaults = window.document.getElementById('runDefaultsSummary');
         const fields = (b: Win): string[] => [...b.querySelectorAll('.ctx-field')].map((f: Win) => `${f.querySelector('.ctx-label').textContent}: ${f.querySelector('.ctx-value').textContent}`);
-        assert.deepEqual(fields(bar), ['Quest: tom_uam', 'Run: default (this window\'s)', 'Position: (no process)', 'Role: spec_author', 'Default role: (none)',
-            'Transport: Copilot', 'Template: (none)', 'Session: p2s3r1ss1', 'Variables: 0', 'Projects: tom_uam']);
-        const links = [...bar.querySelectorAll('.ctx-link')];
-        assert.deepEqual(links.map((l: Win) => [l.dataset.pick, l.textContent]), [['position', '(no process)'], ['role', 'spec_author'], ['defaultRole', '(none)'],
-            ['transport', 'Copilot'], ['template', '(none)'], ['session', 'p2s3r1ss1'], ['variables', '0']]);
+        const picks = (b: Win): string[] => [...b.querySelectorAll('.ctx-link')].map((l: Win) => l.dataset.pick);
+        assert.deepEqual(fields(bar), ['Position: (no process)', 'Role: spec_author', 'Default role: (none)', 'Variables: 0'], 'no Quest, Run or Projects');
+        assert.deepEqual(picks(bar), ['position', 'role', 'defaultRole', 'variables']);
+        assert.ok(bar.parentElement.querySelector('.ctx-btn-icon'), 'the icon buttons stay with the first bar');
+        assert.deepEqual(fields(defaults), ['Transport: Copilot', 'Session: p2s3r1ss1', 'Template: (none)'], 'no Model on Copilot');
+        assert.deepEqual(picks(defaults), ['transport', 'session', 'template']);
+        assert.equal(bar.parentElement.compareDocumentPosition(defaults) & window.Node.DOCUMENT_POSITION_FOLLOWING, window.Node.DOCUMENT_POSITION_FOLLOWING, 'the defaults bar below');
         assert.equal(window.document.getElementById('queueDefaultSessionRow'), null, 'the session moved into the bar');
         assert.equal(window.document.getElementById('queueDefaultPickerSlot'), null, 'no transport-picker row');
-        const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document.getElementById('contextSummary');
-        assert.deepEqual(fields(none), ['Quest: q', 'Run: default (this window\'s)', 'Position: (no process)', 'Role: (none)', 'Default role: (none)',
-            'Transport: Copilot', 'Template: (none)', 'Session: default@default', 'Variables: 0']);
-        // An Anthropic run shows its profile (by name) and its template (by name).
+        const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document;
+        assert.deepEqual(fields(none.getElementById('contextSummary')), ['Position: (no process)', 'Role: (none)', 'Default role: (none)', 'Variables: 0']);
+        assert.deepEqual(fields(none.getElementById('runDefaultsSummary')), ['Transport: Copilot', 'Session: default@default', 'Template: (none)']);
+        // An Anthropic run shows its model (the profile, by name) and its template (by name).
         const anth = setup(t, {
             context: { quest: 'q', role: '', activeProjects: [] }, currentRun: 'default',
             runQueueSettings: { default: { defaultTransport: 'anthropic', defaultAnthropicProfileId: 'opus', defaultMessageTemplateId: 'execute-todo' } },
             anthropicProfiles: [{ id: 'opus', name: 'Opus' }], anthropicUserMessageTemplates: [{ id: 'execute-todo', name: 'Execute TODO' }],
-        }).window.document.getElementById('contextSummary');
-        assert.deepEqual(fields(anth).slice(5, 8), ['Transport: Anthropic', 'Profile: Opus', 'Template: Execute TODO']);
+        }).window.document.getElementById('runDefaultsSummary');
+        assert.deepEqual(fields(anth), ['Transport: Anthropic', 'Model: Opus', 'Session: default@default', 'Template: Execute TODO']);
+        assert.deepEqual(picks(anth), ['transport', 'profile', 'session', 'template']);
     });
 
     test('QC-2: the links open the pickers', (t) => {
         const { window, posted } = setup(t, { context: { quest: 'q', role: 'spec_author', activeProjects: [] }, queueDefaultSession: '' });
-        const link = (pick: string): Win => window.document.querySelector(`#contextSummary .ctx-link[data-pick="${pick}"]`);
+        const link = (pick: string): Win => window.document.querySelector(`.context-summary .ctx-link[data-pick="${pick}"]`);
         link('role').click();
         assert.deepEqual(posted.pop(), { type: 'pickRole' });
         link('session').click();
@@ -99,7 +103,7 @@ describe('Prompt Queue editor — the context bar', () => {
     test('QC-3: the default session with its base and lifetime', (t) => {
         const label = (session: string, sessionInfo: Record<string, unknown>): string => {
             const { window } = setup(t, { context: { quest: 'q', role: '', activeProjects: [] }, queueDefaultSession: session, sessionInfo });
-            return window.document.querySelector('#contextSummary .ctx-link[data-pick="session"]').textContent;
+            return window.document.querySelector('#runDefaultsSummary .ctx-link[data-pick="session"]').textContent;
         };
         assert.equal(label('walk', { walk: { mode: 'continue' } }), 'walk', 'no base, continue: the name alone');
         assert.equal(label('walk', { walk: { mode: 'continue', basedOn: 'prep' } }), 'walk based on prep');
@@ -109,9 +113,9 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.equal(label('walk', { walk: { mode: 'fork-from-base', basedOn: 'prep' } }), 'walk based on prep (per prompt)', 'the old name');
         assert.equal(label('', {}), 'default@default', 'a session with no file: the name alone, the default run\'s as default@default');
         const inRun = setup(t, { context: { quest: 'q', role: '', activeProjects: [] }, queueDefaultSession: '', sessionInfo: {}, currentRun: 'collab', processRuns: ['collab'] } as never);
-        assert.equal(inRun.window.document.querySelector('#contextSummary .ctx-link[data-pick="session"]').textContent, 'default@collab', 'a run: its own queue session');
+        assert.equal(inRun.window.document.querySelector('#runDefaultsSummary .ctx-link[data-pick="session"]').textContent, 'default@collab', 'a run: its own queue session');
         const { window } = setup(t, { context: { quest: 'q', role: '', activeProjects: [] }, queueDefaultSession: 'walk', sessionInfo: { walk: { mode: 'per-prompt', basedOn: 'prep' } } });
-        assert.match(window.document.querySelector('#contextSummary .ctx-link[data-pick="session"]').title, /Session walk, based on prep, started again for every prompt/);
+        assert.match(window.document.querySelector('#runDefaultsSummary .ctx-link[data-pick="session"]').title, /Session walk, based on prep, started again for every prompt/);
     });
 
     test('QC-4: an item\'s session chip', (t) => {
