@@ -12,6 +12,7 @@ import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, 
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
+import { applyRunDefaultsToItem, runDefaultFieldsOf, type RunDefaultField, type RunDefaultsApplyResult, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
 import * as vscode from 'vscode';
 import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { liveAspectChoices } from '../services/aspectChoiceLevels';
@@ -3120,6 +3121,68 @@ export class PromptQueueManager {
         });
         this.persist();
         this._onDidChange.fire();
+    }
+
+    /**
+     * Put run `run`'s current defaults onto every item of its queue (the queue
+     * editor's *Apply run defaults to all items*): for each of `fields` —
+     * profile, template, session, role — `set` writes the run's default onto
+     * the item, `clear` removes the item's own setting so it follows the run's
+     * default (the template: none). Only staged and pending items change;
+     * process-move markers and chat sends are not queue items of that kind
+     * and are passed over, items that already started are counted. An item
+     * whose session its profile cannot continue keeps its session. Items whose
+     * template or transport changed get their text built again.
+     */
+    async applyRunDefaultsToItems(run: string | undefined, fields: readonly RunDefaultField[], mode: RunDefaultsMode): Promise<RunDefaultsApplyResult> {
+        const r = normalizeRun(run);
+        const picked = runDefaultFieldsOf(fields);
+        const result: RunDefaultsApplyResult = { run: r, mode, fields: picked, changed: 0, unchanged: 0, notEditable: 0, refused: [] };
+        if (!picked.length) { return result; }
+        const defaults = this._settingsOf(r);
+        const rebuild: QueuedPrompt[] = [];
+        for (const item of this._items) {
+            if (!this._inRun(item, r) || item.processMove || isChatStatus(item.status)) { continue; }
+            if (!this.canChangeSession(item.status)) { result.notEditable++; continue; }
+            const before = {
+                transport: item.transport, anthropicProfileId: item.anthropicProfileId, anthropicConfigId: item.anthropicConfigId,
+                template: item.template, session: item.session, sessionCreate: item.sessionCreate, role: item.role,
+            };
+            const changed = applyRunDefaultsToItem(item, defaults, r, picked, mode);
+            if (!changed.length) { result.unchanged++; continue; }
+            if (changed.includes('session') || changed.includes('profile')) {
+                // A session its profile cannot continue (utils sessionTransportMismatch): the item stays as it was.
+                const refusal = this.sessionRefusal(item);
+                if (refusal) {
+                    Object.assign(item, before);
+                    for (const key of Object.keys(before) as Array<keyof typeof before>) {
+                        if (before[key] === undefined) { delete item[key]; }
+                    }
+                    result.refused.push({ id: item.id, reason: refusal });
+                    continue;
+                }
+            }
+            result.changed++;
+            if (changed.includes('template') || before.transport !== item.transport) { rebuild.push(item); }
+        }
+        for (const item of rebuild) {
+            const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
+            item.expandedText = await this._buildExpandedText(item.originalText, item.template, copilotWrapFor(effectiveTransport, item.answerWrapper), {
+                repeatCount: resolveRepeatCount(item.repeatCount),
+                repeatIndex: item.repeatIndex,
+                repeatPrefix: item.repeatPrefix,
+                repeatSuffix: item.repeatSuffix,
+            }, effectiveTransport, {
+                templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
+                templateRepeatIndex: item.templateRepeatIndex,
+            });
+        }
+        if (result.changed) {
+            logQueue(`Run defaults applied to run ${r}: ${mode} ${picked.join(', ')} on ${result.changed} item(s)`);
+            this.persist();
+            this._onDidChange.fire();
+        }
+        return result;
     }
 
     updateItemReminder(id: string, patch: { reminderEnabled?: boolean; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean }): void {

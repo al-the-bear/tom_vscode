@@ -56,6 +56,7 @@ import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
 import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
+import { runDefaultFieldsOf, runDefaultPickerEntries, runDefaultsApplySummary, type RunDefaultField, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
 import { waitMessageViews } from '../utils/itemWaitMessages';
 import { answerItemAsk, itemAskViews } from '../services/queueItemAsks';
 import { aspectPickerState } from '../services/aspectPickerState';
@@ -1024,6 +1025,36 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             vscode.window.setStatusBarMessage(changed.length
                 ? `Prompt Queue: run ${run}'s settings are the default for new runs now (${changed.length} changed: ${changed.join(', ')})`
                 : `Prompt Queue: run ${run}'s settings already are the default for new runs`, 8000);
+            sendState();
+            break;
+        }
+        // Apply run defaults to all items: the user picks which of profile, template, session and role, and
+        // whether to set the run's default on every item or remove the items' own settings (utils/queueRunDefaultsApply.ts).
+        case 'applyRunDefaultsToItems': {
+            const run = settingsRunOf(msg) ?? qm.windowRun;
+            const removeEntry = {
+                label: '$(clear-all) Remove per-item settings',
+                description: 'instead of setting the defaults: the items follow the run\'s defaults (template: none)',
+                remove: true as const,
+            };
+            const entries = runDefaultPickerEntries(qm.runQueueSettings(run), run).map((e) => ({ ...e, picked: true }));
+            const picked = await vscode.window.showQuickPick<vscode.QuickPickItem & { field?: RunDefaultField; remove?: true }>(
+                [...entries, { label: '', kind: vscode.QuickPickItemKind.Separator }, removeEntry],
+                {
+                    canPickMany: true,
+                    title: `Apply run ${run}'s defaults to all items of its queue`,
+                    placeHolder: 'Which settings? Staged and pending items change; items that already started stay as they are.',
+                },
+            );
+            if (!picked) { return; }
+            const fields = runDefaultFieldsOf(picked.map((p) => p.field));
+            if (!fields.length) {
+                void vscode.window.showInformationMessage('Nothing applied: no setting was picked (profile, template, session or role).');
+                return;
+            }
+            const mode: RunDefaultsMode = picked.some((p) => p.remove) ? 'clear' : 'set';
+            const result = await qm.applyRunDefaultsToItems(run, fields, mode);
+            void vscode.window.showInformationMessage(runDefaultsApplySummary(result));
             sendState();
             break;
         }

@@ -821,6 +821,8 @@ function makeRunSettingsDefault() {
   if (!defaultSettingsDiff().length) { return; }
   vscode.postMessage({ type: 'makeRunSettingsDefault', run: settingsRun() });
 }
+/** Apply run defaults to all items: the host asks which settings (profile, template, session, role) and whether to remove the items' own. */
+function applyRunDefaultsToItems() { vscode.postMessage({ type: 'applyRunDefaultsToItems', run: settingsRun() }); }
 function restartQueue() { vscode.postMessage({ type: 'restartQueue', run: settingsRun() }); }
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem', run: settingsRun() }); }
 function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation', run: settingsRun() }); }
