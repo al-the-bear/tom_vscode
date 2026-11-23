@@ -593,7 +593,9 @@ choices: [trail only, answer tool]   # the order; choice files not listed follow
 Each `<choice>.md` is one choice: its file name without `.md` is the choice's
 short name, and its content is the text sent. The text may use the usual prompt
 placeholders (`${guidelines-<name>}`, `${file-<path>}`, `${role}`, …); they
-are resolved recursively before the text is sent. `remove` is no choice name:
+are resolved recursively before the text is sent, and a line that is only
+`@<path>` imports that file (relative to the choice's own file; *Imports* in
+`file_and_prompt_placeholders.md`). `remove` is no choice name:
 on a level it is Remove.
 
 **Guideline files** (`src/utils/aspectChoiceFiles.ts`): a choice's text is

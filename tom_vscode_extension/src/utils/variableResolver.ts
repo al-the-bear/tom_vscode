@@ -29,6 +29,7 @@
  * Path variables automatically get .name and .extension sub-properties.
  */
 
+import { expandLineImports } from './lineImports';
 import { layoutWorkspaceFolder } from './workspaceLayout';
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -616,6 +617,25 @@ export function defineLazyValue(values: Record<string, string>, key: string, com
 // Tier 4c — File-injection & user-message placeholders
 // ============================================================================
 
+/** The files already imported in one resolution (keyed by its value map): each file is imported once (gsel18). */
+const IMPORTS_SEEN = new WeakMap<Record<string, string>, Set<string>>();
+
+/**
+ * An injected file's text with its `@<path>` import lines expanded
+ * (utils/lineImports.ts), once per file in the resolution `values` belongs to.
+ */
+function withImports(content: string, file: string, values: Record<string, string>): string {
+    if (!content || !file) { return content; }
+    let seen = IMPORTS_SEEN.get(values);
+    if (!seen) { seen = new Set(); IMPORTS_SEEN.set(values, seen); }
+    return expandLineImports(content, file, { seen });
+}
+
+/** A file read for injection: its text with its imports expanded; '' when it cannot be read. */
+function injectFile(filePath: string, values: Record<string, string>): string {
+    return withImports(safeReadFileSync(filePath), filePath, values);
+}
+
 function safeReadFileSync(filePath: string): string {
     try {
         if (!filePath || !fs.existsSync(filePath)) {
@@ -643,9 +663,7 @@ function addFileInjectionPlaceholders(values: Record<string, string>): void {
     const role = values['role'] || '';
     const rolesPath = values['rolesPath'] || '';
     if (role && rolesPath) {
-        values['role-description'] = safeReadFileSync(
-            path.join(rolesPath, role, 'role.md'),
-        );
+        values['role-description'] = injectFile(path.join(rolesPath, role, 'role.md'), values);
     } else {
         values['role-description'] = '';
     }
@@ -653,9 +671,7 @@ function addFileInjectionPlaceholders(values: Record<string, string>): void {
     const quest = values['quest'] || '';
     const questsPath = values['questsPath'] || '';
     if (quest && questsPath) {
-        values['quest-description'] = safeReadFileSync(
-            path.join(questsPath, quest, `overview.${quest}.md`),
-        );
+        values['quest-description'] = injectFile(path.join(questsPath, quest, `overview.${quest}.md`), values);
     } else {
         values['quest-description'] = '';
     }
@@ -861,7 +877,7 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         const wanted = key === 'guidelines-index' ? undefined : key.slice(0, key.indexOf('-'));
         return levelIndexes(WsPaths.guidelineLevels())
             .filter((ix) => !wanted || ix.level === wanted)
-            .map((ix) => ix.content.trimEnd())
+            .map((ix) => withImports(ix.content, ix.file, values).trimEnd())
             .join('\n\n');
     }
 
@@ -873,10 +889,10 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         if (!rawName) { return ''; }
         const fileName = rawName.endsWith('.md') ? rawName : `${rawName}.md`;
         const found = listLevelFiles(WsPaths.guidelineLevels()).find((f) => f.path === fileName);
-        const content = found ? safeReadFileSync(found.abs) : '';
+        const content = found ? injectFile(found.abs, values) : '';
         if (content) { return content; }
         const fallback = wsRoot ? path.join(wsRoot, '_guidelines') : '';
-        return fallback ? safeReadFileSync(path.join(fallback, fileName)) : '';
+        return fallback ? injectFile(path.join(fallback, fileName), values) : '';
     }
 
     // ${role-<name>} — read a specific role file. Tries both the flat
@@ -891,9 +907,9 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         if (!rawName || rawName === 'description') { return undefined; }
         const rolesPath = values['rolesPath'] || (wsRoot ? path.join(wsRoot, '_ai', 'roles') : '');
         if (!rolesPath) { return ''; }
-        const flat = safeReadFileSync(path.join(rolesPath, `${rawName}.md`));
+        const flat = injectFile(path.join(rolesPath, `${rawName}.md`), values);
         if (flat) { return flat; }
-        return safeReadFileSync(path.join(rolesPath, rawName, 'role.md'));
+        return injectFile(path.join(rolesPath, rawName, 'role.md'), values);
     }
 
     // ${quest-<type>} — read the first file matching
@@ -906,7 +922,9 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         const quest = values['quest'] || '';
         const questsPath = values['questsPath'] || (wsRoot ? path.join(wsRoot, '_ai', 'quests') : '');
         if (!quest || !questsPath) { return ''; }
-        return readFirstMatchingFile(path.join(questsPath, quest), `${rawType}.${quest}.`);
+        const dir = path.join(questsPath, quest);
+        const name = firstMatchingFile(dir, `${rawType}.${quest}.`);
+        return name ? injectFile(path.join(dir, name), values) : '';
     }
 
     // ${file-<path>} — read an arbitrary workspace-relative or absolute file.
@@ -916,7 +934,7 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         if (!rawPath) { return ''; }
         const isAbsolute = rawPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rawPath);
         const resolved = isAbsolute ? rawPath : (wsRoot ? path.join(wsRoot, rawPath) : rawPath);
-        return safeReadFileSync(resolved);
+        return injectFile(resolved, values);
     }
 
     // ${memory}         — full block: shared/* (priority) + quest/* (newest-first)
@@ -1007,17 +1025,13 @@ function resolveMemoryPlaceholder(
  * Return the contents of the first file in `dir` whose basename starts with
  * `prefix`. Returns '' when the directory is missing or nothing matches.
  */
-function readFirstMatchingFile(dir: string, prefix: string): string {
+/** The name of the first file of `dir` whose name starts with `prefix`; undefined when none. */
+function firstMatchingFile(dir: string, prefix: string): string | undefined {
     try {
-        if (!dir || !fs.existsSync(dir)) { return ''; }
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        const match = entries.find(
-            (e) => e.isFile() && e.name.startsWith(prefix),
-        );
-        if (!match) { return ''; }
-        return safeReadFileSync(path.join(dir, match.name));
+        if (!dir || !fs.existsSync(dir)) { return undefined; }
+        return fs.readdirSync(dir, { withFileTypes: true }).find((e) => e.isFile() && e.name.startsWith(prefix))?.name;
     } catch {
-        return '';
+        return undefined;
     }
 }
 
@@ -1382,6 +1396,7 @@ A value is set when it is non-empty text, <code>true</code> or a non-zero number
 <code>\${{ git.dirty == "true" ? " · uncommitted changes" : "" }}</code><br>
 <br>
 <em>Recursive resolution:</em> placeholders inside file-injection results are resolved on the next pass (max 10). A role.md file that contains <code>\${guidelines-coding_guidelines}</code> will have the guidelines text inlined automatically.<br>
+<em>Imports:</em> in every injected file a line that is only <code>@&lt;path&gt;</code> (relative to that file, <code>~/…</code> or absolute) is replaced by that file, nested up to five levels, each file once; not in fenced code, and any other <code>@</code> stays.<br>
 <br>
 `;
 

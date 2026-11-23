@@ -37,6 +37,7 @@ import {
     type AspectTransport,
     type AssembledAspects,
 } from '../utils/aspectGuidelines';
+import { expandLineImports } from '../utils/lineImports';
 import { aspectFileLayers, choiceSources, type AspectChoiceSource, type AspectFileLayer } from '../utils/aspectChoiceFiles';
 
 /** The store's folder name under `_ai/`. */
@@ -180,7 +181,14 @@ export function aspectsForSend(
     resolve: (text: string) => string,
     layers: readonly AspectFileLayer[] = [],
 ): AspectsForSend {
-    const { sections, problems } = readAspectSections(dir, layers);
+    const read = readAspectSections(dir, layers);
+    const problems = read.problems;
+    // A choice's `@<path>` import lines, relative to its file (gsel18), each file once per send.
+    const seen = new Set<string>();
+    const sections = read.sections.map((s) => ({
+        ...s,
+        options: s.options.map((o) => (o.source ? { ...o, text: expandLineImports(o.text, o.source.path, { seen }) } : o)),
+    }));
     const resolution = resolveAspects(sections, choices ?? {});
     for (const i of resolution.ignored) { problems.push(`${i.level}: "${i.section}" → "${i.option}" names no choice of an aspect; skipped`); }
     const assembled = assembleAspects(sections, resolution, resolve);

@@ -91,6 +91,11 @@ function withoutCode(text: string): string {
     }).join('\n');
 }
 
+/** Where an `@path` import points: `~/…` below the home folder, an absolute path as it is, else relative to the importing file's folder. */
+export function resolveImportPath(raw: string, fileDir: string, homeDir: string): string {
+    return raw.startsWith('~/') ? path.join(homeDir, raw.slice(2)) : path.isAbsolute(raw) ? raw : path.resolve(fileDir, raw);
+}
+
 /** The import targets of a file's text: existing files named by `@path`. */
 export function importTargets(text: string, fileDir: string, homeDir: string): string[] {
     const out: string[] = [];
@@ -100,9 +105,7 @@ export function importTargets(text: string, fileDir: string, homeDir: string): s
     while ((match = re.exec(scan)) !== null) {
         const raw = match[2].replace(/[.,;:!?]+$/, '');
         if (!raw) { continue; }
-        const target = raw.startsWith('~/')
-            ? path.join(homeDir, raw.slice(2))
-            : path.isAbsolute(raw) ? raw : path.resolve(fileDir, raw);
+        const target = resolveImportPath(raw, fileDir, homeDir);
         if (readFile(target) !== undefined && !out.includes(target)) { out.push(target); }
     }
     return out;

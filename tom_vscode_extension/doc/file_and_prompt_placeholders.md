@@ -149,6 +149,23 @@ Quick setups:
 - **Simple** — put `${memory}` at the top of the profile's system prompt. Memory shows up without any user-template changes, but caching misses every turn.
 - **Tool-only** — don't use the placeholder at all; enable memory tools in the compaction panel. The agent reads memory via `tomAi_readMemory` / `tomAi_listMemory` on demand; no injection, no cache invalidation.
 
+### Imports
+
+The files the placeholders above inject — `${file-…}`, `${guidelines-…}` and the guideline indexes, `${role-…}` and `${role-description}`, `${quest-…}` and `${quest-description}` — and the aspect guideline choice files take Anthropic's `@import` notation, so a file reads the same in the extension and in Claude Code (`src/utils/lineImports.ts`):
+
+- A line that holds only `@<path>` (whitespace around it allowed) is replaced in place by that file's content when the path names an existing file. The path is relative to the importing file, `~/…` (the home folder) or absolute.
+- The imported file's own import lines are expanded too, nested up to five levels; an import line deeper than that stays as written.
+- Each file is imported once per resolution: a second import of a file already in it — a repeat, or a cycle back to a file on the way, the importing file included — drops the line.
+- Never inside a fenced code block (` ``` ` or `~~~`). Any other `@` stays as written: inside a sentence, in an inline code span, `@T: …`, `@CHAT`, a path that names no file.
+
+```text
+## Dart rules
+@dart/coding_guidelines.md      → replaced by _agent_guidelines/dart/coding_guidelines.md
+See @dart/unit_tests.md.        → stays (not alone on its line)
+```
+
+`tomAi_readGlobalGuideline` expands the imports of the index files it returns (`index.md`, `index_root.md`, `index_workspace.md`) the same way. `${claudeMd}` and `${agent-instructions}` load a CLAUDE.md with its imports as Claude Code does (an `@path` anywhere in the text), listing each imported file.
+
 ### Available in every template context
 
 All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, and Copilot prompt templates. They resolve the same way everywhere.

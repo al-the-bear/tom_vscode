@@ -32,6 +32,7 @@ import { getLayout, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
+import { expandLineImports } from '../utils/lineImports';
 import {
     GUIDELINE_FOLDER,
     classifyGuidelinePath,
@@ -54,6 +55,11 @@ import {
     resolveInFiles,
     subfoldersOf,
 } from '../utils/guidelineFolders';
+
+/** Whether `file` is a guideline index (`index.md`, `index_root.md`, `index_workspace.md`, …): its imports are expanded. */
+function isIndexFile(file: string): boolean {
+    return /^index(?:_[\w-]+)?\.md$/.test(path.basename(file));
+}
 
 /** The folder names as a reader sees them: `_agent_guidelines/` (or `_copilot_guidelines/`). */
 const FOLDER_LABEL = `${GUIDELINE_FOLDER}/ (or ${GUIDELINE_FOLDER_NAMES[1]}/)`;
@@ -173,7 +179,7 @@ export async function readGlobalGuidelineImpl(root: string | undefined | Guideli
         let result = `Available global guideline files (root, then workspace folder; a workspace file of the same path wins), then the root's own documents:\n\n`;
         result += [...files, ...rootDocuments].map((f) => `- ${f.path} (${f.level})`).join('\n');
         for (const ix of levelIndexes(scope.levels)) {
-            result += `\n\n---\n\n${path.basename(ix.file)} (${ix.level}):\n\n${ix.content}`;
+            result += `\n\n---\n\n${path.basename(ix.file)} (${ix.level}):\n\n${expandLineImports(ix.content, ix.file)}`;
         }
         return result;
     }
@@ -226,8 +232,10 @@ function normaliseBare(name: string): string {
  * listed: names are meant to be unique across the levels).
  */
 function readWithSection(scope: GuidelineScope, file: GuidelineFile, section: string | undefined, others: readonly GuidelineFile[]): string {
-    const content = readFileSafe(file.abs);
-    if (content === undefined) { return `Read error: ${file.abs}`; }
+    const raw = readFileSafe(file.abs);
+    if (raw === undefined) { return `Read error: ${file.abs}`; }
+    // An index file's `@<path>` import lines are expanded, as the prompt resolution does (gsel18).
+    const content = isIndexFile(file.abs) ? expandLineImports(raw, file.abs) : raw;
     const where = (f: GuidelineFile) => `${relForDisplay(scope, f.abs)} (${f.level})`;
     const header: string[] = [];
     let body = content;
@@ -601,7 +609,7 @@ export function initializeToolDescriptions(): void {
     const indexes = levelIndexes(windowScope().levels);
     if (indexes.length === 0) { return; }
     const intro = READ_GLOBAL_GUIDELINE_TOOL.description ?? '';
-    READ_GLOBAL_GUIDELINE_TOOL.description = intro + indexes.map((ix) =>
+    READ_GLOBAL_GUIDELINE_TOOL.description = intro + indexes.map((ix) => ({ ...ix, content: expandLineImports(ix.content, ix.file) })).map((ix) =>
         `\n\n---\n\nGuideline index of the ${ix.level} (current contents of \`${path.basename(path.dirname(ix.file))}/${path.basename(ix.file)}\`):\n\n${ix.content}`,
     ).join('');
 }
