@@ -98,7 +98,7 @@ describe('Prompt Queue editor — a turn waiting in tomAi_waitFor', () => {
         const view = waitForViewOf({ status: 'sending', waitingFor: state } as unknown as QueuedPrompt);
         assert.equal(view?.reason, 'r');
         assert.equal(view?.details, 'd');
-        assert.match(view?.left ?? '', /^until \d\d:\d\d \((4|5) min left\)$/);
+        assert.match(view?.left ?? '', /^until (\w{3} )?\d\d:\d\d \((4|5) min left\)$/);
         assert.equal(waitForViewOf({ status: 'pending', waitingFor: state } as unknown as QueuedPrompt), undefined);
         assert.equal(waitForViewOf({ status: 'sending' } as unknown as QueuedPrompt), undefined);
         const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');

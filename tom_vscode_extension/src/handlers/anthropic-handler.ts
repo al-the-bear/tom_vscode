@@ -68,7 +68,7 @@ import {
 import { vsCodeLmRetentionView, type VsCodeLmToolResult, type VsCodeLmToolRound } from '../utils/vsCodeLmToolRounds';
 import { providerRetryDelayMs } from '../utils/rateLimitHeaders';
 import { createDirectAnthropicClient } from '../services/directAnthropicClient';
-import { LOAD_SKILL_TOOL_NAME, listSkills, skillsSystemSection } from '../services/skills';
+import { SKILLS_LIST_PLACEHOLDER, skillsListFor } from '../services/skills';
 import { claudeHomeDir } from '../services/claudeDirs';
 import { ExternalMcpManager, loadMcpServerConfigs } from '../services/externalMcp';
 import { toolLog } from '../utils/toolLog';
@@ -2357,19 +2357,16 @@ export class AnthropicHandler {
         // `${toolHistory}` block stays empty there — matching the previous
         // behaviour, just with variable resolution turned back on.
         const systemSegments = this.buildSystemSegments(profile, quest, { toolHistory: toolHistoryText });
-        // Skills (CC-10): on the transports that run our own tool loop the
-        // system prompt names each skill and its description, and
-        // tomAi_loadSkill loads one — when the send carries that tool. The
-        // Agent SDK loads skills itself.
-        if (transport !== 'agentSdk' && tools.some((t) => t.name === LOAD_SKILL_TOOL_NAME)) {
-            const skillsSection = skillsSystemSection(listSkills(WsPaths.wsRoot ?? ''));
-            if (skillsSection) { systemSegments.push(skillsSection); }
-        }
         // Aspect guidelines (gsel2): the system sections are one more segment
-        // here; the user sections go before the user content below.
+        // here; the user sections go before the user content below. The
+        // skills list (CC-10) comes only through the aspect `skills` (gsel21):
+        // `${skills-list}` reads the list on the transports that run our own
+        // tool loop when the send carries tomAi_loadSkill, else nothing (the
+        // Agent SDK loads skills itself).
         const aspects = options.isolated
             ? undefined
-            : liveAspectsForSend(transport as AspectTransport, { systemSegments, userContent: '' }, liveAspectChoices(options.aspectGuidelineChoices));
+            : liveAspectsForSend(transport as AspectTransport, { systemSegments, userContent: '' }, liveAspectChoices(options.aspectGuidelineChoices),
+                { [SKILLS_LIST_PLACEHOLDER]: skillsListFor(transport, tools.map((t) => t.name), WsPaths.wsRoot ?? '') });
         if (aspects) {
             systemSegments.splice(0, systemSegments.length, ...aspects.systemSegments);
             for (const problem of aspects.problems) { debugLog(`[aspects] ${problem}`, 'WARN', 'anthropic'); }

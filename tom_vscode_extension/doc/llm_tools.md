@@ -368,7 +368,11 @@ folder counts — exactly as the panel's `/skill` completion finds them.
 On **direct, Local LLM and VS Code LM** the system prompt gets a `## Skills`
 section: one line per skill, its name and description (cut at 300
 characters), and the instruction to call `tomAi_loadSkill` with the name before
-a task a skill matches. It is added only when the send carries
+a task a skill matches. The section is the aspect guideline **`skills`**
+(`_ai/aspect_guidelines/skills/`, choice `all`, default `all`, its text
+`${skills-list}`): *Remove* on a level (a workspace, a quest default, a role,
+…) sends no skills list, and `tomAi_loadSkill` keeps working either way. The
+list is filled only when the send carries
 `tomAi_loadSkill` — the tool is in the core set, so it is never deferred, but a
 profile with an allow-list gets it (and the section) once it ticks the tool
 (category **Skills**). The tool answers the skill's folder, its

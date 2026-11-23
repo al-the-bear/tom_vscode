@@ -19,6 +19,10 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-system-prompt-'));
 fs.mkdirSync(path.join(tmpRoot, '.claude', 'skills', 'fixture-skill'), { recursive: true });
 fs.writeFileSync(path.join(tmpRoot, '.claude', 'skills', 'fixture-skill', 'SKILL.md'),
     '---\nname: fixture-skill\ndescription: Does the fixture task the careful way.\n---\nBody.\n');
+// The skills list comes through the aspect `skills` (gsel21): the workspace's `_ai/aspect_guidelines/skills/`.
+fs.mkdirSync(path.join(tmpRoot, '_ai', 'aspect_guidelines', 'skills'), { recursive: true });
+fs.writeFileSync(path.join(tmpRoot, '_ai', 'aspect_guidelines', 'skills', 'aspect.yaml'), 'name: Skills\nplacement: system\ndefault: all\nchoices:\n  - all\n');
+fs.writeFileSync(path.join(tmpRoot, '_ai', 'aspect_guidelines', 'skills', 'all.md'), '${skills-list}\n');
 const { stub } = installVscodeStub({ workspaceFolders: [tmpRoot] });
 
 // Safe to import after the stub is wired into the resolver.
@@ -48,7 +52,7 @@ const tool = (name: string): SharedToolDefinition => ({
     name, description: name, readOnly: true, inputSchema: { type: 'object', properties: {} }, execute: async () => 'x',
 }) as unknown as SharedToolDefinition;
 
-async function send(tools: SharedToolDefinition[]): Promise<string> {
+async function send(tools: SharedToolDefinition[], aspectGuidelineChoices?: Record<string, Record<string, string>>): Promise<string> {
     seen.length = 0;
     await AnthropicHandler.instance.sendMessage({
         userText: 'hello',
@@ -58,7 +62,7 @@ async function send(tools: SharedToolDefinition[]): Promise<string> {
             vscodeLm: { vendor: 'test', family: 'fake', modelId: 'fake-lm' },
         },
         tools,
-        isolated: true,
+        ...(aspectGuidelineChoices ? { aspectGuidelineChoices } : {}),
     } as never);
     return seen[0] ?? '';
 }
@@ -77,5 +81,13 @@ describe('skills in the system prompt', () => {
         const text = await send([tool('tomAi_readFile')]);
         assert.match(text, /Base prompt\./);
         assert.doesNotMatch(text, /## Skills/);
+    });
+
+    test('SS-3: the aspect skills decides: removed on a level, no list', async () => {
+        const kept = await send([tool('tomAi_loadSkill')], { item: { skills: 'all' } });
+        assert.match(kept, /### Skills: all\n\n## Skills/, 'chosen: the list under the aspect');
+        const removed = await send([tool('tomAi_loadSkill')], { item: { skills: 'remove' } });
+        assert.match(removed, /Base prompt\./);
+        assert.doesNotMatch(removed, /## Skills/, 'removed: no list, though the send carries the tool');
     });
 });

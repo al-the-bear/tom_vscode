@@ -116,8 +116,9 @@ describe('skills', () => {
         assert.match(src('tools/tool-executors.ts'), /\.\.\.SKILL_TOOLS/);
         const handler = src('handlers/anthropic-handler.ts');
         assert.match(handler, /'tomAi_loadSkill',/, 'a duplicate of the Agent SDK\'s own Skill tool');
-        assert.match(handler, /transport !== 'agentSdk' && tools\.some\(\(t\) => t\.name === LOAD_SKILL_TOOL_NAME\)/);
-        assert.match(handler, /systemSegments\.push\(skillsSection\)/);
+        // The list comes only through the aspect `skills` (gsel21): the handler hands `${skills-list}` its value.
+        assert.match(handler, /\[SKILLS_LIST_PLACEHOLDER\]: skillsListFor\(transport, tools\.map\(\(t\) => t\.name\), WsPaths\.wsRoot \?\? ''\)/);
+        assert.doesNotMatch(handler, /systemSegments\.push\(skillsSection\)/, 'no block of its own');
         assert.match(src('handlers/completion-picker.ts'), /fsSkillStore\(/);
     });
 });

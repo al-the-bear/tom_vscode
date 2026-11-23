@@ -872,6 +872,13 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         return safeReadFileSync(path.join(wsRoot, AGENTS_MD));
     }
 
+    // ${skills-list} (gsel21): the skills of `.claude/skills/` as the system prompt lists them — the text of the aspect `skills`.
+    if (key === 'skills-list') {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { listSkills, skillsSystemSection } = require('../services/skills') as typeof import('../services/skills');
+        return wsRoot ? skillsSystemSection(listSkills(wsRoot)) : '';
+    }
+
     // The guideline indexes: both levels concatenated, or one level's.
     if (key === 'guidelines-index' || key === 'root-guidelines-index' || key === 'workspace-guidelines-index') {
         const wanted = key === 'guidelines-index' ? undefined : key.slice(0, key.indexOf('-'));

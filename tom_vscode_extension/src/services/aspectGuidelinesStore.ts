@@ -232,12 +232,14 @@ export function aspectsForSend(
 
 /**
  * The live store and resolver: `_ai/aspect_guidelines/` and the placeholder
- * engine. Loaded lazily, so this module stays usable without `vscode`.
+ * engine. `values` are placeholder values of this send (the handler's
+ * `${skills-list}`, gsel21). Loaded lazily, so this module stays usable without `vscode`.
  */
 export function liveAspectsForSend(
     transport: AspectTransport,
     prompt: { systemSegments: readonly string[]; userContent: string },
     choices?: AspectLevelChoices,
+    values?: Record<string, string>,
 ): AspectsForSend {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { livePromptFacts } = require('./aspectPromptFacts') as typeof import('./aspectPromptFacts');
@@ -250,7 +252,7 @@ export function liveAspectsForSend(
         transport,
         prompt,
         choices,
-        (text) => unescapePlaceholders(resolveVariables(text)),
+        (text) => unescapePlaceholders(resolveVariables(text, values ? { values } : undefined)),
         layers,
         {
             facts: livePromptFacts(transport),
@@ -269,7 +271,8 @@ export function withAspectsForCopilot(text: string, choices?: AspectLevelChoices
     try {
         /* eslint-disable-next-line @typescript-eslint/no-require-imports */
         const levels = choices ?? (require('./aspectChoiceLevels') as typeof import('./aspectChoiceLevels')).liveAspectChoices();
-        return liveAspectsForSend('copilot', { systemSegments: [], userContent: text }, levels).userContent;
+        // No skills list on Copilot (gsel21): `${skills-list}` reads empty there.
+        return liveAspectsForSend('copilot', { systemSegments: [], userContent: text }, levels, { 'skills-list': '' }).userContent;
     } catch {
         return text;
     }

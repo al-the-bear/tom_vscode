@@ -111,6 +111,21 @@ export function skillsSystemSection(skills: readonly SkillInfo[]): string {
     ].join('\n');
 }
 
+/** The placeholder that resolves to the skills list (gsel21): `${skills-list}`, the text of the aspect `skills`, choice `all`. */
+export const SKILLS_LIST_PLACEHOLDER = 'skills-list';
+
+/**
+ * The skills list one send gets through the aspect `skills` (gsel21): the
+ * block of {@link skillsSystemSection} on the transports that run the
+ * extension's own tool loop when the send carries {@link LOAD_SKILL_TOOL_NAME};
+ * `''` on the Agent SDK (it loads skills itself), on Copilot and without the
+ * tool — as before the aspect existed.
+ */
+export function skillsListFor(transport: string, toolNames: readonly string[], wsRoot: string): string {
+    if (transport === 'agentSdk' || transport === 'copilot' || !toolNames.includes(LOAD_SKILL_TOOL_NAME)) { return ''; }
+    return skillsSystemSection(listSkills(wsRoot));
+}
+
 /** The files of a skill folder, relative, sorted, sub-folders included (symlinks followed once). */
 function listFiles(dir: string): string[] {
     const out: string[] = [];

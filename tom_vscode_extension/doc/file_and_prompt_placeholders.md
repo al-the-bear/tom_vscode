@@ -73,6 +73,12 @@ Two shortcuts for the most common case — the active role / quest from the Chat
 | `${copilot-instructions}` | Deprecated: the same as `${agent-instructions}` (also `${copilot-instructions.md}`). `.github/copilot-instructions.md` is no longer read. |
 | `${claudeMd}` | Every `CLAUDE.md` as Claude Code loads it (`src/services/claudeMd.ts`): `~/.claude/CLAUDE.md`; then each folder from the farthest ancestor of the workspace root down to the root — its `CLAUDE.md`, then its `CLAUDE.local.md`; after each file the files it imports with `@path` (relative to it, `~/…` or absolute; nested up to five levels, each file once, not from inline code or fenced blocks). Each under `Contents of <path> (user / project / private project instructions, or imported by …):`. For direct, Local LLM and VS Code LM profiles — the Agent SDK loads these files itself. |
 
+### Skills
+
+| Placeholder | Expands to |
+| --- | --- |
+| `${skills-list}` | The skills of `.claude/skills/` as the system prompt lists them: the `## Skills` heading, the instruction to call `tomAi_loadSkill` first, one line per skill (name and description). It is the text of the aspect guideline `skills` (choice `all`, the default); a send fills it only on the transports with the extension's own tool loop (direct, Local LLM, VS Code LM) when it carries `tomAi_loadSkill` — on the Agent SDK (which loads skills itself) and on Copilot it reads empty. |
+
 ### Project guidelines
 
 `${guidelines-<name>}` reads a single file from the workspace guidelines folder:

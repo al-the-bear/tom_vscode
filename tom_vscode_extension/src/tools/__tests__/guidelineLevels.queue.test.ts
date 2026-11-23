@@ -342,7 +342,7 @@ describe('guideline choices per level', () => {
     test('GL-8: the wiring', () => {
         const src = EXT('src', 'managers', 'promptQueueManager.ts');
         assert.match(src, /withAspectsForCopilot\(unescapePlaceholders\(expandedText\), liveAspectChoices\(undefined, roleSource\)\)/, 'the queue\'s Copilot send');
-        assert.match(EXT('src', 'handlers', 'anthropic-handler.ts'), /liveAspectsForSend\(transport as AspectTransport, \{ systemSegments, userContent: '' \}, liveAspectChoices\(options\.aspectGuidelineChoices\)\)/, 'the direct, VS Code LM, Local LLM and Agent SDK sends');
+        assert.match(EXT('src', 'handlers', 'anthropic-handler.ts'), /liveAspectsForSend\(transport as AspectTransport, \{ systemSegments, userContent: '' \}, liveAspectChoices\(options\.aspectGuidelineChoices\),/, 'the direct, VS Code LM, Local LLM and Agent SDK sends');
         const chat = EXT('src', 'handlers', 'chatPanel-handler.ts');
         assert.match(chat, /withAspectsForCopilot\(expanded, liveAspectChoices\(chatSendAspectChoices\('copilot', this\._chatRun\('copilot'\)\)\)\)/);
         assert.match(chat, /aspectGuidelineChoices: chatSendAspectChoices\('anthropic', this\._chatRun\('anthropic'\)\)/);
