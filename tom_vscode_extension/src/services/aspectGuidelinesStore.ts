@@ -1,12 +1,14 @@
 /**
- * The aspect guideline store, `_ai/aspect_guidelines/<section>/`, and the
+ * The aspect guideline store, `_ai/aspect_guidelines/<aspect>/`, and the
  * aspect text of one send (utils/aspectGuidelines.ts has the rules).
  *
- * - {@link readAspectSections} reads every section folder: `section.yaml`
- *   (schema `aspect-guideline-section.schema.json`, generated into the root's
- *   `.tom/json-schema/aspect-guidelines/`) and its `<option>.md` files.
- * - {@link aspectsForSend} resolves the sections over the levels a send
- *   carries, resolves the placeholders in the chosen options' texts
+ * - {@link readAspectSections} reads every aspect folder: `aspect.yaml`
+ *   (schema `aspect-guideline.schema.json`, generated into the root's
+ *   `.tom/json-schema/aspect-guidelines/`) and its `<choice>.md` files. A
+ *   folder that still has only `section.yaml` (before format version 10) is a
+ *   problem: the migration renames it.
+ * - {@link aspectsForSend} resolves the aspects over the levels a send
+ *   carries, resolves the placeholders in the chosen choices' texts
  *   (recursively, `${guidelines-…}`, `${file-…}` …) and places the text for
  *   the send's transport.
  *
@@ -19,8 +21,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import {
+    ASPECT_FILE,
     assembleAspects,
     buildAspectSection,
+    LEGACY_ASPECT_FILE,
     placeAspects,
     resolveAspects,
     type AspectLevelChoices,
@@ -44,10 +48,14 @@ export function readAspectSections(dir: string | undefined): { sections: AspectS
         const folder = path.join(dir, e.name);
         let yaml: AspectSectionYaml | undefined;
         try {
-            yaml = parseYaml(fs.readFileSync(path.join(folder, 'section.yaml'), 'utf8')) as AspectSectionYaml;
+            yaml = parseYaml(fs.readFileSync(path.join(folder, ASPECT_FILE), 'utf8')) as AspectSectionYaml;
         } catch (err) {
-            if (fs.existsSync(path.join(folder, 'section.yaml'))) {
-                problems.push(`${e.name}: section.yaml does not read: ${(err as Error).message}`);
+            if (fs.existsSync(path.join(folder, ASPECT_FILE))) {
+                problems.push(`${e.name}: ${ASPECT_FILE} does not read: ${(err as Error).message}`);
+                continue;
+            }
+            if (fs.existsSync(path.join(folder, LEGACY_ASPECT_FILE))) {
+                problems.push(`${e.name}: has ${LEGACY_ASPECT_FILE}, the definition file before format version 10; Upgrade the workspace renames it to ${ASPECT_FILE}`);
                 continue;
             }
         }
@@ -86,7 +94,7 @@ export function aspectsForSend(
 ): AspectsForSend {
     const { sections, problems } = readAspectSections(dir);
     const resolution = resolveAspects(sections, choices ?? {});
-    for (const i of resolution.ignored) { problems.push(`${i.level}: "${i.section}" → "${i.option}" names no option of a section; skipped`); }
+    for (const i of resolution.ignored) { problems.push(`${i.level}: "${i.section}" → "${i.option}" names no choice of an aspect; skipped`); }
     const assembled = assembleAspects(sections, resolution, resolve);
     return { ...placeAspects(transport, prompt, assembled), assembled, problems };
 }

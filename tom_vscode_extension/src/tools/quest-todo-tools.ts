@@ -110,7 +110,7 @@ export interface QuestTodoFull {
     bundle_id?: string;
     /** The role the todo runs in (a folder of `_ai/roles/`). */
     role?: string;
-    /** The todo's guideline choices: aspect section → option or `remove` (gsel4). */
+    /** The todo's guideline choices: aspect → choice or `remove` (gsel4). */
     guidelines?: Record<string, string>;
     derived_from?: string;
     feedback_source?: string;
@@ -174,7 +174,7 @@ export interface QuestTodoToolsDeps {
     idRefusal?(id: string): string | undefined;
     /** The roles folder (`_ai/roles/`) a todo's `role` is checked against; undefined: only its form is checked. */
     rolesDir?(): string | undefined;
-    /** The aspect sections a todo's `guidelines` are checked against (gsel4); undefined: only their form is checked. */
+    /** The guideline aspects a todo's `guidelines` are checked against (gsel4); undefined: only their form is checked. */
     aspectSections?: AspectSectionsReader;
 }
 

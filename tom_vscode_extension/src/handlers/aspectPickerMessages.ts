@@ -8,7 +8,7 @@
  *   applyAspectChoice); a refusal is shown as a warning.
  * - `aspectQuestDefault` `{ action: 'set' | 'clear' }`: *Set as quest default*
  *   / *Clear quest default* (handlers/aspectChoiceCommands.ts).
- * - `aspectEditSections`: *Edit sections…* — the section editor page
+ * - `aspectEditSections`: *Edit aspects…* — the Aspect Guidelines editor page
  *   (aspectSectionEditor-handler.ts, `tomAi.editor.aspectSections`).
  *
  * Answers whether the message was the picker's and whether a level changed.

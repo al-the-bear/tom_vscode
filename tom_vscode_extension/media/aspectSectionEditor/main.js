@@ -1,6 +1,6 @@
 // @ts-nocheck
 /*
- * Guideline Sections client (gsel7, P-4). The host
+ * Aspect Guidelines editor client (gsel7, gsel16, P-4). The host
  * (src/handlers/aspectSectionEditor-handler.ts) posts `data`: every section of
  * _ai/aspect_guidelines/ as it is on disk ({ id, name, label, placement,
  * defaultOption, options: [{ name, text }], problems }). The page edits a
@@ -98,13 +98,13 @@ function defaultOptionsHtml(d) {
 function optionHtml(o, i, count, d) {
   return '<div class="option" data-index="' + i + '">'
     + '<div class="option-head">'
-    + '<input type="text" class="opt-name" placeholder="short name (the file name, e.g. brief)" value="' + escapeHtml(o.name) + '" aria-label="Option short name">'
+    + '<input type="text" class="opt-name" placeholder="short name (the file name, e.g. brief)" value="' + escapeHtml(o.name) + '" aria-label="Choice short name">'
     + (o.name && o.name === d.defaultOption ? '<span class="is-default">default</span>' : '')
     + '<button class="icon-btn opt-up" title="Move up"' + (i === 0 ? ' disabled' : '') + '><span class="codicon codicon-arrow-up"></span></button>'
     + '<button class="icon-btn opt-down" title="Move down"' + (i === count - 1 ? ' disabled' : '') + '><span class="codicon codicon-arrow-down"></span></button>'
-    + '<button class="icon-btn opt-delete" title="Delete the option (its file goes with Save)"><span class="codicon codicon-trash"></span></button>'
+    + '<button class="icon-btn opt-delete" title="Delete the choice (its file goes with Save)"><span class="codicon codicon-trash"></span></button>'
     + '</div>'
-    + '<textarea class="opt-text" spellcheck="false" aria-label="Option text">' + escapeHtml(o.text) + '</textarea>'
+    + '<textarea class="opt-text" spellcheck="false" aria-label="Choice text">' + escapeHtml(o.text) + '</textarea>'
     + '</div>';
 }
 
@@ -115,11 +115,11 @@ function render() {
   const s = onDisk(selected);
   const d = draft();
   if (!s || !d) {
-    form.innerHTML = '<p class="muted">' + ((data.sections || []).length ? 'Pick a section on the left.' : 'No sections yet: add one with +.') + '</p>';
+    form.innerHTML = '<p class="muted">' + ((data.sections || []).length ? 'Pick an aspect on the left.' : 'No aspects yet: add one with +.') + '</p>';
     return;
   }
   form.innerHTML = (carried ? '<div class="hint carried" role="status"><span class="codicon codicon-check"></span> ' + escapeHtml(carried) + '</div>' : '')
-    + '<div class="field"><label class="title">Section</label><div>' + escapeHtml(s.id) + ' <span class="muted">(_ai/aspect_guidelines/' + escapeHtml(s.id) + '/)</span></div>'
+    + '<div class="field"><label class="title">Aspect</label><div>' + escapeHtml(s.id) + ' <span class="muted">(_ai/aspect_guidelines/' + escapeHtml(s.id) + '/)</span></div>'
     + '<div class="hint">The short name every level\'s choice names; rename it with the pencil above the list (the choices stored on every level follow).</div></div>'
     + (s.problems && s.problems.length ? '<ul class="problems">' + s.problems.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') + '</ul>' : '')
     + '<div class="row">'
@@ -130,13 +130,13 @@ function render() {
     + '<option value="system"' + (d.placement !== 'user' ? ' selected' : '') + '>System prompt</option>'
     + '<option value="user"' + (d.placement === 'user' ? ' selected' : '') + '>User prompt (before the prompt text)</option>'
     + '</select><div class="hint">Copilot has no system prompt: there both go before the prompt text.</div></div>'
-    + '<div class="field"><label class="title" for="secDefault">Default option</label><select id="secDefault">' + defaultOptionsHtml(d) + '</select>'
+    + '<div class="field"><label class="title" for="secDefault">Default choice</label><select id="secDefault">' + defaultOptionsHtml(d) + '</select>'
     + '<div class="hint">Chosen when no level chooses.</div></div>'
     + '</div>'
-    + '<div class="field"><label class="title">Options</label>'
-    + '<div class="hint">Each option is &lt;short name&gt;.md: Markdown; placeholders (${guidelines-…}, ${file-…} …) are resolved when the text is sent. "remove" is no option name: it is the levels\' Remove.</div>'
+    + '<div class="field"><label class="title">Choices</label>'
+    + '<div class="hint">Each choice is &lt;short name&gt;.md: Markdown; placeholders (${guidelines-…}, ${file-…} …) are resolved when the text is sent. "remove" is no choice name: it is the levels\' Remove.</div>'
     + '<div id="options">' + d.options.map(function(o, i) { return optionHtml(o, i, d.options.length, d); }).join('') + '</div>'
-    + '<button class="secondary" id="btnAddOption"><span class="codicon codicon-add"></span> Add option</button></div>'
+    + '<button class="secondary" id="btnAddOption"><span class="codicon codicon-add"></span> Add choice</button></div>'
     + '<div class="save-row"><button class="primary" id="btnSave">Save</button><button class="secondary" id="btnRevert">Revert</button><span class="muted">Ctrl/Cmd+S</span></div>';
   wireForm(d);
 }

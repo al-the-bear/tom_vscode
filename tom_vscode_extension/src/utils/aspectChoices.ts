@@ -1,7 +1,7 @@
 /**
  * The guideline choices one level keeps (gsel4; design
  * `role_and_guideline_selector.vscode_extension.md`, L-1..L-8, P-6): a map of
- * aspect section → option short name, or `remove`. A section the level does
+ * aspect → choice short name, or `remove`. An aspect the level does
  * not choose has no entry (*Don't add*: it inherits from the levels above).
  *
  * - {@link normalizeAspectChoices} reads a stored map (anything else is
@@ -47,22 +47,22 @@ export function normalizeAspectChoices(value: unknown): AspectChoices | undefine
 export function aspectChoicesRefusal(value: unknown, sections: readonly AspectSection[]): string | undefined {
     if (value === null || value === undefined) { return undefined; }
     if (typeof value !== 'object' || Array.isArray(value)) {
-        return '`guidelines` must be an object mapping an aspect section to an option name or "remove".';
+        return '`guidelines` must be an object mapping an aspect to a choice name or "remove".';
     }
     const problems: string[] = [];
     const byId = new Map(sections.map((s) => [s.id, s]));
     for (const [section, option] of Object.entries(value as Record<string, unknown>)) {
         const known = byId.get(section);
         if (!known) {
-            problems.push(`"${section}" is no aspect section (sections: ${sections.map((s) => s.id).join(', ') || 'none — _ai/aspect_guidelines/ has none'})`);
+            problems.push(`"${section}" is no guideline aspect (aspects: ${sections.map((s) => s.id).join(', ') || 'none — _ai/aspect_guidelines/ has none'})`);
             continue;
         }
         if (typeof option !== 'string') {
-            problems.push(`"${section}" must map to an option name or "${ASPECT_REMOVE}"`);
+            problems.push(`"${section}" must map to a choice name or "${ASPECT_REMOVE}"`);
             continue;
         }
         if (option !== ASPECT_REMOVE && !known.options.some((o) => o.name === option)) {
-            problems.push(`"${option}" is no option of "${section}" (options: ${[...known.options.map((o) => o.name), ASPECT_REMOVE].join(', ')})`);
+            problems.push(`"${option}" is no choice of "${section}" (choices: ${[...known.options.map((o) => o.name), ASPECT_REMOVE].join(', ')})`);
         }
     }
     return problems.length ? `Unknown guideline choices: ${problems.join('; ')}.` : undefined;

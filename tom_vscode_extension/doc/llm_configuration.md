@@ -52,8 +52,9 @@ files it writes and writes them, at start and when the layout changes, into
 the top `.tom` (the root's, or a standalone workspace folder's own):
 `json-schema/panels/`, `json-schema/roles/`, `json-schema/processes/process.schema.json`,
 `json-schema/extension/tom_vscode_extension.schema.json` and
-`json-schema/aspect-guidelines/aspect-guideline-section.schema.json` (an aspect
-guideline section's `section.yaml`, § Aspect guidelines). Each folder
+`json-schema/aspect-guidelines/aspect-guideline.schema.json` (an aspect's
+`aspect.yaml`, § Aspect guidelines) with `aspect-guideline-section.schema.json`
+(its `section.yaml` before `_ai` format version 10). Each folder
 carries a `.generated-by` file (extension id, version, build): a stamped folder
 is kept current, never by an older build than the one that stamped it; an
 unstamped folder whose files are the shipped ones is adopted; one that differs
@@ -562,47 +563,55 @@ The two files are validated against `src/config/role-type.schema.json` and `role
 
 ### 6.2 Aspect guidelines
 
-A prompt gets the guideline aspects chosen for it, section by section:
-aspect-oriented prompting, where a prompt is given only the guidelines it
+A prompt gets the guideline aspects chosen for it, aspect by aspect (one
+choice per aspect): aspect-oriented prompting, where a prompt is given only the guidelines it
 needs. Every prompt the extension sends gets them: on every Anthropic
 transport (direct, Agent SDK, VS Code LM, Local LLM) and on Copilot. A
 sub-agent's isolated send gets none.
 
 **The store** is `_ai/aspect_guidelines/`, shared by every quest and machine.
-It holds one folder per section; the folder name is the section's id:
+It holds one folder per aspect; the folder name is the aspect's id:
 
 ```text
 _ai/aspect_guidelines/
   answer_mode/
-    section.yaml
+    aspect.yaml
     answer tool.md
     trail only.md
 ```
 
-`section.yaml` (schema `.tom/json-schema/aspect-guidelines/aspect-guideline-section.schema.json`):
+`aspect.yaml` (schema `.tom/json-schema/aspect-guidelines/aspect-guideline.schema.json`):
 
 ```yaml
 name: Answer mode        # required
 label: Answer            # short label for the selection's hover help; default: the name
 placement: system        # system (default) or user
-default: trail only      # the option used when no level chooses; absent: nothing
-options: [trail only, answer tool]   # the order; option files not listed follow by name
+default: trail only      # the choice used when no level chooses; absent: nothing
+choices: [trail only, answer tool]   # the order; choice files not listed follow by name
 ```
 
-Each `<option>.md` is one option: its file name without `.md` is the option's
+Each `<choice>.md` is one choice: its file name without `.md` is the choice's
 short name, and its content is the text sent. The text may use the usual prompt
 placeholders (`${guidelines-<name>}`, `${file-<path>}`, `${role}`, …); they
-are resolved recursively before the text is sent. `remove` is no option name:
+are resolved recursively before the text is sent. `remove` is no choice name:
 on a level it is Remove.
 
-**The section editor** (`tomAi.editor.aspectSections`, *Edit sections…* in
-every picker, Extension Tools; `src/handlers/aspectSectionEditor-handler.ts`,
-`src/services/aspectSectionsEdit.ts`) edits the store: sections are added,
-renamed (the folder) and deleted; a section's name, label, placement, default
-and options (short name, text, order) are edited as a draft and saved as a
-whole, `section.yaml` with its schema line and one `<option>.md` per option,
-an option file no longer listed deleted. A save the rules refuse writes
-nothing. A section renamed, or an option renamed in the draft (Save sends the
+Before `_ai` format version 10 the file was `section.yaml` with `options:`
+(schema `aspect-guideline-section.schema.json`). The format migration
+(Upgrade the workspace, `npm run migrate:ai-formats`) renames it to
+`aspect.yaml`, its key to `choices:` and its schema line
+(`src/utils/aspectFileMigration.ts`); a folder holding both files is reported
+and left as it is. The reader takes only `aspect.yaml`: a folder with
+`section.yaml` alone is listed as a problem until it is migrated.
+
+**The Aspect Guidelines editor** (`tomAi.editor.aspectSections`, *Edit
+aspects…* in every picker, Extension Tools; `src/handlers/aspectSectionEditor-handler.ts`,
+`src/services/aspectSectionsEdit.ts`) edits the store: aspects are added,
+renamed (the folder) and deleted; an aspect's name, label, placement, default
+and choices (short name, text, order) are edited as a draft and saved as a
+whole, `aspect.yaml` with its schema line and one `<choice>.md` per choice,
+a choice file no longer listed deleted. A save the rules refuse writes
+nothing. An aspect renamed, or a choice renamed in the draft (Save sends the
 renames), keeps the choices in effect: every stored choice naming the old id
 is rewritten to the new one (`src/services/aspectChoiceRename.ts`) — every
 quest's quest default and every host's window and @CHAT choices, the runs'
@@ -610,16 +619,17 @@ queue settings, queue items, templates and inbox items, every quest's todos,
 roles and role types — and the other open windows on this machine carry over
 what they hold in memory; the editor says what was rewritten.
 
-**The levels**, the lowest winning per section: the section default < quest
-default < window < run < role type < role < queue item < todo. On each level a
-section is one of three things:
+**The levels**, the lowest winning per aspect: the aspect's default
+(`aspectDefault` in tomAi_getAspectGuidelines) < quest default < window < run
+< role type < role < queue item < todo. On each level an aspect is one of
+three things:
 
 - *Don't add*: no entry. A higher level's choice is inherited.
-- `remove`: nothing is sent for the section, whatever the levels above chose
+- `remove`: nothing is sent for the aspect, whatever the levels above chose
   and whatever the default is.
-- An option: its text is sent.
+- A choice: its text is sent.
 
-An entry naming an option the section does not have is skipped, and the level
+An entry naming a choice the aspect does not have is skipped, and the level
 above it decides. A send resolves the levels it has (`liveAspectChoices`: the
 quest default, the window, its run, its role, its queue item and todo) and any
 choices a caller passes in `aspectGuidelineChoices`.
@@ -628,11 +638,11 @@ choices a caller passes in `aspectGuidelineChoices`.
 windows, a run, a queue item and a todo from the Prompt Queue editor and the
 todo editor, and each @CHAT subpanel's sticky choices — the item level of its
 sends — from the @CHAT panel (level `chat` with `panel`, gsel6; user guide
-§ Aspect guidelines). The pages get the sections and
+§ Aspect guidelines). The pages get the aspects and
 the shared levels from `services/aspectPickerState.ts` and post
-`aspectChoose {level, section, value}` (`''` Don't add, `remove`, an option),
+`aspectChoose {level, section, value}` (`''` Don't add, `remove`, a choice),
 `aspectQuestDefault {action}` and `aspectEditSections`
-(`handlers/aspectPickerMessages.ts`); a value the section does not have is
+(`handlers/aspectPickerMessages.ts`); a value the aspect does not have is
 refused. After every level write — a picker message, another window's
 `setAspectChoice` window request, the quest-default commands — every view
 showing the picker is redrawn (`handlers/aspectViewsRefresh.ts`): the Prompt
@@ -648,20 +658,20 @@ follow it ahead of the step role and the chat variable, which stays as it is.
 What the panel queues with its own target, or because its session is busy,
 carries the role and the subpanel's choices as the item's own.
 
-**Where the text goes.** The chosen options are rendered under one
-`## Aspect guidelines` heading, with a `### <section>: <option>` heading per
-section:
+**Where the text goes.** The chosen choices are rendered under one
+`## Aspect guidelines` heading, with a `### <aspect>: <choice>` heading per
+aspect:
 
-- **System sections:** one segment of the system prompt.
-- **User sections:** before the prompt text, separated from it by `---`.
-- **Copilot:** it has no system prompt of its own, so the system sections and
-  then the user sections go before the prompt text.
+- **System aspects:** one segment of the system prompt.
+- **User aspects:** before the prompt text, separated from it by `---`.
+- **Copilot:** it has no system prompt of its own, so the system aspects and
+  then the user aspects go before the prompt text.
 
 The raw prompt trail (`.userprompt.md`) shows the text as it was sent.
 
 A changed system prompt does not start a new conversation; the Agent SDK
 resumes it with the new system prompt. The first turn after a change reads the
-conversation once without the prompt cache. A section placed in the user
+conversation once without the prompt cache. An aspect placed in the user
 prompt avoids even that.
 
 ## 7. History Compaction (`compaction` section) — defaults & system-wide flags

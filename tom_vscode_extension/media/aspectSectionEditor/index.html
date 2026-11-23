@@ -4,24 +4,24 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <!--
-  Guideline Sections (gsel7, P-4; src/handlers/aspectSectionEditor-handler.ts):
-  the aspect sections of _ai/aspect_guidelines/ and their options. Sections
-  are added, renamed and deleted from the list; a section's fields and options
-  are edited as a draft and saved as a whole. Every interaction is wired with
+  Aspect Guidelines editor (gsel7, gsel16, P-4; src/handlers/aspectSectionEditor-handler.ts):
+  the aspects of _ai/aspect_guidelines/ and their choices. Aspects are added,
+  renamed and deleted from the list; an aspect's fields and choices are edited
+  as a draft and saved as a whole. Every interaction is wired with
   addEventListener (the loader's nonce-only CSP). Data arrives by postMessage
   after 'ready'.
 -->
 <link rel="stylesheet" href="{{baseUri}}/style.css">
 </head>
 <body>
-<h2>Guideline Sections</h2>
-<p class="muted">Each section is a folder of _ai/aspect_guidelines/: a section.yaml and one &lt;option&gt;.md per option. A prompt gets the text of each section's effective option, chosen with the guideline buttons (quest default, window, run, role type, role, item, todo) or the section's default.</p>
+<h2>Aspect Guidelines</h2>
+<p class="muted">Each aspect is a folder of _ai/aspect_guidelines/: an aspect.yaml and one &lt;choice&gt;.md per choice. A prompt gets the text of each aspect's effective choice, chosen with the guideline buttons (quest default, window, run, role type, role, item, todo) or the aspect's default.</p>
 <div class="layout">
     <div class="list-pane">
         <div class="action-bar">
-            <button class="icon-btn" id="btnAdd" title="Add a section"><span class="codicon codicon-add"></span></button>
-            <button class="icon-btn" id="btnRename" title="Rename the selected section's folder (its short name)"><span class="codicon codicon-edit"></span></button>
-            <button class="icon-btn" id="btnDelete" title="Delete the selected section with its options"><span class="codicon codicon-trash"></span></button>
+            <button class="icon-btn" id="btnAdd" title="Add an aspect"><span class="codicon codicon-add"></span></button>
+            <button class="icon-btn" id="btnRename" title="Rename the selected aspect's folder (its short name)"><span class="codicon codicon-edit"></span></button>
+            <button class="icon-btn" id="btnDelete" title="Delete the selected aspect with its choices"><span class="codicon codicon-trash"></span></button>
             <button class="icon-btn" id="btnRefresh" title="Read the files again (unsaved changes are dropped)"><span class="codicon codicon-refresh"></span></button>
             <button class="icon-btn" id="btnFolder" title="Show the folder in the Explorer"><span class="codicon codicon-folder-opened"></span></button>
         </div>

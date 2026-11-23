@@ -232,8 +232,8 @@
         }).join('');
         popup.innerHTML = '<div class="tom-aspect-popup-title">' + esc(opts.title) + '</div>'
             + (opts.note ? '<div class="tom-aspect-popup-note">' + esc(opts.note) + '</div>' : '')
-            + (rows || '<div class="tom-aspect-empty">No guideline sections yet (_ai/aspect_guidelines/).</div>')
-            + '<div class="tom-aspect-edit" role="menuitem" tabindex="0">Edit sections\u2026</div>';
+            + (rows || '<div class="tom-aspect-empty">No guideline aspects yet (_ai/aspect_guidelines/).</div>')
+            + '<div class="tom-aspect-edit" role="menuitem" tabindex="0">Edit aspects\u2026</div>';
         document.body.appendChild(popup);
         if (anchor && anchor.getBoundingClientRect) {
             var r = anchor.getBoundingClientRect();

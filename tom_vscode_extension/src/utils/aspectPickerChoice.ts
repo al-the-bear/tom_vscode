@@ -65,9 +65,9 @@ export interface AspectChoiceResult {
 /** Why `value` is no choice of `section` (undefined: it is). */
 export function aspectValueRefusal(sections: readonly AspectSection[], section: string, value: string): string | undefined {
     const s = sections.find((x) => x.id === section);
-    if (!s) { return `There is no guideline section "${section}".`; }
+    if (!s) { return `There is no guideline aspect "${section}".`; }
     if (value === '' || value === ASPECT_REMOVE || s.options.some((o) => o.name === value)) { return undefined; }
-    return `The section ${s.name} has no option "${value}".`;
+    return `The aspect ${s.name} has no choice "${value}".`;
 }
 
 /** Set one section's choice on one level. */

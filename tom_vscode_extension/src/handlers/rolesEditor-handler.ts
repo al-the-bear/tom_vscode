@@ -39,9 +39,9 @@ const TITLE = 'Role Editor';
 const TAB_NAMES: Record<RolesEditorKind, string> = { roles: 'Role', roleTypes: 'Role type' };
 let panel: vscode.WebviewPanel | undefined;
 
-/** What the page needs besides the role store: the guideline sections, and what to do after a save. */
+/** What the page needs besides the role store: the guideline aspects, and what to do after a save. */
 export interface RolesEditorEnv {
-    /** The guideline sections the picker offers. */
+    /** The guideline aspects the picker offers. */
     aspects?: () => AspectCatalogue;
     /** A role's or role type's choices changed: the other pickers show the roles' levels. */
     changed?: () => void;
@@ -61,7 +61,7 @@ export function rolesEditorKindOf(value: unknown): RolesEditorKind {
 /**
  * What the page shows on tab `kind`: its items, for roles the role types to
  * pick (with their choices: the level above a role's), for role types the
- * tools to select; and the guideline sections.
+ * tools to select; and the guideline aspects.
  */
 export function rolesEditorData(kind: RolesEditorKind, s: RoleStore | undefined, env?: RolesEditorEnv): Record<string, unknown> {
     let aspects: AspectCatalogue = { sections: [] };

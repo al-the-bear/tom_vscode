@@ -150,11 +150,11 @@ describe('guideline picker: the component', () => {
         const night = [...rows[1].querySelectorAll('.tom-aspect-option')];
         assert.deepEqual(night.map((o: Win) => o.classList.contains('mine')), [false, false, false, true], 'Remove is this level\'s choice');
         assert.equal(night[3].getAttribute('aria-checked'), 'true');
-        assert.equal(popup.querySelector('.tom-aspect-edit').textContent, 'Edit sections\u2026');
-        assert.equal(popup.lastElementChild.className, 'tom-aspect-edit', 'Edit sections sits at the bottom');
+        assert.equal(popup.querySelector('.tom-aspect-edit').textContent, 'Edit aspects\u2026');
+        assert.equal(popup.lastElementChild.className, 'tom-aspect-edit', 'Edit aspects sits at the bottom');
 
         const empty = P.open(anchor, P.view({ sections: [] }, {}, 'window'), { title: 'x', onChoose: () => undefined });
-        assert.match(empty.querySelector('.tom-aspect-empty').textContent, /No guideline sections/);
+        assert.match(empty.querySelector('.tom-aspect-empty').textContent, /No guideline aspects/);
         assert.equal(w.document.querySelectorAll('.tom-aspect-popup').length, 1, 'opening one closes the other');
     });
 

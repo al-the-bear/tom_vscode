@@ -56,8 +56,8 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'The Proceed template: how a process position becomes the prompt it queues.' },
     { id: 'assistPrompts', label: 'Assist prompts', group: 'prompts', icon: 'lightbulb', statusSection: 'assistPrompts',
         purpose: 'Grill me, Explain in detail, Finish review round and the other assist prompts (a Status Page section).' },
-    { id: 'aspectSections', label: 'Guideline Sections Editor', group: 'prompts', icon: 'book', command: 'tomAi.editor.aspectSections',
-        purpose: 'The aspect guideline sections of `_ai/aspect_guidelines/` the guideline buttons choose from: name, label, placement, default and each option\'s text.' },
+    { id: 'aspectSections', label: 'Aspect Guidelines Editor', group: 'prompts', icon: 'book', command: 'tomAi.editor.aspectSections',
+        purpose: 'The guideline aspects of `_ai/aspect_guidelines/` the guideline buttons choose from: name, label, placement, default and each choice\'s text.' },
 
     // (2) Queue & automation
     { id: 'promptQueue', label: 'Prompt Queue Editor', group: 'queue', icon: 'list-flat', command: 'tomAi.editor.promptQueue',

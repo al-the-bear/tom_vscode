@@ -1,21 +1,26 @@
 /**
- * Aspect guidelines: the guideline aspects a prompt is given, chosen per
- * section (design: `_ai/quests/vscode_extension/role_and_guideline_selector.vscode_extension.md`,
- * A-1..A-4, L-1, L-2, AS-2).
+ * Aspect guidelines: the guideline aspects a prompt is given, one choice per
+ * aspect (design: `_ai/quests/vscode_extension/role_and_guideline_selector.vscode_extension.md`,
+ * A-1..A-4, L-1, L-2, AS-2; the words aspect and choice: guideline_sectioning.md D-26).
  *
- * - **The store** is `_ai/aspect_guidelines/<section>/`: `section.yaml`
- *   (name, short label, placement, default option, option order) and one
- *   `<option>.md` per option, its file name the option's short name
+ * - **The store** is `_ai/aspect_guidelines/<aspect>/`: `aspect.yaml` (name,
+ *   short label, placement, default choice, the choices' order) and one
+ *   `<choice>.md` per choice, its file name the choice's short name
  *   (services/aspectGuidelinesStore.ts reads it; the schema is
- *   `src/config/aspect-guideline-section.schema.json`).
- * - **The levels**, lowest winning per section: section default < quest
- *   default < window < run < role type < role < item < todo. On each level a
- *   section is absent (*Don't add*: inherit), `remove` (nothing for the
- *   section, whatever is above, the default included) or an option.
- * - **The text**: each effective option's text (placeholders resolved by the
- *   caller), the `system` sections as one segment of the system prompt, the
- *   `user` sections before the prompt text. Copilot has no system prompt of
+ *   `src/config/aspect-guideline.schema.json`). `section.yaml` with `options:`
+ *   is the format before version 10: the `_ai` format migration renames it.
+ * - **The levels**, lowest winning per aspect: aspect default < quest
+ *   default < window < run < role type < role < item < todo. On each level an
+ *   aspect is absent (*Don't add*: inherit), `remove` (nothing for the
+ *   aspect, whatever is above, the default included) or a choice.
+ * - **The text**: each effective choice's text (placeholders resolved by the
+ *   caller), the `system` aspects as one segment of the system prompt, the
+ *   `user` aspects before the prompt text. Copilot has no system prompt of
  *   its own: there both go before the prompt text.
+ *
+ * Code identifiers keep their older names (`AspectSection`, `options`,
+ * `sectionDefault`): they are not user-visible; the stored field
+ * `guidelines:` stays too.
  *
  * Pure (no `vscode`, no `fs`): tested in `__tests__/aspectGuidelines.test.ts`.
  */
@@ -24,8 +29,14 @@
 export const ASPECT_LEVELS = ['sectionDefault', 'questDefault', 'window', 'run', 'roleType', 'role', 'item', 'todo'] as const;
 export type AspectLevel = typeof ASPECT_LEVELS[number];
 
-/** The value of a level's entry that sends nothing for its section. */
+/** The value of a level's entry that sends nothing for its aspect. */
 export const ASPECT_REMOVE = 'remove';
+
+/** An aspect's definition file in its folder. */
+export const ASPECT_FILE = 'aspect.yaml';
+
+/** The definition file before format version 10; the migration renames it to {@link ASPECT_FILE}. */
+export const LEGACY_ASPECT_FILE = 'section.yaml';
 
 /** Where a section's text goes. */
 export type AspectPlacement = 'system' | 'user';
@@ -63,26 +74,29 @@ export function isAspectName(name: string): boolean {
     return name.length > 0 && name.trim() === name && !/[/\n\r]/.test(name);
 }
 
-/** The `section.yaml` content as read, before it is checked. */
+/** The `aspect.yaml` content as read, before it is checked. */
 export interface AspectSectionYaml {
     name?: unknown;
     label?: unknown;
     placement?: unknown;
     default?: unknown;
+    choices?: unknown;
+    /** The key before format version 10: refused, the migration renames it to `choices`. */
     options?: unknown;
 }
 
 /**
- * Builds a section from its folder name, its `section.yaml` and its option
- * files (`name` → text, in any order). Answers the section and the problems
- * found; a section that cannot be used (no name, a bad placement, a folder
+ * Builds an aspect from its folder name, its `aspect.yaml` and its choice
+ * files (`name` → text, in any order). Answers the aspect and the problems
+ * found; an aspect that cannot be used (no name, a bad placement, a folder
  * name that is no name) is answered as `undefined` with its problems.
  *
- * - The options are `options` (the order) first — names without a file are
+ * - The choices are `choices` (the order) first — names without a file are
  *   problems and left out —, then the other files by name.
- * - An option named `remove` is a problem and left out: the name is the
+ * - A choice named `remove` is a problem and left out: the name is the
  *   levels' Remove.
- * - A `default` that names no option is a problem and dropped.
+ * - A `default` that names no choice is a problem and dropped.
+ * - The older key `options` is a problem (the migration renames it).
  */
 export function buildAspectSection(
     id: string,
@@ -90,26 +104,29 @@ export function buildAspectSection(
     files: Readonly<Record<string, string>>,
 ): { section?: AspectSection; problems: string[] } {
     const problems: string[] = [];
-    if (!isAspectName(id)) { return { problems: [`section folder "${id}": not a section name`] }; }
-    if (!yaml || typeof yaml !== 'object') { return { problems: [`${id}: no section.yaml`] }; }
-    if (typeof yaml.name !== 'string' || !yaml.name.trim()) { return { problems: [`${id}: section.yaml has no name`] }; }
+    if (!isAspectName(id)) { return { problems: [`aspect folder "${id}": not an aspect name`] }; }
+    if (!yaml || typeof yaml !== 'object') { return { problems: [`${id}: no ${ASPECT_FILE}`] }; }
+    if (typeof yaml.name !== 'string' || !yaml.name.trim()) { return { problems: [`${id}: ${ASPECT_FILE} has no name`] }; }
     const placement = yaml.placement ?? 'system';
     if (placement !== 'system' && placement !== 'user') {
         return { problems: [`${id}: placement must be system or user, not "${String(placement)}"`] };
     }
     const label = typeof yaml.label === 'string' && yaml.label.trim() ? yaml.label.trim() : yaml.name.trim();
     const usable = Object.keys(files).filter((n) => {
-        if (n === ASPECT_REMOVE) { problems.push(`${id}: an option may not be named "${ASPECT_REMOVE}" (the levels' Remove)`); return false; }
-        if (!isAspectName(n)) { problems.push(`${id}: option file "${n}.md": not an option name`); return false; }
+        if (n === ASPECT_REMOVE) { problems.push(`${id}: a choice may not be named "${ASPECT_REMOVE}" (the levels' Remove)`); return false; }
+        if (!isAspectName(n)) { problems.push(`${id}: choice file "${n}.md": not a choice name`); return false; }
         return true;
     });
     const order: string[] = [];
     if (yaml.options !== undefined) {
-        if (!Array.isArray(yaml.options)) {
-            problems.push(`${id}: options must be a list of option names`);
+        problems.push(`${id}: \`options\` is the key before format version 10; it is \`choices\` now (Upgrade the workspace renames it)`);
+    }
+    if (yaml.choices !== undefined) {
+        if (!Array.isArray(yaml.choices)) {
+            problems.push(`${id}: choices must be a list of choice names`);
         } else {
-            for (const o of yaml.options) {
-                if (typeof o !== 'string' || !usable.includes(o)) { problems.push(`${id}: option "${String(o)}" has no ${String(o)}.md`); continue; }
+            for (const o of yaml.choices) {
+                if (typeof o !== 'string' || !usable.includes(o)) { problems.push(`${id}: choice "${String(o)}" has no ${String(o)}.md`); continue; }
                 if (!order.includes(o)) { order.push(o); }
             }
         }
@@ -120,7 +137,7 @@ export function buildAspectSection(
         if (typeof yaml.default === 'string' && order.includes(yaml.default)) {
             defaultOption = yaml.default;
         } else {
-            problems.push(`${id}: default "${String(yaml.default)}" is no option of the section`);
+            problems.push(`${id}: default "${String(yaml.default)}" is no choice of the aspect`);
         }
     }
     return {

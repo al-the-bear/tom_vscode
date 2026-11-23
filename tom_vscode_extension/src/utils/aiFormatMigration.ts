@@ -70,6 +70,10 @@
  *     is written in the expression language (templateExpression.ts); a
  *     template that cannot be converted stays as it was and is a problem.
  *     Format version 7;
+ *   - every aspect's definition `_ai/aspect_guidelines/<aspect>/section.yaml`
+ *     becomes `aspect.yaml`, its `options:` `choices:`, its schema line the
+ *     new schema (aspectFileMigration.ts); a folder with both files is a
+ *     problem. Format version 10;
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -107,6 +111,7 @@ import { expectedBlocking, sameRefs } from './todoBlocking';
 import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlockingSync';
 import { mergeYamlLayout } from './yamlLayoutMerge';
 import { dropAskToolNamesFromYaml, dropAskToolSettings } from './removedAskTools';
+import { aspectDefinitionText, DEFINITION_FILE, LEGACY_DEFINITION_FILE } from './aspectFileMigration';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
 /**
@@ -142,7 +147,7 @@ export interface FormatMigrationOptions {
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'default-run' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'default-run' | 'aspect-files' | 'format-version';
     detail: string;
 }
 
@@ -583,6 +588,34 @@ class Run {
         }
     }
 
+    /**
+     * Every aspect's `section.yaml` as `aspect.yaml` (`options` → `choices`, the schema line): format version 10.
+     * A folder that has both files is a problem and stays as it is.
+     */
+    aspectFiles(): void {
+        const root = path.join(this.opts.aiRoot, 'aspect_guidelines');
+        for (const e of list(root).filter((x) => x.isDirectory() && !x.name.startsWith('.'))) {
+            const legacy = path.join(root, e.name, LEGACY_DEFINITION_FILE);
+            if (!fs.existsSync(legacy)) { continue; }
+            const target = path.join(root, e.name, DEFINITION_FILE);
+            if (fs.existsSync(target)) {
+                this.problem('(workspace)', 'aspect-files', `${this.rel(legacy)}: ${DEFINITION_FILE} exists beside it; keep the one that is the definition and delete the other`);
+                continue;
+            }
+            let converted: { text: string; changed: string[] };
+            try {
+                converted = aspectDefinitionText(fs.readFileSync(legacy, 'utf8'));
+            } catch (err) {
+                this.problem('(workspace)', 'aspect-files', `${this.rel(legacy)}: not converted (${(err as Error).message})`);
+                continue;
+            }
+            this.change('(workspace)', 'aspect-files', `${this.rel(legacy)} → ${DEFINITION_FILE}${converted.changed.length ? ` (${converted.changed.join(', ')})` : ''}`);
+            if (!this.opts.apply) { continue; }
+            fs.writeFileSync(target, converted.text, 'utf8');
+            fs.unlinkSync(legacy);
+        }
+    }
+
     /** The Local LLM panel's top-level `localLlm` keys removed; `configurations` and `tools` stay. */
     localLlmKeys(): void {
         this.editConfigFiles('local-llm-keys', (parsed) => {
@@ -769,6 +802,7 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.localLlmKeys();
     run.removedAskTools(all);
     run.expressions();
+    run.aspectFiles();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
     stampFormatVersion(opts, run);

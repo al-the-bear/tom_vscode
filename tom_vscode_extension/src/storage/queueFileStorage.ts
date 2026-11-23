@@ -182,7 +182,7 @@ export interface QueuePromptYaml {
     'agent-sdk-session'?: string;
     /** The role the item runs as (a folder of `_ai/roles/`; gsel3). */
     role?: string;
-    /** The item's guideline choices: aspect section → option or `remove` (gsel4). */
+    /** The item's guideline choices: aspect → choice or `remove` (gsel4). */
     guidelines?: Record<string, string>;
     /** The process position the item belongs to: `{quest, state}` (src/services/processRunContext.ts). */
     'process-run'?: unknown;

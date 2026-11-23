@@ -39,7 +39,7 @@ export interface SendItemToQuestInput {
     newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
     /** The role the item runs as in the target quest (a folder of `_ai/roles/`). */
     role?: string;
-    /** The item's guideline choices there: aspect section → option or `remove` (gsel4). */
+    /** The item's guideline choices there: aspect → choice or `remove` (gsel4). */
     guidelines?: Record<string, string> | null;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;
@@ -74,7 +74,7 @@ export interface QuestSendAccess {
     listSessions(quest: string): SessionRecord[];
     /** The roles folder (`_ai/roles/`, shared by every quest) a role is checked against; undefined: only its form. */
     rolesDir?(): string | undefined;
-    /** The aspect sections (`_ai/aspect_guidelines/`, shared by every quest) `guidelines` are checked against; undefined: only their form. */
+    /** The guideline aspects (`_ai/aspect_guidelines/`, shared by every quest) `guidelines` are checked against; undefined: only their form. */
     aspectSections?: AspectSectionsReader;
     /** The windows of the quest with a live heartbeat. */
     liveWindows(quest: string): TargetWindow[];

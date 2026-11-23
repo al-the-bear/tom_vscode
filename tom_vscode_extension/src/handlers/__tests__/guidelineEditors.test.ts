@@ -98,7 +98,7 @@ const send = (w: Win, data: Record<string, unknown>): void => { w.dispatchEvent(
 const input = (w: Win, el: Win, value: string): void => { el.value = value; el.dispatchEvent(new w.Event('input', { bubbles: true })); };
 const change = (w: Win, el: Win, value: string): void => { el.value = value; el.dispatchEvent(new w.Event('change', { bubbles: true })); };
 
-describe('the guideline section editor and the Role Editor (gsel7)', () => {
+describe('the Aspect Guidelines editor and the Role Editor (gsel7)', () => {
     test('GE-1: the section store', (t) => {
         const { dir, topTom } = sandbox(t);
         createAspectSection(dir, 'answer', 'Answer mode', topTom);
@@ -106,9 +106,9 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
         assert.throws(() => createAspectSection(dir, 'answer', 'Again', topTom), /exists already/);
 
         saveAspectSection(dir, section(), topTom);
-        const yamlText = fs.readFileSync(path.join(dir, 'answer', 'section.yaml'), 'utf8');
-        assert.match(yamlText, /^# yaml-language-server: \$schema=\.\.\/\.\.\/\.\.\/\.tom\/json-schema\/aspect-guidelines\/aspect-guideline-section\.schema\.json\n/);
-        assert.deepEqual(parseYaml(yamlText), { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'brief', options: ['full', 'brief'] });
+        const yamlText = fs.readFileSync(path.join(dir, 'answer', 'aspect.yaml'), 'utf8');
+        assert.match(yamlText, /^# yaml-language-server: \$schema=\.\.\/\.\.\/\.\.\/\.tom\/json-schema\/aspect-guidelines\/aspect-guideline\.schema\.json\n/);
+        assert.deepEqual(parseYaml(yamlText), { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'brief', choices: ['full', 'brief'] });
         assert.equal(fs.readFileSync(path.join(dir, 'answer', 'brief.md'), 'utf8'), 'Answer briefly: ${role}.\n');
         const edit = readSectionsForEdit(dir)[0];
         assert.deepEqual({ ...edit, problems: undefined }, { ...section(), problems: undefined }, 'the page reads what it saved');
@@ -118,43 +118,43 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
 
         // An option renamed and one deleted: the old files go; the default follows what the page sent.
         saveAspectSection(dir, section({ defaultOption: 'short', options: [{ name: 'short', text: 'Short.\n' }] }), topTom);
-        assert.deepEqual(fs.readdirSync(path.join(dir, 'answer')).sort(), ['section.yaml', 'short.md']);
+        assert.deepEqual(fs.readdirSync(path.join(dir, 'answer')).sort(), ['aspect.yaml', 'short.md']);
         // An empty label is left out (the name is shown); placement system written.
         saveAspectSection(dir, section({ label: '', placement: 'system', defaultOption: '', options: [{ name: 'short', text: 'Short.\n' }] }), topTom);
-        assert.deepEqual(parseYaml(fs.readFileSync(path.join(dir, 'answer', 'section.yaml'), 'utf8')), { name: 'Answer mode', placement: 'system', options: ['short'] });
+        assert.deepEqual(parseYaml(fs.readFileSync(path.join(dir, 'answer', 'aspect.yaml'), 'utf8')), { name: 'Answer mode', placement: 'system', choices: ['short'] });
 
         // Refusals write nothing.
-        const before = fs.readFileSync(path.join(dir, 'answer', 'section.yaml'), 'utf8');
+        const before = fs.readFileSync(path.join(dir, 'answer', 'aspect.yaml'), 'utf8');
         const refused: Array<[Partial<AspectSectionEdit>, RegExp]> = [
             [{ name: ' ' }, /needs a name/],
             [{ options: [{ name: 'remove', text: '' }], defaultOption: '' }, /may not be named "remove"/],
             [{ options: [{ name: 'a', text: '' }, { name: 'a', text: '' }], defaultOption: '' }, /there twice/],
-            [{ options: [{ name: 'a', text: '' }], defaultOption: 'b' }, /no option of the section/],
-            [{ options: [{ name: 'x/y', text: '' }], defaultOption: '' }, /not an option short name/],
-            [{ options: [{ name: '', text: '' }], defaultOption: '' }, /not an option short name/],
+            [{ options: [{ name: 'a', text: '' }], defaultOption: 'b' }, /no choice of the aspect/],
+            [{ options: [{ name: 'x/y', text: '' }], defaultOption: '' }, /not a choice short name/],
+            [{ options: [{ name: '', text: '' }], defaultOption: '' }, /not a choice short name/],
             [{ placement: 'both' as never }, /placement/],
         ];
         for (const [over, why] of refused) { assert.throws(() => saveAspectSection(dir, section(over), topTom), why); }
-        assert.equal(fs.readFileSync(path.join(dir, 'answer', 'section.yaml'), 'utf8'), before);
-        assert.deepEqual(fs.readdirSync(path.join(dir, 'answer')).sort(), ['section.yaml', 'short.md']);
+        assert.equal(fs.readFileSync(path.join(dir, 'answer', 'aspect.yaml'), 'utf8'), before);
+        assert.deepEqual(fs.readdirSync(path.join(dir, 'answer')).sort(), ['aspect.yaml', 'short.md']);
         assert.throws(() => saveAspectSection(dir, section({ id: 'gone' }), topTom), /does not exist/);
-        assert.throws(() => saveAspectSection(dir, section({ id: '..' }), topTom), /not a section name/);
+        assert.throws(() => saveAspectSection(dir, section({ id: '..' }), topTom), /not an aspect name/);
 
         // A broken folder is listed with its problems, to be repaired by a save.
         fs.mkdirSync(path.join(dir, 'broken'));
         fs.writeFileSync(path.join(dir, 'broken', 'on.md'), 'On.\n');
         const broken = readSectionsForEdit(dir).find((s) => s.id === 'broken')!;
-        assert.deepEqual([broken.name, broken.options.map((o) => o.name), broken.problems], ['', ['on'], ['no section.yaml']]);
+        assert.deepEqual([broken.name, broken.options.map((o) => o.name), broken.problems], ['', ['on'], ['no aspect.yaml']]);
         saveAspectSection(dir, { ...broken, name: 'Broken no more' }, topTom);
         assert.deepEqual(readSectionsForEdit(dir).find((s) => s.id === 'broken')!.problems, []);
 
         renameAspectSection(dir, 'broken', 'night', topTom);
         assert.deepEqual(readSectionsForEdit(dir).map((s) => s.id), ['answer', 'night']);
         assert.throws(() => renameAspectSection(dir, 'night', 'answer', topTom), /exists already/);
-        assert.match(fs.readFileSync(path.join(dir, 'night', 'section.yaml'), 'utf8'), /^# yaml-language-server: \$schema=\.\.\/\.\.\/\.\.\/\.tom\//);
+        assert.match(fs.readFileSync(path.join(dir, 'night', 'aspect.yaml'), 'utf8'), /^# yaml-language-server: \$schema=\.\.\/\.\.\/\.\.\/\.tom\//);
         deleteAspectSection(dir, 'night');
         assert.deepEqual(readSectionsForEdit(dir).map((s) => s.id), ['answer']);
-        assert.throws(() => deleteAspectSection(dir, '..'), /not a section name/);
+        assert.throws(() => deleteAspectSection(dir, '..'), /not an aspect name/);
         assert.ok(fs.existsSync(dir), 'the store folder stays');
     });
 
@@ -177,12 +177,12 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
         assert.deepEqual((added?.sections as AspectSectionEdit[]).map((s) => s.id), ['answer']);
         answer = 'bad/name';
         assert.equal(await handleAspectSectionEditorMessage({ type: 'addSection' }, env, ui), undefined);
-        assert.match(shown.at(-1)!, /^error: "bad\/name" is not a section name/);
+        assert.match(shown.at(-1)!, /^error: "bad\/name" is not an aspect name/);
 
         const saved = await handleAspectSectionEditorMessage({ type: 'save', section: section() }, env, ui);
         assert.equal(saved?.saved, 'answer');
         assert.equal((saved?.sections as AspectSectionEdit[])[0].defaultOption, 'brief');
-        assert.equal(shown.at(-1), 'Section answer saved.');
+        assert.equal(shown.at(-1), 'Aspect answer saved.');
         assert.equal(await handleAspectSectionEditorMessage({ type: 'save', section: section({ defaultOption: 'nope' }) }, env, ui), undefined);
         assert.match(shown.at(-1)!, /^error: The default "nope"/);
 
@@ -190,7 +190,7 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
         const renamed = await handleAspectSectionEditorMessage({ type: 'renameSection', id: 'answer' }, env, ui);
         assert.deepEqual([renamed?.selected, renamed?.renamed], ['mode', { from: 'answer', to: 'mode' }]);
         assert.equal(await handleAspectSectionEditorMessage({ type: 'deleteSection', id: 'mode' }, env, ui), undefined, 'not confirmed: nothing');
-        assert.match(shown.at(-1)!, /^confirm: Delete the section mode with its 2 options\?/);
+        assert.match(shown.at(-1)!, /^confirm: Delete the aspect mode with its 2 choices\?/);
         assert.ok(fs.existsSync(path.join(dir, 'mode')));
         confirmed = true;
         const deleted = await handleAspectSectionEditorMessage({ type: 'deleteSection', id: 'mode' }, env, ui);
@@ -255,7 +255,7 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
         $('btnAdd').click(); $('btnRename').click(); $('btnDelete').click(); $('btnFolder').click();
         assert.deepEqual(posted, [{ type: 'addSection' }, { type: 'renameSection', id: 'answer' }, { type: 'deleteSection', id: 'answer' }, { type: 'openFolder', id: 'answer' }]);
         send(w, { type: 'data', sections: [] });
-        assert.match($('form').textContent, /No sections yet/);
+        assert.match($('form').textContent, /No aspects yet/);
         assert.equal($('btnDelete').disabled, true);
     });
 
@@ -352,9 +352,9 @@ describe('the guideline section editor and the Role Editor (gsel7)', () => {
 
     test('GE-6: the wiring', () => {
         const pkg = JSON.parse(read('package.json')) as { contributes: { commands: Array<{ command: string; title: string }> } };
-        assert.ok(pkg.contributes.commands.some((c) => c.command === ASPECT_SECTION_EDITOR_COMMAND && c.title === '@T: Open Guideline Sections Editor'));
+        assert.ok(pkg.contributes.commands.some((c) => c.command === ASPECT_SECTION_EDITOR_COMMAND && c.title === '@T: Open Aspect Guidelines Editor'));
         const entry = EXTENSION_TOOLS.find((e) => e.command === ASPECT_SECTION_EDITOR_COMMAND);
-        assert.equal(entry?.label, 'Guideline Sections Editor', 'Extension Tools lists the section editor');
+        assert.equal(entry?.label, 'Aspect Guidelines Editor', 'Extension Tools lists the Aspect Guidelines editor');
         assert.match(read('src', 'extension.ts'), /registerAspectSectionEditorCommand\(context\);/);
         const messages = read('src', 'handlers', 'aspectPickerMessages.ts');
         assert.match(messages, /case 'aspectEditSections': \{\s*await vscode\.commands\.executeCommand\(ASPECT_SECTION_EDITOR_COMMAND\);/);

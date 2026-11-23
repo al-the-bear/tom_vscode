@@ -1,8 +1,8 @@
 /**
  * Aspect guidelines (gsel2): the store, the resolution over the levels, the text and where it goes
- * (utils/aspectGuidelines.ts, services/aspectGuidelinesStore.ts, src/config/aspect-guideline-section.schema.json).
+ * (utils/aspectGuidelines.ts, services/aspectGuidelinesStore.ts, src/config/aspect-guideline.schema.json).
  *
- *   AG-1 the store: a section folder with section.yaml and its <option>.md files; the options in `options` order,
+ *   AG-1 the store: a section folder with aspect.yaml and its <option>.md files; the options in `options` order,
  *        then the others by name; label and placement defaults; what is refused (no name, a bad placement, an
  *        option named `remove`, a listed option without its file, a default that is no option)
  *   AG-2 precedence: section default < quest default < window < run < role type < role < item < todo, per section
@@ -12,7 +12,8 @@
  *   AG-5 the text: system and user parts under the heading, a `### <section>: <option>` per section, in the
  *        sections' order; placement on the Anthropic transports and on Copilot (no system prompt)
  *   AG-6 recursive placeholders: an option's `${file-…}` whose file names another `${file-…}` (and `${guidelines-…}`)
- *   AG-7 the schema accepts the store's section.yaml and refuses what the reader refuses
+ *   AG-7 the schema accepts the store's aspect.yaml and refuses what the reader refuses (`options`, the key
+ *        before format version 10, among them)
  */
 
 import * as fs from 'fs';
@@ -56,17 +57,17 @@ const section = (id: string, opts: Partial<AspectSection> = {}): AspectSection =
 describe('aspect guidelines', () => {
     test('AG-1: the store', () => {
         const store = path.join(base, 'store1');
-        put('store1/answer_mode/section.yaml', 'name: Answer mode\nlabel: Answer\nplacement: user\ndefault: trail only\noptions: [trail only, answer tool, missing]\n');
+        put('store1/answer_mode/aspect.yaml', 'name: Answer mode\nlabel: Answer\nplacement: user\ndefault: trail only\nchoices: [trail only, answer tool, missing]\n');
         put('store1/answer_mode/answer tool.md', 'Use the answer tool.\n');
         put('store1/answer_mode/trail only.md', 'Answer in the trail only.\n');
         put('store1/answer_mode/extra.md', 'Extra.\n');
         put('store1/answer_mode/remove.md', 'Never an option.\n');
-        put('store1/night/section.yaml', 'name: Night\n');
+        put('store1/night/aspect.yaml', 'name: Night\n');
         put('store1/night/on.md', 'Night mode.\n');
-        put('store1/broken/section.yaml', 'name: Broken\nplacement: sideways\n');
-        put('store1/nameless/section.yaml', 'label: X\n');
+        put('store1/broken/aspect.yaml', 'name: Broken\nplacement: sideways\n');
+        put('store1/nameless/aspect.yaml', 'label: X\n');
         put('store1/no_yaml/on.md', 'x\n');
-        put('store1/bad_default/section.yaml', 'name: Bad default\ndefault: nope\n');
+        put('store1/bad_default/aspect.yaml', 'name: Bad default\ndefault: nope\n');
         put('store1/bad_default/yes.md', 'y\n');
         const { sections, problems } = readAspectSections(store);
         assert.deepEqual(sections.map((s) => s.id), ['answer_mode', 'bad_default', 'night']);
@@ -83,12 +84,12 @@ describe('aspect guidelines', () => {
         assert.equal(night.defaultOption, undefined);
         assert.equal(sections[1].defaultOption, undefined, 'a default that is no option is dropped');
         for (const expected of [
-            /answer_mode: an option may not be named "remove"/,
-            /answer_mode: option "missing" has no missing\.md/,
+            /answer_mode: a choice may not be named "remove"/,
+            /answer_mode: choice "missing" has no missing\.md/,
             /broken: placement must be system or user/,
-            /nameless: section\.yaml has no name/,
-            /no_yaml: no section\.yaml/,
-            /bad_default: default "nope" is no option/,
+            /nameless: aspect\.yaml has no name/,
+            /no_yaml: no aspect\.yaml/,
+            /bad_default: default "nope" is no choice/,
         ]) {
             assert.ok(problems.some((p) => expected.test(p)), `${expected}: ${problems.join(' | ')}`);
         }
@@ -172,7 +173,7 @@ describe('aspect guidelines', () => {
         const inner = put('docs/inner.md', 'Inner text.');
         const outer = put('docs/outer.md', `Outer before. \${file-${inner}} Outer after.`);
         put('_agent_guidelines/aspect_rule.md', '# The guideline\n');
-        put('store6/deep/section.yaml', 'name: Deep\ndefault: chained\n');
+        put('store6/deep/aspect.yaml', 'name: Deep\ndefault: chained\n');
         put('store6/deep/chained.md', `Start. \${file-${outer}}\n\n\${guidelines-aspect_rule}`);
         const resolve = (t: string) => unescapePlaceholders(resolveVariables(t));
         const result = aspectsForSend(path.join(base, 'store6'), 'direct', { systemSegments: [], userContent: 'Go.' }, undefined, resolve);
@@ -184,11 +185,11 @@ describe('aspect guidelines', () => {
     });
 
     test('AG-7: the schema', () => {
-        const schemaPath = path.join(__dirname, '..', '..', '..', 'src', 'config', 'aspect-guideline-section.schema.json');
+        const schemaPath = path.join(__dirname, '..', '..', '..', 'src', 'config', 'aspect-guideline.schema.json');
         const validate = new Ajv2020({ strict: false }).compile(JSON.parse(fs.readFileSync(schemaPath, 'utf8')));
         for (const ok of [
             { name: 'Answer mode' },
-            { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'trail only', options: ['trail only', 'answer tool'] },
+            { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'trail only', choices: ['trail only', 'answer tool'] },
         ]) {
             assert.ok(validate(ok), `${JSON.stringify(ok)}: ${JSON.stringify(validate.errors)}`);
         }
@@ -197,11 +198,12 @@ describe('aspect guidelines', () => {
             { name: '' },
             { name: 'X', placement: 'sideways' },
             { name: 'X', default: 'remove' },
-            { name: 'X', options: ['remove'] },
-            { name: 'X', options: ['a/b'] },
-            { name: 'X', options: [' a'] },
-            { name: 'X', options: ['a', 'a'] },
+            { name: 'X', choices: ['remove'] },
+            { name: 'X', choices: ['a/b'] },
+            { name: 'X', choices: [' a'] },
+            { name: 'X', choices: ['a', 'a'] },
             { name: 'X', other: 1 },
+            { name: 'X', options: ['a'] },
         ]) {
             assert.equal(validate(bad), false, JSON.stringify(bad));
         }

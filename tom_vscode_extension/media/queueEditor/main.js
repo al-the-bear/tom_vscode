@@ -1465,7 +1465,7 @@ function renderAspectToolbar() {
   const hasQuestDefault = !!(aspectState.questDefault && Object.keys(aspectState.questDefault).length);
   slot.innerHTML = p.buttonHtml(v, { title: 'Guidelines of this window', id: 'aspectWindowBtn', attrs: { 'data-aspect-open': 'window' } })
     // The all-windows button has no level of its own: no dot.
-    + p.buttonHtml(Object.assign({}, v, { own: false }), { title: 'Guidelines of every open window (each change one section)', icon: 'codicon-broadcast', id: 'aspectAllWindowsBtn', attrs: { 'data-aspect-open': 'allWindows' } })
+    + p.buttonHtml(Object.assign({}, v, { own: false }), { title: 'Guidelines of every open window (each change one aspect)', icon: 'codicon-broadcast', id: 'aspectAllWindowsBtn', attrs: { 'data-aspect-open': 'allWindows' } })
     + '<button type="button" class="ctx-btn" id="aspectSetQuestDefault" data-aspect-quest-default="set"'
     + ' title="Copy this window\'s guideline choices to the quest default (shared by every machine)">Set as quest default</button>'
     + '<button type="button" class="ctx-btn" id="aspectClearQuestDefault" data-aspect-quest-default="clear"' + (hasQuestDefault ? '' : ' disabled')

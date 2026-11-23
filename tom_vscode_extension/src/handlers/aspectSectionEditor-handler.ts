@@ -1,8 +1,9 @@
 /**
- * The guideline section editor (gsel7; design
+ * The Aspect Guidelines editor (gsel7, gsel16; design
  * role_and_guideline_selector.vscode_extension.md P-4): a page
- * (`media/aspectSectionEditor/`, `tomAi.editor.aspectSections`) editing the
- * aspect sections of `_ai/aspect_guidelines/` and their options.
+ * (`media/aspectSectionEditor/`, `tomAi.editor.aspectSections`, the id kept)
+ * editing the aspects of `_ai/aspect_guidelines/` and their choices. The
+ * code keeps the older words (section, option) in its identifiers.
  *
  * - Per section: its name, short label, placement (system or user prompt),
  *   default option and the order of its options; per option its short name
@@ -46,14 +47,14 @@ import { WsPaths } from '../utils/workspacePaths';
 export const ASPECT_SECTION_EDITOR_COMMAND = 'tomAi.editor.aspectSections';
 
 const VIEW_TYPE = 'tomAi.aspectSectionEditor';
-const TITLE = 'Guideline Sections';
+const TITLE = 'Aspect Guidelines';
 let panel: vscode.WebviewPanel | undefined;
 
 /** Where the sections are and what follows a write. */
 export interface AspectSectionEditorEnv {
     /** `_ai/aspect_guidelines/`; undefined without an `_ai` folder. */
     dir: string | undefined;
-    /** The top `.tom`, for the schema line of `section.yaml`. */
+    /** The top `.tom`, for the schema line of `aspect.yaml`. */
     topTom?: string;
     /** A section changed: the pickers and the Role Editor read the sections again. */
     changed?: () => void;
@@ -74,7 +75,7 @@ export interface AspectSectionEditorUi {
 
 /** What the page shows: every section as it is on disk. */
 export function aspectSectionEditorData(env: AspectSectionEditorEnv, selected?: string): Record<string, unknown> {
-    if (!env.dir) { return { type: 'data', error: 'This workspace has no _ai folder: there are no guideline sections.', sections: [] }; }
+    if (!env.dir) { return { type: 'data', error: 'This workspace has no _ai folder: there are no guideline aspects.', sections: [] }; }
     return { type: 'data', sections: readSectionsForEdit(env.dir), ...(selected ? { selected } : {}) };
 }
 
@@ -127,14 +128,14 @@ export async function handleAspectSectionEditorMessage(
                 saveAspectSection(dir, section, env.topTom);
                 const carried = renames ? env.renamed?.(renames) : undefined;
                 env.changed?.();
-                ui.info(`Section ${section.id} saved.`);
+                ui.info(`Aspect ${section.id} saved.`);
                 if (carried) { ui.notice?.(carried); }
                 return data(section.id, { saved: section.id, ...(carried ? { carried } : {}) });
             }
             case 'addSection': {
-                const name = (await ui.ask('Short name of the new section: its folder under _ai/aspect_guidelines/, the name every level\'s choice names'))?.trim();
+                const name = (await ui.ask('Short name of the new aspect: its folder under _ai/aspect_guidelines/, the name every level\'s choice names'))?.trim();
                 if (!name) { return undefined; }
-                if (!isAspectName(name) || name.includes('\\') || name === '.' || name === '..') { ui.error(`"${name}" is not a section name: ${NAME_RULE}.`); return undefined; }
+                if (!isAspectName(name) || name.includes('\\') || name === '.' || name === '..') { ui.error(`"${name}" is not an aspect name: ${NAME_RULE}.`); return undefined; }
                 fs.mkdirSync(dir, { recursive: true });
                 createAspectSection(dir, name, name, env.topTom);
                 env.changed?.();
@@ -142,9 +143,9 @@ export async function handleAspectSectionEditorMessage(
             }
             case 'renameSection': {
                 if (!id) { return undefined; }
-                const to = (await ui.ask(`New short name of the section ${id} (its folder). The choices saved under "${id}" on every level are carried over to the new name.`, id))?.trim();
+                const to = (await ui.ask(`New short name of the aspect ${id} (its folder). The choices saved under "${id}" on every level are carried over to the new name.`, id))?.trim();
                 if (!to || to === id) { return undefined; }
-                if (!isAspectName(to) || to.includes('\\') || to === '.' || to === '..') { ui.error(`"${to}" is not a section name: ${NAME_RULE}.`); return undefined; }
+                if (!isAspectName(to) || to.includes('\\') || to === '.' || to === '..') { ui.error(`"${to}" is not an aspect name: ${NAME_RULE}.`); return undefined; }
                 renameAspectSection(dir, id, to, env.topTom);
                 const carried = env.renamed?.({ kind: 'section', from: id, to });
                 env.changed?.();
@@ -154,7 +155,7 @@ export async function handleAspectSectionEditorMessage(
             case 'deleteSection': {
                 if (!id) { return undefined; }
                 const count = readSectionsForEdit(dir).find((s) => s.id === id)?.options.length ?? 0;
-                if (!await ui.confirm(`Delete the section ${id} with its ${count} option${count === 1 ? '' : 's'}? Its folder _ai/aspect_guidelines/${id}/ is deleted.`, 'Delete')) { return undefined; }
+                if (!await ui.confirm(`Delete the aspect ${id} with its ${count} choice${count === 1 ? '' : 's'}? Its folder _ai/aspect_guidelines/${id}/ is deleted.`, 'Delete')) { return undefined; }
                 deleteAspectSection(dir, id);
                 env.changed?.();
                 return data(undefined, { deleted: id });
@@ -188,7 +189,7 @@ function liveEnv(): AspectSectionEditorEnv {
     };
 }
 
-/** Open (or reveal) the section editor, `section` chosen. */
+/** Open (or reveal) the Aspect Guidelines editor, `section` chosen. */
 export function openAspectSectionEditor(context: vscode.ExtensionContext, section?: string): void {
     if (panel) {
         panel.reveal();

@@ -489,7 +489,7 @@
       },
       {
         "command": "tomAi.editor.aspectSections",
-        "title": "@T: Open Guideline Sections Editor",
+        "title": "@T: Open Aspect Guidelines Editor",
         "category": "@Tom"
       },
       {

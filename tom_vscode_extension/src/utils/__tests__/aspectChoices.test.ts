@@ -26,9 +26,9 @@ describe('aspect choices', () => {
         assert.equal(aspectChoicesRefusal({ language: 'de', night: 'remove' }, SECTIONS), undefined);
         assert.equal(aspectChoicesRefusal({}, SECTIONS), undefined);
         assert.equal(aspectChoicesRefusal(null, SECTIONS), undefined);
-        assert.match(aspectChoicesRefusal({ mood: 'x' }, SECTIONS)!, /"mood" is no aspect section \(sections: language, night\)/);
-        assert.match(aspectChoicesRefusal({ night: 'off' }, SECTIONS)!, /"off" is no option of "night" \(options: on, remove\)/);
-        assert.match(aspectChoicesRefusal({ night: 1 }, SECTIONS)!, /must map to an option name/);
+        assert.match(aspectChoicesRefusal({ mood: 'x' }, SECTIONS)!, /"mood" is no guideline aspect \(aspects: language, night\)/);
+        assert.match(aspectChoicesRefusal({ night: 'off' }, SECTIONS)!, /"off" is no choice of "night" \(choices: on, remove\)/);
+        assert.match(aspectChoicesRefusal({ night: 1 }, SECTIONS)!, /must map to a choice name/);
         assert.match(aspectChoicesRefusal(['x'], SECTIONS)!, /must be an object/);
         assert.match(aspectChoicesRefusal({ mood: 'x' }, [])!, /none — _ai\/aspect_guidelines\/ has none/);
     });

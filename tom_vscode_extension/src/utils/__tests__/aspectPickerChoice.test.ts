@@ -3,7 +3,7 @@
  * and the picker's catalogue (utils/aspectChoices.ts aspectCatalogueOf).
  *
  *   PC-1 the catalogue: id, name, label, default and option names in order; no texts
- *   PC-2 a choice is checked first: an unknown level, section or option is refused and nothing is written
+ *   PC-2 a choice is checked first: an unknown level, aspect or choice is refused and nothing is written
  *   PC-3 window / all windows: the section's option, undefined for Don't add; all windows answers where it went
  *   PC-4 run: the run's choices with the section set, removed (Don't add) or `remove`; the run passed on
  *   PC-5 item: a gone item and an item that cannot change are refused; otherwise the item's choices updated
@@ -59,8 +59,8 @@ describe('guideline picker: a choice and the catalogue', () => {
     test('PC-2: checked first', () => {
         const w = writers();
         assert.match(applyAspectChoice({ level: 'nope' as never, section: 'answer', value: 'full' }, w).error ?? '', /Unknown level/);
-        assert.match(applyAspectChoice({ level: 'window', section: 'tone', value: 'x' }, w).error ?? '', /no guideline section "tone"/);
-        assert.match(applyAspectChoice({ level: 'window', section: 'night', value: 'off' }, w).error ?? '', /Night mode has no option "off"/);
+        assert.match(applyAspectChoice({ level: 'window', section: 'tone', value: 'x' }, w).error ?? '', /no guideline aspect "tone"/);
+        assert.match(applyAspectChoice({ level: 'window', section: 'night', value: 'off' }, w).error ?? '', /The aspect Night mode has no choice "off"/);
         assert.deepEqual(w.log, []);
         assert.equal(aspectValueRefusal(SECTIONS, 'night', 'remove'), undefined);
         assert.equal(aspectValueRefusal(SECTIONS, 'night', ''), undefined);

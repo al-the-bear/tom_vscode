@@ -1282,7 +1282,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...OUTPUT_CHANNEL_TOOLS,      // readOutputChannel — this window's output channels, read from the files VS Code writes
     ...DESCRIBE_TOOL_TOOLS,       // describeTool — a tool's full description, arguments and doc/llm_tools.md section
     ...ID_PREFIX_TOOLS,           // generateIdPrefix — date-based letters-only code for collision-free hand-authored ids
-    ...ASPECT_GUIDELINE_TOOLS,    // getAspectGuidelines — aspect sections, options, every level's choices and the effective selection (read-only)
+    ...ASPECT_GUIDELINE_TOOLS,    // getAspectGuidelines — aspects, choices, every level's choices and the effective selection (read-only)
     ...WAIT_FOR_TOOLS,            // waitFor — a turn waits on something outside it, shown on its queue item (vscimpb82)
     ...SKILL_TOOLS,               // loadSkill — a .claude/skills SKILL.md and its files (direct, Local LLM, VS Code LM)
     ...QUEST_PROCESS_TOOLS,       // listProcesses, getProcess, getProcessState (read-only), setProcessState — the quest's process

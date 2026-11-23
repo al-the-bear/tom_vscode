@@ -11,7 +11,7 @@
  *        decisions journal records it
  *   DM-3 idempotent: a second run moves nothing
  *   DM-4 the run name: the process id, `-2` when taken; a definition that is gone moves the state only (a problem)
- *   DM-5 through migrateAiFormats: the `default-run` step, and the format version 9
+ *   DM-5 through migrateAiFormats: the `default-run` step, from format version 9 on
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -153,8 +153,8 @@ describe('the default run\'s process moves into a run', () => {
         assert.ok(fs.existsSync(path.join(gone.q, 'process-state.q.des.yaml')), 'the state still moves');
     });
 
-    test('DM-5: a step of migrateAiFormats; format version 9', () => {
-        assert.equal(AI_FORMAT_VERSION, 9);
+    test('DM-5: a step of migrateAiFormats; from format version 9 on', () => {
+        assert.ok(AI_FORMAT_VERSION >= 9);
         const { ai } = sandbox();
         const result = migrateAiFormats({ aiRoot: ai, hostSlug: 'host1', apply: false, merge: () => undefined, quests: ['q'] });
         assert.ok(result.changes.some((c) => c.quest === 'q' && c.step === 'default-run' && /-> run des/.test(c.detail)), JSON.stringify(result.changes));

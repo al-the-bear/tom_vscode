@@ -40,10 +40,10 @@ function put(rel: string, text: string): string {
 }
 const readWs = (rel: string): string => fs.readFileSync(path.join(WS, rel), 'utf8');
 put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n');
-put('_ai/aspect_guidelines/language/section.yaml', 'name: Language\ndefault: en\noptions: [de, en]\n');
+put('_ai/aspect_guidelines/language/aspect.yaml', 'name: Language\ndefault: en\nchoices: [de, en]\n');
 put('_ai/aspect_guidelines/language/de.md', 'LANG-DE.\n');
 put('_ai/aspect_guidelines/language/en.md', 'LANG-EN.\n');
-put('_ai/aspect_guidelines/night/section.yaml', 'name: Night\nplacement: user\ndefault: off\noptions: [on, off]\n');
+put('_ai/aspect_guidelines/night/aspect.yaml', 'name: Night\nplacement: user\ndefault: off\nchoices: [on, off]\n');
 put('_ai/aspect_guidelines/night/on.md', 'NIGHT-ON.\n');
 put('_ai/aspect_guidelines/night/off.md', 'NIGHT-OFF.\n');
 put('_ai/role-types/author/role-type.yaml', '# the author type\ntools:\n  mode: profileDefault\nguidelines:\n  night: on # quiet\n');
@@ -188,8 +188,8 @@ describe('guideline choices carried over a rename (gsel7b)', () => {
             assert.equal(parseAspectRename(bad), undefined, JSON.stringify(bad));
         }
         assert.deepEqual(parseAspectRename({ kind: 'options', section: 's', options: { a: 'b', c: '', d: 3, e: 'e' } }), { kind: 'options', section: 's', options: { a: 'b' } }, 'the usable entries kept');
-        assert.equal(aspectRenameText(section), 'section night → mode');
-        assert.equal(aspectRenameText(options), 'options of night: on → yes, off → no');
+        assert.equal(aspectRenameText(section), 'aspect night → mode');
+        assert.equal(aspectRenameText(options), 'choices of night: on → yes, off → no');
 
         const doc = parseDocument('# top\nguidelines:\n  night: on # quiet\n  language: de\nother:\n  guidelines:\n    night: off\n');
         assert.equal(renameInGuidelinesNodes(doc, section), 2);
@@ -253,7 +253,7 @@ describe('guideline choices carried over a rename (gsel7b)', () => {
         setWindowChoices(undefined);
         assert.deepEqual(selectionOf(stageChoices(plain)).mode, ['on', 'questDefault']);
 
-        assert.match(said, /^Renamed section night → mode\. Choices carried over: quest default 1, window 1, @CHAT panel 1, run 1, queue item 1, todo 1, role 1, role type 1 \(5 files\)\.$/);
+        assert.match(said, /^Renamed aspect night → mode\. Choices carried over: quest default 1, window 1, @CHAT panel 1, run 1, queue item 1, todo 1, role 1, role type 1 \(5 files\)\.$/);
         assert.equal(queue().items.filter((i) => i.guidelines && 'night' in i.guidelines).length, 0);
     });
 
@@ -273,7 +273,7 @@ describe('guideline choices carried over a rename (gsel7b)', () => {
         assert.deepEqual(typeChoices(), { mode: 'yes' });
         assert.deepEqual(selectionOf(stageChoices(chosen)).mode, ['yes', 'item']);
         assert.deepEqual(selectionOf(stageChoices(plain)).mode, ['yes', 'run']);
-        assert.match(said, /^Renamed option of mode: on → yes\. Choices carried over: /);
+        assert.match(said, /^Renamed choice of mode: on → yes\. Choices carried over: /);
     });
 
     test('CR-4: another window\'s rename carries this window\'s memory over', () => {
@@ -337,7 +337,7 @@ describe('guideline choices carried over a rename (gsel7b)', () => {
     test('CR-6: the section editor carries the choices over', async () => {
         const dir = path.join(SANDBOX, 'editor', 'aspect_guidelines');
         fs.mkdirSync(path.join(dir, 'answer'), { recursive: true });
-        fs.writeFileSync(path.join(dir, 'answer', 'section.yaml'), 'name: Answer\ndefault: brief\noptions: [brief, full]\n');
+        fs.writeFileSync(path.join(dir, 'answer', 'aspect.yaml'), 'name: Answer\ndefault: brief\nchoices: [brief, full]\n');
         fs.writeFileSync(path.join(dir, 'answer', 'brief.md'), 'Brief.\n');
         fs.writeFileSync(path.join(dir, 'answer', 'full.md'), 'Full.\n');
         const renames: unknown[] = [];

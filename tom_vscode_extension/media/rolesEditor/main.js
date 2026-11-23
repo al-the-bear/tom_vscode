@@ -4,7 +4,7 @@
  * Types tab. The host (src/handlers/rolesEditor-handler.ts) posts `data` for
  * one tab — its items, for roles the role types to pick (with their guideline
  * choices), for role types the tool groups and the always-on tools, and the
- * guideline sections (`aspects`). Every message the page posts names its tab
+ * guideline aspects (`aspects`). Every message the page posts names its tab
  * (`kind`). Saving posts the whole item with its guideline choices; the host
  * writes the files (checked against their schemas) and answers with the data
  * again. `showTab` (a command opened the page on a tab) and `reload` (the

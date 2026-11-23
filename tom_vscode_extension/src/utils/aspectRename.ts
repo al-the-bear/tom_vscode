@@ -37,11 +37,11 @@ export function parseAspectRename(value: unknown): AspectRename | undefined {
     return undefined;
 }
 
-/** The rename in words: `section night → mode`, `options of night: on → yes, off → no`. */
+/** The rename in words: `aspect night → mode`, `choices of night: on → yes, off → no`. */
 export function aspectRenameText(rename: AspectRename): string {
     return rename.kind === 'section'
-        ? `section ${rename.from} → ${rename.to}`
-        : `option${Object.keys(rename.options).length === 1 ? '' : 's'} of ${rename.section}: ${Object.entries(rename.options).map(([f, t]) => `${f} → ${t}`).join(', ')}`;
+        ? `aspect ${rename.from} → ${rename.to}`
+        : `choice${Object.keys(rename.options).length === 1 ? '' : 's'} of ${rename.section}: ${Object.entries(rename.options).map(([f, t]) => `${f} → ${t}`).join(', ')}`;
 }
 
 /**

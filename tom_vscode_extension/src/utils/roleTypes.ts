@@ -58,7 +58,7 @@ export interface RoleType {
     name?: string;
     description?: string;
     tools: { mode: RoleToolsMode; enabled?: string[] };
-    /** The guideline choices of the type's roles (gsel4): aspect section → option or `remove`; none: *Don't add* everywhere. */
+    /** The guideline choices of the type's roles (gsel4): aspect → choice or `remove`; none: *Don't add* everywhere. */
     guidelines?: Record<string, string>;
 }
 

@@ -79,7 +79,7 @@ export interface InboxItem {
     newSession?: InboxNewSession;
     /** The role the item runs as there (a folder of `_ai/roles/`; gsel3). */
     role?: string;
-    /** The item's guideline choices there: aspect section → option or `remove` (gsel4). */
+    /** The item's guideline choices there: aspect → choice or `remove` (gsel4). */
     guidelines?: Record<string, string>;
     /** The target quest's process run the item is queued in; unset: `default`. */
     run?: string;

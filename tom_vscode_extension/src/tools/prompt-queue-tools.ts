@@ -343,7 +343,7 @@ export interface PromptQueueAccess {
     rolesDir?(): string | undefined;
     /** Set the guideline choices of a staged or pending item (undefined = none); false when the item cannot change (gsel4). */
     updateItemGuidelines?(id: string, guidelines: Record<string, string> | undefined): boolean;
-    /** The aspect sections `guidelines` are checked against; undefined: only their form is checked. */
+    /** The guideline aspects `guidelines` are checked against; undefined: only their form is checked. */
     aspectSections?: AspectSectionsReader;
     /** Set an item's done-notification prompt and / or switch it off ('' removes it); false when the item is finished. */
     updateItemDoneNotification?(id: string, patch: { prompt?: string; disabled?: boolean; quest?: string; run?: string }): boolean;

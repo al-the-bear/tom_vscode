@@ -1,11 +1,13 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://tom.ai/schemas/aspect-guidelines/aspect-guideline-section.schema.json",
-    "title": "Aspect guideline section (section.yaml)",
-    "description": "One section of the aspect guidelines: `_ai/aspect_guidelines/<section>/section.yaml`, beside one `<option>.md` per option (the file name without `.md` is the option's short name, its content the text sent). A prompt gets each section's effective option: the lowest level choosing one wins (section default < quest default < window < run < role type < role < item < todo); `remove` on a level sends nothing for the section.",
+    "title": "Aspect guideline section (section.yaml, before format version 10)",
+    "description": "One section of the aspect guidelines: `_ai/aspect_guidelines/<section>/section.yaml`, beside one `<option>.md` per option (the file name without `.md` is the option's short name, its content the text sent). A prompt gets each section's effective option: the lowest level choosing one wins (section default < quest default < window < run < role type < role < item < todo); `remove` on a level sends nothing for the section. This is the format before version 10, kept for the migration: the file is now `aspect.yaml` with `choices:` (aspect-guideline.schema.json).",
     "type": "object",
     "additionalProperties": false,
-    "required": ["name"],
+    "required": [
+        "name"
+    ],
     "properties": {
         "name": {
             "type": "string",
@@ -18,14 +20,19 @@
             "description": "A short label for the selection's hover help, e.g. `Answer`. Default: the name."
         },
         "placement": {
-            "enum": ["system", "user"],
+            "enum": [
+                "system",
+                "user"
+            ],
             "default": "system",
             "description": "Where the chosen option's text goes: one segment of the system prompt (`system`, the default), or before the prompt text (`user`). Copilot has no system prompt: there both go before the prompt text."
         },
         "default": {
             "type": "string",
             "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$",
-            "not": { "const": "remove" },
+            "not": {
+                "const": "remove"
+            },
             "description": "The option chosen when no level chooses one (one of the section's option names). Absent: nothing is sent for the section unless a level chooses."
         },
         "options": {
@@ -34,7 +41,9 @@
             "items": {
                 "type": "string",
                 "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$",
-                "not": { "const": "remove" }
+                "not": {
+                    "const": "remove"
+                }
             },
             "description": "The options' order, by short name; each needs its `<name>.md`. Option files not listed follow by name. `remove` is no option name: it is the levels' Remove."
         }

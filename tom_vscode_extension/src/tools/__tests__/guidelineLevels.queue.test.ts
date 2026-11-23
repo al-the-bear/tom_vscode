@@ -36,10 +36,10 @@ function put(rel: string, text: string): void {
     fs.writeFileSync(abs, text);
 }
 put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n');
-put('_ai/aspect_guidelines/language/section.yaml', 'name: Language\ndefault: en\noptions: [de, en]\n');
+put('_ai/aspect_guidelines/language/aspect.yaml', 'name: Language\ndefault: en\nchoices: [de, en]\n');
 put('_ai/aspect_guidelines/language/de.md', 'LANG-DE: answer in German.\n');
 put('_ai/aspect_guidelines/language/en.md', 'LANG-EN: answer in English.\n');
-put('_ai/aspect_guidelines/night/section.yaml', 'name: Night\nplacement: user\ndefault: off\noptions: [on, off]\n');
+put('_ai/aspect_guidelines/night/aspect.yaml', 'name: Night\nplacement: user\ndefault: off\nchoices: [on, off]\n');
 put('_ai/aspect_guidelines/night/on.md', 'NIGHT-ON: nobody is there.\n');
 put('_ai/aspect_guidelines/night/off.md', 'NIGHT-OFF: the user is there.\n');
 put('_ai/role-types/author/role-type.yaml', 'tools:\n  mode: profileDefault\nguidelines:\n  night: off\n');
@@ -249,13 +249,13 @@ describe('guideline choices per level', () => {
     });
 
     test('GL-5: the tools take guidelines and refuse unknown ones', async () => {
-        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', guidelines: { mood: 'on' } } as never)).error, /"mood" is no aspect section \(sections: language, night\)/);
-        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', guidelines: { night: 'dusk' } } as never)).error, /"dusk" is no option of "night" \(options: on, off, remove\)/);
+        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', guidelines: { mood: 'on' } } as never)).error, /"mood" is no guideline aspect \(aspects: language, night\)/);
+        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', guidelines: { night: 'dusk' } } as never)).error, /"dusk" is no choice of "night" \(choices: on, off, remove\)/);
         const item = await add('to update', { guidelines: { language: 'remove' } });
         assert.deepEqual(item.guidelines, { language: 'remove' });
         await UPDATE_QUEUE_ITEM_TOOL.execute({ queueItemId: item.id, guidelines: { night: 'on' } } as never);
         assert.deepEqual(queue().items.find((i) => i.id === item.id)!.guidelines, { night: 'on' }, 'replaced as a whole');
-        assert.match(JSON.parse(await UPDATE_QUEUE_ITEM_TOOL.execute({ queueItemId: item.id, guidelines: { night: 'x' } } as never)).error, /no option of "night"/);
+        assert.match(JSON.parse(await UPDATE_QUEUE_ITEM_TOOL.execute({ queueItemId: item.id, guidelines: { night: 'x' } } as never)).error, /no choice of "night"/);
         await UPDATE_QUEUE_ITEM_TOOL.execute({ queueItemId: item.id, guidelines: {} } as never);
         assert.equal(queue().items.find((i) => i.id === item.id)!.guidelines, undefined, '{} clears them');
         // The todo tools.
@@ -263,7 +263,7 @@ describe('guideline choices per level', () => {
         assert.equal(created.ok, true, JSON.stringify(created));
         assert.deepEqual(findTodoById(QUEST, 't3_aktl-made')?.guidelines, { night: 'on' });
         assert.match(fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `todos.${QUEST}.todo.yaml`), 'utf8'), /guidelines:\n\s+night: on/);
-        assert.match(await CREATE_QUEST_TODO_TOOL.execute({ questId: QUEST, todo: { id: 't4_aktl-bad', title: 'Bad', description: 'D', status: 'not-started', guidelines: { mood: 'on' } } } as never), /no aspect section/);
+        assert.match(await CREATE_QUEST_TODO_TOOL.execute({ questId: QUEST, todo: { id: 't4_aktl-bad', title: 'Bad', description: 'D', status: 'not-started', guidelines: { mood: 'on' } } } as never), /no guideline aspect/);
         const updated = JSON.parse(await UPDATE_QUEST_TODO_TOOL.execute({ questId: QUEST, todoId: 't3_aktl-made', updates: { guidelines: { language: 'de' } } } as never));
         assert.equal(updated.ok, true, JSON.stringify(updated));
         assert.deepEqual(findTodoById(QUEST, 't3_aktl-made')?.guidelines, { language: 'de' });
@@ -294,15 +294,15 @@ describe('guideline choices per level', () => {
         item.repeatTodoId = 't1_aktl-chosen';
         const all = JSON.parse(await withTiming('tomAi_getAspectGuidelines:typical', () => GET_ASPECT_GUIDELINES_TOOL.execute({ itemId: item.id })));
         assert.equal(all.ok, true, JSON.stringify(all));
-        assert.deepEqual(all.sections.map((s: { id: string; options: string[]; placement: string; default?: string }) => [s.id, s.placement, s.default, s.options]), [['language', 'system', 'en', ['de', 'en']], ['night', 'user', 'off', ['on', 'off']]]);
+        assert.deepEqual(all.aspects.map((s: { id: string; choices: string[]; placement: string; default?: string }) => [s.id, s.placement, s.default, s.choices]), [['language', 'system', 'en', ['de', 'en']], ['night', 'user', 'off', ['on', 'off']]]);
         assert.deepEqual(all.levels, { questDefault: { language: 'de' }, window: { night: 'on' }, roleType: { night: 'off' }, role: { language: 'de' }, item: { night: 'off' }, todo: { language: 'remove' } });
-        assert.deepEqual(all.selection, [{ section: 'language', option: 'remove', from: 'todo' }, { section: 'night', option: 'off', from: 'item' }]);
+        assert.deepEqual(all.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'off', from: 'item' }]);
         assert.equal(all.context.role, 'writer');
         assert.equal(all.context.roleType, 'author');
         const atWindow = JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ itemId: item.id, level: 'window' }));
-        assert.deepEqual(atWindow.selection, [{ section: 'language', option: 'de', from: 'questDefault' }, { section: 'night', option: 'on', from: 'window' }], 'cut at the window level');
+        assert.deepEqual(atWindow.selection, [{ aspect: 'language', choice: 'de', from: 'questDefault' }, { aspect: 'night', choice: 'on', from: 'window' }], 'cut at the window level');
         const byTodo = JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ todoId: 't1_aktl-chosen', role: 'plain' }));
-        assert.deepEqual(byTodo.selection, [{ section: 'language', option: 'remove', from: 'todo' }, { section: 'night', option: 'on', from: 'window' }]);
+        assert.deepEqual(byTodo.selection, [{ aspect: 'language', choice: 'remove', from: 'todo' }, { aspect: 'night', choice: 'on', from: 'window' }]);
         assert.match(JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ level: 'nowhere' })).error, /Unknown level/);
         assert.match(JSON.parse(await GET_ASPECT_GUIDELINES_TOOL.execute({ itemId: 'nope' })).error, /No queue item/);
         clearQuestDefault();

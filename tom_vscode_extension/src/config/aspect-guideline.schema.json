@@ -1,0 +1,51 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://tom.ai/schemas/aspect-guidelines/aspect-guideline.schema.json",
+    "title": "Aspect guideline (aspect.yaml)",
+    "description": "One aspect of the aspect guidelines: `_ai/aspect_guidelines/<aspect>/aspect.yaml`, beside one `<choice>.md` per choice (the file name without `.md` is the choice's short name, its content the text sent). A prompt gets each aspect's effective choice: the lowest level choosing one wins (aspect default < quest default < window < run < role type < role < item < todo); `remove` on a level sends nothing for the aspect. Before format version 10 the file was `section.yaml` with `options:` (aspect-guideline-section.schema.json); the `_ai` format migration renames both.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "name"
+    ],
+    "properties": {
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The aspect's name, e.g. `Answer mode`."
+        },
+        "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A short label for the selection's hover help, e.g. `Answer`. Default: the name."
+        },
+        "placement": {
+            "enum": [
+                "system",
+                "user"
+            ],
+            "default": "system",
+            "description": "Where the chosen choice's text goes: one segment of the system prompt (`system`, the default), or before the prompt text (`user`). Copilot has no system prompt: there both go before the prompt text."
+        },
+        "default": {
+            "type": "string",
+            "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$",
+            "not": {
+                "const": "remove"
+            },
+            "description": "The choice taken when no level chooses one (one of the aspect's choice names). Absent: nothing is sent for the aspect unless a level chooses."
+        },
+        "choices": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "pattern": "^[^/\\s](?:[^/\\n\\r]*[^/\\s])?$",
+                "not": {
+                    "const": "remove"
+                }
+            },
+            "description": "The choices' order, by short name; each needs its `<name>.md`. Choice files not listed follow by name. `remove` is no choice name: it is the levels' Remove."
+        }
+    }
+}

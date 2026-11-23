@@ -48,7 +48,7 @@ export interface RunQueueSettings {
      */
     defaultRole?: string;
     /**
-     * The run's guideline choices (gsel4, L-5): aspect section → option or
+     * The run's guideline choices (gsel4, L-5): aspect → choice or
      * `remove`; the run level of utils/aspectGuidelines.ts. Unset: none.
      */
     guidelines?: Record<string, string>;

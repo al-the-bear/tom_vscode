@@ -33,10 +33,10 @@ function put(rel: string, text: string): void {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text);
 }
-put('answer_mode/section.yaml', 'name: Answer mode\nlabel: Answer\ndefault: brief\noptions: [brief, detailed]\n');
+put('answer_mode/aspect.yaml', 'name: Answer mode\nlabel: Answer\ndefault: brief\nchoices: [brief, detailed]\n');
 put('answer_mode/brief.md', 'ASPECT-SYSTEM-BRIEF: answer briefly.\n');
 put('answer_mode/detailed.md', 'ASPECT-SYSTEM-DETAILED: answer in detail.\n');
-put('night/section.yaml', 'name: Night\nplacement: user\ndefault: quiet\n');
+put('night/aspect.yaml', 'name: Night\nplacement: user\ndefault: quiet\n');
 put('night/quiet.md', 'ASPECT-USER-QUIET: nobody is there to answer questions.\n');
 
 const { stub, spies } = installVscodeStub({ workspaceFolders: [ws] });

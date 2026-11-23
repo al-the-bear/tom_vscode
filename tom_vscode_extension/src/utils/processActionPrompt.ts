@@ -62,8 +62,8 @@ const AFTER = '\n\n${action-after}';
  */
 export const QUEUED_WORK_TEXT = '## Work you queue\n\n'
     + 'Queue items you add (tomAi_addQueueItem, tomAi_sendItemToQuest) and todos you create (tomAi_createQuestTodo) '
-    + 'may name a `role` (a folder of `_ai/roles/`) and `guidelines` (aspect section → option, or `remove`; '
-    + 'tomAi_getAspectGuidelines lists the sections and their options). '
+    + 'may name a `role` (a folder of `_ai/roles/`) and `guidelines` (aspect → choice, or `remove`; '
+    + 'tomAi_getAspectGuidelines lists the aspects and their choices). '
     + 'Name them to give secondary work the role and guideline aspects it needs when they differ from this step\'s — '
     + 'a review, a fix in another area, research, a task for another quest — so that work is given only the aspects it needs. '
     + 'Leave them out when the work should run like this step: what this prompt queues runs as this step\'s role, '

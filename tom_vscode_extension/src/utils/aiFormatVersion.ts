@@ -40,8 +40,11 @@ import { parse, stringify } from 'yaml';
  *   9  the `default` run runs no process: a process a quest still follows on
  *      `default` moved into a run of its own, with its chat variables,
  *      sessions and queued items (defaultRunMigration.ts)
+ *  10  the aspect guidelines say aspect and choice: every
+ *      `_ai/aspect_guidelines/<aspect>/section.yaml` becomes `aspect.yaml`,
+ *      its `options:` `choices:` (aspectFileMigration.ts)
  */
-export const AI_FORMAT_VERSION = 9;
+export const AI_FORMAT_VERSION = 10;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';
