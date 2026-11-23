@@ -89,9 +89,10 @@ export interface SendToChatConfig {
     editorListOrder?: Record<string, string[]>;
     todoPanel?: {
         /**
-         * The text of a todo's done notification (its on_done `notify`) when
-         * it has no `notify_prompt` (src/utils/todoDoneNotification.ts),
-         * queued into the run and session that queued the todo. Unset: none.
+         * The text of a todo's done notification when it has no
+         * `notify_prompt` (src/utils/todoDoneNotification.ts): sent when the
+         * todo panel that queued it had its Done notification box on, or with
+         * on_done `notify` (to the filed-by quest and run). Unset: none.
          */
         doneNotificationTemplate?: string;
         /**

@@ -285,8 +285,8 @@ export function validateNoFiledBy(record: unknown): string | undefined {
 
 /**
  * Why an `on_done` cannot be written, or `undefined`: its shape (closed keys,
- * the four actions, `unblock` / `queue` with `todos`) and, for `unblock` /
- * `queue`, targets that exist in its quest (archived and deleted included).
+ * the two actions, `unblock` with `todos`) and, for `unblock`, targets that
+ * exist in their quests (archived and deleted included).
  */
 export function validateOnDone(deps: QuestTodoToolsDeps, questId: string, onDone: unknown): string | undefined {
     const shape = onDoneShapeError(onDone);
@@ -360,7 +360,7 @@ const USER_ACTION_SCHEMA = {
 const ON_DONE_SCHEMA = {
     on_done: {
         type: ['object', 'null'],
-        description: 'What happens when the todo is completed: `todos` (ids in `quest`, default this quest; `run`), `action` (list of unblock / notify / queue / none; unblock and queue need todos, which must exist), `instructions` for the agent, `notify_prompt`, `report_to` (`path#section`). An unblock target gets this todo in its `blocked_by` (removed when on_done stops naming it or this todo is cancelled). null removes it.',
+        description: 'What happens when the todo is completed. `todos`: the targets (a bare id in this quest, `<quest>/<id>` in another; they must exist). `action`: `unblock` (the targets are set free on completion — `group` for a group todo, else `not-started`, `decision-needed` with an open decision — without looking at their other conditions; a todo that must wait for its conditions names this one in its own `blocked_by` instead) and `notify` (the done notification goes to the quest and run in `filed_by` instead of the run that queued the todo). `instructions`: sent as a prompt, next in the queue of `quest` / `run` (unset: this quest and the run the todo is completed in). `notify_prompt`: the done notification, sent next in the run that queued the todo. `report_to` (`path#section`). For a group, all of it follows when its last member is completed. null removes it.',
         properties: {
             quest: { type: 'string' },
             run: { type: 'string' },
@@ -750,7 +750,7 @@ export async function createQuestTodoImpl(deps: QuestTodoToolsDeps, input: Creat
 }
 
 export const CREATE_QUEST_TODO_DESCRIPTION =
-    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an id the todo schema\'s id pattern refuses (named in the error) or an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `on_done`: what happens when it is completed (an unblock target gets this todo in its `blocked_by`; unblock / queue targets must exist). `filed_by` is written from the call\'s context, never by you. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
+    'Create a quest todo in a `*.todo.yaml` (default `todos.<questId>.todo.yaml`). You pick `todo.id` (`<baseId>_<tomAi_generateIdPrefix>-<description>`); an id the todo schema\'s id pattern refuses (named in the error) or an existing id is refused, a reused id stem is only warned about (`warning`: renumber before a `<prefix>*` walk). **List the open questions in `decisions`** (`summary`, `decision_needed`) **and set `status: "decision-needed"`** instead of `not-started`. `references` entries are objects (`{path}`, `{url}` or `{description}`); a bare string is rejected. `on_done`: what happens when it is completed (unblock sets its targets free then; targets of another quest are written `<quest>/<id>` and must exist; the instructions go to `quest` / `run`). `filed_by` is written from the call\'s context, never by you. `ok: true` is verified: the file is re-read and every field checked.' + DATES_AND_ORCHESTRATION_DOC;
 
 export const CREATE_QUEST_TODO_TOOL: SharedToolDefinition<CreateQuestTodoInput> = {
     name: 'tomAi_createQuestTodo',

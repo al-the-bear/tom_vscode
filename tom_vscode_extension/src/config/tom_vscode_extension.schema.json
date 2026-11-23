@@ -163,7 +163,7 @@
             "properties": {
                 "doneNotificationTemplate": {
                     "type": "string",
-                    "description": "The text of a todo's done notification (its on_done notify) when the todo has no notify_prompt of its own. It is queued into the run and session that queued the todo (the queue item's queuedBy). A todo without on_done notify gets none. Placeholders: ${todoId}, ${todoTitle}, ${todoFile}, ${todoStatus}, ${itemOutcome}, ${itemAnswer}, ${todoLastAnswer}, ${todoOnDone}, ${filedBy}, ${reportTo}, ${senderQuest}, ${senderRun}. Not set: no text — a notify without notify_prompt sends nothing, and the todo panel's Done notification box is disabled. Edited in the template editor (Todo — Done Notification)."
+                    "description": "The text of a todo's done notification when the todo has no notify_prompt of its own: sent when the todo panel that queued the todo had its Done notification box on, or when the todo's on_done notify asks for the filed-by quest and run. It is queued next in the run and session that queued the todo (the queue item's queuedBy), with notify in the filed-by quest and run. Placeholders: ${todoId}, ${todoTitle}, ${todoFile}, ${todoStatus}, ${itemOutcome}, ${itemAnswer}, ${todoLastAnswer}, ${todoOnDone}, ${filedBy}, ${reportTo}, ${senderQuest}, ${senderRun}. Not set: no text — only a notify_prompt is sent, and the todo panel's Done notification box is disabled. Edited in the template editor (Todo — Done Notification)."
                 },
                 "dueReminderTime": {
                     "type": "string",

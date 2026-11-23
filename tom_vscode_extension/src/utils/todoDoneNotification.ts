@@ -1,12 +1,12 @@
 /**
  * The todo done notification template (`todoPanel.doneNotificationTemplate`,
- * vscimpb146). A todo's done notification is its `on_done` `notify`
- * (utils/todoOnDoneRun.ts): its own `notify_prompt`, else this template; with
- * neither there is none — there is no built-in text. It is delivered into the
- * run and session that queued the todo (`queuedBy`, utils/queuedBy.ts). The
- * todo panel's Done notification box (off by default, per quest, disabled
- * while no template is set) decides whether the panel's items record
- * `queuedBy`.
+ * vscimpb146). A todo's done notification (utils/todoOnDoneRun.ts) is its own
+ * `notify_prompt`, else this template — when the todo panel that queued the
+ * todo had its Done notification box on (off by default, per quest, disabled
+ * while no template is set; recorded as `queuedBy.withTemplate`), or when
+ * its `on_done` `notify` sends it to the filed-by quest and run. There is no
+ * built-in text. It is delivered next in the run and session that queued the
+ * todo (`queuedBy`, utils/queuedBy.ts).
  *
  * vscode-free and pure.
  */

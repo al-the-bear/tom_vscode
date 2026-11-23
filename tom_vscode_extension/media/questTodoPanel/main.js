@@ -749,7 +749,7 @@ function qtSetDoneNotificationLook(on, available) {
     btn.classList.toggle('pressed', on);
     var icon = btn.querySelector('.codicon');
     if (icon) { icon.className = 'codicon ' + (on ? 'codicon-bell' : 'codicon-bell-slash'); }
-    var what = 'When on, a todo this panel queues or sends reports back when it is completed and its After done asks for notify: into the run and session it was queued into (a todo without After done notify gets none). The text is its notify prompt, else Todo \u2014 Done Notification in the Prompt Template Editor. Kept per quest.';
+    var what = 'A todo this panel queues or sends reports back when it is completed, next in the run and session it was queued into, when its After done has a notify prompt. When on, a todo without one sends Todo \u2014 Done Notification (Prompt Template Editor) instead. Kept per quest.';
     btn.title = available === false
         ? 'Done notification: unavailable — no Todo \u2014 Done Notification template is set (Prompt Template Editor). ' + what
         : 'Done notification: ' + (on ? 'ON' : 'OFF') + '. ' + what + ' Click to turn it ' + (on ? 'off' : 'on') + '.';
@@ -3239,17 +3239,18 @@ function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + l
  */
 // ── After done: the todo's on_done, and filed_by read-only ──
 var QT_OD_ACTIONS = [
-    ['unblock', 'unblock', 'Remove this todo from the targets\' Blocked By (written there now, while this todo is open)'],
-    ['notify', 'notify', 'The todo done notification: the notify prompt, else the configured template (none without either), into the run and session that queued the todo'],
-    ['queue', 'queue', 'Queue the targets in the target quest and run'],
-    ['none', 'none', 'Nothing but the instructions'],
+    ['unblock', 'unblock', 'When this todo is completed, set the targets free: a group todo to group, any other to not-started (decision-needed while it has an open decision), without looking at their other conditions. A todo that must wait for its conditions names this one in its own Blocked By instead.'],
+    ['notify', 'notify filed-by', 'Send the done notification to the quest and run that filed this todo (Filed by) instead of the run that queued it'],
 ];
 
 /**
- * The After done group: the quest and run the targets are in (default this
- * quest; the run picker lists that quest's process runs), the targets, the
- * actions, instructions for the agent, the notify prompt and where the result
- * is reported. Saved as `on_done` (replaced as a whole); `filed_by` is shown
+ * The After done group: the targets (`<quest>/<id>` for a todo of another
+ * quest) and the actions (unblock, notify filed-by); the instructions with the
+ * quest and run they are sent to (`(current quest)` / `(current run)`: unset,
+ * the todo's own quest and the run it is completed in); the notify prompt (sent
+ * to the run that queued the todo, or with notify filed-by to the filed-by
+ * quest and run) and where the result is reported. Every prompt is queued next
+ * in its run. Saved as `on_done` (replaced as a whole); `filed_by` is shown
  * below it, read-only.
  */
 function qtOnDoneSection(todo) {
@@ -3257,9 +3258,11 @@ function qtOnDoneSection(todo) {
     var acts = od.action || [];
     var quests = qtQuestList.filter(function(q) { return q && q.indexOf('__') !== 0; });
     if (od.quest && quests.indexOf(od.quest) < 0) quests = quests.concat([od.quest]);
-    var questOpts = '<option value="">(this quest)</option>' + quests.map(function(q) {
+    var questOpts = '<option value="">(current quest)</option>' + quests.map(function(q) {
         return '<option value="' + qtEsc(q) + '"' + (q === od.quest ? ' selected' : '') + '>' + qtEsc(q) + '</option>';
     }).join('');
+    var runOpts = '<option value="">(current run)</option>' +
+        (od.run ? '<option value="' + qtEsc(od.run) + '" selected>' + qtEsc(od.run) + '</option>' : '');
     var fb = (todo && todo.filed_by) || null;
     var filedBy = fb
         ? [fb.quest ? 'quest ' + fb.quest : '', fb.run ? 'run ' + fb.run : '', fb.session ? 'session ' + fb.session : '', fb.todo ? 'todo ' + fb.todo : '', fb.at ? fb.at.replace('T', ' ') : '']
@@ -3268,16 +3271,16 @@ function qtOnDoneSection(todo) {
     return '<div class="qt-section-header" data-qt-section="ondone">' +
         '<span class="codicon codicon-chevron-down"></span> After done</div>' +
         '<div class="qt-section-body" data-qt-section-body="ondone" id="qt-od">' +
-        '<div class="qt-inline-row">' +
-        qtFormRow('Quest', '<select id="qt-od-quest" title="The quest the targets are in">' + questOpts + '</select>') +
-        qtFormRow('Run', '<input id="qt-od-run" list="qt-od-runs" placeholder="default" value="' + qtEsc(od.run || '') + '"><datalist id="qt-od-runs"></datalist>') +
-        '</div>' +
-        qtFormRow('Targets', '<input id="qt-od-todos" placeholder="todo ids, comma-separated" value="' + qtEsc((od.todos || []).join(', ')) + '">') +
+        qtFormRow('Targets', '<input id="qt-od-todos" placeholder="todo ids, comma-separated; <quest>/<id> for a todo of another quest" title="The todos unblock sets free: a bare id in this todo\'s quest, <quest>/<id> in another" value="' + qtEsc((od.todos || []).join(', ')) + '">') +
         qtFormRow('Actions', '<span class="qt-od-actions">' + QT_OD_ACTIONS.map(function(a) {
             return '<label title="' + qtEsc(a[2]) + '"><input type="checkbox" data-od-action="' + a[0] + '"' + (acts.indexOf(a[0]) >= 0 ? ' checked' : '') + '>' + a[1] + '</label>';
         }).join('') + '</span>') +
-        qtFormRow('Instructions' + qtMdButtons('od-instructions', 'Instructions'), '<textarea id="qt-od-instructions" placeholder="What the agent does when the todo is completed">' + qtEsc(od.instructions || '') + '</textarea>') +
-        qtFormRow('Notify prompt' + qtMdButtons('od-notify', 'Notify prompt'), '<textarea id="qt-od-notify" placeholder="The done notification notify queues (empty: the Todo — Done Notification template, else none)">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
+        qtFormRow('Instructions' + qtMdButtons('od-instructions', 'Instructions'), '<textarea id="qt-od-instructions" placeholder="Sent as a prompt when the todo is completed, next in the queue of the quest and run below">' + qtEsc(od.instructions || '') + '</textarea>') +
+        '<div class="qt-inline-row">' +
+        qtFormRow('Quest', '<select id="qt-od-quest" title="The quest the instructions are sent to; (current quest): this todo\'s quest">' + questOpts + '</select>') +
+        qtFormRow('Run', '<select id="qt-od-run" title="The run the instructions are sent to; (current run): the run the todo is completed in (in another quest: its default run)">' + runOpts + '</select>') +
+        '</div>' +
+        qtFormRow('Notify prompt' + qtMdButtons('od-notify', 'Notify prompt'), '<textarea id="qt-od-notify" placeholder="The done notification, sent next in the run that queued the todo (notify filed-by: the filed-by quest and run). Empty: the Todo — Done Notification template when the queuing panel\'s bell was on, or with notify filed-by">' + qtEsc(od.notify_prompt || '') + '</textarea>') +
         qtFormRow('Report to', '<input id="qt-od-report" placeholder="path#section" value="' + qtEsc(od.report_to || '') + '">') +
         qtFormRow('Filed by', '<input id="qt-od-filed-by" readonly class="qt-readonly" value="' + qtEsc(filedBy || '(not recorded)') + '" title="Written when the todo was filed; not editable">') +
         '</div>';
@@ -3302,17 +3305,24 @@ function qtReadOnDoneForm() {
     return Object.keys(od).length ? od : null;
 }
 
-/** Ask the host for the process runs of the quest the targets are in. */
+/** Ask the host for the process runs of the quest the instructions are sent to. */
 function qtRequestOnDoneRuns() {
     var q = document.getElementById('qt-od-quest');
     var quest = (q && q.value) || (qtDetailTodo && qtDetailTodo._resolvedQuestId) || qtCurrentQuestId;
     if (quest && quest.indexOf('__') !== 0) vscode.postMessage({ type: 'qtGetRuns', questId: quest });
 }
 
+/** The Run select: (current run), then the runs of the instructions' quest; a stored run not among them stays. */
 function qtFillOnDoneRuns(questId, runs) {
-    var list = document.getElementById('qt-od-runs');
-    if (!list) return;
-    list.innerHTML = runs.map(function(r) { return '<option value="' + qtEsc(r) + '"></option>'; }).join('');
+    var sel = document.getElementById('qt-od-run');
+    if (!sel) return;
+    var current = sel.value;
+    var list = runs.slice();
+    if (current && list.indexOf(current) < 0) list.push(current);
+    sel.innerHTML = '<option value="">(current run)</option>' + list.map(function(r) {
+        return '<option value="' + qtEsc(r) + '"' + (r === current ? ' selected' : '') + '>' + qtEsc(r) + '</option>';
+    }).join('');
+    sel.value = current;
 }
 
 function qtAttachOnDoneHandlers() {
@@ -3324,7 +3334,10 @@ function qtAttachOnDoneHandlers() {
         el.addEventListener('change', qtAutoSave);
     });
     var q = document.getElementById('qt-od-quest');
-    if (q) q.addEventListener('change', qtRequestOnDoneRuns);
+    if (q) q.addEventListener('change', function() {
+        // Another quest: its runs; the run goes back to (current run) unless that quest has it.
+        qtRequestOnDoneRuns();
+    });
     qtRequestOnDoneRuns();
 }
 

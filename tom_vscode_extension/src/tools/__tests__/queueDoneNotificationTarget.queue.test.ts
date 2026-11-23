@@ -18,10 +18,11 @@
  *   DT-8 who queued an item (vscimpb146): recorded on a queue item, handed on by an inbox item, set on a chat send;
  *        an item carries no done notification of its own for its todo; nobody recorded: none
  *   DT-7 also: the settle's notify goes into the run and session that queued the walk
- *   DT-9 stage 0 end to end through the live wiring (installTodoOnDone): completing a todo with on_done unblock +
- *        notify, in a turn of an item an agent of another quest queued, frees the target there and writes the
- *        notification into that quest's inbox for the queuing session; completing one
- *        with queue in another run queues the target in that run's lane; saving again runs nothing twice
+ *   DT-9 stage 0 end to end through the live wiring (installTodoOnDone): completing a todo with on_done unblock
+ *        (`<quest>/<id>`) and a notify prompt, in a turn of an item an agent of another quest queued, frees the
+ *        target there and writes the notification into that quest's inbox for the queuing session, queued next;
+ *        completing one with instructions for another run queues them next in that run's lane; saving again runs
+ *        nothing twice
  *   DT-5 what came out (vscimpb72): ${itemTitle}, ${itemAnswer} and ${itemTodos} are filled from the finished item
  *        when its notification is queued — in this queue and posted to another quest — the answer escaped
  */
@@ -295,12 +296,12 @@ describe('the done notification\'s quest and run', () => {
         put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
             `quest: ${QUEST}`, 'todos:',
             '  - id: wk-1', '    description: first', '    status: completed',
-            '    on_done:', '      action: [notify]', '      notify_prompt: wk-1 is done', '',
+            '    on_done:', '      notify_prompt: wk-1 is done', '',
         ].join('\n'));
         const sent: string[] = [];
         const where: string[] = [];
         setTodoOnDonePorts({
-            windowQuest: () => QUEST, findTodo: () => undefined, groupPrompt: () => '', writeTarget: () => undefined,
+            windowQuest: () => QUEST, findTodo: () => undefined, writeTarget: () => undefined,
             appendNotes: () => undefined, enqueueLocal: async (send) => { sent.push(send.text); where.push(`${send.run}/${send.session ?? ''}`); },
             postToQuest: () => undefined, log: () => undefined, today: () => '2026-11-15',
         });
@@ -369,10 +370,9 @@ describe('the done notification\'s quest and run', () => {
         put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
             `quest: ${QUEST}`, 'todos:',
             '  - id: e2e-a', '    title: Wire the vault', '    description: d', '    status: in-progress',
-            '    on_done:', '      quest: q2', '      todos: [b1]', '      action: [unblock, notify]', '      notify_prompt: e2e-a done for ${senderQuest}/${senderRun}',
+            '    on_done:', '      todos: [q2/b1]', '      action: [unblock]', '      notify_prompt: e2e-a done for ${senderQuest}/${senderRun}',
             '  - id: e2e-b', '    title: Plan', '    description: d', '    status: in-progress',
-            '    on_done:', '      run: r2', '      todos: [c1]', '      action: [queue]',
-            '  - id: c1', '    title: Follow-up', '    description: d', '    status: not-started', '',
+            '    on_done:', '      run: r2', '      instructions: Plan the follow-up.', '',
         ].join('\n'));
         put('_ai/quests/q2/overview.q2.md', '# Q2\n');
         put('_ai/quests/q2/todos.q2.todo.yaml', [
@@ -402,13 +402,13 @@ describe('the done notification\'s quest and run', () => {
             assert.ok(inbox.ok);
             assert.equal(inbox.ok && inbox.item.text, `e2e-a done for ${QUEST}/default`);
             assert.equal(inbox.ok && inbox.item.session, 's9', 'into the queuing session');
+            assert.equal(inbox.ok && inbox.item.position, 'next', 'queued next there');
             assert.equal(inbox.ok && inbox.item.from.quest, QUEST);
-            // queue in another run: c1 queued in r2's lane with its record.
-            const c1 = queue().items.find((i) => i.todoIdPattern === 'c1');
-            assert.ok(c1, queue().items.map((i) => i.originalText.slice(0, 40)).join(' | '));
-            assert.equal(c1.run, 'r2');
-            assert.match(c1.originalText, /Here is the complete YAML of the todo:/);
-            assert.match(c1.originalText, /id: c1/);
+            // instructions for another run: queued next in r2's lane, naming the completed todo.
+            const plan = queue().items.find((i) => i.originalText.includes('Plan the follow-up.'));
+            assert.ok(plan, queue().items.map((i) => i.originalText.slice(0, 40)).join(' | '));
+            assert.equal(plan.run, 'r2');
+            assert.match(plan.originalText, /^The todo `q1\/e2e-b` — Plan was completed/);
             // Saved again: nothing runs twice.
             qt.updateTodo(QUEST, 'e2e-a', { status: 'completed', notes: 'again' });
             await wait(200);

@@ -724,20 +724,25 @@ function _todoDoneNotificationOn(): boolean {
 }
 
 /**
- * Who queued the panel's items while its box is on (vscimpb146): the run and session they are queued into, so a
- * todo they complete sends its done notification (on_done `notify`) there. Box off: nothing recorded, no notification.
+ * Who queued the panel's items (vscimpb146): the run and session they are queued into, so a todo they complete
+ * sends its done notification there — its After done notify prompt always, the configured template only while the
+ * panel's Done notification box is on (`withTemplate`).
  */
 function _queuedByFields(target: { quest: string; run: string; session?: string }): { queuedBy?: QueuedBy } {
-    if (!_todoDoneNotificationOn() || !target.quest || target.quest === 'default') { return {}; }
-    return { queuedBy: { quest: target.quest, run: target.run || 'default', ...(target.session ? { session: target.session } : {}) } };
+    if (!target.quest || target.quest === 'default') { return {}; }
+    return { queuedBy: {
+        quest: target.quest, run: target.run || 'default',
+        ...(target.session ? { session: target.session } : {}),
+        ...(_todoDoneNotificationOn() ? { withTemplate: true as const } : {}),
+    } };
 }
 
-/** A chat send the panel made (Send, Guide me): with the box on, its own run and session are who queued its todos. */
+/** A chat send the panel made (Send, Guide me): its own run and session are who queued its todos. */
 async function _recordChatQueuedBy(chatItemId: string | undefined): Promise<void> {
-    if (!chatItemId || !_todoDoneNotificationOn()) { return; }
+    if (!chatItemId) { return; }
     const queue = (await import('../managers/promptQueueManager.js')).PromptQueueManager.instance;
     const queuedBy = queuedByOfItem(queue.getById(chatItemId), _windowQuest());
-    if (queuedBy) { queue.setItemQueuedBy(chatItemId, queuedBy); }
+    if (queuedBy) { queue.setItemQueuedBy(chatItemId, { ...queuedBy, ...(_todoDoneNotificationOn() ? { withTemplate: true as const } : {}) }); }
 }
 
 /** Tell every view showing the Done notification toggle its state (kept per quest) and whether it is available. */

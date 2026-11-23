@@ -41,8 +41,8 @@ import { todoIdRuleError, todoIdsRuleError } from '../utils/todoIdRule';
 import { isCompletion } from '../utils/todoOnDoneRun';
 import { userTodoDraft } from '../services/userNotificationEmitter';
 import {
-    buildFiledBy, normaliseOnDone, unblockEntry, unblockEntryPlan, withBlockedByEntry, withoutBlockedByEntry,
-    type FiledByContext, type TodoFiledBy, type TodoOnDone, type UnblockEntryPlan,
+    buildFiledBy, normaliseOnDone, onDoneTargetEntry, onDoneTargetRef,
+    type FiledByContext, type TodoFiledBy, type TodoOnDone,
 } from '../utils/todoOnDone';
 
 export { normaliseTodoDecisions, isDecisionResolved, hasUnresolvedDecisions, type TodoDecision } from '../utils/todoDecisions';
@@ -1522,7 +1522,7 @@ export function todoPartOf(questId: string, todoId: string): string[] {
 // like a todo completed through updateTodo.
 setGroupCompletedHook((questId, todoId) => {
     const group = findTodoById(questId, todoId);
-    if (group?.on_done) {
+    if (group) {
         try { todoCompletionHook?.(questId, group); } catch { /* the follow-up never fails the write */ }
     }
 });
@@ -1574,9 +1574,8 @@ export function notifyTodoUpdated(questId: string, before: QuestTodoItem, after:
 /**
  * File a NEW todo (the todo tools, the todo panel): {@link createTodo} with
  * `filed_by` written from the call's context (a caller's own value is
- * replaced), and the `blocked_by` entry naming it written into each of its
- * `on_done` unblock targets (BP-2). Moves and renames use `createTodo`, which
- * keeps the record as it is.
+ * replaced). Moves and renames use `createTodo`, which keeps the record as it
+ * is.
  */
 export function fileTodo(
     questId: string,
@@ -1588,49 +1587,7 @@ export function fileTodo(
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
     const created = createTodo(questId, { ...todo, filed_by: filedBy ?? currentTodoFiledBy() }, targetFile);
     notifyTodoCreated(questId, created);
-    applyUnblockEntries(questId, created.id, unblockEntryPlan(undefined, created, questId));
     return created;
-}
-
-/**
- * Write a plan's `blocked_by` entries: removed from the targets the todo no
- * longer names, added to the live targets it names that are not done. A
- * target that is in no live file, or already completed or cancelled, gets no
- * entry (it waits for nothing).
- */
-function applyUnblockEntries(ownerQuest: string, ownerId: string, plan: UnblockEntryPlan): void {
-    for (const target of plan.remove) {
-        const entry = unblockEntry(ownerQuest, ownerId, target.quest);
-        editLiveBlockedBy(target.quest, target.id, (list, _status) => withoutBlockedByEntry(list, entry));
-    }
-    for (const target of plan.add) {
-        const entry = unblockEntry(ownerQuest, ownerId, target.quest);
-        editLiveBlockedBy(target.quest, target.id, (list, status) =>
-            status === 'completed' || status === 'cancelled' ? list : withBlockedByEntry(list, entry));
-    }
-}
-
-/** Rewrite the `blocked_by` of live todo `todoId` of `questId` when `edit` changes it; written through the blocking sync. */
-function editLiveBlockedBy(questId: string, todoId: string, edit: (list: string[], status: string) => string[]): void {
-    if (!questExists(questId)) { return; }
-    for (const fileName of listTodoFiles(questId)) {
-        const filePath = path.join(questFolder(questId), fileName);
-        const doc = loadDocument(filePath);
-        const seq = doc.get('todos', true);
-        if (!isSeq(seq)) { continue; }
-        const item = seq.items.find((i) => isMap(i) && String((i as YAMLMap).get('id')) === todoId) as YAMLMap | undefined;
-        if (!item) { continue; }
-        const current = nodeToTodo(item).blocked_by ?? [];
-        const next = edit(current, String(item.get('status') ?? ''));
-        if (JSON.stringify(next) === JSON.stringify(current)) { return; }
-        setOrDelete(item, 'blocked_by', next.length ? doc.createNode(next) : undefined);
-        item.set('updated', todayLocalDate());
-        doc.set('updated', todayLocalDate());
-        saveDocument(filePath, doc);
-        // eslint-disable-next-line @typescript-eslint/naming-convention -- the todo schema's YAML key
-        assertTodoFieldsPersisted(filePath, todoId, { blocked_by: next }, 'editLiveBlockedBy');
-        return;
-    }
 }
 
 /**
@@ -1669,13 +1626,8 @@ export function updateTodo(
                 assertTodoFieldsPersisted(filePath, todoId, applied, 'updateTodo');
                 const after = nodeToTodo(item, fileName);
                 notifyTodoUpdated(questId, before, after);
-                // BP-2 / DP-part-todo-followups-2: the unblock targets follow a
-                // replaced `on_done` and a cancellation (or its undoing).
-                if ('on_done' in applied || before.status !== after.status) {
-                    applyUnblockEntries(questId, todoId, unblockEntryPlan(before, after, questId));
-                }
                 // Completed (a repeated todo on every completion): its follow-up (ww_a_collab-5).
-                if (after.on_done && isCompletion(before, updates.status)) {
+                if (isCompletion(before, updates.status)) {
                     try { todoCompletionHook?.(questId, after); } catch { /* the follow-up never fails the write */ }
                 }
                 return after;
@@ -2057,9 +2009,9 @@ export function renameQuestTodo(
 
 /**
  * Rewrite every `blocked_by` / `dependencies` / `comprised_of` entry of `files` that `named`
- * maps to a new value, and with `renamed` every `on_done.todos` entry and
- * `filed_by.todo` naming the renamed todo (ids in their block's `quest`, else
- * the quest of the file); answers how many entries changed. With
+ * maps to a new value, and with `renamed` every `on_done.todos` entry
+ * (`<quest>/<id>`, a bare id in the quest of the file) and `filed_by.todo`
+ * naming the renamed todo; answers how many entries changed. With
  * `write: false` nothing is written: only the count (a dry run).
  */
 function rewriteTodoReferences(
@@ -2120,14 +2072,16 @@ function rewriteFollowUpIds(item: YAMLMap, fileQuest: string, renamed: { quest: 
     let changed = 0;
     const onDone = item.get('on_done', true);
     if (isMap(onDone)) {
-        const map = onDone as YAMLMap;
-        const quest = String(map.get('quest') ?? '').trim() || fileQuest;
-        const todos = map.get('todos', true);
-        if (quest === renamed.quest && isSeq(todos)) {
+        // Each target names its quest: a bare id is in the todo's own quest, `<quest>/<id>` in another.
+        const todos = (onDone as YAMLMap).get('todos', true);
+        if (isSeq(todos)) {
             todos.items.forEach((entry, k) => {
                 const value = entry instanceof Scalar ? entry.value : entry;
-                if (value !== renamed.from) { return; }
-                if (entry instanceof Scalar) { entry.value = renamed.to; } else { todos.items[k] = renamed.to; }
+                if (typeof value !== 'string') { return; }
+                const ref = onDoneTargetRef(value, fileQuest);
+                if (ref.quest !== renamed.quest || ref.id !== renamed.from) { return; }
+                const next = onDoneTargetEntry({ quest: ref.quest, id: renamed.to }, fileQuest);
+                if (entry instanceof Scalar) { entry.value = next; } else { todos.items[k] = next; }
                 changed++;
             });
         }

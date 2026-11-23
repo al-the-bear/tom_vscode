@@ -1,54 +1,53 @@
 /**
  * Carrying out a completed todo's `on_done` (idea agent_collaboration,
- * part-todo-followups § When it runs; DP-part-todo-followups-1, DPR-5): what
- * the extension does when the todo is completed, as a plan of writes and
- * sends, before anything is written.
+ * part-todo-followups § When it runs): what the extension does when the todo
+ * is completed, as a plan of writes and sends, before anything is written.
  *
- * The extension does the deterministic actions; the executing agent only the
- * `instructions` (the walk line in BUILTIN_GROUP_PROMPT says so):
- * - `unblock`: each target's `blocked_by` entry naming this todo is met and
- *   removed; a `blocked` target with nothing else blocking it becomes
- *   `not-started` (`decision-needed` when it has an open decision);
- * - `notify`: the todo's done notification (vscimpb146) — `notify_prompt`,
- *   else the configured template (`todoPanel.doneNotificationTemplate`); with
- *   neither, none (there is no built-in text). It goes into the run AND
- *   session that queued the todo (`ctx.queuedBy`, utils/queuedBy.ts; another
- *   quest: through its inbox with the session named); without a queuing
- *   session it is not sent — the item's own queue and run are never the
- *   fallback. The receiver records the result at `report_to`;
- * - `queue`: each target todo queued by the extension itself at that quest
- *   and run, with the quest's group prompt and the todo's record; a
- *   notification only reports.
- * A target already done (completed, cancelled, archived) is skipped; a target
- * that is gone, or only in a `-deleted` file, is skipped with a line in the
- * todo's notes.
+ * - `unblock`: each target (`<quest>/<id>` or a bare id in the todo's quest)
+ *   is set free — `group` for a group todo, else `not-started`, or
+ *   `decision-needed` while it has an open decision — without looking at its
+ *   other conditions. Its `blocked_by` is left as it is. Only a target that
+ *   waits (blocked, not-started, decision-needed, group) changes; one that is
+ *   in progress, waits for its repetition or is done is passed over.
+ * - The done notification (vscimpb146): the todo's `notify_prompt`, else the
+ *   configured template (`todoPanel.doneNotificationTemplate`) when the panel
+ *   that queued the todo had its Done notification on, or when `notify` asks
+ *   for it. It goes into the run and session that queued the todo
+ *   (`ctx.queuedBy`); with `notify` checked into the quest and run of
+ *   `filed_by` instead (that run's default session). Without a recipient or a
+ *   text it is not sent.
+ * - `instructions`: sent as a prompt to `on_done.quest` / `run` (unset: the
+ *   todo's own quest and the run it was completed in), in that run's default
+ *   session, with a header naming the completed todo and its answer.
+ * Every prompt is queued next in its run (between the iterations of a loop
+ * that is sending).
+ *
+ * A target that is gone, or only in a `-deleted` file, is skipped with a line
+ * in the todo's notes.
  *
  * Where it runs: in a walk where the queue settles the todo's claim (after
  * `recordTodoAnswer`, so `last_answer` is there), outside a walk where the
- * todo writer sets `completed`; a repeated todo on every completion. Once per
- * completion: a completion while the queue holds the todo's claim is left to
- * the queue ({@link onDoneDueAtSettle}).
+ * todo writer sets `completed`, and for a group when its last member is
+ * completed; a repeated todo on every completion. Once per completion: a
+ * completion while the queue holds the todo's claim is left to the queue
+ * ({@link onDoneDueAtSettle}).
  *
  * Pure: no `vscode`, no file system.
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- the todo schema's YAML keys */
 import { escapePlaceholders, fillPlaceholder } from './placeholderEscape';
-import { withTodoYaml, todoYamlBlock } from './todoIterationRecord';
-import { onDoneQuest, unblockEntry, type TodoFiledBy, type TodoOnDone } from './todoOnDone';
+import { onDoneInstructionTarget, onDoneTargetEntry, onDoneTargets, type TodoFiledBy, type TodoOnDone } from './todoOnDone';
 import type { QueuedBy } from './queuedBy';
 
 /** A target todo as the planner sees it. */
 export interface OnDoneTarget {
     status: string;
-    blocked_by?: string[];
-    blocked_until?: string[];
     decisions?: Array<{ decision?: string }>;
+    /** A group todo (status `group`, or members in `comprised_of`). */
+    group?: boolean;
     /** Where it is: a live file, an `-archived` or a `-deleted` sibling. */
     where: 'live' | 'archived' | 'deleted';
-    /** The whole record (for a queued todo's prompt) and its file. */
-    record: Record<string, unknown>;
-    sourceFile?: string;
     title?: string;
 }
 
@@ -65,52 +64,51 @@ export interface CompletedTodo {
 export interface OnDoneContext {
     /** The quest the completed todo is in. */
     quest: string;
-    /** The run it was completed in (the walk's item, else the window's): the default target run in its own quest. */
+    /** The run it was completed in (the walk's item, else the window's): where its instructions go by default. */
     run: string;
     /** Look a todo up in every file of a quest, archived and deleted siblings included. */
     findTodo(quest: string, id: string): OnDoneTarget | undefined;
-    /** The default group prompt of a quest (its own, else the global, else the built-in). */
-    groupPrompt(quest: string): string;
     /** For the notes line. */
     today: string;
     /** The configured todo done-notification template, used when the block has no `notify_prompt`. */
     notifyTemplate?: string;
-    /** Who queued the todo (the queue item or chat send that ran it): where `notify` goes. */
+    /** Who queued the todo (the queue item or chat send that ran it): where the done notification goes. */
     queuedBy?: QueuedBy;
 }
 
-/** A target's `blocked_by` rewritten, and its status when it changes. */
+/** A target's new status. */
 export interface UnblockWrite {
     quest: string;
     id: string;
-    blockedBy: string[];
-    status?: 'not-started' | 'decision-needed';
+    status: 'not-started' | 'decision-needed' | 'group';
 }
 
-/** A prompt queued at a quest and run. */
+/** A prompt queued at a quest and run, next in its queue. */
 export interface OnDoneSend {
     quest: string;
     run: string;
     text: string;
-    /** For a queued todo: its id (the queue item's todoIdPattern). */
-    todoId?: string;
-    /** The session it runs in (a notification: the queuing session); unset: the run's queue default. */
+    /** The session it runs in (the notification to the queuing run: its session); unset: the run's queue default. */
     session?: string;
+    /** Queued next in its run (between the iterations of a loop that is sending). */
+    next: true;
 }
 
 export interface OnDonePlan {
     unblock: UnblockWrite[];
     notify?: OnDoneSend;
-    queue: OnDoneSend[];
+    instructions?: OnDoneSend;
     /** Lines for the completed todo's notes (deleted or missing targets). */
     notes: string[];
-    /** Targets passed over because they are done (for the log). */
+    /** Targets passed over (done, in progress, waiting for a repetition), for the log. */
     skipped: string[];
-    /** Why a `notify` the block asks for was not sent (no text, no queuing session), for the log. */
+    /** Why a done notification was not sent, when one was meant (no text, no recipient), for the log. */
     notifyNotSent?: string;
 }
 
 const DONE = new Set(['completed', 'cancelled']);
+/** The statuses `unblock` changes: a todo that waits. */
+const WAITING = new Set(['blocked', 'not-started', 'decision-needed', 'group']);
 
 /** The placeholders of a notification prompt filled from the completed todo; the values are escaped. */
 export function fillTodoPlaceholders(text: string, todo: CompletedTodo, ctx: { quest: string; run: string }): string {
@@ -135,82 +133,82 @@ export function fillTodoPlaceholders(text: string, todo: CompletedTodo, ctx: { q
     return out;
 }
 
-/** The prompt that queues one todo: the group prompt with the walk's placeholders filled for it, and its record. */
-export function queuedTodoPrompt(groupPrompt: string, quest: string, id: string, target: OnDoneTarget): string {
-    let text = groupPrompt;
-    text = fillPlaceholder(text, '${repeatTodoId}', id);
-    text = fillPlaceholder(text, '${repeatTodoTitle}', escapePlaceholders(target.title ?? id));
-    text = fillPlaceholder(text, '${repeatNumber}', '1');
-    text = fillPlaceholder(text, '${quest}', quest);
-    return withTodoYaml(text, todoYamlBlock(target.record, target.sourceFile));
+/** The prompt that carries a completed todo's instructions: who sends them, the instructions, the todo's answer. */
+export function instructionsPrompt(todo: CompletedTodo, ctx: { quest: string; run: string }): string {
+    const title = todo.title?.trim() ? ` — ${escapePlaceholders(todo.title.trim())}` : '';
+    const answer = todo.last_answer?.trim() ? escapePlaceholders(todo.last_answer.trim()) : '(no answer recorded)';
+    return [
+        `The todo \`${ctx.quest}/${todo.id}\`${title} was completed (run ${ctx.run}). Its After done sends you these instructions:`,
+        '',
+        fillTodoPlaceholders(todo.on_done?.instructions ?? '', todo, ctx).trim(),
+        '',
+        'The answer the todo was completed with:',
+        '',
+        answer,
+        '',
+    ].join('\n');
+}
+
+/** The status `unblock` gives a waiting target: `group`, else `decision-needed` with an open decision, else `not-started`. */
+export function unblockedStatus(t: OnDoneTarget): UnblockWrite['status'] {
+    if (t.group) { return 'group'; }
+    const openDecision = (t.decisions ?? []).some((d) => !(typeof d.decision === 'string' && d.decision.trim()));
+    return openDecision ? 'decision-needed' : 'not-started';
 }
 
 /** What carrying out `todo`'s `on_done` writes and sends. */
 export function planOnDoneRun(todo: CompletedTodo, ctx: OnDoneContext): OnDonePlan {
-    const plan: OnDonePlan = { unblock: [], queue: [], notes: [], skipped: [] };
-    const onDone = todo.on_done;
-    if (!onDone) { return plan; }
+    const plan: OnDonePlan = { unblock: [], notes: [], skipped: [] };
+    // A todo without After done still gets the template when the panel that queued it asked for done notifications.
+    const onDone: TodoOnDone = todo.on_done ?? {};
     const actions = onDone.action ?? [];
-    const targetQuest = onDoneQuest(onDone, ctx.quest);
-    const targetRun = onDone.run?.trim() || (targetQuest === ctx.quest ? ctx.run : 'default');
-    const live = (id: string): OnDoneTarget | undefined => {
-        const t = ctx.findTodo(targetQuest, id);
-        if (!t) {
-            plan.notes.push(`[on_done ${ctx.today}] ${targetQuest}/${id} does not exist; skipped.`);
-            return undefined;
-        }
-        if (t.where === 'deleted') {
-            plan.notes.push(`[on_done ${ctx.today}] ${targetQuest}/${id} was deleted; skipped.`);
-            return undefined;
-        }
-        if (t.where === 'archived' || DONE.has(t.status)) {
-            plan.skipped.push(`${targetQuest}/${id} (${t.status})`);
-            return undefined;
-        }
-        return t;
-    };
-    const targets = [...new Set(onDone.todos ?? [])];
-    const resolved = new Map<string, OnDoneTarget | undefined>();
-    const target = (id: string): OnDoneTarget | undefined => {
-        if (!resolved.has(id)) { resolved.set(id, live(id)); }
-        return resolved.get(id);
-    };
+
     if (actions.includes('unblock')) {
-        const entry = unblockEntry(ctx.quest, todo.id, targetQuest);
-        for (const id of targets) {
-            const t = target(id);
-            if (!t) { continue; }
-            const blockedBy = (t.blocked_by ?? []).filter((e) => e !== entry);
-            const free = blockedBy.length === 0 && (t.blocked_until ?? []).length === 0;
-            const openDecision = (t.decisions ?? []).some((d) => !(typeof d.decision === 'string' && d.decision.trim()));
-            const status = t.status === 'blocked' && free ? (openDecision ? 'decision-needed' : 'not-started') : undefined;
-            if (blockedBy.length === (t.blocked_by ?? []).length && !status) { continue; }
-            plan.unblock.push({ quest: targetQuest, id, blockedBy, ...(status ? { status } : {}) });
+        for (const ref of onDoneTargets(onDone, ctx.quest)) {
+            const name = `${ref.quest}/${ref.id}`;
+            const t = ctx.findTodo(ref.quest, ref.id);
+            if (!t) { plan.notes.push(`[on_done ${ctx.today}] ${name} does not exist; not unblocked.`); continue; }
+            if (t.where === 'deleted') { plan.notes.push(`[on_done ${ctx.today}] ${name} was deleted; not unblocked.`); continue; }
+            const status = t.status.trim().toLowerCase();
+            if (t.where === 'archived' || DONE.has(status) || !WAITING.has(status)) {
+                plan.skipped.push(`${onDoneTargetEntry(ref, ctx.quest)} (${t.where === 'archived' ? 'archived' : t.status})`);
+                continue;
+            }
+            const next = unblockedStatus(t);
+            if (next !== status) { plan.unblock.push({ quest: ref.quest, id: ref.id, status: next }); }
         }
     }
-    if (actions.includes('queue')) {
-        const prompt = ctx.groupPrompt(targetQuest);
-        for (const id of targets) {
-            const t = target(id);
-            if (!t) { continue; }
-            plan.queue.push({ quest: targetQuest, run: targetRun, todoId: id, text: queuedTodoPrompt(prompt, targetQuest, id, t) });
-        }
-    }
-    if (actions.includes('notify')) {
-        // The done notification: its own text, else the configured template; into the queuing run and session.
-        const text = onDone.notify_prompt?.trim() ? onDone.notify_prompt : (ctx.notifyTemplate?.trim() ? ctx.notifyTemplate : undefined);
-        if (!text) {
-            plan.notifyNotSent = 'no notify_prompt and no done-notification template configured';
-        } else if (!ctx.queuedBy) {
-            plan.notifyNotSent = 'no queuing session is known (the todo was not completed in a queue item or chat send that recorded who queued it)';
-        } else {
+
+    // The done notification: to the run that queued the todo, or with `notify` to the run that filed it.
+    const toFiledBy = actions.includes('notify');
+    const ownPrompt = onDone.notify_prompt?.trim() ? onDone.notify_prompt : undefined;
+    const templateAllowed = toFiledBy || ctx.queuedBy?.withTemplate === true;
+    const text = ownPrompt ?? (templateAllowed && ctx.notifyTemplate?.trim() ? ctx.notifyTemplate : undefined);
+    if (text) {
+        if (toFiledBy) {
+            if (todo.filed_by?.quest && todo.filed_by.quest !== 'default') {
+                plan.notify = { quest: todo.filed_by.quest, run: todo.filed_by.run || 'default', text: fillTodoPlaceholders(text, todo, ctx), next: true };
+            } else {
+                plan.notifyNotSent = 'notify asks for the filed-by quest, and the todo records none';
+            }
+        } else if (ctx.queuedBy) {
             plan.notify = {
                 quest: ctx.queuedBy.quest,
                 run: ctx.queuedBy.run,
                 ...(ctx.queuedBy.session ? { session: ctx.queuedBy.session } : {}),
-                text: fillTodoPlaceholders(text, todo, { quest: ctx.quest, run: ctx.run }),
+                text: fillTodoPlaceholders(text, todo, ctx),
+                next: true,
             };
+        } else {
+            plan.notifyNotSent = 'no queuing run is known (the todo was not completed in a queue item or chat send that recorded who queued it)';
         }
+    } else if (toFiledBy) {
+        plan.notifyNotSent = 'no notify_prompt and no done-notification template configured';
+    }
+
+    if (onDone.instructions?.trim()) {
+        const target = onDoneInstructionTarget(onDone, ctx.quest, ctx.run);
+        plan.instructions = { quest: target.quest, run: target.run, text: instructionsPrompt(todo, ctx), next: true };
     }
     return plan;
 }

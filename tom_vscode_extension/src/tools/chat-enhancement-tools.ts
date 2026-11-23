@@ -311,8 +311,7 @@ const liveQuestTodoStore: QuestTodoStoreAccess = {
     // reached disk, leaving todos that claimed to be waiting on a decision no
     // one could read.
     create(questId, todo, file): QuestTodoFull {
-        // `fileTodo`: a new todo gets `filed_by` from the call's context and
-        // its `on_done` unblock targets get their `blocked_by` entry.
+        // `fileTodo`: a new todo gets `filed_by` from the call's context.
         const created = questTodo.fileTodo(questId, todo as Omit<questTodo.QuestTodoItem, '_sourceFile'>, file);
         return toFull(created);
     },

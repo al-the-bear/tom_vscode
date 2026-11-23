@@ -61,7 +61,6 @@ export const BUILTIN_GROUP_PROMPT =
     + 'everything you start (poll or block until it has finished) and check its result before you answer.\n\n'
     + 'Once the TODO is fully done, change its status to "Completed" and report it with the response value '
     + '`TODO` = `_ai/quests/${quest}/<sourceFile>/${repeatTodoId}` (`sourceFile` is the file named at the top of the record).\n\n'
-    + 'When the todo is completed, carry out what its `on_done` leaves to you (its `instructions`).\n\n'
     + 'Please verify everything stated is implemented exactly as described.';
 
 /** The file of an entry, relative to its scope's group prompt folder. */

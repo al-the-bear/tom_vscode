@@ -61,7 +61,7 @@ describe('todo panel top bar', () => {
         assert.equal(posted.some((m) => m.type === 'qtSetDoneNotification'), false, 'a disabled box sends nothing');
         w.qtHandleMessage({ type: 'qtDoneNotification', on: false, available: true });
         assert.equal(btn.disabled, false);
-        assert.match(btn.title, /^Done notification: OFF\. .*into the run and session it was queued into.*Click to turn it on\./);
+        assert.match(btn.title, /^Done notification: OFF\. .*next in the run and session it was queued into, when its After done has a notify prompt\. When on, a todo without one sends Todo — Done Notification.*Click to turn it on\./);
         btn.click();
         assert.equal(btn.getAttribute('aria-pressed'), 'true');
         assert.ok(btn.classList.contains('pressed'));

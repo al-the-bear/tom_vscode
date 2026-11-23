@@ -1,13 +1,13 @@
 /**
  * A todo's follow-up and origin (utils/todoOnDone.ts; ww_a_collab-3).
  *
- *   OD-1 the shape of `on_done`: closed keys, string fields, `todos` a list of ids, `action` a list of the four
- *        actions; `unblock` and `queue` need `todos`; absent / null pass
- *   OD-2 targets of unblock / queue must exist in the block's quest (default the todo's own); notify / none
- *        targets are not checked
- *   OD-3 the unblock entries: a bare id in the same quest, `<quest>/<id>` across quests; added to every unblock
- *        target, removed from those the block no longer names, all removed when the todo is cancelled and added
- *        again when it is reopened; queue targets get none
+ *   OD-1 the shape of `on_done`: closed keys, string fields, `todos` a list of ids, `action` a list of the two
+ *        actions (unblock, notify); the retired `queue` and `none` are refused with what exists; `unblock` needs
+ *        `todos`; absent / null pass
+ *   OD-2 unblock targets must exist, each in its own quest (`<quest>/<id>`, a bare id in the todo's quest); without
+ *        unblock the targets are not checked
+ *   OD-3 targets: `<quest>/<id>` read and written back, a bare id in the own quest, repeats dropped; the instructions
+ *        go to `quest` / `run`, unset: the own quest and the run the todo was completed in (another quest: `default`)
  *   OD-4 filed_by: the window quest, the session without its `@<run>`, the run from it (else the call's run, else
  *        `default`), the walk's claimed todo of that quest, the time with its offset; on another quest's request
  *        the sender's quest and run with the creating session (DP-part-todo-followups-3)
@@ -19,8 +19,8 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    buildFiledBy, filedByShapeError, normaliseOnDone, onDoneShapeError, onDoneTargetRefusal, unblockEntry,
-    unblockEntryPlan, withBlockedByEntry, withoutBlockedByEntry,
+    buildFiledBy, filedByShapeError, normaliseOnDone, onDoneInstructionTarget, onDoneShapeError, onDoneTargetEntry,
+    onDoneTargetRef, onDoneTargetRefusal, onDoneTargets,
 } from '../todoOnDone';
 
 describe('todoOnDone', () => {
@@ -34,44 +34,35 @@ describe('todoOnDone', () => {
         assert.match(onDoneShapeError({ action: 'unblock', todos: ['a'] }) ?? '', /must be a list/);
         assert.match(onDoneShapeError({ action: ['wake'], todos: ['a'] }) ?? '', /"wake"/);
         assert.match(onDoneShapeError({ action: ['unblock'] }) ?? '', /"unblock" needs `on_done.todos`/);
-        assert.match(onDoneShapeError({ action: ['queue'], todos: [] }) ?? '', /"queue" needs/);
+        assert.match(onDoneShapeError({ action: ['queue'], todos: ['a'] }) ?? '', /"queue" no longer exists; the actions are unblock, notify/);
+        assert.match(onDoneShapeError({ action: ['none'] }) ?? '', /"none" no longer exists/);
+        assert.equal(onDoneShapeError({ todos: ['other/b'], action: ['unblock'] }), undefined, 'a target of another quest');
         assert.match(onDoneShapeError({ todos: [3] }) ?? '', /list of todo ids/);
         assert.match(onDoneShapeError({ quest: 3 }) ?? '', /on_done.quest` must be a string/);
         assert.equal(filedByShapeError({ quest: 'q', at: '2026-11-15T05:00+01:00' }), undefined);
         assert.match(filedByShapeError({ host: 'mbp' }) ?? '', /unknown key/);
     });
 
-    test('OD-2: unblock / queue targets must exist', () => {
+    test('OD-2: unblock targets must exist, each in its quest', () => {
         const have = new Set(['own/a', 'other/b']);
         const exists = (q: string, id: string): boolean => have.has(`${q}/${id}`);
-        assert.equal(onDoneTargetRefusal({ todos: ['a'], action: ['unblock'] }, 'own', exists), undefined);
-        assert.equal(onDoneTargetRefusal({ quest: 'other', todos: ['b'], action: ['queue'] }, 'own', exists), undefined);
-        assert.match(onDoneTargetRefusal({ todos: ['a', 'zz'], action: ['unblock'] }, 'own', exists) ?? '', /"zz", which quest "own"/);
-        assert.match(onDoneTargetRefusal({ quest: 'other', todos: ['a'], action: ['queue'] }, 'own', exists) ?? '', /quest "other"/);
-        assert.equal(onDoneTargetRefusal({ todos: ['zz'], action: ['notify'] }, 'own', exists), undefined, 'notify targets are not checked');
+        assert.equal(onDoneTargetRefusal({ todos: ['a', 'other/b'], action: ['unblock'] }, 'own', exists), undefined);
+        assert.match(onDoneTargetRefusal({ todos: ['a', 'zz'], action: ['unblock'] }, 'own', exists) ?? '', /names "zz", which is in no todo file/);
+        assert.match(onDoneTargetRefusal({ todos: ['other/a'], action: ['unblock'] }, 'own', exists) ?? '', /"other\/a"/);
+        assert.equal(onDoneTargetRefusal({ todos: ['zz'], action: ['notify'] }, 'own', exists), undefined, 'without unblock not checked');
         assert.equal(onDoneTargetRefusal(undefined, 'own', exists), undefined);
     });
 
-    test('OD-3: the unblock entries', () => {
-        assert.equal(unblockEntry('q', 'a', 'q'), 'a');
-        assert.equal(unblockEntry('q', 'a', 'r'), 'q/a');
-        const open = { status: 'not-started', on_done: { todos: ['t1', 't2'], action: ['unblock' as const] } };
-        assert.deepEqual(unblockEntryPlan(undefined, open, 'q'), { add: [{ quest: 'q', id: 't1' }, { quest: 'q', id: 't2' }], remove: [] });
-        const replaced = { status: 'not-started', on_done: { quest: 'r', todos: ['t2'], action: ['unblock' as const] } };
-        assert.deepEqual(unblockEntryPlan(open, replaced, 'q'), {
-            add: [{ quest: 'r', id: 't2' }],
-            remove: [{ quest: 'q', id: 't1' }, { quest: 'q', id: 't2' }],
-        });
-        const cancelled = { ...open, status: 'cancelled' };
-        assert.deepEqual(unblockEntryPlan(open, cancelled, 'q').add, []);
-        assert.equal(unblockEntryPlan(open, cancelled, 'q').remove.length, 2, 'cancelled: every entry goes');
-        assert.equal(unblockEntryPlan(cancelled, open, 'q').add.length, 2, 'reopened: they come back');
-        const queueOnly = { status: 'not-started', on_done: { todos: ['t1'], action: ['queue' as const] } };
-        assert.deepEqual(unblockEntryPlan(undefined, queueOnly, 'q'), { add: [], remove: [] });
-        assert.deepEqual(unblockEntryPlan(open, { status: 'not-started' }, 'q').remove.length, 2, 'on_done removed');
-        assert.deepEqual(withBlockedByEntry(['x'], 'a'), ['x', 'a']);
-        assert.deepEqual(withBlockedByEntry(['a'], 'a'), ['a']);
-        assert.deepEqual(withoutBlockedByEntry(['x', 'a'], 'a'), ['x']);
+    test('OD-3: targets with their quests; where the instructions go', () => {
+        assert.deepEqual(onDoneTargetRef('a', 'q'), { quest: 'q', id: 'a' });
+        assert.deepEqual(onDoneTargetRef(' r/b ', 'q'), { quest: 'r', id: 'b' });
+        assert.equal(onDoneTargetEntry({ quest: 'q', id: 'a' }, 'q'), 'a');
+        assert.equal(onDoneTargetEntry({ quest: 'r', id: 'b' }, 'q'), 'r/b');
+        assert.deepEqual(onDoneTargets({ todos: ['a', 'q/a', 'r/b', 'r/b'] }, 'q'), [{ quest: 'q', id: 'a' }, { quest: 'r', id: 'b' }]);
+        assert.deepEqual(onDoneInstructionTarget(undefined, 'q', 'chg1'), { quest: 'q', run: 'chg1' }, 'unset: the own quest and the completing run');
+        assert.deepEqual(onDoneInstructionTarget({ run: 'r2' }, 'q', 'chg1'), { quest: 'q', run: 'r2' });
+        assert.deepEqual(onDoneInstructionTarget({ quest: 'other' }, 'q', 'chg1'), { quest: 'other', run: 'default' }, 'another quest: its default run');
+        assert.deepEqual(onDoneInstructionTarget({ quest: 'other', run: 'x' }, 'q', 'chg1'), { quest: 'other', run: 'x' });
     });
 
     test('OD-4: filed_by from the call context', () => {
@@ -95,5 +86,7 @@ describe('todoOnDone', () => {
         assert.equal(normaliseOnDone({ todos: [' '], instructions: '  ' }), undefined);
         assert.deepEqual(normaliseOnDone({ quest: ' r ', todos: [' a', 'a', 'b'], action: ['unblock', 'unblock'], report_to: ' x ' }),
             { quest: 'r', todos: ['a', 'b'], action: ['unblock'], report_to: 'x' });
+        assert.deepEqual(normaliseOnDone({ action: ['none', 'queue', 'notify'] as never, instructions: 'go' }), { action: ['notify'], instructions: 'go' },
+            'the retired actions are read as nothing');
     });
 });

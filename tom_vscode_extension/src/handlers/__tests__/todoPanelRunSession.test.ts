@@ -20,8 +20,9 @@
  *   QF-6 direct sends (Send, Guide me's send, the bar's Send) ask for a free session of this window's runs, with
  *        "Last: …" first; they send there, as that run
  *   QF-7 no run and no session in the panel: the views get only the Done notification toggle's state (qtDoneNotification);
- *        the toggle is off by default and cannot be turned on without a template (vscimpb146); on, the items queued
- *        here and through another quest's inbox record who queued them (the run and session chosen); off, none
+ *        the toggle is off by default and cannot be turned on without a template (vscimpb146); the items queued here
+ *        and through another quest's inbox always record who queued them (the run and session chosen), `withTemplate`
+ *        while the toggle is on (a todo without a notify prompt then gets the template)
  *   QF-8 a Send as another run runs with that run's process position (processRunFor)
  *   QF-9 the default queue buttons (`defaultTarget`, vscimpb151): the bar's Save to Queue, the stack and the detail's
  *        queue button go straight into the default run's default session (`default@default`) at the end, no pick;
@@ -386,15 +387,18 @@ describe('the todo panel\'s queue-target flow', () => {
             enqueued.length = 0;
             answers = ['q1', 'r2', 'work@r2'];
             await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
-            assert.deepEqual(enqueued.at(-1).queuedBy, { quest: 'q1', run: 'r2', session: 'work@r2' });
+            assert.deepEqual(enqueued.at(-1).queuedBy, { quest: 'q1', run: 'r2', session: 'work@r2', withTemplate: true });
             assert.equal(enqueued.at(-1).doneNotificationPrompt, undefined, 'no done notification rides on the item');
             answers = ['q2', 'default', 'other'];
+            const inboxBefore = inbox().length;
             await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a2', template: tpl() });
-            assert.deepEqual(inbox().find((i) => i['queued-by'])?.['queued-by'], { quest: 'q2', run: 'default', session: 'other' }, 'through the inbox too');
+            const sentNow = inbox().slice(inboxBefore);
+            assert.equal(sentNow.length, 1);
+            assert.deepEqual(sentNow[0]['queued-by'], { quest: 'q2', run: 'default', session: 'other', withTemplate: true }, 'through the inbox too');
             await send(webview, { type: 'qtSetDoneNotification', on: false });
             answers = ['q1', 'r2', 'work@r2'];
             await send(webview, { type: 'qtAddCurrentTodoToQueue', todoId: 'a1', template: tpl() });
-            assert.equal(enqueued.at(-1).queuedBy, undefined, 'box off: nobody recorded');
+            assert.deepEqual(enqueued.at(-1).queuedBy, { quest: 'q1', run: 'r2', session: 'work@r2' }, 'box off: recorded, without the template');
         } finally {
             fs.writeFileSync(cfgFile, cfg);
         }

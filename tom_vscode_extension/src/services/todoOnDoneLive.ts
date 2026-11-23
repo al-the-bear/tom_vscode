@@ -14,16 +14,12 @@ import { PromptQueueManager } from '../managers/promptQueueManager';
 import { ProcessStateStore } from '../managers/processStateStore';
 import { liveQuestSendAccess } from '../tools/chat-enhancement-tools';
 import { postInboxItem } from '../tools/send-to-quest-tools';
-import { effectiveGroupDefault } from '../utils/groupPrompts';
 import { logQueue } from '../utils/queueLogger';
 import { todayLocalDate } from '../utils/todoDates';
-import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { WsPaths } from '../utils/workspacePaths';
 import { currentProcessRun } from './processRunContext';
 import { currentQueueItemId } from './userWaits';
-import { groupPromptDirs } from './groupPromptDirs';
-import { readGroupPrompts } from './groupPromptStore';
 import { deferTodoOnDone, runTodoOnDone, setTodoOnDonePorts } from './todoOnDoneRunner';
 import type { OnDoneTarget } from '../utils/todoOnDoneRun';
 
@@ -46,17 +42,13 @@ export function installTodoOnDone(): void {
             const t = all.find((x) => where(x._sourceFile) === 'live') ?? all[0];
             if (!t) { return undefined; }
             return {
-                status: t.status, blocked_by: t.blocked_by, blocked_until: t.blocked_until, decisions: t.decisions,
-                where: where(t._sourceFile), record: t as unknown as Record<string, unknown>, sourceFile: t._sourceFile, title: t.title,
+                status: t.status, decisions: t.decisions, title: t.title, where: where(t._sourceFile),
+                group: t.status === 'group' || (t.comprised_of ?? []).length > 0,
             };
         },
         notifyTemplate: () => loadSendToChatConfig()?.todoPanel?.doneNotificationTemplate?.trim() || undefined,
-        groupPrompt: (quest) => {
-            const dirs = groupPromptDirs(quest);
-            return effectiveGroupDefault(dirs ? readGroupPrompts(dirs) : []).text;
-        },
-        writeTarget: (quest, id, blockedBy, status) => {
-            questTodo.updateTodo(quest, id, { blocked_by: blockedBy, ...(status ? { status: status as questTodo.QuestTodoStatus } : {}) });
+        writeTarget: (quest, id, status) => {
+            questTodo.updateTodo(quest, id, { status: status as questTodo.QuestTodoStatus });
         },
         appendNotes: (quest, id, lines) => {
             const t = questTodo.findTodoById(quest, id);
@@ -64,28 +56,21 @@ export function installTodoOnDone(): void {
             questTodo.updateTodo(quest, id, { notes: old ? `${old}\n${lines.join('\n')}` : lines.join('\n') });
         },
         enqueueLocal: async (send) => {
-            try {
-                await PromptQueueManager.instance.enqueue({
-                    originalText: send.text,
-                    run: send.run,
-                    runIsExplicit: true,
-                    initialStatus: 'pending',
-                    ...(send.todoId ? { todoIdPattern: send.todoId } : {}),
-                    ...(send.session ? { session: send.session } : {}),
-                });
-            } catch (e) {
-                // A todo queued already is not queued again.
-                if (isTodoAlreadyQueued(e)) { logQueue(`on_done: ${send.todoId} is queued already; not queued again`); return; }
-                throw e;
-            }
+            // Next in its run, between the iterations of a loop that is sending.
+            await PromptQueueManager.instance.enqueueNext({
+                originalText: send.text,
+                run: send.run,
+                runIsExplicit: true,
+                ...(send.session ? { session: send.session } : {}),
+            });
         },
         postToQuest: (send, from) => {
             const me = liveQuestSendAccess.sender();
             postInboxItem(liveQuestSendAccess, send.quest, {
                 text: send.text,
                 ...(send.run && send.run !== 'default' ? { run: send.run } : {}),
-                ...(send.todoId ? { todoIdPattern: send.todoId } : {}),
                 ...(send.session ? { session: send.session } : {}),
+                position: 'next',
                 from: { quest: from.quest, run: from.run, windowId: me.windowId, host: me.host || os.hostname(), sentAt: new Date().toISOString() },
             });
         },

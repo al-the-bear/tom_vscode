@@ -1177,7 +1177,7 @@ export class PromptQueueManager {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { findTodoById } = require('../managers/questTodoManager') as typeof import('../managers/questTodoManager');
             const todo = findTodoById(questId, todoId);
-            if (!todo?.on_done) { return; }
+            if (!todo) { return; }
             void runTodoOnDone(questId, { ...todo, sourceFile: todo._sourceFile }, run || DEFAULT_RUN, queuedBy ? { queuedBy } : {})
                 .catch((err) => logQueueError(`on_done of ${questId}/${todoId} failed`, err));
         } catch (err) {

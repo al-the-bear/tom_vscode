@@ -5,17 +5,13 @@
  *   OM-1 filing a todo (fileTodo, the tools' create): `filed_by` from the registered call context (quest, run
  *        from the session's `@<run>`, session, the walk's claimed todo, the time); a caller's own `filed_by`
  *        replaced; the record reads back with `on_done` and `filed_by`
- *   OM-2 the unblock entries (BP-2): a target in the same quest gets the bare id, one in another quest
- *        `<quest>/<id>`; a completed target gets none; queue targets get none
- *   OM-3 replacing `on_done` drops the entries of the targets it no longer names and adds the new ones; removing
- *        it drops them all
- *   OM-4 cancelling the todo removes its entries from the targets and keeps its `on_done` (nothing else runs);
- *        reopening writes them again (DP-part-todo-followups-2)
- *   OM-5 renaming a target or the filing todo rewrites `on_done.todos` and `filed_by.todo` that name it, in the
- *        quest and across quests, and the dry run counts them
- *   OM-6 the tools: create and update refuse a caller's `filed_by`, an action without the field it needs, and an
- *        unblock / queue target that exists nowhere in its quest; an archived target is accepted; update replaces
- *        `on_done` as a whole; get answers both fields
+ *   OM-2 unblock writes nothing into its targets while the todo is open: filing, replacing `on_done`, cancelling
+ *        and reopening leave every target's `blocked_by` as it is (unblock acts at the completion only)
+ *   OM-5 renaming a target or the filing todo rewrites `on_done.todos` (a bare id in the own quest, `<quest>/<id>`
+ *        in another) and `filed_by.todo` that name it, in the quest and across quests, and the dry run counts them
+ *   OM-6 the tools: create and update refuse a caller's `filed_by`, an action without the field it needs, the
+ *        retired `queue` / `none`, and an unblock target that exists nowhere in its quest (`<quest>/<id>` for another
+ *        quest); an archived target is accepted; update replaces `on_done` as a whole; get answers both fields
  *   OM-7 the detail form's save compares `on_done`: a changed block is written, a form without the group changes
  *        nothing
  */
@@ -96,58 +92,34 @@ describe('on_done and filed_by in the todo manager', () => {
         assert.deepEqual(blockedBy(main, 't1'), [], 'notify writes no entry');
     });
 
-    test('OM-2: the unblock entries', () => {
-        add(main, 't1');
-        add(main, 'done1', { status: 'completed' });
-        add(main, 'q1');
-        add(otherMain, 'far1');
-        fileTodo(Q, { id: 'n1', description: 'd', status: 'not-started', on_done: { todos: ['t1', 'done1'], action: ['unblock'] } } as never);
-        fileTodo(Q, { id: 'n2', description: 'd', status: 'not-started', on_done: { quest: OTHER, todos: ['far1'], action: ['unblock', 'notify'] } } as never);
-        fileTodo(Q, { id: 'n3', description: 'd', status: 'not-started', on_done: { todos: ['q1'], action: ['queue'] } } as never);
-        assert.deepEqual(blockedBy(main, 't1'), ['n1']);
-        assert.deepEqual(blockedBy(main, 'done1'), [], 'a completed target waits for nothing');
-        assert.deepEqual(blockedBy(otherMain, 'far1'), [`${Q}/n2`]);
-        assert.deepEqual(blockedBy(main, 'q1'), [], 'queue writes no entry');
-        assert.deepEqual(todo(main, 'n1')!.blocking, ['t1'], 'blocking follows by the write\'s own sync');
-    });
-
-    test('OM-3: replacing on_done moves the entries', () => {
+    test('OM-2: unblock writes nothing into its targets', () => {
         add(main, 't1', { blocked_by: ['keep1'] });
-        add(main, 't2');
         add(main, 'keep1');
-        fileTodo(Q, { id: 'n1', description: 'd', status: 'not-started', on_done: { todos: ['t1'], action: ['unblock'] } } as never);
-        assert.deepEqual(blockedBy(main, 't1'), ['keep1', 'n1']);
-        updateTodo(Q, 'n1', { on_done: { todos: ['t2'], action: ['unblock'] } });
-        assert.deepEqual(blockedBy(main, 't1'), ['keep1'], 'the entry it no longer names goes; others stay');
-        assert.deepEqual(blockedBy(main, 't2'), ['n1']);
-        updateTodo(Q, 'n1', { on_done: null as never });
-        assert.deepEqual(blockedBy(main, 't2'), []);
-        assert.equal(todo(main, 'n1')!.on_done, undefined);
-    });
-
-    test('OM-4: cancelling removes the entries and keeps on_done', () => {
-        add(main, 't1');
-        fileTodo(Q, { id: 'n1', description: 'd', status: 'not-started', on_done: { todos: ['t1'], action: ['unblock', 'notify'], instructions: 'x' } } as never);
+        add(otherMain, 'far1');
+        fileTodo(Q, { id: 'n1', description: 'd', status: 'not-started', on_done: { todos: ['t1', `${OTHER}/far1`], action: ['unblock'] } } as never);
+        assert.deepEqual(blockedBy(main, 't1'), ['keep1'], 'no entry written at filing');
+        assert.deepEqual(blockedBy(otherMain, 'far1'), []);
+        updateTodo(Q, 'n1', { on_done: { todos: ['keep1'], action: ['unblock'] } });
         updateTodo(Q, 'n1', { status: 'cancelled' });
-        assert.deepEqual(blockedBy(main, 't1'), []);
-        assert.deepEqual(todo(main, 'n1')!.on_done?.todos, ['t1'], 'the record stays');
         updateTodo(Q, 'n1', { status: 'not-started' });
-        assert.deepEqual(blockedBy(main, 't1'), ['n1'], 'reopened: the entry is back');
+        assert.deepEqual(blockedBy(main, 't1'), ['keep1'], 'replacing, cancelling and reopening change nothing there');
+        assert.deepEqual(blockedBy(main, 'keep1'), []);
+        assert.deepEqual(todo(main, 'n1')!.on_done, { todos: ['keep1'], action: ['unblock'] });
     });
 
     test('OM-5: renames rewrite on_done.todos and filed_by.todo', () => {
         add(main, 'tgt1_x-a');
         add(main, 'walk1');
         fileTodo(Q, { id: 'n1', description: 'd', status: 'not-started', on_done: { todos: ['tgt1_x-a'], action: ['unblock'] } } as never);
-        fs.writeFileSync(otherMain, `quest: ${OTHER}\ntodos:\n  - id: o1\n    description: d\n    status: not-started\n    on_done:\n      quest: ${Q}\n      todos: [tgt1_x-a]\n      action: [queue]\n    filed_by:\n      quest: ${Q}\n      todo: walk1\n`);
+        fs.writeFileSync(otherMain, `quest: ${OTHER}\ntodos:\n  - id: o1\n    description: d\n    status: not-started\n    on_done:\n      todos: [${Q}/tgt1_x-a, tgt1_x-a]\n      action: [unblock]\n    filed_by:\n      quest: ${Q}\n      todo: walk1\n`);
         const dry = renameQuestTodo(Q, 'tgt1_x-a', 'tgt2_x-a', { dryRun: true, committed: new Set() });
         assert.equal(dry.ok, true);
         assert.equal(dry.ok && dry.references, 2, 'the two on_done.todos');
         const r = renameQuestTodo(Q, 'tgt1_x-a', 'tgt2_x-a', { committed: new Set() });
         assert.equal(r.ok, true, JSON.stringify(r));
         assert.deepEqual(todo(main, 'n1')!.on_done?.todos, ['tgt2_x-a']);
-        assert.deepEqual(blockedBy(main, 'tgt2_x-a'), ['n1']);
-        assert.deepEqual(todo(otherMain, 'o1')!.on_done?.todos, ['tgt2_x-a'], 'across quests');
+        assert.deepEqual(todo(otherMain, 'o1')!.on_done?.todos, [`${Q}/tgt2_x-a`, 'tgt1_x-a'],
+            'across quests: the `<quest>/<id>` entry; a bare id there is a todo of that quest and stays');
         const w = renameQuestTodo(Q, 'walk1', 'walk2', { committed: new Set() });
         assert.equal(w.ok, true);
         assert.equal(todo(main, 'n1')!.filed_by?.todo, 'walk2');
@@ -163,17 +135,18 @@ describe('on_done and filed_by in the todo manager', () => {
         assert.match(forged.error, /`filed_by` is written by the todo tools/);
         const noTodos = await call(createQuestTodoImpl(deps, { questId: Q, todo: { id: 'n1', description: 'd', on_done: { action: ['unblock'] } } }));
         assert.match(noTodos.error, /"unblock" needs/);
-        const gone = await call(createQuestTodoImpl(deps, { questId: Q, todo: { id: 'n1', description: 'd', on_done: { todos: ['nope'], action: ['queue'] } } }));
-        assert.match(gone.error, /"nope"/);
+        const retired = await call(createQuestTodoImpl(deps, { questId: Q, todo: { id: 'n1', description: 'd', on_done: { todos: ['t1'], action: ['queue'] } } as never }));
+        assert.match(retired.error, /"queue" no longer exists/);
+        const gone = await call(createQuestTodoImpl(deps, { questId: Q, todo: { id: 'n1', description: 'd', on_done: { todos: ['nope', `${OTHER}/t1`], action: ['unblock'] } } }));
+        assert.match(gone.error, /"nope", "xq\/t1"/);
         assert.equal(todo(main, 'n1'), undefined, 'nothing written');
         const ok = await call(createQuestTodoImpl(deps, { questId: Q, todo: { id: 'n1', description: 'd', on_done: { todos: ['t1', 'old1'], action: ['unblock'] } } }));
         assert.equal(ok.ok, true, ok.error);
         assert.equal(ok.todo.filed_by.session, 'idea');
-        assert.deepEqual(blockedBy(main, 't1'), ['n1']);
+        assert.deepEqual(blockedBy(main, 't1'), [], 'nothing written into the target');
         const upd = await call(updateQuestTodoImpl(deps, { questId: Q, todoId: 'n1', updates: { on_done: { action: ['notify'], notify_prompt: 'p' } } }));
         assert.equal(upd.ok, true, upd.error);
         assert.deepEqual(upd.todo.on_done, { action: ['notify'], notify_prompt: 'p' }, 'replaced as a whole');
-        assert.deepEqual(blockedBy(main, 't1'), []);
         const updForged = await call(updateQuestTodoImpl(deps, { questId: Q, todoId: 'n1', updates: { filed_by: {} } as never }));
         assert.equal(updForged.ok, false);
         const get = await call(getQuestTodoImpl(deps, { questId: Q, todoId: 'n1' }));

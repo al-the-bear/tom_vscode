@@ -463,7 +463,7 @@ Each todo whose Blocked By or status changed gets a line in its notes. While it 
 
 Todos hand work on to each other within this machine:
 
-- **After done:** a completed todo unblocks, notifies or queues others.
+- **After done:** a completed todo sets others free, reports back and sends instructions.
 - **The Done notification:** the panel's items report back when they finish.
 - **Items sent to another quest:** they can be todo walks in a named run (see
   [Items from other quests](#items-from-other-quests)).
@@ -474,61 +474,51 @@ parallel-work guideline.
 
 A todo can say what happens when it is completed (`on_done`), and records who filed it (`filed_by`). Both are in the detail form's **After done** group:
 
-- **Quest** and **Run**: where the targets are. The default is this quest; the Run field suggests that quest's process runs.
-- **Targets**: the todo ids it acts on, comma-separated.
+- **Targets**: the todos **unblock** sets free, comma-separated: a bare id in this todo's quest, `quest/id` for a todo of another quest.
 - **Actions**:
-  - **unblock**: this todo is written into each target's Blocked By;
-  - **notify**: the todo done notification (below): the notify prompt, else the configured template, into the run and session that queued the todo;
-  - **queue**: queues the targets there;
-  - **none**.
-- **Instructions**: what the agent does when the todo is completed.
-- **Notify prompt**.
+  - **unblock**: when this todo is completed, each target is set free (below);
+  - **notify filed-by**: the done notification goes to the quest and run in **Filed by** instead of the run that queued the todo.
+- **Instructions**, with **Quest** and **Run**: a prompt sent when the todo is completed, to that quest and run. **(current quest)** and **(current run)** — the default, the same as leaving them unset — mean this todo's quest and the run it is completed in; for another quest the run defaults to its `default` run. The Run picker lists the chosen quest's process runs.
+- **Notify prompt**: the done notification (below).
 - **Report to**: where the result is recorded, a `path#section`.
 
-A change is saved when you leave the field. An unblock or queue target must exist in its quest; archived and deleted todos count. Otherwise the save is refused with a warning.
+A change is saved when you leave the field. With **unblock**, every target must exist in its quest; archived and deleted todos count. Otherwise the save is refused with a warning.
 
-The Blocked By entry of an **unblock** target is kept for you, by the todo panel, the todo tools (`tomAi_createQuestTodo`, `tomAi_updateQuestTodo`) and a script alike:
-
-- **Entry form:** the bare id in the same quest, `quest/id` from another quest.
-- **Written** when the todo is filed or its After done names the target, while the target is open.
-- **Moved** when After done is replaced; removed when After done no longer names the target.
-- **Cancelling** the todo removes its entries and runs nothing else of After done; reopening it writes them back.
-- **Renaming** a target, or the todo that filed this one, rewrites the ids in After done and Filed by.
+**Nothing is written into the targets while the todo is open.** **unblock** acts only when this todo is completed. A todo that has to wait for this one *and* its other conditions names this one in its own **Blocked By** instead: when this todo completes, its entry leaves that list (the standard behaviour of every completed todo, above), and the todo is set free once its last blocker is done. **Renaming** a target, or the todo that filed this one, rewrites the ids in After done and Filed by.
 
 **When the todo is completed, the extension carries out After done itself.**
 
 - **When it runs:**
   - in a queue walk, once the walk has written the todo's answer;
   - otherwise, when the todo is set to completed: from the todo panel, a tool or the editor;
+  - for a group todo, when its last member is completed (the group completes with it) — not before;
   - for a repeated todo, on every completion.
 
   Saving a todo that is already completed runs nothing again. Cancelling a
   todo runs nothing of After done.
-- **unblock:** this todo's entry leaves each target's Blocked By. A blocked
-  target with nothing else blocking it becomes not-started, or
-  decision-needed when it has an open decision.
-- **notify:** the todo done notification (below): the notify prompt, else
-  the configured template, queued into the run and session that queued the
-  todo. Whoever receives it records the result at Report to.
-- **queue:** queues each target todo with that quest's group prompt and the
-  todo's record. A todo that is queued already is not queued again.
-- **Run** (unblock and queue): the default is the run the todo was completed
-  in, for its own quest, and `default` for another quest.
-- **Skipped targets:** a target that is already done is skipped. A target
-  that was deleted or no longer exists is skipped, with a line in the todo's
-  Notes.
-- **Instructions** are the agent's part: the walk's group prompt tells the
-  agent to carry them out when it completes the todo.
+- **unblock:** each target is set to **group** when it is a group todo,
+  else to **not-started** — **decision-needed** while it has an open
+  decision — whatever else it waits for; its Blocked By stays as it is. Only a
+  target that waits (blocked, not-started, decision-needed, group) changes: one
+  in progress, waiting for its repetition, completed, cancelled or archived is
+  passed over. A target that was deleted or no longer exists is passed over
+  with a line in the todo's Notes.
+- **Instructions:** sent as a prompt to the quest and run of After done, in
+  that run's default session. The prompt names the completed todo, then the
+  instructions (with the placeholders below filled), then the answer the todo
+  was completed with.
+- **Next in the queue:** the instructions and the done notification are
+  both queued **next** in their run — at the front of its queue, and between
+  the iterations of a repeating item that is sending. Another quest gets them
+  through its inbox, queued next there too.
 
-**The todo done notification** is a todo's After done **notify**; nothing
-else sends one.
+**The todo done notification** reports a completed todo back.
 
-- **Who gets one:** only a todo whose After done asks for notify. A todo
-  without After done, or without notify in it, gets none.
-- **What it says:** the todo's **Notify prompt**, else the **Todo — Done
-  Notification** template of the Prompt Template Editor. With neither there is
-  no notification: there is no built-in text. Placeholders, filled from the
-  todo as it is at completion:
+- **What it says:** the todo's **Notify prompt**. Without one, the **Todo —
+  Done Notification** template of the Prompt Template Editor — but only when
+  the todo panel that queued the todo had its **Done notification** box on,
+  or with **notify filed-by**. There is no built-in text. Placeholders, filled
+  from the todo as it is at completion:
   - `${todoId}`, `${todoTitle}`, `${todoFile}`, `${todoStatus}`;
   - `${itemOutcome}` (`completed`), `${itemAnswer}` and `${todoLastAnswer}`
     (the answer stored on the todo);
@@ -538,18 +528,20 @@ else sends one.
   queue item records who queued it (`queuedBy`):
   - an agent queuing with `tomAi_addQueueItem` or `tomAi_sendItemToQuest`:
     its quest, run and session;
-  - the todo panel, while its **Done notification** box is on: the run and
-    session you queued the item into, and for Send and Guide me the chat
-    send's own run and session;
+  - the todo panel: the run and session you queued the item into, and for
+    Send and Guide me the chat send's own run and session;
   - nothing else records it.
 
-  Another quest gets the notification through its inbox, with the session
-  named. When nobody is recorded the notification is not sent; the item's own
-  queue and run are never used in its place.
+  When nobody is recorded the notification is not sent; the item's own
+  queue and run are never used in its place. With **notify filed-by** it goes
+  to the quest and run in **Filed by** instead, in that run's default session;
+  a todo without a Filed by quest then sends none. Whoever receives it records
+  the result at Report to.
 - **The box:** the **Done notification** toggle (bell icon) in front of the
   todo panel's template button. It is off by default, kept per quest, and
-  disabled while no Todo — Done Notification template is set. It only decides
-  whether the panel's items record who queued them.
+  disabled while no Todo — Done Notification template is set. It decides
+  whether a todo the panel queued, and that has no Notify prompt of its own,
+  sends the template.
 - **Older queue items:** an item that still carries the done notification an
   older build added for its todo loses it when the queue reads it.
 
@@ -560,7 +552,7 @@ else sends one.
 - the todo whose queue walk filed it;
 - the time.
 
-The todo panel and the todo tools write it when a todo is filed. `_bin/check_todo_blocks.py` reports an **ON_DONE** finding when an unblock target lacks its entry, and when a target no longer exists.
+The todo panel and the todo tools write it when a todo is filed. `_bin/check_todo_blocks.py` reports an **ON_DONE** finding when a target no longer exists, and when a todo still carries an action that no longer exists (`queue`, `none`; a todo file that has them reads them as nothing).
 
 #### Filtering by date
 
