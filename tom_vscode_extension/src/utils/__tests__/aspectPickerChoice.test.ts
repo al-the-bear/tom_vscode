@@ -119,4 +119,29 @@ describe('guideline picker: a choice and the catalogue', () => {
             ['chat', 'copilot', { answer: 'remove' }],
         ]);
     });
+
+    test('PC-8: the quest default and the workspace level (gsel22)', () => {
+        const w = writers();
+        let quest: AspectChoices | undefined = { night: 'on' };
+        let workspace: AspectChoices | undefined | null = {};
+        const full: AspectChoiceWriters = {
+            ...w,
+            questDefaultChoices: () => quest,
+            setQuestDefault: (c) => { quest = c; },
+            workspaceChoices: () => workspace,
+            setWorkspace: (c) => { workspace = c ?? {}; },
+        };
+        assert.deepEqual(applyAspectChoice({ level: 'questDefault', section: 'answer', value: ['brief', 'full'] }, full), { ok: true });
+        assert.deepEqual(quest, { night: 'on', answer: ['brief', 'full'] }, 'one aspect set, the others kept');
+        assert.deepEqual(applyAspectChoice({ level: 'questDefault', section: 'night', value: '' }, full), { ok: true });
+        assert.deepEqual(quest, { answer: ['brief', 'full'] }, "Don't add");
+        assert.deepEqual(applyAspectChoice({ level: 'workspace', section: 'night', value: 'remove' }, full), { ok: true });
+        assert.deepEqual(workspace, { night: 'remove' });
+        assert.deepEqual(applyAspectChoice({ level: 'workspace', section: 'answer', value: '+full' }, full), { ok: true });
+        assert.deepEqual(workspace, { night: 'remove', answer: ['+full'] }, 'an added choice is stored as a list');
+        assert.match(applyAspectChoice({ level: 'workspace', section: 'answer', value: 'nope' }, full).error ?? '', /no choice "nope"/, 'checked first');
+        workspace = null;
+        assert.match(applyAspectChoice({ level: 'workspace', section: 'answer', value: 'full' }, full).error ?? '', /no Tom workspace folder/);
+        assert.match(applyAspectChoice({ level: 'questDefault', section: 'answer', value: 'full' }, w).error ?? '', /cannot be set here/, 'writers without the level');
+    });
 });

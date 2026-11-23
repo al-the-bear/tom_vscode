@@ -185,3 +185,27 @@ export function setCompactionModel(config: CompactionPickerConfig, purpose: Comp
     if (next === undefined) { delete section[key]; } else { section[key] = next; }
     return true;
 }
+
+
+/**
+ * The QuickPick entries of one model choice above the Prompt Queue (gsel22):
+ * "not set" first, then every configuration, the one chosen now marked; a
+ * stored value no configuration has is listed as not configured.
+ */
+export function compactionPickItems(state: CompactionPickerState, purpose: CompactionPurpose): Array<{ label: string; value: string; description?: string; picked?: boolean }> {
+    const current = purpose === 'compaction' ? state.compactionModel : state.memoryExtractionModel;
+    const none = purpose === 'compaction' ? '(not set \u2014 no compaction)' : '(not set \u2014 no memory extraction)';
+    const items: Array<{ label: string; value: string; description?: string; picked?: boolean }> = [
+        { label: none, value: '', ...(current === '' ? { description: 'current', picked: true } : {}) },
+        ...state.choices.map((c) => ({ label: c.label, value: c.value, ...(c.value === current ? { description: 'current', picked: true } : {}) })),
+    ];
+    if (current && !state.choices.some((c) => c.value === current)) { items.push({ label: `${current} (not configured)`, value: current, description: 'current', picked: true }); }
+    return items;
+}
+
+/** The text a model choice's button shows: the chosen configuration's label, or "not set". */
+export function compactionChoiceText(state: CompactionPickerState, purpose: CompactionPurpose): string {
+    const current = purpose === 'compaction' ? state.compactionModel : state.memoryExtractionModel;
+    if (!current) { return purpose === 'compaction' ? 'no compaction' : 'no memory extraction'; }
+    return state.choices.find((c) => c.value === current)?.label ?? `${current} (not configured)`;
+}

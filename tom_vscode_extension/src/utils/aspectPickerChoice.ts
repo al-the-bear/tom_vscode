@@ -15,8 +15,8 @@ import { ASPECT_REMOVE, aspectValueText, parseAspectValue, type AspectChoiceValu
  * The levels a picker sets. `allWindows` is the window level of every open
  * window on this machine; `chat` a @CHAT subpanel's sticky choices.
  */
-export type AspectPickerLevel = 'window' | 'allWindows' | 'run' | 'item' | 'todo' | 'chat';
-export const ASPECT_PICKER_LEVELS: readonly AspectPickerLevel[] = ['window', 'allWindows', 'run', 'item', 'todo', 'chat'];
+export type AspectPickerLevel = 'window' | 'allWindows' | 'run' | 'item' | 'todo' | 'chat' | 'questDefault' | 'workspace';
+export const ASPECT_PICKER_LEVELS: readonly AspectPickerLevel[] = ['window', 'allWindows', 'run', 'item', 'todo', 'chat', 'questDefault', 'workspace'];
 
 /** The @CHAT subpanels with sticky choices. */
 export type AspectPickerChatPanel = 'anthropic' | 'copilot';
@@ -53,6 +53,12 @@ export interface AspectChoiceWriters {
     setTodo(questId: string | undefined, todoId: string, choices: AspectChoices | undefined): boolean;
     chatChoices(panel: AspectPickerChatPanel): AspectChoices | undefined;
     setChat(panel: AspectPickerChatPanel, choices: AspectChoices | undefined): void;
+    /** The quest default (gsel22: its own picker in the Prompt Queue editor). */
+    questDefaultChoices?(): AspectChoices | undefined;
+    setQuestDefault?(choices: AspectChoices | undefined): void;
+    /** The window workspace folder's own entries of the workspace level (gsel22); setting them writes its workspace_aspects.md / .yaml. */
+    workspaceChoices?(): AspectChoices | undefined | null;
+    setWorkspace?(choices: AspectChoices | undefined): void;
 }
 
 /** What a choice did: ok, or why not; `sentTo` for all windows. */
@@ -105,6 +111,18 @@ export function applyAspectChoice(req: AspectChoiceRequest, w: AspectChoiceWrite
             return w.setTodo(req.questId, id, withSectionChoice(current, req.section, option))
                 ? { ok: true }
                 : { ok: false, error: `The todo ${id} could not be written.` };
+        }
+        case 'questDefault': {
+            if (!w.questDefaultChoices || !w.setQuestDefault) { return { ok: false, error: 'The quest default cannot be set here.' }; }
+            w.setQuestDefault(withSectionChoice(w.questDefaultChoices(), req.section, option));
+            return { ok: true };
+        }
+        case 'workspace': {
+            if (!w.workspaceChoices || !w.setWorkspace) { return { ok: false, error: 'The workspace level cannot be set here.' }; }
+            const current = w.workspaceChoices();
+            if (current === null) { return { ok: false, error: 'This window has no Tom workspace folder.' }; }
+            w.setWorkspace(withSectionChoice(current, req.section, option));
+            return { ok: true };
         }
         case 'chat': {
             const panel = req.panel;

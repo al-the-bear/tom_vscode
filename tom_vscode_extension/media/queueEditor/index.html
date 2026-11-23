@@ -33,12 +33,12 @@
      the Status Page's History Compaction dropdowns (compactionPickerState).
      Shared by every run: above the tabs. -->
 <div class="context-bar" id="compactionPickers" style="gap:6px;">
-  <label for="compactionModelPick" style="font-size:0.85em;opacity:0.85;">Compaction model:</label>
-  <select id="compactionModelPick" title="The model that compacts the history (compaction.compactionModel; also on the Status Page, History Compaction)"></select>
-  <label for="memoryModelPick" style="font-size:0.85em;opacity:0.85;">Memory extraction model:</label>
-  <select id="memoryModelPick" title="The model that extracts memory (compaction.memoryExtractionModel; also on the Status Page, History Compaction)"></select>
+  <!-- Label-less choice buttons (gsel22): the chosen model as link text; a click opens VS Code's picker (pickCompactionModel). -->
+  <a href="#" class="ctx-link model-choice" id="compactionModelLink" data-pick-model="compaction"><span class="codicon codicon-fold"></span> <span class="model-choice-text"></span></a>
+  <a href="#" class="ctx-link model-choice" id="memoryModelLink" data-pick-model="memory"><span class="codicon codicon-lightbulb"></span> <span class="model-choice-text"></span></a>
   <!-- The guideline picker (gsel5, media/shared/aspectPicker.js): the window's
-       choices, the all-windows change, Set as / Clear quest default. Drawn by main.js. -->
+       choices, the all-windows change; per quest default and workspace level
+       (gsel22) set from the window, clear, and edit its own selection. Drawn by main.js. -->
   <span id="aspectToolbar" class="aspect-toolbar"></span>
 </div>
 <!-- One tab per process run (vscimpb60b): the quest's runs and any run that has

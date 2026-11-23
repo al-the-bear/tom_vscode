@@ -313,6 +313,23 @@ export function setWorkspaceFromWindow(): { folder: string; written: string[]; s
     return { folder: own.folder, written: [written.md, ...(written.yaml ? [written.yaml] : [])], skipped };
 }
 
+/** The window workspace folder's own entries of the workspace level (gsel22); null without a workspace folder. */
+export function liveOwnWorkspaceChoices(): AspectChoices | null {
+    const folders = liveWorkspaceAspectFolders();
+    const own = folders[folders.length - 1];
+    return own ? readWorkspaceAspectsFolder(own.folder, own.rel).choices : null;
+}
+
+/** The window workspace folder's files written with `choices` (gsel22: the workspace picker); its free text kept. */
+export function setLiveOwnWorkspaceChoices(choices: AspectChoices | undefined): void {
+    const folders = liveWorkspaceAspectFolders();
+    const own = folders[folders.length - 1];
+    if (!own) { throw new Error('this window has no Tom workspace folder'); }
+    const { readLiveAspectSections } = require('./aspectGuidelinesStore') as typeof import('./aspectGuidelinesStore');
+    const { WsPaths } = require('../utils/workspacePaths') as typeof import('../utils/workspacePaths');
+    writeWorkspaceAspects(own.folder, workspaceEntriesOf(choices, readLiveAspectSections().sections).entries, WsPaths.topTom);
+}
+
 /** *Clear workspace default*: the window workspace folder's files emptied. */
 export function clearLiveWorkspaceAspects(): string | undefined {
     const folders = liveWorkspaceAspectFolders();

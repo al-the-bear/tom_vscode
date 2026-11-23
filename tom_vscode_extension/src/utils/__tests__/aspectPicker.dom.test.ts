@@ -230,7 +230,7 @@ function editor(t: { after(fn: () => void): void }, state: Record<string, unknow
 const ASPECTS = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     ...CATALOGUE, questDefault: { night: 'on' }, roles: { reviewer: { role: { answer: 'full' } } }, ...extra,
 });
-const chosen = (posted: Array<Record<string, unknown>>): Array<Record<string, unknown>> => posted.filter((m) => m.type === 'aspectChoose' || m.type === 'aspectQuestDefault' || m.type === 'aspectEditSections');
+const chosen = (posted: Array<Record<string, unknown>>): Array<Record<string, unknown>> => posted.filter((m) => m.type === 'aspectChoose' || m.type === 'aspectQuestDefault' || m.type === 'aspectWorkspaceDefault' || m.type === 'aspectEditSections');
 
 describe('guideline picker: the Prompt Queue editor', () => {
     test('AP-6: the toolbar', (t) => {
@@ -244,8 +244,15 @@ describe('guideline picker: the Prompt Queue editor', () => {
         assert.match(win.title, /^Guidelines of this window: Answer: full · Night: on/);
         assert.ok(all.querySelector('.codicon-broadcast'));
         assert.equal(all.querySelector('.tom-aspect-dot'), null);
-        assert.equal(doc.getElementById('aspectSetQuestDefault').textContent, 'Set as quest default');
+        // Composed icon buttons (gsel22): the quest's compass and the workspace's root folder with save, close and book.
+        const icons = (id: string): string[] => [...doc.getElementById(id).querySelectorAll('.codicon')].map((e: Win) => e.className.replace('codicon codicon-', ''));
+        assert.deepEqual(['aspectSetQuestDefault', 'aspectClearQuestDefault', 'aspectEditQuestDefault', 'aspectSetWorkspaceDefault', 'aspectClearWorkspaceDefault', 'aspectEditWorkspace'].map(icons),
+            [['compass', 'save'], ['compass', 'close'], ['compass', 'book'], ['root-folder', 'save'], ['root-folder', 'close'], ['root-folder', 'book']]);
+        assert.match(doc.getElementById('aspectSetQuestDefault').title, /^Set as quest default: /);
+        assert.match(doc.getElementById('aspectSetWorkspaceDefault').title, /^Set as workspace default: .*workspace_aspects\.md/);
+        assert.equal(doc.getElementById('aspectSetQuestDefault').textContent, '', 'no text: icons and hover help');
         assert.equal(doc.getElementById('aspectClearQuestDefault').disabled, false);
+        assert.equal(doc.getElementById('aspectClearWorkspaceDefault').disabled, true, 'no workspace entries: nothing to clear');
 
         win.click();
         const popup = doc.getElementById('tomAspectPopup');
@@ -257,6 +264,19 @@ describe('guideline picker: the Prompt Queue editor', () => {
         doc.getElementById('tomAspectPopup').querySelector('.tom-aspect-option[data-section="answer"][data-value=""]').click();
         doc.getElementById('aspectSetQuestDefault').click();
         doc.getElementById('aspectClearQuestDefault').click();
+        doc.getElementById('aspectSetWorkspaceDefault').click();
+        // The quest default's own picker: its choice is the level's own, over the workspace level.
+        doc.getElementById('aspectEditQuestDefault').click();
+        const q = doc.getElementById('tomAspectPopup');
+        assert.equal(q.getAttribute('data-level'), 'questDefault');
+        assert.match(q.querySelector('.tom-aspect-popup-title').textContent, /the quest default/);
+        q.querySelector('.tom-aspect-option[data-section="answer"][data-choice="brief"]').click();
+        q.querySelector('.tom-aspect-option[data-section="night"][data-value="remove"]').click();
+        // The workspace folder's own picker.
+        doc.getElementById('aspectEditWorkspace').click();
+        const w = doc.getElementById('tomAspectPopup');
+        assert.equal(w.getAttribute('data-level'), 'workspace');
+        w.querySelector('.tom-aspect-option[data-section="answer"][data-choice="full"]').click();
         win.click();
         doc.getElementById('tomAspectPopup').querySelector('.tom-aspect-edit').click();
         assert.deepEqual(chosen(posted), [
@@ -264,6 +284,10 @@ describe('guideline picker: the Prompt Queue editor', () => {
             { type: 'aspectChoose', level: 'allWindows', section: 'answer', value: '' },
             { type: 'aspectQuestDefault', action: 'set' },
             { type: 'aspectQuestDefault', action: 'clear' },
+            { type: 'aspectWorkspaceDefault', action: 'set' },
+            { type: 'aspectChoose', level: 'questDefault', section: 'answer', value: 'brief' },
+            { type: 'aspectChoose', level: 'questDefault', section: 'night', value: 'remove' },
+            { type: 'aspectChoose', level: 'workspace', section: 'answer', value: 'full' },
             { type: 'aspectEditSections' },
         ]);
 

@@ -307,10 +307,12 @@ function syncCopilotOnlyFields() {
   if (addRow) { addRow.style.display = addTransport === 'copilot' ? '' : 'none'; }
 }
 
-/* The compaction / memory-extraction model pickers post their choice to the host. */
-[['compactionModelPick', 'compaction'], ['memoryModelPick', 'memory']].forEach(function (pair) {
-  var sel = document.getElementById(pair[0]);
-  if (sel) { sel.addEventListener('change', function () { setCompactionModel(pair[1], sel.value); }); }
+/* The compaction / memory-extraction model buttons open VS Code's picker on the host (gsel22). */
+document.querySelectorAll('[data-pick-model]').forEach(function (a) {
+  a.addEventListener('click', function (ev) {
+    ev.preventDefault();
+    vscode.postMessage({ type: 'pickCompactionModel', purpose: a.dataset.pickModel === 'memory' ? 'memory' : 'compaction' });
+  });
 });
 
 /* Render immediately from embedded state */
@@ -416,7 +418,8 @@ function showAddFeedback(text, cls) {
  * (`.ctx-field`: `.ctx-label` over `.ctx-value`).
  *   - #contextSummary (with the icon buttons): Position, Role, Default role, Guidelines, Variables.
  *   - #runDefaultsSummary: the defaults the run's items take — Transport, Model (the Anthropic
- *     profile; Anthropic only), Session, Template.
+ *     profile; Anthropic only), Session, Template — label-less (gsel22): the value alone, what it
+ *     is in its hover help.
  * A value that can be changed is a link (`.ctx-link`, `data-pick`): a click opens a VS Code picker
  * on the host (role, default role, transport, profile, session, template), the guideline picker,
  * the run's state file or its chat variables. Quest and run are not shown: the window's title and
@@ -491,23 +494,34 @@ function updateContextSummary() {
   field(el, 'Variables', link('variables', String(names.length),
     'The chat variables of run ' + run + (names.length ? ': ' + names.map(function(k) { return k + '=' + vars[k]; }).join(', ') : ' (none of its own)') + ' — click to open them'), 'variables');
 
-  // The run's defaults for its items: transport, model (the Anthropic profile), session, template.
+  // The run's defaults for its items: transport, model (the Anthropic profile), session, template —
+  // label-less choice buttons (gsel22): the value as link text, what it is in its hover help.
+  const bare = (target, label, value, key) => {
+    if (!target) { return undefined; }
+    const f = document.createElement('span');
+    f.className = 'ctx-field ctx-field-bare';
+    if (key) { f.dataset.field = key; }
+    value.title = label + ': ' + value.title;
+    f.appendChild(value);
+    target.appendChild(f);
+    return f;
+  };
   const transport = settings.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
-  field(defaultsEl, 'Transport', link('transport', transport === 'anthropic' ? 'Anthropic' : 'Copilot',
+  bare(defaultsEl, 'Transport', link('transport', transport === 'anthropic' ? 'Anthropic' : 'Copilot',
     'The transport run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'transport');
   if (transport === 'anthropic') {
     const pid = settings.defaultAnthropicProfileId || '';
     const profile = (anthropicProfiles || []).find(function(p) { return p && p.id === pid; });
-    field(defaultsEl, 'Model', link('profile', pid ? (profile && profile.name ? profile.name : pid) : '(default profile)',
+    bare(defaultsEl, 'Model', link('profile', pid ? (profile && profile.name ? profile.name : pid) : '(default profile)',
       'The Anthropic profile (its model and configuration) run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'profile');
   }
   const sessionName = runQueueSessionName(queueDefaultSessionLabel, run);
   const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
-  field(defaultsEl, 'Session', link('session', sessionDisplayName(sessionName) + session.based,
+  bare(defaultsEl, 'Session', link('session', sessionDisplayName(sessionName) + session.based,
     session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'), 'session');
   const tplId = settings.defaultMessageTemplateId || '';
   const tpl = (anthropicUserMessageTemplates || []).find(function(t) { return t && t.id === tplId; });
-  field(defaultsEl, 'Template', link('template', tplId ? (tpl && tpl.name ? tpl.name : tplId) : '(none)',
+  bare(defaultsEl, 'Template', link('template', tplId ? (tpl && tpl.name ? tpl.name : tplId) : '(none)',
     'The prompt template run ' + run + '\'s items take unless they name their own ("Run default") — click to choose'), 'template');
 }
 
@@ -1361,24 +1375,21 @@ vscode.postMessage({ type: 'getState' });
  * host's compactionPickerState: the Status Page's choices, '' = none chosen.
  */
 function renderCompactionPickers(state) {
-  // The Status Page's wording for "nothing chosen".
-  const pickers = [['compactionModelPick', 'compactionModel', '(not set — no compaction)'], ['memoryModelPick', 'memoryExtractionModel', '(not set — no memory extraction)']];
-  for (const [id, key, none] of pickers) {
-    const sel = document.getElementById(id);
-    if (!sel || !state) { continue; }
+  // Label-less (gsel22): the chosen model's name, the rest in the hover help; the Status Page's wording for "nothing chosen".
+  const pickers = [
+    ['compactionModelLink', 'compactionModel', 'no compaction', 'Compaction model', 'compacts the history (compaction.compactionModel)'],
+    ['memoryModelLink', 'memoryExtractionModel', 'no memory extraction', 'Memory extraction model', 'extracts memory (compaction.memoryExtractionModel)'],
+  ];
+  for (const [id, key, none, title, what] of pickers) {
+    const link = document.getElementById(id);
+    if (!link || !state) { continue; }
     const value = state[key] || '';
-    const choices = state.choices || [];
-    const options = ['<option value="">' + none + '</option>'].concat(choices.map((c) =>
-      '<option value="' + escapeHtml(c.value) + '"' + (c.value === value ? ' selected' : '') + '>' + escapeHtml(c.label) + '</option>'));
-    if (value && !choices.some((c) => c.value === value)) {
-      options.push('<option value="' + escapeHtml(value) + '" selected>' + escapeHtml(value) + ' (not configured)</option>');
-    }
-    sel.innerHTML = options.join('');
-    sel.value = value;
-    // The dropdowns give the guideline buttons room (gsel5, P-1): 60% of their natural width.
-    sel.style.width = '';
-    const natural = sel.offsetWidth;
-    if (natural > 0) { sel.style.width = Math.round(natural * 0.6) + 'px'; }
+    const choice = (state.choices || []).find((c) => c.value === value);
+    const text = value ? (choice ? choice.label : value + ' (not configured)') : none;
+    const span = link.querySelector('.model-choice-text');
+    if (span) { span.textContent = text; }
+    link.dataset.value = value;
+    link.title = title + ': ' + text + ' \u2014 the model that ' + what + '; also on the Status Page, History Compaction. Click to choose.';
   }
 }
 
@@ -1463,18 +1474,32 @@ function renderAspectToolbar() {
   const v = windowAspectView();
   if (!p || !v) { slot.innerHTML = ''; return; }
   const hasQuestDefault = !!(aspectState.questDefault && Object.keys(aspectState.questDefault).length);
-  const hasWorkspace = !!(aspectState.workspace && Object.keys(aspectState.workspace).length);
+  const hasWorkspace = !!(aspectState.workspaceOwn && Object.keys(aspectState.workspaceOwn).length);
+  // Composed icon buttons (gsel22): the level's icon with save (set from the window), close (clear), book (edit its own selection).
+  const levelButtons = function(level, icon, name, has, setTip, clearTip, editId) {
+    const attr = level === 'quest' ? 'data-aspect-quest-default' : 'data-aspect-workspace-default';
+    const btn = function(id, extra, second, tip, disabled) {
+      return '<button type="button" class="ctx-btn-icon ctx-btn-double" id="' + id + '" ' + extra + (disabled ? ' disabled' : '') + ' title="' + escapeHtml(tip) + '" aria-label="' + escapeHtml(tip) + '">'
+        + '<span class="codicon codicon-' + icon + '"></span><span class="codicon codicon-' + second + '"></span></button>';
+    };
+    const cap = name.charAt(0).toUpperCase() + name.slice(1);
+    return btn('aspectSet' + cap, attr + '="set"', 'save', setTip, false)
+      + btn('aspectClear' + cap, attr + '="clear"', 'close', has ? clearTip : 'The ' + (level === 'quest' ? 'quest default' : 'workspace level') + ' has no guideline choices', !has)
+      + btn(editId, 'data-aspect-open="' + (level === 'quest' ? 'questDefault' : 'workspace') + '"', 'book',
+        (level === 'quest' ? 'Guidelines of the quest default: choose them here' : 'Guidelines of this workspace folder (its workspace_aspects.md / .yaml): choose them here'), false);
+  };
   slot.innerHTML = p.buttonHtml(v, { title: 'Guidelines of this window', id: 'aspectWindowBtn', attrs: { 'data-aspect-open': 'window' } })
     // The all-windows button has no level of its own: no dot.
     + p.buttonHtml(Object.assign({}, v, { own: false }), { title: 'Guidelines of every open window (each change one aspect)', icon: 'codicon-broadcast', id: 'aspectAllWindowsBtn', attrs: { 'data-aspect-open': 'allWindows' } })
-    + '<button type="button" class="ctx-btn" id="aspectSetQuestDefault" data-aspect-quest-default="set"'
-    + ' title="Copy this window\'s guideline choices to the quest default (shared by every machine)">Set as quest default</button>'
-    + '<button type="button" class="ctx-btn" id="aspectClearQuestDefault" data-aspect-quest-default="clear"' + (hasQuestDefault ? '' : ' disabled')
-    + ' title="' + (hasQuestDefault ? 'Clear the quest default\'s guideline choices' : 'The quest default has no guideline choices') + '">Clear quest default</button>'
-    + '<button type="button" class="ctx-btn" id="aspectSetWorkspaceDefault" data-aspect-workspace-default="set"'
-    + ' title="Write this window\'s guideline choices into the workspace folder\'s workspace_aspects.md / .yaml (the workspace level)">Set as workspace default</button>'
-    + '<button type="button" class="ctx-btn" id="aspectClearWorkspaceDefault" data-aspect-workspace-default="clear"' + (hasWorkspace ? '' : ' disabled')
-    + ' title="' + (hasWorkspace ? 'Empty this workspace folder\'s workspace_aspects.md / .yaml (their free text stays)' : 'The workspace level has no guideline choices') + '">Clear workspace default</button>';
+    + '<span class="aspect-level-group" title="The quest default">'
+    + levelButtons('quest', 'compass', 'QuestDefault', hasQuestDefault,
+      'Set as quest default: this window\'s guideline choices become the quest default (shared by every machine)',
+      'Clear quest default: the quest default has no guideline choices', 'aspectEditQuestDefault')
+    + '</span><span class="aspect-level-group" title="The workspace level">'
+    + levelButtons('workspace', 'root-folder', 'WorkspaceDefault', hasWorkspace,
+      'Set as workspace default: this window\'s guideline choices are written into this workspace folder\'s workspace_aspects.md / .yaml',
+      'Clear workspace default: this workspace folder\'s workspace_aspects.md / .yaml are emptied (their free text stays)', 'aspectEditWorkspace')
+    + '</span>';
 }
 
 /** Open the picker of a level: the window, all windows, the tab's run, an item. */
@@ -1496,6 +1521,17 @@ function openQueueAspectPicker(kind, anchor, itemId) {
   } else if (kind === 'item') {
     const item = currentItems.find(function(i) { return String(i.id) === String(itemId); });
     v = queueItemAspectView(item); title = 'Guidelines \u2014 this item'; msg.itemId = itemId;
+  } else if (kind === 'questDefault') {
+    // The quest default's own selection (gsel22), over the workspace level and each aspect's default.
+    v = p.view(aspectState, { workspace: aspectState.workspace, questDefault: aspectState.questDefault }, 'questDefault');
+    title = 'Guidelines \u2014 the quest default'; note = 'Shared by every machine of this quest.';
+  } else if (kind === 'workspace') {
+    // The workspace level as it resolves (the root's and the folders' down to this one); this folder's own entries are its choices here.
+    v = p.view(aspectState, { workspace: aspectState.workspace }, 'workspace');
+    const own = aspectState.workspaceOwn || {};
+    v.sections.forEach(function(s) { if (own[s.id] !== undefined) { s.here = own[s.id]; } else { delete s.here; } });
+    v.own = Object.keys(own).length > 0;
+    title = 'Guidelines \u2014 this workspace folder'; note = 'Written to its workspace_aspects.md / .yaml; the root\'s files apply below it.';
   }
   if (!v) { return; }
   p.open(anchor, v, {
@@ -1522,6 +1558,3 @@ document.addEventListener('click', function(ev) {
   openQueueAspectPicker(t.dataset.aspectOpen, t, t.dataset.aspectItem);
 });
 
-function setCompactionModel(purpose, value) {
-  vscode.postMessage({ type: 'setCompactionModel', purpose: purpose, value: value || '' });
-}

@@ -23,13 +23,15 @@ export { applyAspectChoice, aspectValueRefusal, ASPECT_PICKER_LEVELS, type Aspec
 import { listRoleNames } from '../utils/roleNames';
 import { WsPaths } from '../utils/workspacePaths';
 import { readLiveAspectSections } from './aspectGuidelinesStore';
-import { liveWorkspaceAspects } from './workspaceAspects';
-import { chatPanelChoices, questDefaultChoices, roleLevelChoices, setChatPanelChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
+import { liveOwnWorkspaceChoices, liveWorkspaceAspects, setLiveOwnWorkspaceChoices } from './workspaceAspects';
+import { chatPanelChoices, questDefaultChoices, roleLevelChoices, setChatPanelChoices, setQuestDefaultChoices, setWindowSectionChoice, windowChoices } from './aspectChoiceLevels';
 
 /** The picker's shared data. */
 export interface AspectPickerState extends AspectCatalogue {
     /** The workspace level (workspace_aspects.md / .yaml, gsel19). */
     workspace?: AspectChoices;
+    /** The window workspace folder's own entries of it (gsel22). */
+    workspaceOwn?: AspectChoices;
     questDefault?: AspectChoices;
     window?: AspectChoices;
     /** Per role under `_ai/roles` with choices: its role type's and its own. */
@@ -59,12 +61,16 @@ export function aspectPickerState(): AspectPickerState {
     const window = attempt(() => windowChoices());
     const ws = attempt(() => liveWorkspaceAspects());
     const workspace = ws && Object.keys(ws.choices).length ? ws.choices : undefined;
+    // The window workspace folder's own entries (gsel22): what the workspace picker edits.
+    const own = ws?.folders[ws.folders.length - 1]?.choices;
+    const workspaceOwn = own && Object.keys(own).length ? own : undefined;
     const catalogue = aspectCatalogueOf(read.sections);
     addConditionHolds(catalogue, read.sections);
     return {
         ...catalogue,
         problems: [...read.problems, ...(ws?.problems ?? [])],
         ...(workspace ? { workspace } : {}),
+        ...(workspaceOwn ? { workspaceOwn } : {}),
         ...(questDefault ? { questDefault } : {}),
         ...(window ? { window } : {}),
         roles,
@@ -130,6 +136,10 @@ export function liveAspectChoiceWriters(): AspectChoiceWriters {
         setTodo: (questId, todoId, choices) => !!todos.updateTodo(quest(questId), todoId, { guidelines: choices ?? {} }),
         chatChoices: (panel) => chatPanelChoices(panel),
         setChat: (panel, choices) => setChatPanelChoices(panel, choices),
+        questDefaultChoices: () => questDefaultChoices(),
+        setQuestDefault: (choices) => setQuestDefaultChoices(choices),
+        workspaceChoices: () => liveOwnWorkspaceChoices(),
+        setWorkspace: (choices) => { setLiveOwnWorkspaceChoices(choices); },
     };
 }
 /* eslint-enable @typescript-eslint/no-require-imports */

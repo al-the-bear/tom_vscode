@@ -6,9 +6,10 @@
  *        models encoded as the Status Page writes them; '' when none (a legacy shared pair still read)
  *   CP-2 the write: compaction.compactionModel / compaction.memoryExtractionModel; '' or a value no target reads
  *        clears it; nothing else in the config changes; false when nothing changed
- *   CP-3 the queue editor: both pickers drawn from the state with the Status Page's "not set" entry, the chosen
- *        one selected (a value without its configuration still shown); a change posts `setCompactionModel`;
+ *   CP-3 the queue editor: two label-less choice buttons (gsel22) showing the chosen model (a value without its
+ *        configuration still shown), what they are in their hover help; a click posts `pickCompactionModel`;
  *        a new state (after a change on the Status Page) moves them
+ *   CP-5 the picker a button opens on the host: "not set" first, every configuration, the current one marked
  *   CP-4 the hosts: the queue editor writes through setCompactionModel, saves, and refreshes the Status Page;
  *        the Status Page shows the same state (compactionPickerState) and refreshes the queue editor on save
  */
@@ -19,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 
-import { compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../compactionTarget.js';
+import { compactionChoiceText, compactionPickItems, compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../compactionTarget.js';
 
 const ROOT = join(__dirname, '..', '..', '..');
 const read = (...p: string[]): string => readFileSync(join(ROOT, ...p), 'utf-8');
@@ -77,19 +78,39 @@ describe('compaction model pickers above the queue', () => {
     test('CP-3: the queue editor', (t) => {
         const state = { ...compactionPickerState(CONFIG()), memoryExtractionModel: 'anthropic:gone' };
         const { window, posted } = editor(t, { compactionPickers: state });
-        const pick = (id: string): Win => window.document.getElementById(id);
-        assert.deepEqual([...pick('compactionModelPick').options].map((o: Win) => o.textContent),
-            ['(not set — no compaction)', 'Haiku 5.5 (Agent SDK)', 'Opus 5.5 (direct API)', 'Qwen 3 (Local LLM)']);
-        assert.equal(pick('compactionModelPick').value, 'anthropic:haiku-agent');
-        assert.equal(pick('memoryModelPick').value, 'anthropic:gone');
-        assert.match(pick('memoryModelPick').selectedOptions[0].textContent, /not configured/);
-        assert.equal(pick('memoryModelPick').options[0].textContent, '(not set — no memory extraction)');
-        pick('memoryModelPick').value = 'localLlm:qwen';
-        pick('memoryModelPick').dispatchEvent(new window.Event('change'));
-        assert.deepEqual(posted.pop(), { type: 'setCompactionModel', purpose: 'memory', value: 'localLlm:qwen' });
+        const link = (id: string): Win => window.document.getElementById(id);
+        const text = (id: string): string => link(id).querySelector('.model-choice-text').textContent;
+        // Label-less choice buttons (gsel22): the chosen model as link text, what it is in the hover help.
+        assert.equal(window.document.getElementById('compactionModelPick'), null, 'no dropdown');
+        assert.equal(window.document.querySelector('#compactionPickers label'), null, 'no label');
+        assert.equal(text('compactionModelLink'), 'Haiku 5.5 (Agent SDK)');
+        assert.equal(text('memoryModelLink'), 'anthropic:gone (not configured)');
+        assert.match(link('compactionModelLink').title, /^Compaction model: Haiku 5\.5 \(Agent SDK\) — the model that compacts the history/);
+        assert.match(link('memoryModelLink').title, /^Memory extraction model: /);
+        link('memoryModelLink').click();
+        assert.deepEqual(posted.pop(), { type: 'pickCompactionModel', purpose: 'memory' }, 'a click opens VS Code\'s picker on the host');
+        link('compactionModelLink').click();
+        assert.deepEqual(posted.pop(), { type: 'pickCompactionModel', purpose: 'compaction' });
         window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'state', items: [], context: { quest: 'q', role: '', activeProjects: [] },
             compactionPickers: { ...state, compactionModel: 'anthropic:opus-direct', memoryExtractionModel: '' } } }));
-        assert.deepEqual([pick('compactionModelPick').value, pick('memoryModelPick').value], ['anthropic:opus-direct', ''], 'a change elsewhere shows here');
+        assert.deepEqual([text('compactionModelLink'), text('memoryModelLink')], ['Opus 5.5 (direct API)', 'no memory extraction'], 'a change elsewhere shows here');
+    });
+
+    test('CP-5: the picker the buttons open', () => {
+        const state = { ...compactionPickerState(CONFIG()), memoryExtractionModel: 'anthropic:gone' };
+        assert.deepEqual(compactionPickItems(state, 'compaction'), [
+            { label: '(not set \u2014 no compaction)', value: '' },
+            { label: 'Haiku 5.5 (Agent SDK)', value: 'anthropic:haiku-agent', description: 'current', picked: true },
+            { label: 'Opus 5.5 (direct API)', value: 'anthropic:opus-direct' },
+            { label: 'Qwen 3 (Local LLM)', value: 'localLlm:qwen' },
+        ]);
+        const memory = compactionPickItems(state, 'memory');
+        assert.deepEqual(memory.at(-1), { label: 'anthropic:gone (not configured)', value: 'anthropic:gone', description: 'current', picked: true });
+        assert.equal(compactionPickItems({ ...state, memoryExtractionModel: '' }, 'memory')[0].description, 'current');
+        assert.equal(compactionChoiceText(state, 'compaction'), 'Haiku 5.5 (Agent SDK)');
+        const queue = read('src', 'handlers', 'queueEditor-handler.ts');
+        assert.match(queue, /case 'pickCompactionModel': \{[\s\S]*?compactionPickItems\(compactionPickerState\([\s\S]*?showQuickPick\(items,[\s\S]*?setCompactionModel\(config as unknown as CompactionPickerConfig, purpose, picked\.value\)[\s\S]*?sendState\(\);/,
+            'the host: VS Code\'s picker, then the same write');
     });
 
     test('CP-4: the hosts', () => {

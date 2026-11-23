@@ -4,7 +4,8 @@
  *
  *   QC-1 the first bar (with the icon buttons): Position, Role, Default role, Guidelines, Variables; the second the
  *        run's defaults: Transport, Model (the Anthropic profile; Anthropic only), Session, Template — the tab's
- *        run's (vscimpb60c); each a `.ctx-label` over a `.ctx-value`; no Quest, Run or Projects field; every value
+ *        run's (vscimpb60c); the context fields each a `.ctx-label` over a `.ctx-value`, the defaults label-less
+ *        (gsel22: the value, its name in the hover help); no Quest, Run or Projects field; every value
  *        but another run's role is a link; there is no separate session row and no transport-picker row
  *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession`, Transport / Profile / Template
  *        `pickQueueDefaultTransport` / `…Profile` / `…Template` with the settings run; a state update refreshes the
@@ -62,24 +63,30 @@ describe('Prompt Queue editor — the context bar', () => {
         const defaults = window.document.getElementById('runDefaultsSummary');
         const fields = (b: Win): string[] => [...b.querySelectorAll('.ctx-field')].map((f: Win) => `${f.querySelector('.ctx-label').textContent}: ${f.querySelector('.ctx-value').textContent}`);
         const picks = (b: Win): string[] => [...b.querySelectorAll('.ctx-link')].map((l: Win) => l.dataset.pick);
+        // The run's defaults are label-less (gsel22): the value alone, the field's name opening its hover help.
+        const bare = (b: Win): string[] => [...b.querySelectorAll('.ctx-field')].map((f: Win) => {
+            assert.equal(f.querySelector('.ctx-label'), null, 'no label');
+            const a = f.querySelector('.ctx-link');
+            return `${a.title.split(':')[0]}: ${a.textContent}`;
+        });
         assert.deepEqual(fields(bar), ['Position: (no process)', 'Role: spec_author', 'Default role: (none)', 'Variables: 0'], 'no Quest, Run or Projects');
         assert.deepEqual(picks(bar), ['position', 'role', 'defaultRole', 'variables']);
         assert.ok(bar.parentElement.querySelector('.ctx-btn-icon'), 'the icon buttons stay with the first bar');
-        assert.deepEqual(fields(defaults), ['Transport: Copilot', 'Session: p2s3r1ss1', 'Template: (none)'], 'no Model on Copilot');
+        assert.deepEqual(bare(defaults), ['Transport: Copilot', 'Session: p2s3r1ss1', 'Template: (none)'], 'no Model on Copilot');
         assert.deepEqual(picks(defaults), ['transport', 'session', 'template']);
         assert.equal(bar.parentElement.compareDocumentPosition(defaults) & window.Node.DOCUMENT_POSITION_FOLLOWING, window.Node.DOCUMENT_POSITION_FOLLOWING, 'the defaults bar below');
         assert.equal(window.document.getElementById('queueDefaultSessionRow'), null, 'the session moved into the bar');
         assert.equal(window.document.getElementById('queueDefaultPickerSlot'), null, 'no transport-picker row');
         const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document;
         assert.deepEqual(fields(none.getElementById('contextSummary')), ['Position: (no process)', 'Role: (none)', 'Default role: (none)', 'Variables: 0']);
-        assert.deepEqual(fields(none.getElementById('runDefaultsSummary')), ['Transport: Copilot', 'Session: default@default', 'Template: (none)']);
+        assert.deepEqual(bare(none.getElementById('runDefaultsSummary')), ['Transport: Copilot', 'Session: default@default', 'Template: (none)']);
         // An Anthropic run shows its model (the profile, by name) and its template (by name).
         const anth = setup(t, {
             context: { quest: 'q', role: '', activeProjects: [] }, currentRun: 'default',
             runQueueSettings: { default: { defaultTransport: 'anthropic', defaultAnthropicProfileId: 'opus', defaultMessageTemplateId: 'execute-todo' } },
             anthropicProfiles: [{ id: 'opus', name: 'Opus' }], anthropicUserMessageTemplates: [{ id: 'execute-todo', name: 'Execute TODO' }],
         }).window.document.getElementById('runDefaultsSummary');
-        assert.deepEqual(fields(anth), ['Transport: Anthropic', 'Model: Opus', 'Session: default@default', 'Template: Execute TODO']);
+        assert.deepEqual(bare(anth), ['Transport: Anthropic', 'Model: Opus', 'Session: default@default', 'Template: Execute TODO']);
         assert.deepEqual(picks(anth), ['transport', 'profile', 'session', 'template']);
     });
 

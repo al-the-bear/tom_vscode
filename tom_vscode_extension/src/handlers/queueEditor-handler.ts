@@ -24,7 +24,7 @@ import type { LaneSummary } from '../utils/queueLanes';
 import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
-import { compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../utils/compactionTarget';
+import { compactionPickItems, compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../utils/compactionTarget';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
@@ -346,6 +346,24 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const doc = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(doc, { preview: false });
           await vscode.commands.executeCommand('revealInExplorer', uri);
+          return;
+        }
+        case 'pickCompactionModel': {
+          // The label-less model buttons above the queue (gsel22): VS Code's picker, then the same write as setCompactionModel.
+          const purpose = msg.purpose === 'memory' ? 'memory' : 'compaction';
+          const config = loadSendToChatConfig();
+          if (!config) { return; }
+          const items = compactionPickItems(compactionPickerState(config as unknown as CompactionPickerConfig), purpose);
+          const picked = await vscode.window.showQuickPick(items, {
+            title: purpose === 'compaction' ? 'Compaction model' : 'Memory extraction model',
+            placeHolder: purpose === 'compaction' ? 'The model that compacts the history (also on the Status Page, History Compaction)' : 'The model that extracts memory (also on the Status Page, History Compaction)',
+          });
+          if (picked && setCompactionModel(config as unknown as CompactionPickerConfig, purpose, picked.value)) {
+            saveSendToChatConfig(config);
+            const { refreshStatusPage } = await import('./statusPage-handler.js');
+            await refreshStatusPage();
+          }
+          sendState();
           return;
         }
         case 'setCompactionModel': {

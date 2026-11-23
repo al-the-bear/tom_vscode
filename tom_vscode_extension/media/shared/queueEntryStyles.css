@@ -68,6 +68,14 @@
   .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
   .ctx-btn-double { display: inline-flex; gap: 1px; align-items: center; }
   .ctx-btn-double .codicon + .codicon { font-size: 0.85em; }
+  /* gsel22: label-less choice buttons (the model links above the queue) and the quest / workspace icon groups. */
+  .model-choice { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  .model-choice:hover { color: var(--vscode-textLink-activeForeground); }
+  .model-choice .codicon { font-size: 0.95em; vertical-align: -2px; text-decoration: none; opacity: 0.8; }
+  .aspect-level-group { display: inline-flex; gap: 0; padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--border); }
+  .context-summary .ctx-field-bare { justify-content: center; }
+  /* The run's defaults are one line of link text now: the bar needs no room for labels. */
+  #runDefaultsBar { padding-top: 2px; padding-bottom: 2px; }
   /* Answer expand/collapse toggle: full opacity, with hover affordance. */
   .answer-toggle-icon { opacity: 1 !important; padding: 2px 4px; border-radius: 3px; }
   .answer-toggle-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
