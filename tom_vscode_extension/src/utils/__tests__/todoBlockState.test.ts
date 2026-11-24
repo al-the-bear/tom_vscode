@@ -5,9 +5,11 @@
  *   BS-1 the block state: an unmet `blocked_by` entry blocks (an open todo, an unknown id, prose), a met one does
  *        not; status `blocked` with every entry met is releasable (its blockers were completed in the meantime);
  *        `blocked` with nothing named, or with a `blocked_until`, stays blocked; the reason names what it waits for
- *   BS-2 a group's blockers outside the group: unmet entries of its open members naming no member; blockers
- *        inside the group and done members are left out; `queuedAhead` marks a blocker the queue already holds
- *   BS-3 the question before queueing: the members, each blocker with its state, and what will happen
+ *   BS-2 a group's blockers that do not run first: unmet entries of its open members naming no member, or a member
+ *        at or after them in walk order (`laterInGroup`); a blocker earlier in the group and done members are left
+ *        out; `queuedAhead` marks a blocker the queue already holds, and blockersNotAhead leaves those out
+ *   BS-3 the warning before queueing: the members, each blocker with its state, that every todo is queued all the
+ *        same and what will happen; a blocker later in the group says so
  *   BS-4 the walk: a blocked todo holds it when it is next (plan `todo-blocked`), not while todos before it are
  *        open; a decision before it holds first; a checked GROUP member is sent although blocked, the user's own
  *        todo is passed; a series of only blocked todos is not empty
@@ -17,7 +19,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { outsideBlockers, outsideBlockersQuestion, todoBlockState } from '../todoBlockState.js';
+import { blockersNotAhead, outsideBlockers, outsideBlockersQuestion, todoBlockState } from '../todoBlockState.js';
 import { blockHoldingWalk, decisionHoldingWalk, emptyTodoIterationReason, pickNextTodoForIteration, planMainStageDispatch, type TodoIterationSource } from '../queueStep3Utils.js';
 import type { StatusLookup } from '../todoBlockingCascade.js';
 
@@ -56,31 +58,35 @@ describe('whether a todo is blocked', () => {
         ];
         assert.deepEqual(outsideBlockers(members, 'qa', statusOf, QUESTS), [
             { member: 'm1', entry: 'open1', quest: 'qa', id: 'open1', status: 'in-progress' },
+            { member: 'm1', entry: 'm2', quest: 'qa', id: 'm2', status: 'not-started', laterInGroup: true },
             { member: 'm2', entry: 'qb/far1', quest: 'qb', id: 'far1', status: 'not-started' },
             { member: 'm2', entry: 'nothing9', quest: 'qa', id: 'nothing9' },
-        ], 'not the blocker inside the group (m2), not a met one, not a done member\'s');
-        const ahead = outsideBlockers(members, 'qa', statusOf, QUESTS, (quest, id) => quest === 'qa' && id === 'open1');
+        ], 'm2 comes after m1 in the walk: the walk reaches m1 first; not a met one, not a done member\'s');
+        const ahead = outsideBlockers(members, 'qa', statusOf, QUESTS, (quest, id) => quest === 'qa' && (id === 'open1' || id === 'm2'));
         assert.equal(ahead[0].queuedAhead, true);
-        assert.equal(ahead[1].queuedAhead, undefined);
-        assert.deepEqual(outsideBlockers([{ id: 'm1', status: 'not-started', blocked_by: ['m2'] }, { id: 'm2', status: 'not-started' }], 'qa', statusOf, QUESTS), [], 'dependencies inside the group are the walk\'s own order');
+        assert.deepEqual([ahead[1].queuedAhead, ahead[1].laterInGroup], [undefined, true], 'a member later in the group is no blocker ahead');
+        assert.equal(ahead[2].queuedAhead, undefined);
+        assert.deepEqual(blockersNotAhead(ahead).map((b) => `${b.member}<-${b.entry}`), ['m1<-m2', 'm2<-qb/far1', 'm2<-nothing9'], 'the queued-ahead blocker is no warning');
+        assert.deepEqual(outsideBlockers([{ id: 'm2', status: 'not-started' }, { id: 'm1', status: 'not-started', blocked_by: ['m2'] }], 'qa', statusOf, QUESTS), [], 'a blocker earlier in the walk runs first');
+        assert.deepEqual(outsideBlockers([{ id: 'm1', status: 'not-started', blocked_by: ['m1'] }], 'qa', statusOf, QUESTS).map((b) => b.laterInGroup), [true], 'a todo waiting for itself');
         assert.deepEqual(outsideBlockers([], 'qa', statusOf, QUESTS), []);
     });
 
     test('BS-3: the question before queueing', () => {
         const blockers = outsideBlockers([{ id: 'm1', status: 'not-started', blocked_by: ['open1', 'nothing9'] }, { id: 'm2', status: 'not-started', blocked_by: ['qb/far1'] }], 'qa', statusOf, QUESTS,
             (_q, id) => id === 'far1');
-        const q = outsideBlockersQuestion('The walk over m*', blockers);
-        assert.equal(q.message, 'The walk over m*: 2 todos are blocked by todos outside it. Queue it anyway?');
+        const q = outsideBlockersQuestion('The walk over m*', blockersNotAhead(blockers));
+        assert.equal(q.message, 'The walk over m*: todo m1 is blocked by todos that do not run before them — not ahead in the prompt queue, not earlier in the group. Queue it anyway?');
         assert.deepEqual(q.detail.split('\n'), [
             '• m1 waits for open1 (in-progress)',
             '• m1 waits for nothing9 (not found)',
-            '• m2 waits for qb/far1 (already in the queue ahead)',
             '',
-            'A todo still blocked when the walk reaches it holds the item (item blocked) until its blocker is completed.',
-        ]);
-        const one = outsideBlockersQuestion('The group g1', blockers.filter((b) => b.queuedAhead));
-        assert.equal(one.message, 'The group g1: todo m2 is blocked by todos outside it. Queue it anyway?');
-        assert.match(one.detail, /Each blocker is in the queue ahead: when it is completed before the walk reaches the todo, the walk goes on\.$/);
+            'Every todo is queued, blocked or not. A todo still blocked when the walk reaches it holds the item (item blocked) until its blocker is completed.',
+        ], 'm2\'s blocker is in the queue ahead: no warning for it');
+        const later = outsideBlockersQuestion('The group g1', outsideBlockers([{ id: 'm1', status: 'not-started', blocked_by: ['m2'] }, { id: 'm2', status: 'not-started' }], 'qa', statusOf, QUESTS));
+        assert.equal(later.message, 'The group g1: todo m1 is blocked by todos that do not run before them — not ahead in the prompt queue, not earlier in the group. Queue it anyway?');
+        assert.match(later.detail, /^• m1 waits for m2 \(later in this group\)\n/);
+        assert.match(later.detail, /A blocker later in the same group is only reached after it: complete it first, or change the order\.$/);
     });
 
     test('BS-4: the walk holds at a blocked todo', () => {

@@ -70,7 +70,7 @@ export function todoBlockState(todo: TodoForBlockState, quest: string, statusOf:
     return { blocked, open, met, releasable, reason };
 }
 
-/** A blocker outside the set being queued. */
+/** A blocker of a set being queued that does not run before the member: outside the set, or later in it. */
 export interface OutsideBlocker {
     /** The member that waits. */
     member: string;
@@ -83,14 +83,20 @@ export interface OutsideBlocker {
     status?: string;
     /** It is in the prompt queue ahead (set by the caller that knows the queue). */
     queuedAhead?: boolean;
+    /** It is a member of the set itself, at or after the member in walk order: the walk reaches the member first. */
+    laterInGroup?: boolean;
 }
 
 /**
  * What the open members of a set of todos (a group todo's members, a
- * `<prefix>*` group) wait for outside the set: every unmet `blocked_by` entry
- * of a member that is not done and names no member. Blockers inside the set
- * are the walk's own order and are not listed. `queuedAhead` says for a
- * blocker whether it is already in the queue (it will run first).
+ * `<prefix>*` group), given in walk order, wait for that does not run before
+ * them: every unmet `blocked_by` entry of a member that is not done and names
+ * no member, and every one naming a member at or after it in walk order
+ * (`laterInGroup`: the walk reaches the waiting member first and holds
+ * there). A blocker earlier in the set runs first and is not listed. A group
+ * todo the member waits for is no member: it is listed (it is completed only
+ * after its members). `queuedAhead` says for a blocker outside the set whether
+ * it is already in the queue (it will run first).
  */
 export function outsideBlockers(
     members: readonly TodoForBlockState[],
@@ -99,43 +105,51 @@ export function outsideBlockers(
     quests: ReadonlySet<string>,
     queuedAhead: (quest: string, id: string) => boolean = () => false,
 ): OutsideBlocker[] {
-    const inside = new Set(members.map((m) => `${quest}/${m.id}`));
+    const position = new Map(members.map((m, i) => [`${quest}/${m.id}`, i]));
     const out: OutsideBlocker[] = [];
-    for (const m of members) {
+    members.forEach((m, index) => {
         const status = norm(m.status);
-        if (status === 'completed' || status === 'cancelled') { continue; }
+        if (status === 'completed' || status === 'cancelled') { return; }
         for (const entry of todoBlockState(m, quest, statusOf, quests).open) {
             const target = blockerOf(entry, quest, quests);
-            if (target && inside.has(`${target.quest}/${target.id}`)) { continue; }
+            const at = target ? position.get(`${target.quest}/${target.id}`) : undefined;
+            if (at !== undefined && at < index) { continue; }
             const blockerStatus = target ? statusOf(target.quest, target.id) : undefined;
             out.push({
                 member: m.id,
                 entry,
                 ...(target ? { quest: target.quest, id: target.id } : {}),
                 ...(blockerStatus !== undefined ? { status: norm(blockerStatus) } : {}),
-                ...(target && queuedAhead(target.quest, target.id) ? { queuedAhead: true } : {}),
+                ...(at !== undefined ? { laterInGroup: true } : target && queuedAhead(target.quest, target.id) ? { queuedAhead: true } : {}),
             });
         }
-    }
+    });
     return out;
 }
 
-/** The question the todo panel asks before queueing `what` with blockers outside it: the message and its detail. */
+/** The blockers the todo panel warns about: those that do not run first (not in the queue ahead, not earlier in the group). */
+export function blockersNotAhead(blockers: readonly OutsideBlocker[]): OutsideBlocker[] {
+    return blockers.filter((b) => !b.queuedAhead);
+}
+
+/**
+ * The warning the todo panel gives before queueing `what` when members wait for todos that do not run before
+ * them ({@link blockersNotAhead}): the message and its detail. Every todo is queued all the same, blocked or not.
+ */
 export function outsideBlockersQuestion(what: string, blockers: readonly OutsideBlocker[]): { message: string; detail: string } {
     const members = [...new Set(blockers.map((b) => b.member))];
     const lines = blockers.map((b) => {
-        const state = b.queuedAhead ? 'already in the queue ahead' : b.status ? b.status : 'not found';
+        const state = b.laterInGroup ? 'later in this group' : b.queuedAhead ? 'already in the queue ahead' : b.status ? b.status : 'not found';
         return `• ${b.member} waits for ${b.entry} (${state})`;
     });
-    const ahead = blockers.filter((b) => b.queuedAhead).length;
+    const later = blockers.some((b) => b.laterInGroup);
     return {
-        message: `${what}: ${members.length === 1 ? `todo ${members[0]} is` : `${members.length} todos are`} blocked by todos outside it. Queue it anyway?`,
+        message: `${what}: ${members.length === 1 ? `todo ${members[0]} is` : `${members.length} todos are`} blocked by todos that do not run before them — not ahead in the prompt queue, not earlier in the group. Queue it anyway?`,
         detail: [
             ...lines,
             '',
-            ahead === blockers.length
-                ? 'Each blocker is in the queue ahead: when it is completed before the walk reaches the todo, the walk goes on.'
-                : 'A todo still blocked when the walk reaches it holds the item (item blocked) until its blocker is completed.',
+            'Every todo is queued, blocked or not. A todo still blocked when the walk reaches it holds the item (item blocked) until its blocker is completed.'
+                + (later ? ' A blocker later in the same group is only reached after it: complete it first, or change the order.' : ''),
         ].join('\n'),
     };
 }

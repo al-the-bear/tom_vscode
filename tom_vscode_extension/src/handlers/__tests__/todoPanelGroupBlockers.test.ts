@@ -3,12 +3,14 @@
  * through the vscode stub in a sandbox workspace of its own.
  *
  *   GB-1 the members: a `<prefix>*` group's todos as the walk reads them, a group todo's members of its quest
- *   GB-2 the blockers outside the group are found across quests: open ones, unknown ones; not the ones inside
- *        the group, not completed ones
- *   GB-3 with such blockers the user is asked first (a modal naming each member and what it waits for); Queue
- *        anyway goes on, anything else stops; without them nothing is asked
+ *   GB-2 the blockers that do not run first are found across quests: open ones, unknown ones, a member later in
+ *        the group (walk order: lowest number first, or `comprised_of`); not a member earlier in it, not completed
+ *        ones
+ *   GB-3 with such blockers the user is warned first (a modal naming each member and what it waits for); Queue
+ *        anyway goes on, anything else stops; without them nothing is asked (blockers ahead in the prompt queue are
+ *        left out: BS-2)
  *   GB-4 the check comes before anything else: before the group prompt is picked, before the queue target is
- *        asked
+ *        asked — for a `<prefix>*` walk, a group todo's GROUP item and a group todo's walk with a group prompt
  *   GB-5 every item queued from the todo panel names the todos it is about: the entry type requires
  *        `todoIdPattern`, and the walk over a `<prefix>*` group carries the prefix pattern
  */
@@ -55,6 +57,7 @@ createTodo('qa', { id: 'grpother', description: 'no number: no member', status: 
 createTodo('qa', { id: 'free1_x', description: 'free', status: 'not-started' } as never);
 createTodo('qa', { id: 'free2_x', description: 'free, waits inside', status: 'not-started', blocked_by: ['free1_x'] } as never);
 createTodo('qa', { id: 'bundle', description: 'a group todo', status: 'group', comprised_of: ['grp2_x', 'free1_x', 'qb/far1', 'grp2_x'] } as never);
+createTodo('qa', { id: 'reversed', description: 'a group todo in the wrong order', status: 'group', comprised_of: ['free2_x', 'free1_x'] } as never);
 
 describe('the todo panel before it queues a group', () => {
     test('GB-1: the members', () => {
@@ -71,6 +74,8 @@ describe('the todo panel before it queues a group', () => {
         ], 'not gate2 (completed), not grp1_x (a member), not the completed member\'s');
         // In the group todo, grp1_x is no member: it is outside.
         assert.deepEqual(groupOutsideBlockers('qa', groupTodoMembers('qa', findTodoById('qa', 'bundle'))).map((b) => `${b.member}<-${b.entry}`), ['grp2_x<-grp1_x', 'grp2_x<-qb/far1']);
+        // A member waiting for a member after it: the walk reaches it first.
+        assert.deepEqual(groupOutsideBlockers('qa', groupTodoMembers('qa', findTodoById('qa', 'reversed'))).map((b) => `${b.member}<-${b.entry}${b.laterInGroup ? ' (later)' : ''}`), ['free2_x<-free1_x (later)']);
         assert.deepEqual(groupOutsideBlockers('qa', prefixGroupMembers('qa', 'free')), [], 'a group that waits only inside itself');
     });
 
@@ -81,9 +86,9 @@ describe('the todo panel before it queues a group', () => {
         assert.equal(asked.length, 0, 'nothing outside: nothing is asked');
         assert.equal(await confirmGroupBlockers('qa', prefixGroupMembers('qa', 'grp'), 'The walk over grp*'), false, 'dismissed: not queued');
         assert.equal(asked.length, 1);
-        assert.equal(asked[0][0], 'The walk over grp*: 2 todos are blocked by todos outside it. Queue it anyway?');
+        assert.equal(asked[0][0], 'The walk over grp*: 2 todos are blocked by todos that do not run before them — not ahead in the prompt queue, not earlier in the group. Queue it anyway?');
         assert.equal(asked[0][1].modal, true);
-        assert.match(asked[0][1].detail, /^• grp1_x waits for gate1 \(in-progress\)\n• grp2_x waits for qb\/far1 \(not-started\)\n\nA todo still blocked when the walk reaches it holds the item/);
+        assert.match(asked[0][1].detail, /^• grp1_x waits for gate1 \(in-progress\)\n• grp2_x waits for qb\/far1 \(not-started\)\n\nEvery todo is queued, blocked or not\. A todo still blocked when the walk reaches it holds the item/);
         assert.deepEqual(asked[0].slice(2), ['Queue anyway']);
         answer = 'Queue anyway';
         assert.equal(await confirmGroupBlockers('qa', prefixGroupMembers('qa', 'grp'), 'The walk over grp*'), true);
@@ -91,9 +96,13 @@ describe('the todo panel before it queues a group', () => {
 
     test('GB-4: before anything else', () => {
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
-        const walk = src.slice(src.indexOf('async function queueGroupWalk('), src.indexOf('function pickGroupPrompt('));
+        const walk = src.slice(src.indexOf('async function queueGroupWalk('), src.indexOf('async function queueGroupTodoWalk('));
         const check = walk.indexOf('confirmGroupBlockers(walkQuest, prefixGroupMembers(walkQuest, prefix)');
-        assert.ok(check > 0 && check < walk.indexOf('pickGroupPrompt(prefix, choices)') && check < walk.indexOf('queueTodoEntriesWithFlow('), 'the walk: before the prompt and the target');
+        assert.ok(check > 0 && check < walk.indexOf('pickWalkPrompt(') && check < walk.indexOf('queueTodoEntriesWithFlow('), 'the walk: before the prompt and the target');
+        const todoWalk = src.slice(src.indexOf('async function queueGroupTodoWalk('), src.indexOf('async function pickWalkPrompt('));
+        const todoCheck = todoWalk.indexOf('confirmGroupBlockers(todoQuest, groupTodoMembers(todoQuest, todo)');
+        assert.ok(todoCheck > 0 && todoCheck < todoWalk.indexOf('pickWalkPrompt(') && todoCheck < todoWalk.indexOf('queueTodoEntriesWithFlow('), 'a group todo\'s walk: before the prompt and the target');
+        assert.match(todoWalk, /repeatCount: spec\.repeatCount, todoIdPattern: spec\.todoIdPattern/, 'a GROUP item naming the group and its members');
         const item = src.slice(src.indexOf('async function queueTodoAsItem('), src.indexOf('async function queueGroupWalk('));
         const groupCheck = item.indexOf("kind === 'group' && !await confirmGroupBlockers(todoQuest, groupTodoMembers(todoQuest, todo)");
         assert.ok(groupCheck > 0 && groupCheck < item.indexOf('queueTodoEntriesWithFlow('), 'a group todo: before the target');
@@ -103,7 +112,7 @@ describe('the todo panel before it queues a group', () => {
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf8');
         const entry = src.slice(src.indexOf('interface TodoQueueEntry {'), src.indexOf('}', src.indexOf('interface TodoQueueEntry {')));
         assert.match(entry, /\n    todoIdPattern: string;/, 'required: an entry without it does not compile');
-        assert.match(src, /todoId: `\$\{prefix\}\*`, text, repeatCount: `\$\{prefix\}\*`, todoIdPattern: `\$\{prefix\}\*`,/, 'the prefix walk');
+        assert.match(src, /todoId: `\$\{prefix\}\*`, text: prompt\.text, repeatCount: `\$\{prefix\}\*`, todoIdPattern: `\$\{prefix\}\*`,/, 'the prefix walk');
         assert.match(src, /repeatCount: spec\.repeatCount,\s*todoIdPattern: spec\.todoIdPattern,/, 'TODO and GROUP items');
         assert.equal((src.match(/todoIdPattern: (todo\.id|todoId)\b/g) ?? []).length >= 3, true, 'the Queue button, the template queue, the stack');
     });

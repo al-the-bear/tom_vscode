@@ -32,7 +32,7 @@ import * as questTodo from '../managers/questTodoManager.js';
 import { todoListItem, withTodoGroups, type TodoListItem } from '../utils/todoListItem';
 import { isTodoOverdue, localDate } from '../utils/todoDue';
 import { groupListInfo, questStatusIndex } from '../utils/todoBlockingCascade';
-import { outsideBlockers, outsideBlockersQuestion, type OutsideBlocker } from '../utils/todoBlockState';
+import { blockersNotAhead, outsideBlockers, outsideBlockersQuestion, type OutsideBlocker } from '../utils/todoBlockState';
 import { collectPrefixTodos } from '../utils/queueStep3Utils';
 import { todoQuestsRoot } from '../utils/todoBlockingSync';
 import { runDependencyCleanup, type CleanupScope } from '../services/todoDependencyCleanup';
@@ -175,6 +175,8 @@ interface QtPanelState {
     sortFields?: { field: string; asc: boolean }[];
     /** The list grouped by id prefix (default true; the sort picker's Group checkbox). */
     grouped?: boolean;
+    /** Group todo members only under their group todo, not again in their prefix group (the action bar's toggle). */
+    hideGroupMembers?: boolean;
     filterState?: {
         status?: string[];
         priority?: string[];
@@ -2279,6 +2281,11 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             await queueTodoAsItem(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, msg.asTodo === true ? 'todo' : undefined, msg.sourceFile);
             return true;
         }
+        case 'qtQueueGroupTodoPrompt': {
+            // A group todo's 🔁 (header, tile): pick the group prompt, then a GROUP item over its members.
+            await queueGroupTodoWalk(effectiveQuestId(msg.questId), String(msg.todoId || ''), instance, msg.sourceFile);
+            return true;
+        }
         case 'qtQueueGroupPrompt': {
             const walkQuest = effectiveQuestId(msg.questId);
             const walkPrefix = String(msg.prefix || '');
@@ -3382,8 +3389,10 @@ async function _queueTodo(todo: questTodo.QuestTodoItem, questId: string | undef
 /** The open members of a `<prefix>*` group of `quest`, as the walk reads them (lowest number first). */
 export function prefixGroupMembers(quest: string, prefix: string): questTodo.QuestTodoItem[] {
     const todos = questTodo.readAllTodos(quest);
-    const ids = new Set(collectPrefixTodos(prefix, todos.map((t) => ({ id: t.id, status: t.status }))).map((e) => e.id));
-    return todos.filter((t) => ids.has(t.id));
+    const byId = new Map(todos.map((t) => [t.id, t]));
+    // In walk order (lowest number first): a blocker earlier in the walk runs first.
+    return collectPrefixTodos(prefix, todos.map((t) => ({ id: t.id, status: t.status })))
+        .map((e) => byId.get(e.id)).filter((t): t is questTodo.QuestTodoItem => !!t);
 }
 
 /** A group todo's members of its own quest, in `comprised_of` order. */
@@ -3400,9 +3409,10 @@ export function groupTodoMembers(quest: string, group: questTodo.QuestTodoItem |
 }
 
 /**
- * What the members of a group about to be queued wait for outside the group: unmet `blocked_by` entries
- * naming a todo that is no member. A blocker of this window's quest that the prompt queue already holds is
- * marked `queuedAhead`.
+ * What the members of a group about to be queued (in walk order) wait for that does not run before them:
+ * unmet `blocked_by` entries naming a todo that is no member, or a member at or after them (`laterInGroup`).
+ * A blocker of this window's quest that the prompt queue already holds — a single todo, a `<prefix>*` walk or
+ * a GROUP item naming it — is marked `queuedAhead`.
  */
 export function groupOutsideBlockers(quest: string, members: readonly questTodo.QuestTodoItem[]): OutsideBlocker[] {
     const root = todoQuestsRoot() ?? WsPaths.ai('quests');
@@ -3415,12 +3425,13 @@ export function groupOutsideBlockers(quest: string, members: readonly questTodo.
 }
 
 /**
- * Before a group is queued — a group todo's members, a `<prefix>*` group — its `blocked_by` dependencies are
- * checked first: when members wait for todos outside the group (not completed, or already in the queue
- * ahead), the user is asked whether to queue it all the same. Answers whether to go on.
+ * Before a group is queued — a GROUP item over a group todo's members, a `<prefix>*` walk — its `blocked_by`
+ * dependencies are checked first, the same way for both: when members wait for todos that do not run before
+ * them (not completed, not ahead in the prompt queue, not earlier in the group), the user is warned and asked
+ * whether to queue it all the same. Every member is queued, blocked or not. Answers whether to go on.
  */
 export async function confirmGroupBlockers(quest: string, members: readonly questTodo.QuestTodoItem[], what: string): Promise<boolean> {
-    const blockers = groupOutsideBlockers(quest, members);
+    const blockers = blockersNotAhead(groupOutsideBlockers(quest, members));
     if (!blockers.length) { return true; }
     const q = outsideBlockersQuestion(what, blockers);
     const picked = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Queue anyway');
@@ -3970,34 +3981,65 @@ async function queueGroupWalk(questId: string, prefix: string, instance = 'panel
     if (!walkQuest) { void vscode.window.showWarningMessage('A group walk needs its quest: open the quest, or show it by quest.'); return; }
     // The group's blockers outside the group first, before anything else is asked.
     if (!await confirmGroupBlockers(walkQuest, prefixGroupMembers(walkQuest, prefix), `The walk over ${prefix}*`)) { return; }
-    const dirs = groupPromptDirs(walkQuest);
-    const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], walkQuest);
-    const picked = await pickGroupPrompt(prefix, choices);
-    if (!picked) { return; }
+    const prompt = await pickWalkPrompt(walkQuest, `${prefix}*`, `a walk over ${prefix}*`);
+    if (!prompt) { return; }
+    await queueTodoEntriesWithFlow(instance, walkQuest, `a walk over ${prefix}* with "${prompt.label}"`, [{
+        // The item names the todos it is about, as every item queued from the todo panel does.
+        todoId: `${prefix}*`, text: prompt.text, repeatCount: `${prefix}*`, todoIdPattern: `${prefix}*`,
+    }], walkQuest);
+}
+
+/**
+ * A group todo's "Queue Group Prompt" (its header and its tile, as a prefix group's 🔁): the same checks and the
+ * same prompt choice as {@link queueGroupWalk}, then a GROUP item that walks the group's members in
+ * `comprised_of` order with the prompt picked, where the queue-target flow says. Every member is queued, blocked or
+ * not; members waiting for todos that do not run before them are warned about first.
+ */
+async function queueGroupTodoWalk(questId: string, todoId: string, instance = 'panel', sourceFile?: string): Promise<void> {
+    if (!todoId) { void vscode.window.showErrorMessage('Select a group todo first.'); return; }
+    const todoQuest = _todoQuestOf(questId, sourceFile, todoId);
+    const todo = todoQuest ? questTodo.findTodoById(todoQuest, todoId) : undefined;
+    const spec = todoQueueItemSpec('group', todoQuest, todoId, todo);
+    if (!spec.ok) { void vscode.window.showWarningMessage(spec.error); return; }
+    if (_isRepeatedTodoAction(`${todoQuest}/${spec.id}`, 'queue-group-walk', undefined, `queued: the group ${spec.id}`)) { return; }
+    if (!await confirmGroupBlockers(todoQuest, groupTodoMembers(todoQuest, todo), `The group ${spec.id}`)) { return; }
+    const prompt = await pickWalkPrompt(todoQuest, spec.id, `the group ${spec.id} (a GROUP item over its members)`);
+    if (!prompt) { return; }
+    await queueTodoEntriesWithFlow(instance, todoQuest, `the group ${spec.id} as a GROUP item with "${prompt.label}"`, [{
+        todoId: spec.id, text: prompt.text, repeatCount: spec.repeatCount, todoIdPattern: spec.todoIdPattern,
+    }], todoQuest);
+}
+
+/**
+ * The group prompt a walk is queued with: pick one (the default, the default with an addition, or one of the
+ * quest's own prompts) or open the group prompt editor (answers undefined then, as for a dismissed picker).
+ */
+async function pickWalkPrompt(quest: string, name: string, what: string): Promise<{ text: string; label: string } | undefined> {
+    const dirs = groupPromptDirs(quest);
+    const choices = groupPromptChoices(dirs ? readGroupPrompts(dirs) : [], quest);
+    const picked = await pickGroupPrompt(name, choices, what);
+    if (!picked) { return undefined; }
     if (picked === 'editor') {
-        await vscode.commands.executeCommand('tomAi.editor.groupPrompts', walkQuest);
-        return;
+        await vscode.commands.executeCommand('tomAi.editor.groupPrompts', quest);
+        return undefined;
     }
     let text = picked.choice.text;
     let label = picked.choice.label;
     if (picked.withAddition) {
         // An addition typed for this walk only, appended like a stored one.
         const addition = await showMultilineInput({
-            title: `Queue Group Prompt: ${prefix}*`,
+            title: `Queue Group Prompt: ${name}`,
             prompt: `What to add to "${picked.choice.label}" for this walk (not stored). It follows the prompt after a blank line.`,
             placeholder: 'e.g. Run the tests of every package you touch.',
             okLabel: 'Queue',
             contextLabel: `${picked.choice.label} (${picked.choice.description})`,
             context: picked.choice.text,
         });
-        if (addition === undefined) { return; }
+        if (addition === undefined) { return undefined; }
         text = composeGroupPrompt(text, addition);
         if (addition.trim()) { label = `${label} + typed addition`; }
     }
-    await queueTodoEntriesWithFlow(instance, walkQuest, `a walk over ${prefix}* with "${label}"`, [{
-        // The item names the todos it is about, as every item queued from the todo panel does.
-        todoId: `${prefix}*`, text, repeatCount: `${prefix}*`, todoIdPattern: `${prefix}*`,
-    }], walkQuest);
+    return { text, label };
 }
 
 /**
@@ -4005,7 +4047,7 @@ async function queueGroupWalk(questId: string, prefix: string, instance = 'panel
  * picks it with an addition typed for this walk; "Default + an addition I
  * type…"; and the group prompt editor.
  */
-function pickGroupPrompt(prefix: string, choices: GroupPromptChoice[]): Promise<{ choice: GroupPromptChoice; withAddition: boolean } | 'editor' | undefined> {
+function pickGroupPrompt(name: string, choices: GroupPromptChoice[], what: string): Promise<{ choice: GroupPromptChoice; withAddition: boolean } | 'editor' | undefined> {
     type Item = vscode.QuickPickItem & { choice?: GroupPromptChoice; typed?: boolean; editor?: boolean };
     const typeButton: vscode.QuickInputButton = { iconPath: new vscode.ThemeIcon('edit'), tooltip: 'With an addition I type for this walk…' };
     const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? '';
@@ -4016,7 +4058,7 @@ function pickGroupPrompt(prefix: string, choices: GroupPromptChoice[]): Promise<
         { label: '$(gear) Open Group Prompt Editor…', editor: true },
     ];
     const qp = vscode.window.createQuickPick<Item>();
-    qp.title = `Queue Group Prompt: a walk over ${prefix}*`;
+    qp.title = `Queue Group Prompt: ${what}`;
     qp.placeholder = 'The prompt each todo of the group is sent with (✎: add text of your own)';
     qp.matchOnDescription = true;
     qp.items = items;

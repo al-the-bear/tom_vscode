@@ -7,8 +7,10 @@
  * outcome: completed, or needs attention), or a checkbox for a member still to
  * come — checked when the walk will send it.
  *
- * The checkboxes start from the walk's rules (walkRuleSends: not started — or a
- * manual repeated todo —, not the user's own). The user's choices are stored on
+ * The checkboxes start from the walk's rules, the same as a `<prefix>*` walk's:
+ * not started — or a manual repeated todo — (walkRuleSends), or `blocked` /
+ * `decision-needed`, where the walk holds until the blocker is completed or the
+ * decision taken; never the user's own. Every member is queued, blocked or not. The user's choices are stored on
  * the item as overrides (`groupSelection`: the members checked and those
  * unchecked by hand); a member without a choice follows the rules, so one
  * added to the group later starts as the rules say, and one removed from it is
@@ -99,10 +101,16 @@ export function groupItemMembers(input: {
         const base = { id: e.id, ...(source?.title ? { title: source.title } : {}), status: e.status };
         if (e.id === input.sendingId) { return { ...base, marker: 'sending' }; }
         if (input.sent.has(e.id)) { return { ...base, marker: 'sent', outcome: e.status === 'completed' ? 'completed' : 'needs attention' }; }
-        const byRule = walkRuleSends(source ?? e);
+        const byRule = walkRuleSends(source ?? e) || walkHoldsAt(source ?? e);
         const chosen = checked.has(e.id) || unchecked.has(e.id);
         return { ...base, marker: 'todo', checked: chosen ? checked.has(e.id) : byRule, byRule, ...(chosen ? { chosen: true } : {}) };
     });
+}
+
+/** A member the walk holds at until it can be sent: `blocked` or `decision-needed`, not the user's own. */
+export function walkHoldsAt(e: { status?: string; userAction?: boolean }): boolean {
+    const status = (e.status || '').trim().toLowerCase().replace(/_/g, '-');
+    return (status === 'blocked' || status === 'decision-needed') && e.userAction !== true;
 }
 
 /** A member's marker as text (tomAi_listQueue): `→`, `✓ completed`, `☑`, `☐`. */

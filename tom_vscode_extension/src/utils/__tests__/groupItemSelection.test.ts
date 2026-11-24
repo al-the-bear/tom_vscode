@@ -3,8 +3,9 @@
  * queueStep3Utils.ts).
  *
  *   GS-1 the members in comprised_of order with their markers: → the member being sent, ✓ completed / needs
- *        attention for those sent, a checkbox for the others, checked by the walk's rules (not started, not the
- *        user's own; a completed, blocked or user-action member unchecked)
+ *        attention for those sent, a checkbox for the others, checked by the walk's rules — a prefix walk's: not
+ *        started, blocked or decision-needed (the walk holds there), not the user's own; a completed, in-progress or
+ *        user-action member unchecked
  *   GS-2 the user's choices win over the rules: a completed or blocked member checked, an open one unchecked; a
  *        member added later follows the rules, a removed one is dropped
  *   GS-3 the walk sends exactly the checked members, in order: a checked completed / blocked / user-action member is
@@ -12,8 +13,8 @@
  *   GS-4 the selection helpers: one member's choice, select all, the selection of a list, parse
  *   GS-5 an unchecked decision-needed member holds no walk; an unchecked user-action member is not reported as left
  *        to the user
- *   GS-6 the queue editor's list: → / ✓ / checkbox rows, Select all / Reset to rules while editable, their
- *        messages; no buttons and disabled boxes on a sent item
+ *   GS-6 the queue editor's list: → / ✓ / ⚠ / checkbox rows (a sent member's mark alone, its outcome on hover),
+ *        Select all / Reset to rules while editable, their messages; no buttons and disabled boxes on a sent item
  */
 
 import test, { describe } from 'node:test';
@@ -41,11 +42,14 @@ describe('the members of a GROUP item', () => {
     test('GS-1: markers and the rules', () => {
         const rows = groupItemMembers({ walk: WALK, todos: TODOS, sent: new Set(['a1', 'f1']), sendingId: 'b1' });
         assert.deepEqual(rows.map((r) => [r.id, r.marker, r.outcome ?? r.checked ?? null]), [
-            ['a1', 'sent', 'completed'], ['b1', 'sending', null], ['c1', 'todo', false],
+            ['a1', 'sent', 'completed'], ['b1', 'sending', null], ['c1', 'todo', true],
             ['d1', 'todo', false], ['e1', 'todo', true], ['f1', 'sent', 'needs attention'],
         ]);
         assert.equal(rows[0].title, 'A');
-        assert.deepEqual(rows.map(memberMarkerText), ['✓ completed', '→', '☐', '☐', '☑', '✓ needs attention']);
+        assert.deepEqual(rows.map(memberMarkerText), ['✓ completed', '→', '☑', '☐', '☑', '✓ needs attention']);
+        // Blocked and decision-needed members are queued like a prefix walk's: the walk holds there; the user's own is not.
+        const held = groupItemMembers({ walk: WALK, todos: TODOS.map((t) => (t.id === 'e1' ? { ...t, status: 'decision-needed' } : t.id === 'd1' ? { ...t, status: 'blocked' } : t)), sent: new Set() });
+        assert.deepEqual(held.map((r) => [r.id, r.checked]), [['a1', false], ['b1', true], ['c1', true], ['d1', false], ['e1', true], ['f1', false]]);
         assert.deepEqual(groupItemMembers({ walk: { kind: 'prefix', prefix: 'x' }, todos: TODOS, sent: new Set() }), [], 'no GROUP item');
     });
 
@@ -53,7 +57,7 @@ describe('the members of a GROUP item', () => {
         const selection = { checked: ['a1', 'c1', 'gone1'], unchecked: ['e1'] };
         const rows = groupItemMembers({ walk: WALK, todos: TODOS, selection, sent: new Set() });
         assert.deepEqual(rows.map((r) => [r.id, r.checked, r.byRule, r.chosen ?? false]), [
-            ['a1', true, false, true], ['b1', true, true, false], ['c1', true, false, true],
+            ['a1', true, false, true], ['b1', true, true, false], ['c1', true, true, true],
             ['d1', false, false, false], ['e1', false, true, true], ['f1', false, false, false],
         ]);
         const later = TODOS.map((t) => (t.id === 'g1' ? { ...t, comprisedOf: ['a1', 'e1', 'n1'] } : t)).concat({ id: 'n1', status: 'not-started' });
@@ -130,7 +134,13 @@ describe('the queue editor\'s member list', () => {
         const live = row('g-live');
         const memberRows = [...live.querySelectorAll('.group-members .gm-row')] as any[];
         assert.deepEqual(memberRows.map((r) => r.getAttribute('data-member')), ['a1', 'b1', 'c1', 'd1', 'e1', 'f1'], 'comprised_of order');
-        assert.match(memberRows[0].textContent, /✓ completed/);
+        assert.equal(memberRows[0].querySelector('.gm-mark').textContent, '✓', 'the mark alone');
+        assert.equal(memberRows[0].querySelector('.gm-mark').title, 'Sent by this item: completed', 'the outcome on hover');
+        const attention = window.document.createElement('div');
+        attention.innerHTML = window.renderGroupMembers({ status: 'sent', groupMembers: [{ id: 'f1', status: 'in-progress', marker: 'sent', outcome: 'needs attention' }] }, 'x');
+        assert.equal(attention.querySelector('.gm-mark').textContent, '⚠', 'needs attention: its own mark');
+        assert.equal(attention.querySelector('.gm-mark').title, 'Sent by this item: needs attention');
+        assert.doesNotMatch(attention.textContent, /needs attention/, 'no text beside the mark');
         assert.match(memberRows[1].querySelector('.gm-mark').textContent, /→/);
         const box = (r: any) => r.querySelector('input.gm-box');
         assert.deepEqual(memberRows.slice(2).map((r) => box(r).checked), [true, false, true, false], 'c1 by hand, d1 the user\'s, e1 by rules, f1 in progress');

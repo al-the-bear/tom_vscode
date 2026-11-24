@@ -35,6 +35,8 @@ var qtSortFields = []; // [{field,asc}]
 var SORTABLE_FIELDS = ['id','quest','status','priority','title','created','updated','completed_date'];
 /** Group the list by id prefix (the sort picker's Group checkbox; default on). */
 var qtGroupByPrefix = true;
+/** Group todo members hidden below (the action bar's toggle): a member shows only under its group todo, not again in its prefix group or among the todos without one. */
+var qtHideGroupMembers = false;
 var qtUserName = '';
 /** The roles under _ai/roles (the host answers qtRoles): the detail form's Role choices (gsel3). */
 var qtRoles = [];
@@ -92,6 +94,7 @@ function qtPersistState() {
         tagScope: qtTagPickerScope,
         sortFields: qtSortFields,
         grouped: qtGroupByPrefix,
+        hideGroupMembers: qtHideGroupMembers,
         filterState: qtFilterState
     }});
 }
@@ -239,6 +242,9 @@ function qtNavPush(todoId) {
     if (btnExpandAll) btnExpandAll.addEventListener('click', function() { qtExpandAllGroups(); });
     var btnOnlyMine = document.getElementById('qt-btn-only-mine');
     if (btnOnlyMine) btnOnlyMine.addEventListener('click', function() { qtToggleOnlyUserActions(); });
+    var btnGroupMembers = document.getElementById('qt-btn-group-members');
+    if (btnGroupMembers) btnGroupMembers.addEventListener('click', function() { qtToggleGroupMembers(); });
+    qtUpdateGroupMembersButton();
     // Clear todo stack button
     var btnClearStack = document.getElementById('qt-btn-clear-stack');
     if (btnClearStack) btnClearStack.addEventListener('click', function() { qtClearStack(); });
@@ -839,6 +845,7 @@ function qtRenderTodoGroupHeader(g, expanded) {
         '<span class="qt-group-label">' + qtEsc(name) + '</span>' +
         '<span class="qt-group-count">(' + g.total + ')</span>' +
         '<span class="qt-todogroup-progress" title="' + g.done + ' of ' + g.total + ' members done">' + g.done + '/' + g.total + '</span>' +
+        qtTodoGroupWalkButton(t) +
         qtTodoGroupQueueButton(t, 'qt-todogroup-queue-btn') +
         '</div>' +
         '<div class="qt-todogroup-row2">' +
@@ -855,8 +862,13 @@ function qtRenderTodoGroupHeader(g, expanded) {
  * members (vscimpb127). Both ask where (quest, run, session; next or end as the
  * Next toggle says).
  */
+/** Whether `t` is a group todo (status `group`, or members in `comprised_of`). */
+function qtIsGroupTodo(t) {
+    return !!t && (t.status === 'group' || (Array.isArray(t.comprised_of) && t.comprised_of.length > 0));
+}
+
 function qtQueueItemButton(t) {
-    var group = t.status === 'group' || (Array.isArray(t.comprised_of) && t.comprised_of.length > 0);
+    var group = qtIsGroupTodo(t);
     return '<button class="qt-queue-item-btn" data-qt-queue-item="' + qtEsc(t.id) + '"' + (group ? ' data-qt-queue-group="1"' : '') + ' title="' +
         (group ? 'Queue as group: a GROUP item that walks the group\'s members in order' : 'Queue this todo: a prompt with the todo in the Todo buttons template (as the detail\'s Queue button)') +
         '; asks the quest, run and session">\u23e9</button>';
@@ -871,6 +883,20 @@ function qtQueueAsTodoItem(id, asTodo) {
 function qtTodoGroupQueueButton(t, cls) {
     if (!QT_GROUP_QUEUE_AVAILABLE || !t) return '';
     return '<button class="' + cls + '" data-qt-todogroup-queue="' + qtEsc(t.id) + '" title="Queue this group as a GROUP item to the panel\'s queue target">\u23f5</button>';
+}
+
+/**
+ * The Queue Group Prompt button of a group todo (its header and its tile), as a prefix group's 🔁: the host asks
+ * which group prompt, then queues a GROUP item that walks the members.
+ */
+function qtTodoGroupWalkButton(t) {
+    if (!QT_GROUP_QUEUE_AVAILABLE || !t || t.status === 'completed' || t.status === 'cancelled') return '';
+    return '<button class="qt-todogroup-walk-btn" data-qt-todogroup-walk="' + qtEsc(t.id) + '" title="Queue Group Prompt: a GROUP item that walks the members of ' + qtEsc(t.id) + ' in order with a group prompt you pick…">\ud83d\udd01</button>';
+}
+
+/** Queue group todo `id` as a GROUP item with a group prompt the host asks for. */
+function qtQueueTodoGroupWalk(id) {
+    vscode.postMessage({ type: 'qtQueueGroupTodoPrompt', questId: qtCurrentQuestId, todoId: id, sourceFile: qtSourceFileForId(id) });
 }
 
 /** Queue todo group `id` (a GROUP item) to the panel's queue target. */
@@ -1069,7 +1095,7 @@ function qtRenderTodoRow(t) {
         // A repeated todo waiting for its next repetition: Repeat now brings it back at once.
         reopenBtn = '<button class="qt-reopen-btn qt-repeat-now-btn" data-qt-reopen="' + qtEsc(t.id) + '" title="Repeat now (set to not-started)' + (t.next_repeat ? ' — otherwise due ' + qtEsc(t.next_repeat.replace('T', ' ')) : '') + '">⏭️</button>';
     } else {
-        queueItemBtn = isQuestMode ? qtQueueItemButton(t) : '';
+        queueItemBtn = isQuestMode ? (qtIsGroupTodo(t) ? qtTodoGroupWalkButton(t) : '') + qtQueueItemButton(t) : '';
         moveBtn = isQuestMode && qtCurrentFile === 'all' ? '<button class="qt-move-btn" data-qt-move="' + qtEsc(t.id) + '" title="Move to main quest todo file">➡️</button>' : '';
         moveWsBtn = '<button class="qt-move-ws-btn" data-qt-movews="' + qtEsc(t.id) + '" title="' + (qtStack.length > 1 ? 'Move ' + qtStack.length + ' stacked todos to another group / quest / workspace / another quest…' : 'Move this todo to another group / quest / workspace / another quest…') + '">⬆️</button>';
     }
@@ -1208,15 +1234,22 @@ function qtListHtml(filtered, renderOrder, groups, quest, grouped) {
     // Several quests in one set (not arranged by quest): the groups are still one quest's each, so a prefix two
     // quests use gives two groups, and a group todo's members are its own quest's.
     var perQuest = !quest && qtScopeMulti;
-    var prefixGroups = !grouped ? [] : perQuest ? qtGroupTodosByQuestPrefix(filtered, qtQuestKey) : qtGroupTodosByPrefix(filtered);
+    // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
+    // order; a member also stays in its prefix group (shown twice) unless the
+    // "Group todo members" toggle hides it there. Members are not in
+    // renderOrder, so a shift-click range never counts a row twice.
+    var todoGroups = !grouped ? [] : perQuest ? qtTodoGroupsByQuest(filtered, qtQuestKey) : qtTodoGroupsOf(filtered, quest || qtCurrentQuestId);
+    var below = filtered;
+    if (grouped && qtHideGroupMembers && todoGroups.length) {
+        var memberRows = [];
+        todoGroups.forEach(function(g) { g.members.forEach(function(m) { if (m.row) memberRows.push(m.row); }); });
+        below = filtered.filter(function(t) { return memberRows.indexOf(t) < 0; });
+    }
+    var prefixGroups = !grouped ? [] : perQuest ? qtGroupTodosByQuestPrefix(below, qtQuestKey) : qtGroupTodosByPrefix(below);
     prefixGroups.forEach(function(g) {
         if (quest) { g.key = quest + '::' + g.prefix; g.quest = quest; }
         groups.push(g);
     });
-    // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
-    // order; a member also stays in its prefix group (shown twice). Members are
-    // not in renderOrder, so a shift-click range never counts a row twice.
-    var todoGroups = !grouped ? [] : perQuest ? qtTodoGroupsByQuest(filtered, qtQuestKey) : qtTodoGroupsOf(filtered, quest || qtCurrentQuestId);
     for (var tgi = 0; tgi < todoGroups.length; tgi++) {
         var tg = todoGroups[tgi];
         var tgExpanded = qtIsGroupExpanded(qtTodoGroupKey(tg.todo.id));
@@ -1422,6 +1455,13 @@ function qtRenderList() {
         hdr.addEventListener('click', function(e) {
             var id = hdr.getAttribute('data-qt-todogroup') || '';
             if (e.target.closest('.qt-todogroup-toggle')) { qtToggleGroup(qtTodoGroupKey(id)); return; }
+            var walkBtn = e.target.closest('.qt-todogroup-walk-btn');
+            if (walkBtn) {
+                e.stopPropagation();
+                qtPauseButton(walkBtn);
+                qtQueueTodoGroupWalk(id);
+                return;
+            }
             var queueBtn = e.target.closest('.qt-todogroup-queue-btn');
             if (queueBtn) {
                 e.stopPropagation();
@@ -1453,6 +1493,14 @@ function qtRenderList() {
             var circleEl = e.target.closest('.qt-stack-circle');
             if (circleEl) {
                 qtToggleStack(circleEl.getAttribute('data-qt-stackid'), e.shiftKey);
+                return;
+            }
+            var tileWalk = e.target.closest('.qt-todogroup-walk-btn');
+            if (tileWalk) {
+                e.stopPropagation();
+                if (tileWalk.disabled) return;
+                qtPauseButton(tileWalk);
+                qtQueueTodoGroupWalk(tileWalk.getAttribute('data-qt-todogroup-walk') || '');
                 return;
             }
             var queueItem = e.target.closest('.qt-queue-item-btn');
@@ -1669,6 +1717,28 @@ function qtUpdateFilterIndicator() {
     }
     var mine = document.getElementById('qt-btn-only-mine');
     if (mine) mine.classList.toggle('active-indicator', qtShowsOnlyUserActions());
+}
+
+/** The "Group todo members hidden / shown" toggle's look: pressed while members are hidden below. */
+function qtUpdateGroupMembersButton() {
+    var btn = document.getElementById('qt-btn-group-members');
+    if (!btn) return;
+    btn.classList.toggle('active-indicator', qtHideGroupMembers);
+    btn.setAttribute('aria-pressed', qtHideGroupMembers ? 'true' : 'false');
+    btn.title = 'Group todo members: ' + (qtHideGroupMembers
+        ? 'hidden below — a member shows only under its group todo, not again in its prefix group or among the other todos'
+        : 'shown — a member shows under its group todo and again in its prefix group or among the other todos')
+        + ' (with the list grouped). Click to ' + (qtHideGroupMembers ? 'show them again' : 'hide them') + '.';
+    var icon = btn.querySelector('.codicon');
+    if (icon) { icon.className = 'codicon ' + (qtHideGroupMembers ? 'codicon-eye-closed' : 'codicon-eye'); }
+}
+
+/** Hide or show the group todo members below their group todos. */
+function qtToggleGroupMembers() {
+    qtHideGroupMembers = !qtHideGroupMembers;
+    qtUpdateGroupMembersButton();
+    qtRenderList();
+    qtPersistState();
 }
 
 /** Is the list showing only the user's own todos (the 👤 toggle)? */
@@ -3992,6 +4062,8 @@ function qtHandleMessage(msg) {
                     qtSortFields = st.sortFields;
                 }
                 if (st.grouped === false) { qtGroupByPrefix = false; }
+                qtHideGroupMembers = st.hideGroupMembers === true;
+                qtUpdateGroupMembersButton();
                 qtUpdateSortIndicator();
                 if (st.tagScope === 'quest' || st.tagScope === 'all') {
                     qtTagPickerScope = st.tagScope;

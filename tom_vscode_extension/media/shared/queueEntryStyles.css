@@ -256,6 +256,7 @@ body.queue-editor-page > .queue-scroll { flex: 1 1 auto; min-height: 0; overflow
 .group-members .gm-mark { min-width: 1.2em; }
 .group-members .gm-sending .gm-mark { color: var(--vscode-charts-blue, #3794ff); font-weight: 700; }
 .group-members .gm-sent .gm-mark { color: var(--vscode-charts-green, #89d185); white-space: nowrap; }
+.group-members .gm-sent .gm-mark.gm-attention { color: var(--vscode-charts-yellow, #cca700); }
 .group-members .gm-id { font-family: var(--vscode-editor-font-family, monospace); }
 .group-members .gm-status { opacity: 0.75; }
 .group-members .gm-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

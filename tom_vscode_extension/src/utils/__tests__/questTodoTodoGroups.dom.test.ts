@@ -15,6 +15,11 @@
  *         normal prompt with the todo id), a group todo as a GROUP item; the detail view's "Queue as todo item"
  *         asks for a TODO item; a done todo's tile has none
  *   TGP-7 qtTodoGroupsOf (grouping.js): the groups by title, progress over all members, members marked foreign
+ *   TGP-9 a group todo's 🔁 (its header and its tile, as a prefix group's): the host picks the group prompt and queues
+ *         a GROUP item (qtQueueGroupTodoPrompt); a done group todo has none
+ *   TGP-10 the "Group todo members" toggle: hidden, a member shows only under its group todo — not again in its
+ *         prefix group or among the other todos —, the others stay; shown again on a second click; the choice is
+ *         saved with the panel's state and restored
  */
 
 import test, { describe } from 'node:test';
@@ -216,5 +221,51 @@ describe('qtTodoGroupsOf', () => {
         window.qtHandleMessage({ type: 'qtArchiveResult', success: true, moved: [], refreshDetail: true });
         assert.ok(sent.some((m: any) => m.type === 'qtGetTodos'), 'the list');
         assert.ok(sent.some((m: any) => m.type === 'qtGetTodo' && m.todoId === 'rel1-release'), 'and the open detail: ' + JSON.stringify(sent.map((m: any) => m.type)));
+    });
+});
+
+describe('group todo walks and members in the todo panel', () => {
+    test('TGP-9: the group todo\'s walk button', () => {
+        const { window, sent } = setupPanel(TODOS);
+        const btn = header(window).querySelector('.qt-todogroup-walk-btn');
+        assert.ok(btn, 'on the header');
+        assert.match(btn.title, /^Queue Group Prompt: a GROUP item that walks the members of rel1-release in order with a group prompt you pick/);
+        btn.click();
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueGroupTodoPrompt', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml' });
+        assert.equal(header(window).classList.contains('selected'), false, 'the click does not open the group');
+        window.eval('qtExpandAllGroups()');
+        const tile = window.document.querySelector('#qt-list-pane .qt-todo-item[data-qt-id="rel1-release"]');
+        const tileBtn = tile.querySelector('.qt-todogroup-walk-btn');
+        assert.ok(tileBtn, 'on the group todo\'s tile');
+        sent.length = 0;
+        tileBtn.click();
+        assert.deepEqual(plain(sent.at(-1)), { type: 'qtQueueGroupTodoPrompt', questId: 'qa', todoId: 'rel1-release', sourceFile: 'todos.qa.todo.yaml' });
+        assert.equal(window.document.querySelector('#qt-list-pane .qt-todo-item[data-qt-id="misc1-other"] .qt-todogroup-walk-btn'), null, 'a todo that is no group has none');
+        const done = setupPanel([{ ...TODOS[0], status: 'completed' }, ...TODOS.slice(1)]).window;
+        assert.equal(header(done).querySelector('.qt-todogroup-walk-btn'), null, 'a done group todo has none');
+    });
+
+    test('TGP-10: group todo members hidden / shown', () => {
+        const { window, sent } = setupPanel(TODOS);
+        window.eval('qtExpandAllGroups()');
+        const rows = (id: string) => window.document.querySelectorAll(`#qt-list-pane .qt-todo-item[data-qt-id="${id}"]`).length;
+        assert.deepEqual([rows('rel3-tag'), rows('rel2-changelog'), rows('misc1-other')], [2, 2, 1], 'shown: in the group and in the prefix group');
+        const btn = window.document.getElementById('qt-btn-group-members');
+        assert.match(btn.title, /^Group todo members: shown/);
+        btn.click();
+        assert.deepEqual([rows('rel3-tag'), rows('rel2-changelog'), rows('misc1-other'), rows('rel1-release')], [1, 1, 1, 1], 'hidden: only under the group todo; the others and the group todo stay');
+        assert.ok(window.document.querySelector('#qt-list-pane .qt-todogroup-members .qt-todo-item[data-qt-id="rel3-tag"]'), 'the member under its group todo');
+        assert.match(btn.title, /^Group todo members: hidden/);
+        assert.equal(btn.getAttribute('aria-pressed'), 'true');
+        const saved = sent.filter((m) => m.type === 'qtSaveState').at(-1) as any;
+        assert.equal(saved.state.hideGroupMembers, true, 'saved with the panel state');
+        btn.click();
+        assert.deepEqual([rows('rel3-tag'), rows('rel2-changelog')], [2, 2], 'shown again');
+        // Restored from the saved state.
+        const restored = setupPanel(TODOS).window;
+        restored.qtHandleMessage({ type: 'qtState', state: { hideGroupMembers: true } });
+        restored.eval('qtExpandAllGroups()');
+        assert.equal(restored.document.querySelectorAll('#qt-list-pane .qt-todo-item[data-qt-id="rel3-tag"]').length, 1);
+        assert.equal(restored.document.getElementById('qt-btn-group-members').getAttribute('aria-pressed'), 'true');
     });
 });

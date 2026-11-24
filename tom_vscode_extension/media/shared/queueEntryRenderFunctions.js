@@ -642,9 +642,14 @@ function renderGroupMembers(item, safeId) {
     if (m.marker === 'sending') {
       mark = '<span class="gm-mark gm-sending" title="Being sent now">\u2192</span>';
     } else if (m.marker === 'sent') {
-      mark = '<span class="gm-mark gm-sent" title="Sent by this item">\u2713 ' + escapeHtml(m.outcome || '') + '</span>';
+      // The mark alone (✓ completed, ⚠ needs attention); the outcome is its tooltip.
+      var attention = m.outcome === 'needs attention';
+      mark = '<span class="gm-mark gm-sent' + (attention ? ' gm-attention' : '') + '" title="' + escapeHtml('Sent by this item' + (m.outcome ? ': ' + m.outcome : '')) + '">'
+        + (attention ? '\u26a0' : '\u2713') + '</span>';
     } else {
-      var why = m.chosen ? (m.checked ? 'Checked by hand' : 'Unchecked by hand') : (m.checked ? 'The walk sends it (its rules)' : 'The walk passes it (its rules)');
+      var held = m.status === 'blocked' || m.status === 'decision-needed';
+      var why = m.chosen ? (m.checked ? 'Checked by hand' : 'Unchecked by hand')
+        : (m.checked ? (held ? 'The walk sends it once it is no longer ' + m.status + ' (it waits there, as a prefix walk does)' : 'The walk sends it (its rules)') : 'The walk passes it (its rules)');
       mark = '<input type="checkbox" class="gm-box" data-member="' + escapeHtml(m.id) + '"' + (m.checked ? ' checked' : '') + (editable ? '' : ' disabled')
         + ' onchange="setGroupMember(\'' + safeId + '\', \'' + escapeHtml(m.id) + '\', this.checked)" title="' + escapeHtml(why) + '">';
     }
@@ -658,7 +663,7 @@ function renderGroupMembers(item, safeId) {
   var bar = editable
     ? '<div class="gm-bar">'
       + '<button type="button" class="gm-all" onclick="setGroupSelectAll(\'' + safeId + '\')" title="Check every member still to come">Select all</button>'
-      + '<button type="button" class="gm-rules" onclick="resetGroupSelection(\'' + safeId + '\')" title="Back to what the walk\'s rules send: open, not blocked, not the user\'s own">Reset to rules</button>'
+      + '<button type="button" class="gm-rules" onclick="resetGroupSelection(\'' + safeId + '\')" title="Back to what the walk\'s rules send: every open member — a blocked or decision-needed one too, the walk waits there — not the user\'s own">Reset to rules</button>'
       + '</div>'
     : '';
   return '<div class="group-members"><div class="gm-head">Members</div>' + rows + bar + '</div>';
