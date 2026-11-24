@@ -13,6 +13,13 @@
  *   SV-8  convert refuses non-canonical Markdown, an existing target, and dropping review entries unasked
  *   SV-9  registration: validate and render are read-only, convert needs approval
  *   SV-10 the default convert target: `X.tomspecs.yaml` ↔ `X.tomspecs.md`, beside the source
+ *   SV-11 render switches (05b_rdv3): drop, unmark and appendix each change the rendition and are counted per
+ *         kind; lists and comma-joined strings, `all`; appendix references; heading divs; the readable header
+ *         line; `withoutAnnotations` is drop comments and combines with drop; refs and records are never dropped;
+ *         a subtree of the stripped document; nothing is written
+ *   SV-12 the CLI's usage errors: an unknown name, a name in two lists, comments to unmark or move, appendix
+ *         references without an appendix, an empty name list, a value that is no list of names
+ *   SV-13 the tool's schema and description name every switch (what tomAi_describeTool shows)
  */
 
 import test, { before, describe } from 'node:test';
@@ -35,6 +42,7 @@ import { specGetSectionImpl } from '../spec-tools.js';
 import { summarizeToolInput } from '../shared-tool-registry.js';
 import {
     SPEC_CONVERT_TOOL,
+    SPEC_RENDER_TOOL,
     SPEC_VALIDATE_TOOLS,
     defaultConvertTarget,
     specConvertImpl,
@@ -75,6 +83,34 @@ function brokenMeridian(): string {
     doc.setFormField(`${FR}/FRE-REQU-LST-2/FRED`, 'description', '');
     doc.setFormField(SYSCL, 'functionalRequirementCount', '7');
     return put('broken.tomspecs.yaml', store.render(loaded, { stamp: loaded.stamp }));
+}
+
+/** Meridian with the reading notation of every kind, a review comment, a reference list and a records table in its content. */
+const NOTATED_TEXT = [
+    'The order system replaces the spreadsheets.',
+    '',
+    '::: {.provenance}',
+    'Taken from the kickoff workshop.',
+    ':::',
+    '',
+    'Orders are kept [three years]{.aside} (-> C2.1).',
+    '',
+    '::: {.editorial}',
+    'Check the retention with legal.',
+    ':::',
+    '',
+    '> ⬆️ **C-3** (Bob): What about returns?',
+    '',
+    'Orders are {++ always ++} archived.',
+    '',
+    '::: {.refs}',
+    '- [FRE-REQU-ORDER-CAPTURE](#FRE-REQU-ORDER-CAPTURE)',
+    ':::',
+].join('\n');
+function notatedMeridian(name: string): string {
+    const loaded = store.load(path.join(ws, put(`tmp-${name}`, MERIDIAN_YAML)));
+    loaded.document.setContent('SBP/content', NOTATED_TEXT);
+    return put(name, store.render(loaded, { stamp: loaded.stamp }));
 }
 
 /** The YAML text of part of Meridian. */
@@ -236,5 +272,107 @@ describe('TomSpecs convert target names', () => {
         assert.equal(defaultConvertTarget('specs/tom_uam.sbp.tomspecs.md'), 'specs/tom_uam.sbp.tomspecs.yaml');
         assert.equal(defaultConvertTarget('specs/draft.md'), 'specs/draft.tomspecs.yaml');
         assert.equal(defaultConvertTarget('specs/draft'), 'specs/draft.tomspecs.md');
+    });
+});
+
+describe('TomSpecs render switches', () => {
+    before(() => { void service.model; void service.metaTree('SBP'); });
+
+    test('SV-11: drop, unmark, appendix, references, heading divs, the header, the counts', async () => {
+        const file = notatedMeridian('notated.tomspecs.yaml');
+        const before = read(file);
+        const plain = await run(specRenderImpl, { file });
+        assert.equal(plain.ok, true);
+        assert.equal(plain.readableHeader, undefined, 'no switch: a plain render');
+        assert.match(plain.markdown, /Taken from the kickoff workshop\./);
+
+        const dropped = JSON.parse(await withTiming('tomAi_specRender:switches', () => specRenderImpl(deps, { file, drop: ['provenance', 'editorial'] })));
+        assert.equal(dropped.ok, true, JSON.stringify(dropped));
+        assert.doesNotMatch(dropped.markdown, /kickoff workshop|Check the retention/, 'dropped with their content');
+        assert.match(dropped.markdown, /three years/, 'the other kinds stay');
+        assert.match(dropped.readableHeader, /^<!-- readable: drop=provenance,editorial; .*of=notated\.tomspecs\.yaml@[0-9a-f]{64}/);
+        assert.ok(dropped.markdown.includes(dropped.readableHeader), 'the rendition carries the header line');
+        assert.deepEqual(dropped.stripped.provenance, { dropped: 1, unmarked: 0, moved: 0 });
+        assert.deepEqual(dropped.stripped.editorial, { dropped: 1, unmarked: 0, moved: 0 });
+        assert.deepEqual(dropped.stripped.aside, { dropped: 0, unmarked: 0, moved: 0 });
+        assert.deepEqual(dropped.kept, []);
+        assert.equal(dropped.valid, true, JSON.stringify(dropped.findings));
+        assert.ok(dropped.report.some((l: string) => l === 'provenance: 1 dropped, 0 unmarked, 0 moved'));
+
+        const joined = await run(specRenderImpl, { file, drop: 'provenance,editorial' });
+        assert.equal(joined.markdown, dropped.markdown, 'a comma-joined string is the same list');
+
+        const unmarked = await run(specRenderImpl, { file, unmark: ['aside', 'trace'] });
+        assert.equal(unmarked.ok, true, JSON.stringify(unmarked));
+        assert.match(unmarked.markdown, /Orders are kept three years \(C2\.1\)\./, 'markers gone, text kept (a citation keeps its ids)');
+        assert.doesNotMatch(unmarked.markdown, /\{\.aside\}|\(-> C2\.1\)/);
+        assert.deepEqual([unmarked.stripped.aside.unmarked, unmarked.stripped.trace.unmarked], [1, 1]);
+
+        const moved = await run(specRenderImpl, { file, appendix: ['provenance'], appendixReferences: true });
+        assert.equal(moved.ok, true, JSON.stringify(moved));
+        assert.equal(moved.stripped.provenance.moved, 1);
+        assert.equal(moved.appendixEntries, 1);
+        assert.match(moved.markdown, /Taken from the kickoff workshop\./, 'the moved text is in the appendix');
+        assert.match(moved.markdown, /\[1\]/, 'a reference to its entry');
+        assert.match(moved.readableHeader, /appendix=provenance; appendix-references/);
+
+        const all = await run(specRenderImpl, { file, drop: 'all', unmark: 'trace' });
+        assert.equal(all.ok, true, JSON.stringify(all));
+        assert.equal(all.stripped.trace.unmarked, 1, '`all` leaves out what another list names');
+        assert.deepEqual([all.stripped.provenance.dropped, all.stripped.editorial.dropped, all.stripped.aside.dropped], [1, 1, 1]);
+        assert.doesNotMatch(all.markdown, /What about returns|\{\+\+/, 'all drops the comments too');
+        assert.match(all.markdown, /\[FRE-REQU-ORDER-CAPTURE\]/, 'refs are never dropped');
+
+        const divs = await run(specRenderImpl, { file, headingDivs: true });
+        assert.equal(divs.ok, true, JSON.stringify(divs));
+        assert.match(divs.readableHeader, /headings=divs/);
+
+        const without = await run(specRenderImpl, { file, withoutAnnotations: true });
+        assert.equal(without.withoutAnnotations, true);
+        assert.match(without.readableHeader, /drop=comments/, 'withoutAnnotations is drop comments');
+        assert.match(without.markdown, /Orders are always archived\./, 'marks accepted');
+        assert.doesNotMatch(without.markdown, /⬆️/);
+        const both = await run(specRenderImpl, { file, withoutAnnotations: true, drop: ['aside'] });
+        assert.match(both.readableHeader, /drop=aside,comments/, 'combined with drop');
+
+        const sub = await run(specRenderImpl, { file, drop: ['provenance'], path: FR1 });
+        assert.equal(sub.ok, true, JSON.stringify(sub));
+        assert.match(sub.markdown, /<!--\[FRE-REQU-ORDER-CAPTURE\]/);
+        assert.equal((await run(specRenderImpl, { file, drop: ['provenance'], path: `${FR}/FRE-REQU-LST-99` })).code, 'unresolvedPath');
+        assert.equal(read(file), before, 'nothing written');
+    });
+
+    test('SV-12: the usage errors', async () => {
+        const file = notatedMeridian('usage.tomspecs.yaml');
+        const usage = async (input: object, message: RegExp): Promise<void> => {
+            const r = await run(specRenderImpl, { file, ...input });
+            assert.equal(r.ok, false, JSON.stringify(input));
+            assert.equal(r.code, 'usageError', JSON.stringify(r));
+            assert.match(r.error, message);
+        };
+        await usage({ drop: ['footnotes'] }, /unknown kind name "footnotes" in drop/);
+        await usage({ drop: ['refs'] }, /unknown kind name "refs"/);
+        await usage({ unmark: ['records'] }, /unknown kind name "records" in unmark/);
+        await usage({ drop: ['aside'], unmark: 'aside' }, /"aside" is in both drop and unmark/);
+        await usage({ unmark: ['comments'] }, /comments cannot be unmarked/);
+        await usage({ appendix: ['comments'] }, /comments cannot be moved to the appendix/);
+        await usage({ appendixReferences: true }, /appendix references need an appendix/);
+        await usage({ drop: '' }, /-drop: needs kind names/);
+        await usage({ appendix: [' '] }, /-appendix: needs kind names/);
+        await usage({ unmark: [3] }, /`unmark` takes kind names/);
+        assert.equal((await run(specRenderImpl, { file, withoutAnnotations: true, drop: ['comments'] })).ok, true, 'comments named twice in drop is no conflict');
+    });
+
+    test('SV-13: the schema names every switch', () => {
+        const props = SPEC_RENDER_TOOL.inputSchema.properties as Record<string, { type: unknown; description: string }>;
+        for (const key of ['drop', 'unmark', 'appendix', 'appendixReferences', 'headingDivs', 'withoutAnnotations']) {
+            assert.ok(props[key], key);
+        }
+        assert.deepEqual(props.drop.type, ['array', 'string']);
+        assert.equal(props.appendixReferences.type, 'boolean');
+        for (const word of ['drop', 'unmark', 'appendix', 'appendixReferences', 'headingDivs', 'usageError', 'readableHeader', '`refs`, `records`']) {
+            assert.ok(SPEC_RENDER_TOOL.description.includes(word), word);
+        }
+        assert.match(SPEC_RENDER_TOOL.description, /never dropped/);
     });
 });

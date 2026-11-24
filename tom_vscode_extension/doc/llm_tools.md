@@ -610,7 +610,7 @@ document, a list item resolves only when the list holds it.
 | `tomAi_specSearch` | Query one document (runtime `SpecQueryEngine`): text or portable pattern, kinds, class, `@SectionId`, path glob, `@MapsTo` / `@DetailedIn`, empty / non-empty, AND-combined. First page + cursor. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specSearchIterate` | The next page of a search cursor; re-runs the query when the file changed since. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specValidate` | Is it valid now? The three tiers of `tomspecs :spec-validate` (decode, DocSpecs schema, instance) in its report shape, each finding with the `path` to fix — the generation-unit codes of validation phase 8 (`unknownUnit`, `unitsUnrouted`, `duplicateUnitId`, `unitBuildsNothing`, `unitAreaMalformed`) among the instance findings. `files` validates fragments of one document as one; `path` scopes the findings. | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; `withoutAnnotations` renders it as it reads once reviewed (every inline mark accepted, every comment and question removed). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRender` | The document, or one subtree, as the DocSpecs Markdown a reader sees; the switches of `tomspecs :spec-render` (`drop`, `unmark`, `appendix`, `appendixReferences`, `headingDivs`) give a stripped rendition with its readable header and counts per kind; `withoutAnnotations` is `drop: ["comments"]`. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specAnnotations` | The review annotations (SOM §11.9) of the document or a subtree — or of a plain annotated Markdown file, such as a merged team review: comments (id, author, change time, text, the paragraph they follow), questions (topic, options, recommended, answer, open, the members' individual `answers`), inline marks (`M-<n>`, old / new text, change time, `authors`, `votes`), conflicts (base, alternatives with their members, decision), with counts, the `marksRevision` and the runtime's annotation findings. With `dir` instead of `file`: every SOM document under the folder with its counts and number of findings, and the totals — no lists (`maxResults`, `timeBudgetMs`, `truncated` as for `tomAi_specListDocuments`). | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specExtractAnswers` | A review round's `answers.md` (SOM §11.9.7) from one or more documents: the answered questions and the comments, each with its section-id chain and rendition line; the open questions (`includeOpen`) and inline marks (`includeMarks`) on request; counts per document and in total. The text `tomspecs :spec-answers` writes; writes nothing. | ✅ | ✅ | ⚪ | ✅ |
 
@@ -1665,11 +1665,23 @@ Remove a list item and every value under it. The other items keep their paths. E
 
 ### `tomAi_specRender`
 
-A TomSpecs document as the DocSpecs Markdown a reader sees — how to read a YAML-stored spec as prose. With `path`, only that subtree, under its ancestors' headings. The header keeps the document's own model version. `withoutAnnotations`: as the document reads once reviewed — every inline mark accepted, every comment and question block removed (the runtime's SpecReviewAnnotations.stripped; tomAi_specAnnotations lists them). Answers `{document, markdown, lines}`. Writes nothing; tomAi_specConvert writes a file. Look first with tomAi_specOutline (paths, editability, revision) or tomAi_specReflect (what the model allows at a path).
+A TomSpecs document as the DocSpecs Markdown a reader sees — how to read a YAML-stored spec as prose. With `path`, only that subtree, under its ancestors' headings. The header keeps the document's own model version. Writes nothing; tomAi_specConvert writes a file. Look first with tomAi_specOutline (paths, editability, revision) or tomAi_specReflect (what the model allows at a path).
+
+**Stripped renditions.** The switches of `tomspecs :spec-render` (SOM §11.10, the runtime's `SpecDocumentStrip`) take the reading notation's secondary kinds out of the rendition:
+
+- `drop` — removed with their content; `unmark` — their markers removed, their content kept; `appendix` — moved, with their content, into the appendix *Notes*. Each takes kind names — `provenance`, `trace`, `editorial`, `aside`, `comments` (the review annotations: drop only) or `all` (every kind no other list names) — as a list, items possibly comma-joined, or one comma-joined string.
+- `appendixReferences` — each moved element leaves a link `[n]` to its entry (needs `appendix`); `headingDivs` — sections deeper than level 6 as styled-div headings (`<div class="heading7" …>`).
+- `refs`, `records` and `rejected` are never dropped or unmarked: no name reaches them.
+- `withoutAnnotations: true` is `drop: ["comments"]` — every inline mark accepted, every comment and question block removed — and combines with `drop`.
+- The CLI's usage errors answer `{ok: false, code: "usageError", error}`: an unknown name, a name in two lists, `comments` to unmark or move, appendix references without an appendix, an empty name list.
+
+With a switch the whole document is stripped and the answer adds `readableHeader` (the `<!-- readable: drop=…; unmark=…; appendix=…; appendix-references; headings=divs; of=<file>@<revision>; commit=<sha>[+dirty] -->` line the rendition carries), `stripped` (per kind: `dropped`, `unmarked`, `moved`), `kept` (values the emptying rule kept, with the finding that would have followed), `appendixEntries`, `valuesChanged`, `report` (the CLI's report lines) and `valid` (with `findings` when the stripped document is not). With `path` a subtree of the stripped document is rendered, without the readable header, the appendix or heading divs.
 
 **Arguments:**
 
 - `path`: Render only this subtree. A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
+- `drop`, `unmark`, `appendix`: kind names, a list or comma-joined.
+- `appendixReferences`, `headingDivs`, `withoutAnnotations`: booleans, default false.
 
 ### `tomAi_specResolveAnnotation`
 

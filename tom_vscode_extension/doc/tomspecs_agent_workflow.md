@@ -52,8 +52,9 @@ Take them from the outline; do not compose them.
    instance tiers, each finding with the `path` to fix. The edit answers already
    say which findings the change introduced or resolved.
 7. **Read it as a person will.** `tomAi_specRender`, optionally for one
-   subtree, gives the DocSpecs Markdown. `tomAi_specConvert` writes the other
-   format.
+   subtree, gives the DocSpecs Markdown; its switches (`drop`, `unmark`,
+   `appendix`, `appendixReferences`, `headingDivs`) give a stripped rendition
+   without the secondary prose. `tomAi_specConvert` writes the other format.
 
 ## Work with review annotations
 

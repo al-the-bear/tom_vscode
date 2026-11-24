@@ -10,7 +10,18 @@
  * to fix in the form the edit tools take.
  */
 
-import { SpecReviewAnnotations } from 'tom_som_typescript_runtime';
+import { execFileSync } from 'child_process';
+import * as path from 'path';
+
+import {
+    SpecDocumentStrip,
+    SpecReadableSource,
+    SpecStripOptions,
+    SpecStripUsageError,
+    specStripKindNames,
+    type DocSpecsSchema,
+    type SpecStripResult,
+} from 'tom_som_typescript_runtime';
 
 import { SharedToolDefinition } from './shared-tool-registry';
 import {
@@ -42,8 +53,18 @@ export interface SpecValidateInput {
 export interface SpecRenderInput {
     file: string;
     path?: string;
-    /** Render as the document reads with every mark accepted and every comment and question removed. */
+    /** Render as the document reads with every mark accepted and every comment and question removed: `drop: ["comments"]`. */
     withoutAnnotations?: boolean;
+    /** Kind names removed with their content (`-drop:`): a list, items possibly comma-joined, or one comma-joined string. */
+    drop?: string[] | string;
+    /** Kind names whose markers go and whose content stays (`-unmark:`). */
+    unmark?: string[] | string;
+    /** Kind names moved, with their content, into the appendix *Notes* (`-appendix:`). */
+    appendix?: string[] | string;
+    /** Each moved element leaves a link `[n]` to its appendix entry (`--appendix-references`). */
+    appendixReferences?: boolean;
+    /** Sections deeper than level 6 as styled-div headings (`--heading-divs`). */
+    headingDivs?: boolean;
 }
 
 export interface SpecConvertInput {
@@ -72,11 +93,85 @@ export async function specValidateImpl(deps: SpecToolDeps, input: SpecValidateIn
     }
 }
 
+/** A usage error of the render switches: the CLI's message, as `tomspecs :spec-render` gives it. */
+class RenderUsageError extends Error {}
+
+/** A kind switch's names: a list (items possibly comma-joined) or one string; null when it is not given. */
+function kindNames(value: unknown, name: string): string[] | null {
+    if (value === undefined || value === null) { return null; }
+    const items = typeof value === 'string' ? [value] : value;
+    if (!Array.isArray(items) || items.some((i) => typeof i !== 'string')) {
+        throw new RenderUsageError(`\`${name}\` takes kind names: a list of strings or one comma-joined string`);
+    }
+    if (items.length === 0) { return null; }
+    if (items.some((i: string) => i.trim() === '')) { throw new RenderUsageError(`-${name}: needs kind names`); }
+    return items as string[];
+}
+
+/** The strip options of the render switches, or null when none is given (a plain render). */
+export function renderStripOptions(input: SpecRenderInput): SpecStripOptions | null {
+    const drop = kindNames(input.drop, 'drop');
+    const unmark = kindNames(input.unmark, 'unmark');
+    const appendix = kindNames(input.appendix, 'appendix');
+    const comments = input.withoutAnnotations === true;
+    if (!drop && !unmark && !appendix && !comments && input.appendixReferences !== true && input.headingDivs !== true) { return null; }
+    try {
+        return SpecStripOptions.fromNames({
+            drop: [...(drop ?? []), ...(comments ? ['comments'] : [])],
+            unmark: unmark ?? [],
+            appendix: appendix ?? [],
+            appendixReferences: input.appendixReferences === true,
+            headingDivs: input.headingDivs === true,
+        });
+    } catch (e) {
+        if (e instanceof SpecStripUsageError) { throw new RenderUsageError(e.message); }
+        throw e;
+    }
+}
+
+/** The source line of the readable header: the file, its revision, and the commit that last changed it (`+dirty`). */
+function readableSource(filePath: string, revision: string): SpecReadableSource {
+    let commit: string | null = null;
+    let dirty = false;
+    const cwd = path.dirname(filePath);
+    const name = path.basename(filePath);
+    try {
+        const sha = execFileSync('git', ['log', '-1', '--format=%H', '--', name], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim();
+        if (/^[0-9a-f]{40}$/.test(sha)) {
+            commit = sha;
+            dirty = execFileSync('git', ['status', '--porcelain', '--', name], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim() !== '';
+        }
+    } catch {
+        commit = null;
+    }
+    return new SpecReadableSource(name, revision, commit, dirty);
+}
+
+/** What a strip did, per kind and in all, for the answer. */
+function stripSummary(result: SpecStripResult): Record<string, unknown> {
+    const perKind: Record<string, { dropped: number; unmarked: number; moved: number }> = {};
+    for (const k of specStripKindNames) {
+        perKind[k] = { dropped: result.dropped.get(k) ?? 0, unmarked: result.unmarked.get(k) ?? 0, moved: result.appended.get(k) ?? 0 };
+    }
+    return {
+        stripped: perKind,
+        kept: result.kept.map((k) => ({ path: k.ref.path, ...(k.ref.field ? { field: k.ref.field } : {}), ...(k.ref.headline ? { headline: true } : {}), finding: k.finding })),
+        ...(result.marksDropped > 0 ? { marksDropped: result.marksDropped } : {}),
+        ...(result.removedItems.length > 0 ? { removedItems: result.removedItems } : {}),
+        appendixEntries: result.appendix.length,
+        valuesChanged: result.values.length,
+        report: result.report,
+        valid: result.ok,
+        ...(result.findings.length > 0 ? { findings: result.findings.map((f) => ({ kind: f.kind, message: f.message, ...(f.ref ? { path: f.ref.path } : {}) })) } : {}),
+    };
+}
+
 export async function specRenderImpl(deps: SpecToolDeps, input: SpecRenderInput): Promise<string> {
     try {
+        const options = renderStripOptions(input);
         const loaded = loadDocument(deps, input.file);
-        // Without annotations: the runtime's stripped copy; the document itself is unchanged.
-        const document = input.withoutAnnotations ? new SpecReviewAnnotations(loaded.document).stripped() : loaded.document;
+        if (options) { return json(renderStripped(deps, loaded, options, input)); }
+        const document = loaded.document;
         // Rendered as the document stands, so the header keeps the document's own model version.
         let markdown = deps.store.render({ ...loaded, format: 'markdown', document }, { stamp: loaded.stamp });
         if (input.path) {
@@ -87,13 +182,43 @@ export async function specRenderImpl(deps: SpecToolDeps, input: SpecRenderInput)
             ok: true,
             document: documentHeader(deps, loaded),
             ...(input.path ? { path: input.path } : {}),
-            ...(input.withoutAnnotations ? { withoutAnnotations: true } : {}),
             lines: markdown.split('\n').length,
             markdown,
         });
     } catch (e) {
+        if (e instanceof RenderUsageError) { return json({ ok: false, code: 'usageError', error: e.message }); }
         return failure(e);
     }
+}
+
+/** A render with the switches: the runtime's strip of the whole document, then the readable rendition or a subtree of it. */
+function renderStripped(deps: SpecToolDeps, loaded: ReturnType<typeof loadDocument>, options: SpecStripOptions, input: SpecRenderInput): Record<string, unknown> {
+    const model = deps.service.model;
+    const plain = loaded.document.toMarkdown(model, loaded.root.type);
+    const schemaId = /^<!-- docspec: ([^/\s]+)\/\S+ -->/.exec(plain)?.[1] ?? null;
+    const schema: DocSpecsSchema | null = schemaId && deps.service.schemaIds.includes(schemaId) ? deps.service.schema(schemaId) : null;
+    const result = SpecDocumentStrip.strip(loaded.document, options, {
+        model, schema, rootType: loaded.root.type, source: readableSource(loaded.filePath, loaded.revision),
+    });
+    const summary = stripSummary(result);
+    let markdown: string | null = result.readable;
+    if (input.path) {
+        new SomSpecInspector(deps.service, result.document).resolve(input.path);
+        markdown = deps.store.render({ ...loaded, format: 'markdown', document: subtreeOf(result.document, input.path) }, { stamp: loaded.stamp });
+    }
+    if (markdown === null) {
+        return { ok: false, code: 'renderFailed', error: 'The stripped document has no rendition; nothing to show.', document: documentHeader(deps, loaded), readableHeader: result.readableHeader, ...summary };
+    }
+    return {
+        ok: true,
+        document: documentHeader(deps, loaded),
+        ...(input.path ? { path: input.path, note: 'A subtree is rendered from the stripped document without the readable header, appendix or heading divs.' } : {}),
+        ...(input.withoutAnnotations ? { withoutAnnotations: true } : {}),
+        readableHeader: result.readableHeader,
+        ...summary,
+        lines: markdown.split('\n').length,
+        markdown,
+    };
 }
 
 /** `X.tomspecs.yaml` ↔ `X.tomspecs.md`, beside the source. */
@@ -153,11 +278,15 @@ export const SPEC_RENDER_TOOL: SharedToolDefinition<SpecRenderInput> = {
     name: 'tomAi_specRender',
     displayName: 'Spec: Render',
     description:
-        'A TomSpecs document as the DocSpecs Markdown a reader sees — how to read a YAML-stored spec as prose. With '
-        + '`path`, only that subtree, under its ancestors\' headings. The header keeps the document\'s own model version. '
-        + '`withoutAnnotations`: as the document reads once reviewed — every inline mark accepted, every comment and '
-        + 'question block removed (the runtime\'s SpecReviewAnnotations.stripped; tomAi_specAnnotations lists them). '
-        + 'Answers `{document, markdown, lines}`. Writes nothing; tomAi_specConvert writes a file.' + FIRST_LOOK,
+        'A TomSpecs document as the DocSpecs Markdown a reader sees. `path`: only that subtree, under its ancestors\' '
+        + 'headings. The switches of `tomspecs :spec-render` strip it (SOM §11.10): `drop` (removed with their content), '
+        + '`unmark` (markers removed, content kept), `appendix` (moved into the appendix *Notes*) take kind names — '
+        + '`provenance`, `trace`, `editorial`, `aside`, `comments` (drop only), `all` — as a list or comma-joined; '
+        + '`appendixReferences` links each moved element to its entry, `headingDivs` writes sections deeper than level 6 as styled '
+        + 'divs. `refs`, `records` and `rejected` are never dropped or unmarked. `withoutAnnotations: true` is '
+        + '`drop: ["comments"]` and combines with `drop`. The CLI\'s usage errors answer `code: "usageError"`. A switch '
+        + 'adds `readableHeader`, `stripped` (dropped / unmarked / moved per kind), `kept`, `appendixEntries`, `report` and '
+        + '`valid`. Answers `{document, markdown, lines}`; writes nothing (tomAi_specConvert writes a file).' + FIRST_LOOK,
     tags: ['tomspecs', 'som', 'docspecs', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -165,7 +294,12 @@ export const SPEC_RENDER_TOOL: SharedToolDefinition<SpecRenderInput> = {
         properties: {
             file: FILE_PARAM,
             path: { type: 'string', description: `Render only this subtree. ${PATH_PARAM_HINT}` },
-            withoutAnnotations: { type: 'boolean', description: 'Render with every mark accepted and every comment and question removed. Default false.' },
+            withoutAnnotations: { type: 'boolean', description: 'Render with every mark accepted and every comment and question removed: `drop: ["comments"]`, combined with `drop`. Default false.' },
+            drop: { type: ['array', 'string'], items: { type: 'string' }, description: 'Kinds removed with their content (`-drop:`): provenance, trace, editorial, aside, comments, all. A list or comma-joined.' },
+            unmark: { type: ['array', 'string'], items: { type: 'string' }, description: 'Kinds whose markers go and whose content stays (`-unmark:`): provenance, trace, editorial, aside, all.' },
+            appendix: { type: ['array', 'string'], items: { type: 'string' }, description: 'Kinds moved, with their content, into the appendix *Notes* (`-appendix:`): provenance, trace, editorial, aside, all.' },
+            appendixReferences: { type: 'boolean', description: 'Each moved element leaves a link `[n]` to its appendix entry (`--appendix-references`); needs `appendix`. Default false.' },
+            headingDivs: { type: 'boolean', description: 'Sections deeper than level 6 as styled-div headings (`--heading-divs`). Default false.' },
         },
         required: ['file'],
     },
