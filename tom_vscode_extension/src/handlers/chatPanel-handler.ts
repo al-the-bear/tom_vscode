@@ -549,6 +549,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this.postChatAspects();
                         break;
                     }
+                    case 'refreshChoices': {
+                        // A template field was clicked: the lists again (a template may have been added since),
+                        // then the webview opens the picker over the fresh options.
+                        this._sendProfiles();
+                        void this._view?.webview.postMessage({ type: 'choicesRefreshed', requestId: message.requestId });
+                        break;
+                    }
                     case 'pickFromSelect': {
                         // A choice of the action bar shown as a field (its label above, its value a link): VS Code's
                         // picker over the select's options, the answer set on the select by the webview.
@@ -789,6 +796,18 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openQueueEditor':
                         await vscode.commands.executeCommand('tomAi.editor.promptQueue');
                         break;
+                    case 'revealQuestFolder': {
+                        // The status bar's first button: the quest folder in the Explorer side bar.
+                        const quest = this._getActiveQuestId();
+                        const folder = quest ? WsPaths.ai('quests', quest) : undefined;
+                        if (!quest || !folder || !fs.existsSync(folder)) {
+                            void vscode.window.showWarningMessage(quest ? `The quest folder of ${quest} is not there: _ai/quests/${quest}` : 'No quest is open in this window.');
+                            break;
+                        }
+                        await vscode.commands.executeCommand('workbench.view.explorer');
+                        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(folder));
+                        break;
+                    }
                     case 'openQueueTemplatesEditor':
                         await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
                         break;
@@ -2438,6 +2457,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     run,
                     // The default run named outright: the queue does not take the run of a Proceed running now.
                     runIsExplicit: true,
+                    // The queue editor's "From the chat panel" filter.
+                    fromChatPanel: section,
                 });
                 const count = queue.items.length;
                 const where = panelTarget ? `run ${run}${transport === 'anthropic' ? `, session ${runSessionName(this._chatSessionKey(), run)}` : ''}` : `run ${DEFAULT_RUN}`;

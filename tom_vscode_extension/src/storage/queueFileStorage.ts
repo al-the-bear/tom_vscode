@@ -198,6 +198,8 @@ export interface QueuePromptYaml {
     /** A chat send shown in the queue: where it came from and the window that ran it. */
     'chat-source'?: string;
     'chat-window-id'?: string;
+    /** Queued with a queue button of the @CHAT panel: its subpanel (`anthropic`, `copilot`). */
+    'from-chat-panel'?: string;
     /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
     'todo-id-pattern'?: string;
     /** Who queued the item (utils/queuedBy.ts): `{quest, run, session?}`. */

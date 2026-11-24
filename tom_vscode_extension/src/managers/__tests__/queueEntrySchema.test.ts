@@ -45,7 +45,7 @@ const followUp: Required<QueuedFollowUpPrompt> = {
 /** An item with every field set: a new field of QueuedPrompt does not compile until it is set here. */
 const ITEM: Required<QueuedPrompt> = {
     id: 'item-1', template: 'T', answerWrapper: true, originalText: 'do ${repeatTodoId}', expandedText: 'do x1_a', status: 'sending', type: 'timed',
-    timedEntryId: 'te-1', chatSource: 'panel', chatWindowId: 'w-1', createdAt: AT, sentAt: AT, error: 'an error',
+    timedEntryId: 'te-1', chatSource: 'panel', chatWindowId: 'w-1', fromChatPanel: 'anthropic', createdAt: AT, sentAt: AT, error: 'an error',
     reminderTemplateId: 'r', reminderTimeoutMinutes: 10, reminderRepeat: true, reminderEnabled: true, reminderQueued: true, reminderSentCount: 2, lastReminderAt: AT,
     requestId: 'req-1', expectedRequestId: 'req-2', prePrompts: [prePrompt], followUps: [followUp], followUpIndex: 1,
     repeatCount: 'x*', resolvedRepeatCount: 3, repeatIndex: 1, repeatTodoId: 'x1_a', repeatPrefix: 'pre', repeatSuffix: 'suf',

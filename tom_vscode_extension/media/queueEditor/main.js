@@ -104,6 +104,31 @@ let currentItems = __INITIAL__.items || [];
 let processRuns = Array.isArray(__INITIAL__.processRuns) ? __INITIAL__.processRuns : ['default'];
 let currentRun = __INITIAL__.currentRun || 'default';
 const __runViewState = (typeof vscode !== 'undefined' && vscode && typeof vscode.getState === 'function' && vscode.getState()) || {};
+/** "From the chat panel only" (the toolbar's filter): kept with the view's state. */
+let chatOnly = __runViewState.chatOnly === true;
+/** An item queued from the @CHAT panel: a chat send, or queued with its Save to Queue / Queue next. */
+function isFromChatPanel(item) {
+  return !!item && (!!item.fromChatPanel || !!item.chatSource || item.status === 'chat' || item.status === 'chat-sent');
+}
+/** The filter button: on, the list shows only the items from the chat panel. */
+function toggleChatOnly() {
+  chatOnly = !chatOnly;
+  if (typeof vscode !== 'undefined' && vscode && typeof vscode.setState === 'function') {
+    const prev = (typeof vscode.getState === 'function' && vscode.getState()) || {};
+    vscode.setState(Object.assign({}, prev, { chatOnly: chatOnly }));
+  }
+  render();
+}
+function renderChatOnlyButton() {
+  const btn = document.getElementById('chatOnlyBtn');
+  if (!btn) { return; }
+  btn.classList.toggle('active', chatOnly);
+  btn.setAttribute('aria-pressed', chatOnly ? 'true' : 'false');
+  btn.style.opacity = chatOnly ? '1' : '0.5';
+  btn.title = chatOnly
+    ? 'From the chat panel only: on — only the items queued from the @CHAT panel and its chat sends are shown. Click to show every item'
+    : 'From the chat panel only: show only the items queued from the @CHAT panel (its Save to Queue and Queue next buttons) and its chat sends';
+}
 // One tab per run (vscimpb60b): the selected tab is kept in the view state over a reload; the window's run first.
 let selectedRun = typeof __runViewState.queueTab === 'string' && __runViewState.queueTab ? __runViewState.queueTab : currentRun;
 // The lanes, one per run (each says whether its run is paused), and the queue settings of each run (from the host).
@@ -551,6 +576,7 @@ function render() {
   btn.style.opacity = autoSend ? '1' : '0.5';
 
   renderMakeDefault();
+  renderChatOnlyButton();
 
   const acBtn = document.getElementById('autoContinueBtn');
   if (acBtn) {
@@ -648,7 +674,11 @@ function render() {
       return a.idx - b.idx;
     })
     .map(function(x) { return x.item; });
-  const displayItems = sortedItems;
+  const displayItems = chatOnly ? sortedItems.filter(isFromChatPanel) : sortedItems;
+  if (displayItems.length === 0) {
+    list.innerHTML = '<div class="empty">No item of run ' + escapeHtml(settingsRun()) + ' comes from the chat panel (the filter is on)</div>';
+    return;
+  }
 
   // A prompt being edited survives the redraw a state push causes: its
   // focus, caret and scroll position are put back.

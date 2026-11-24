@@ -538,7 +538,6 @@ function getSectionContent(id) {
                 '<span id="copilot-aspects-slot" class="chat-aspects-slot"></span>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="copilot" title="Save to Queue in this panel&#39;s run, with its template"><span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
                 '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
                 '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
@@ -561,11 +560,13 @@ function getSectionContent(id) {
             afterEditorHtml:
                 '<div class="status-bar"><span id="copilot-context-summary" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
+                // The quest folder first, then the Prompt Queue and the Status Page; the others as before.
+                '<button class="icon-btn" data-action="revealQuestFolder" data-id="copilot" title="Show the quest folder (_ai/quests/&lt;quest&gt;) in the Explorer side bar"><span class="codicon codicon-folder-opened"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
+                '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
                 '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="copilot" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
-                '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '</span></div>',
         }),
         anthropic: getPromptEditorComponent({
@@ -632,8 +633,9 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="cancel" data-id="anthropic" title="Stop current Anthropic turn"><span class="codicon codicon-debug-stop"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="anthropic" title="Save to Queue with this panel&#39;s session, run, profile and template"><span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 '<button class="icon-btn" data-action="addToQueueNextPanelTarget" data-id="anthropic" title="Queue next with this panel&#39;s session and run — sent next in the panel&#39;s run, with its profile and template; when a repeating item of that run is sending, between its iterations"><span class="codicon codicon-account"></span><span class="codicon codicon-arrow-circle-up"></span></button>' +
-                // The trail, history and memory buttons are in the @CHAT Logs panel, behind its session switch.
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Queue Editor"><span class="codicon codicon-inbox"></span></button>',
+                // The trail, history and memory buttons are in the @CHAT Logs panel, behind its session switch;
+                // the Prompt Queue button is in the status bar below the input.
+                '',
 
             afterToolbarHtml:
                 // Plan mode (CC-3, CC-27): the badge while it is on, with the
@@ -669,46 +671,46 @@ function getSectionContent(id) {
                 '<button data-action="anthropicApprovalDenyAll">Deny All (session)</button>' +
                 '</div>' +
                 '</div>' +
+                '</div>' +
+                '<div id="anthropic-models-overlay" class="modal-overlay" style="display:none;">' +
+                '<div class="modal-popup models-popup">' +
+                '<div class="modal-popup-header"><span>Available models</span></div>' +
+                '<div class="modal-popup-body" id="anthropic-models-body"></div>' +
+                '<div class="modal-popup-footer">' +
+                '<button data-action="refreshAnthropicModels" data-id="anthropic" title="Ask the Anthropic API again">Refresh API models</button>' +
+                '<button data-action="refreshVsCodeLmModels" data-id="anthropic" title="Ask VS Code LM again">Refresh VS Code LM models</button>' +
+                '<button class="primary" data-action="closeAvailableModels" data-id="anthropic">Close</button>' +
+                '</div>' +
+                '</div>' +
                 '</div>',
             infoId: 'anthropic-profileInfo',
             placeholder: 'Enter your prompt for Anthropic...',
             helpTitle: '',
             afterEditorHtml:
-                // The Model dropdown here is informational only — configurations
+                // The Available models button here is informational only — configurations
                 // are the source of truth. It lets the user eyeball which models
                 // the API currently returns so they can add configurations when
-                // new models ship. The value is never read when sending.
+                // new models ship.
                 '<div class="status-bar"><span id="anthropic-status" class="context-summary"></span>' +
                 '<span class="status-bar-actions">' +
+                // The quest folder first, then the Prompt Queue and the Status Page; the others as before.
+                '<button class="icon-btn" data-action="revealQuestFolder" data-id="anthropic" title="Show the quest folder (_ai/quests/&lt;quest&gt;) in the Explorer side bar"><span class="codicon codicon-folder-opened"></span></button>' +
+                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
+                '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
                 '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
                 // The role editor (gsel6), the panel's role selected.
                 '<button class="icon-btn" data-action="openRoleEditor" id="anthropic-role-editor-btn" title="Role Editor — the roles a prompt can run as (_ai/roles)"><span class="codicon codicon-person"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="anthropic" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
-                '<button class="icon-btn" data-action="openStatusPage" data-id="anthropic" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
                 '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate the history of the chosen sessions, each from its own prompt/answer trail. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
                 '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate the quest memory of the chosen sessions, each from its own prompt/answer trail. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
                 '<button class="icon-btn" data-action="openSharedMemoryInMdBrowser" data-id="anthropic" title="Open shared memory (facts.md in the workspace-wide _ai/memory/shared/) in the MD Browser"><span class="codicon codicon-library"></span></button>' +
-                '<label style="margin-left:6px;">Available Models:</label>' +
-                '<select id="anthropic-model" style="max-width:240px;" title="Read-only list of models returned by the Anthropic API. The selected configuration controls which model is actually used."><option value="">(loading...)</option></select>' +
-                '<button class="icon-btn" data-action="refreshAnthropicModels" data-id="anthropic" title="Refresh models from API"><span class="codicon codicon-refresh"></span></button>' +
-                // VS Code LM model dropdown (informational — spec §4.12).
-                // Always visible on the Anthropic bottom bar regardless of
-                // the active configuration's transport; the user wants
-                // ambient visibility of which LM-API models Copilot has
-                // on this machine. Auto-populated on panel ready;
-                // refresh re-queries vscode.lm.selectChatModels().
-                // Selection does NOT retarget sends — the stored modelId
-                // of the active configuration drives sends.
-                '<span id="anthropic-vscodelm-row">' +
-                  '<label style="margin-left:6px;">VS Code LM Models:</label>' +
-                  '<select id="anthropic-vscodelm-models" style="max-width:240px;" title="Read-only list of models available via vscode.lm.selectChatModels(). Informational — the stored modelId of the active configuration drives sends. Click Refresh to re-query."><option value="">(loading...)</option></select>' +
-                  '<button class="icon-btn" data-action="refreshVsCodeLmModels" data-id="anthropic" title="Refresh VS Code LM model list"><span class="codicon codicon-refresh"></span></button>' +
-                '</span>' +
+                // The models the API and VS Code LM offer (informational: the profile's configuration drives sends),
+                // in an overlay behind one button, with the reason when a list is unavailable (a missing key).
+                '<button class="icon-btn" data-action="showAvailableModels" data-id="anthropic" id="anthropic-models-btn" title="Available models: what the Anthropic API and VS Code LM offer (informational — the profile\'s configuration decides the model)"><span class="codicon codicon-hubot"></span></button>' +
                 '</span></div>',
         })
     };
@@ -783,14 +785,30 @@ function linkSelect(sel, labelFor, labelSource) {
         if (sel.disabled) { return; }
         var requestId = ++selectPickSeq;
         pendingSelectPicks[requestId] = sel;
-        vscode.postMessage({
-            type: 'pickFromSelect', requestId: requestId, title: label.textContent, current: sel.value,
-            items: Array.prototype.filter.call(sel.options, function(o) { return !o.disabled; }).map(function(o) {
-                return { label: o.textContent, value: o.value, description: o.title || '' };
-            }),
-        });
+        // A template list may have changed since the panel was filled (a template added in the editor):
+        // the host sends the lists again first, then the picker opens over the fresh options.
+        if (FRESH_CHOICE_SELECTS[sel.id]) {
+            vscode.postMessage({ type: 'refreshChoices', requestId: requestId });
+            return;
+        }
+        postSelectPick(requestId);
     });
     sync();
+}
+/** The selects whose options are asked for again before their picker opens: the templates. */
+var FRESH_CHOICE_SELECTS = { 'anthropic-userMessage': true, 'copilot-template': true };
+/** VS Code's picker over the select of request `requestId`, its options as they are now. */
+function postSelectPick(requestId) {
+    var sel = pendingSelectPicks[requestId];
+    if (!sel) { return; }
+    var field = document.getElementById(sel.id + '-field');
+    var labelEl = field ? field.querySelector('.chat-field-label') : null;
+    vscode.postMessage({
+        type: 'pickFromSelect', requestId: requestId, title: labelEl ? labelEl.textContent : '', current: sel.value,
+        items: Array.prototype.filter.call(sel.options, function(o) { return !o.disabled; }).map(function(o) {
+            return { label: o.textContent, value: o.value, description: o.title || '' };
+        }),
+    });
 }
 /** The host's answer to pickFromSelect: the picked value set on its select, as a change. */
 function applySelectPick(msg) {
@@ -1094,6 +1112,9 @@ function handleAction(action, id, slot) {
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
         case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
+        case 'showAvailableModels': { renderAvailableModels(); var mo = document.getElementById('anthropic-models-overlay'); if (mo) { mo.style.display = 'flex'; } break; }
+        case 'closeAvailableModels': { var mc = document.getElementById('anthropic-models-overlay'); if (mc) { mc.style.display = 'none'; } break; }
+        case 'revealQuestFolder': vscode.postMessage({ type: 'revealQuestFolder' }); break;
         case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         // The host asks which sessions to clear and answers with anthropicHistoryCleared.
         case 'leavePlanMode': vscode.postMessage({ type: 'leavePlanMode' }); break;
@@ -1310,19 +1331,32 @@ function populateAnthropicModels() {
     // Informational: list the models the API currently returns so the user
     // can add configurations when new models ship. The value is never read
     // when sending — configurations drive model selection.
-    var sel = document.getElementById('anthropic-model');
-    if (!sel) {return;}
-    var opts = '';
-    if (!anthropicModels || anthropicModels.length === 0) {
-        opts = '<option value="">(no models — check API key)</option>';
-    } else {
-        opts = '<option value="">(' + anthropicModels.length + ' models available)</option>' + anthropicModels.map(function(m) {
-            var label = m.display_name ? (m.display_name + ' (' + m.id + ')') : m.id;
-            return '<option value="' + m.id + '">' + label + '</option>';
-        }).join('');
-    }
-    sel.innerHTML = opts;
+    renderAvailableModels();
     updateAnthropicSendButton();
+}
+
+// The Available models overlay: the Anthropic API's list and VS Code LM's, each with its count, or why it is empty.
+var anthropicModelsError = '';
+var vscodeLmModels = null;      // null: not asked yet
+var vscodeLmModelsNote = '';
+function modelListHtml(title, models, empty) {
+    var head = '<div class="models-head">' + escapeAttr(title) + (models && models.length ? ' <span class="models-count">(' + models.length + ')</span>' : '') + '</div>';
+    if (!models || models.length === 0) { return head + '<div class="models-empty">' + escapeAttr(empty) + '</div>'; }
+    return head + '<ul class="models-list">' + models.map(function(m) {
+        return '<li><span class="models-name">' + escapeAttr(m.label) + '</span>' + (m.id && m.id !== m.label ? ' <code>' + escapeAttr(m.id) + '</code>' : '') + '</li>';
+    }).join('') + '</ul>';
+}
+function renderAvailableModels() {
+    var body = document.getElementById('anthropic-models-body');
+    if (!body) { return; }
+    var api = (anthropicModels || []).map(function(m) { return { id: m.id, label: m.display_name || m.id }; });
+    var apiEmpty = anthropicModelsError ? 'Unavailable: ' + anthropicModelsError : (anthropicApiKeyOk ? 'No models returned.' : 'No models: the Anthropic API key is missing or invalid.');
+    var lm = vscodeLmModels === null ? null : vscodeLmModels.map(function(m) { return { id: m.id, label: m.label || m.id }; });
+    var lmEmpty = vscodeLmModels === null ? 'Loading…' : (vscodeLmModelsNote || 'No models.');
+    body.innerHTML = modelListHtml('Anthropic API', api, apiEmpty) + modelListHtml('VS Code LM', lm, lmEmpty)
+        + '<div class="models-note">Informational: the profile\'s configuration decides the model a send uses.</div>';
+    var btn = document.getElementById('anthropic-models-btn');
+    if (btn) { btn.classList.toggle('models-problem', api.length === 0); }
 }
 
 function updateAnthropicApiKeyDot() {
@@ -1590,6 +1624,9 @@ window.addEventListener('message', function(e) {
         updateClaudeCliDot();
     } else if (msg.type === 'pickFromSelectResult') {
         applySelectPick(msg);
+    } else if (msg.type === 'choicesRefreshed') {
+        // The lists came again (a `profiles` message just before this one): now the picker.
+        postSelectPick(msg.requestId);
     } else if (msg.type === 'chatRuns') {
         applyChatRuns(msg);
     } else if (msg.type === 'chatAspects') {
@@ -1614,6 +1651,7 @@ window.addEventListener('message', function(e) {
         updateClaudeCliDot();
     } else if (msg.type === 'anthropicModels') {
         anthropicModels = msg.models || [];
+        anthropicModelsError = msg.error ? String(msg.error) : '';
         if (msg.error) {
             setAnthropicStatus('Models unavailable: ' + msg.error);
         } else {
@@ -1621,34 +1659,19 @@ window.addEventListener('message', function(e) {
         }
         populateAnthropicModels();
     } else if (msg.type === 'vscodeLmModels') {
-        // Informational — populate the VS Code LM dropdown (spec §4.12).
-        // Does NOT retarget sends; the configuration's stored modelId
-        // drives sends.
-        var vlmSelect = document.getElementById('anthropic-vscodelm-models');
-        if (vlmSelect) {
-            var vlmList = msg.models || [];
-            if (vlmList.length === 0) {
-                var emptyMsg = msg.error
-                    ? ('(error: ' + msg.error + ')')
-                    : ('(' + (msg.hint || 'no models') + ')');
-                vlmSelect.innerHTML = '<option value="">' + emptyMsg + '</option>';
-                // One-shot retry — Copilot often takes a few seconds to
-                // finish activating after VS Code startup. The first
-                // query can legitimately return 0 models; try again
-                // after a short delay instead of leaving the user with
-                // an empty dropdown that requires a manual refresh.
-                if (!msg.error && !window._anthropicVsCodeLmRetried) {
-                    window._anthropicVsCodeLmRetried = true;
-                    setTimeout(function() {
-                        vscode.postMessage({ type: 'refreshVsCodeLmModels' });
-                    }, 3000);
-                }
-            } else {
-                vlmSelect.innerHTML = '<option value="">(' + vlmList.length + ' models available)</option>' +
-                    vlmList.map(function(m) {
-                        return '<option value="' + m.id + '">' + m.label + '</option>';
-                    }).join('');
-            }
+        // Informational — the VS Code LM list of the Available models overlay (spec §4.12).
+        // Does NOT retarget sends; the configuration's stored modelId drives sends.
+        var vlmList = msg.models || [];
+        vscodeLmModels = vlmList;
+        vscodeLmModelsNote = msg.error ? 'Error: ' + msg.error : (msg.hint ? String(msg.hint) : '');
+        renderAvailableModels();
+        // One-shot retry — Copilot often takes a few seconds to finish activating after VS Code
+        // startup. The first query can legitimately return 0 models; try again after a short delay.
+        if (vlmList.length === 0 && !msg.error && !window._anthropicVsCodeLmRetried) {
+            window._anthropicVsCodeLmRetried = true;
+            setTimeout(function() {
+                vscode.postMessage({ type: 'refreshVsCodeLmModels' });
+            }, 3000);
         }
     } else if (msg.type === 'anthropicApiKeyStatus') {
         anthropicApiKeyOk = !!msg.ok;

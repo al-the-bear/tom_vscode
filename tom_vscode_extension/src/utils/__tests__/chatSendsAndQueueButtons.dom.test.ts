@@ -43,6 +43,11 @@
  *        sits right before Save to Queue, pressed (pending) by default; its tooltip and icon name the mode; Save to
  *        Queue posts `initialStatus` pending / staged as it is (Queue next stays pending); kept in the webview state
  *        and saved with the drafts (`queuePending`), restored from either; Copilot's Keep posts setKeepContent
+ *   CB-16 the status bar below each input: the quest folder (revealQuestFolder) first, then Open Prompt Queue and the
+ *        Status Page, then the others; no Open Queue Editor in the action bars above the inputs; the model dropdowns
+ *        replaced by one button opening the Available models overlay (the API's and VS Code LM's lists, or why a list
+ *        is empty); a template field asks the host for the lists again (refreshChoices) and opens the picker over the
+ *        fresh options once they came (choicesRefreshed); the host's revealQuestFolder and refreshChoices cases
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
  *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
@@ -575,5 +580,59 @@ describe('chat sends and the queue buttons', () => {
         assert.match(panel, /case 'setChatRun':[\s\S]{0,300}this\._setChatRun\(section, message\.run\)/);
         assert.match(panel, /if \(section === 'anthropic'\) \{\s*try \{ ensureRunDefaultSession\(sessionsFolder\(quest\), name\); \} catch[^\n]*\n\s*await setChatSessionFor\(this\._context\.workspaceState, quest, RUN_DEFAULT_CHOICE\);/,
             'the panel goes to Run default: the run\'s default session');
+    });
+
+    test('CB-16: the status bar, the models overlay, a fresh template picker', () => {
+        const { w, posted } = chatPanel(['anthropic', 'copilot']);
+        for (const section of ['anthropic', 'copilot']) {
+            const bar = [...w.document.querySelectorAll(`[data-section="${section}"] .status-bar-actions [data-action]`)].map((b: Win) => b.getAttribute('data-action'));
+            assert.deepEqual(bar.slice(0, 5), ['revealQuestFolder', 'openQueueEditor', 'openStatusPage', 'openChatVariablesEditor', 'openProcessEditor'], `${section}: ${bar.join(', ')}`);
+            assert.equal(w.document.querySelectorAll(`[data-section="${section}"] [data-action="openQueueEditor"]`).length, 1, `${section}: one Prompt Queue button`);
+            assert.equal(w.document.querySelector(`[data-section="${section}"] .toolbar [data-action="openQueueEditor"]`), null, `${section}: none in the action bar`);
+        }
+        w.document.querySelector('[data-action="revealQuestFolder"][data-id="anthropic"]').click();
+        assert.deepEqual(posted.at(-1), { type: 'revealQuestFolder' });
+        // The models: one button, an overlay with both lists.
+        assert.equal(w.document.getElementById('anthropic-model'), null, 'no model dropdown');
+        assert.equal(w.document.getElementById('anthropic-vscodelm-models'), null);
+        const overlay = w.document.getElementById('anthropic-models-overlay');
+        assert.equal(overlay.style.display, 'none');
+        w.document.getElementById('anthropic-models-btn').click();
+        assert.equal(overlay.style.display, 'flex', 'opened');
+        const body = (): string => w.document.getElementById('anthropic-models-body').textContent;
+        assert.match(body(), /Anthropic API.*missing or invalid/, 'no key: the reason');
+        assert.match(body(), /VS Code LM/);
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicModels', models: [], error: 'HTTP 401 invalid x-api-key' } }));
+        assert.match(body(), /Unavailable: HTTP 401 invalid x-api-key/);
+        assert.ok(w.document.getElementById('anthropic-models-btn').classList.contains('models-problem'), 'the button says something is wrong');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicModels', models: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-x' }] } }));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'vscodeLmModels', models: [{ id: 'copilot-gpt', label: 'GPT (Copilot)' }] } }));
+        assert.match(body(), /Anthropic API \(2\)Claude Opus 5\.5 claude-opus-5-5claude-x/);
+        assert.match(body(), /VS Code LM \(1\)GPT \(Copilot\) copilot-gpt/);
+        assert.equal(w.document.getElementById('anthropic-models-btn').classList.contains('models-problem'), false);
+        w.document.querySelector('[data-action="closeAvailableModels"]').click();
+        assert.equal(overlay.style.display, 'none');
+        // A template field: the lists again, then the picker over the fresh options.
+        posted.length = 0;
+        w.document.querySelector('#anthropic-userMessage-field .chat-field-value').click();
+        const ask = posted.at(-1) as Record<string, unknown>;
+        assert.equal(ask.type, 'refreshChoices', 'no picker before the lists came again');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'profiles', anthropic: [], anthropicUserMessageTemplates: ['brand-new'], copilotTemplates: [] } }));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'choicesRefreshed', requestId: ask.requestId } }));
+        const pick = posted.at(-1) as Record<string, unknown>;
+        assert.equal(pick.type, 'pickFromSelect');
+        assert.equal(pick.requestId, ask.requestId);
+        assert.equal(pick.title, 'Template');
+        assert.ok((pick.items as Array<{ value: string }>).some((i) => i.value === 'brand-new'), 'the template just added is offered');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'pickFromSelectResult', requestId: ask.requestId, value: 'brand-new' } }));
+        assert.equal(w.document.getElementById('anthropic-userMessage').value, 'brand-new');
+        posted.length = 0;
+        w.document.querySelector('#copilot-template-field .chat-field-value').click();
+        assert.equal((posted.at(-1) as Record<string, unknown>).type, 'refreshChoices', 'Copilot\'s template too');
+        // The host.
+        const handler = src('handlers', 'chatPanel-handler.ts');
+        assert.match(handler, /case 'refreshChoices': \{[\s\S]{0,400}this\._sendProfiles\(\);\s*void this\._view\?\.webview\.postMessage\(\{ type: 'choicesRefreshed', requestId: message\.requestId \}\);/);
+        assert.match(handler, /case 'revealQuestFolder': \{[\s\S]{0,600}WsPaths\.ai\('quests', quest\)[\s\S]{0,500}'revealInExplorer', vscode\.Uri\.file\(folder\)/);
+        assert.match(handler, /fromChatPanel: section,/, 'what the chat panel queues is marked');
     });
 });

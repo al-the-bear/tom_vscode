@@ -341,6 +341,11 @@ export interface QueuedPrompt {
     timedEntryId?: string;
     /** A chat send shown in the queue (status `chat` / `chat-sent`): where it came from. */
     chatSource?: string;
+    /**
+     * Queued with a queue button of the @CHAT panel (Save to Queue, Queue next): the subpanel (`anthropic`,
+     * `copilot`). The queue editor's "From the chat panel" filter shows these and the chat sends.
+     */
+    fromChatPanel?: string;
     /** A chat send shown in the queue: the window that ran it (src/utils/chatQueueItems.ts). */
     chatWindowId?: string;
     createdAt: string;            // ISO timestamp
@@ -2657,6 +2662,8 @@ export class PromptQueueManager {
         processMove?: ProcessMoveSpec;
         /** A process item: does not count towards the quest refresh (vscimpb97). */
         processItem?: boolean;
+        /** Queued with a queue button of the @CHAT panel: its subpanel (QueuedPrompt.fromChatPanel). */
+        fromChatPanel?: string;
         /** The reload prompt of the window named (vscimpb109). */
         reloadPrompt?: { windowId: string };
         /** "Pause after this". */
@@ -2798,6 +2805,7 @@ export class PromptQueueManager {
             ...(todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) ? { todoIdPattern: todoIdPatternOf({ todoIdPattern: opts.todoIdPattern, repeatCount: opts.repeatCount }) } : {}),
             ...(opts.processMove ? { processMove: opts.processMove } : {}),
             ...(opts.processItem ? { processItem: true } : {}),
+            ...(opts.fromChatPanel ? { fromChatPanel: opts.fromChatPanel } : {}),
             ...(opts.reloadPrompt ? { reloadPrompt: { windowId: opts.reloadPrompt.windowId } } : {}),
             ...(opts.pauseAfter ? { pauseAfter: true } : {}),
             ...(opts.doneNotificationPrompt !== undefined && opts.doneNotificationPrompt !== '' ? { doneNotificationPrompt: opts.doneNotificationPrompt } : {}),
@@ -8226,6 +8234,7 @@ export class PromptQueueManager {
                 ...(typeof main['reload-prompt']?.['window-id'] === 'string' ? { reloadPrompt: { windowId: main['reload-prompt']['window-id'] } } : {}),
                 answerText: main['answer-text'] || undefined,
                 chatSource: main['chat-source'] || undefined,
+                ...(typeof main['from-chat-panel'] === 'string' && main['from-chat-panel'] ? { fromChatPanel: main['from-chat-panel'] } : {}),
                 chatWindowId: main['chat-window-id'] || undefined,
                 todoClaim: todoClaimFromYaml(main['todo-claim']),
                 ...(typeof main['todo-id-pattern'] === 'string' && main['todo-id-pattern'].trim() ? { todoIdPattern: main['todo-id-pattern'].trim() } : {}),
@@ -8395,6 +8404,7 @@ export class PromptQueueManager {
             ...(item.reloadPrompt ? { 'reload-prompt': { 'window-id': item.reloadPrompt.windowId } } : {}),
             ...(item.answerText ? { 'answer-text': item.answerText } : {}),
             ...(item.chatSource ? { 'chat-source': item.chatSource } : {}),
+            ...(item.fromChatPanel ? { 'from-chat-panel': item.fromChatPanel } : {}),
             ...(item.chatWindowId ? { 'chat-window-id': item.chatWindowId } : {}),
             ...(item.todoClaim ? { 'todo-claim': todoClaimToYaml(item.todoClaim) } : {}),
             ...(item.todoIdPattern ? { 'todo-id-pattern': item.todoIdPattern } : {}),

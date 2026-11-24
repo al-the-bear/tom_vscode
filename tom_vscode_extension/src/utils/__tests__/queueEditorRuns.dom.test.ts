@@ -23,10 +23,13 @@
  *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
  *        and posts `moveItemToRun` with the item; on a sending item or an item of a Proceed run it is not; the host
  *        picks among the quest's other runs and calls the manager's moveItemToRun
- *   QR-9 Make default (vscimpb60g): a codicon button in the tab's toolbar; enabled only while the tab's run differs
+ *   QR-9 Make default (vscimpb60g): a codicon button among the icon buttons of the run settings' first context bar
+ *        (beside Chat Variables, Reminder settings, Prompt Templates, Queue Templates), not in the toolbar; enabled only while the tab's run differs
  *        from the start values (the state's `startQueueSettings`; unset equals ""), its tooltip naming what differs;
  *        a click posts `makeRunSettingsDefault` with the tab's run; the host calls the manager's
  *        setDefaultQueueSettings and confirms in the status bar
+ *   QR-16 From the chat panel only: the toolbar's filter button shows only the items queued from the @CHAT panel
+ *        (`fromChatPanel`) and the chat sends; a second click shows every item again; kept in the view's state
  *   QR-10 a deleted run's tab (vscimpb86): a run that is no longer among the quest's runs and still has items keeps
  *        its tab, muted and marked `(deleted run)` in its label and tooltip, with a remove button beside it (codicon
  *        trash, "Remove this deleted run's queue: delete its items"); live runs and `default` never have it; a click
@@ -256,6 +259,8 @@ describe('Prompt Queue editor — one tab per run', () => {
         const { w, posted } = setup(t, ITEMS, { queueTab: 'default' }, { runQueueSettings: SETTINGS, startQueueSettings: start });
         const btn = w.document.getElementById('makeDefaultBtn');
         assert.ok(btn, 'the button');
+        assert.equal(btn.closest('.toolbar'), null, 'not in the toolbar');
+        assert.ok(btn.parentElement.querySelector('[onclick="openQueueTemplates()"]'), 'beside the other icon buttons of the first context bar');
         assert.ok(btn.querySelector('.codicon'), 'a codicon');
         assert.equal(btn.disabled, true, 'default equals the start values (unset equals "")');
         assert.match(btn.title, /Make these settings the default for new runs/);
@@ -320,5 +325,30 @@ describe('Prompt Queue editor — one tab per run', () => {
         const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
         assert.match(host, /case 'removeRunQueue': \{[\s\S]*runQueueRemovalRefused\(run, queueRunState\(\)\.processRuns\)[\s\S]*showWarningMessage\(dialog\.message, \{ modal: true, detail: dialog\.detail \}[\s\S]*qm\.removeRunQueue\(run, choice\.mode\)/);
     });
-});
 
+    test('QR-16: from the chat panel only', (t) => {
+        const items = [
+            { ...base, id: 'q1', originalText: 'queued here', expandedText: 'queued here', run: 'chg1' },
+            { ...base, id: 'q2', originalText: 'from chat', expandedText: 'from chat', run: 'chg1', fromChatPanel: 'anthropic' },
+            { ...base, id: 'q3', status: 'chat-sent', originalText: 'a chat send', expandedText: 'a chat send', run: 'chg1', chatSource: 'panel' },
+        ];
+        const { w, state } = setup(t, items, { queueTab: 'chg1' });
+        const shown = (): string[] => [...w.document.querySelectorAll('#queueList .queue-item[data-qid]')].map((e: Win) => e.getAttribute('data-qid'));
+        assert.deepEqual(shown().sort(), ['q1', 'q2', 'q3']);
+        const btn = w.document.getElementById('chatOnlyBtn');
+        assert.ok(btn.closest('.toolbar'), 'in the toolbar');
+        assert.match(btn.title, /^From the chat panel only/);
+        assert.equal(btn.getAttribute('onclick'), 'toggleChatOnly()');
+        // jsdom does not run inline handlers here: what the button's onclick runs.
+        const click = (): void => { w.toggleChatOnly(); };
+        click();
+        assert.deepEqual(shown().sort(), ['q2', 'q3'], 'queued from the chat panel, and the chat send');
+        assert.equal(btn.getAttribute('aria-pressed'), 'true');
+        assert.equal(state().chatOnly, true, 'kept in the view\'s state');
+        click();
+        assert.deepEqual(shown().sort(), ['q1', 'q2', 'q3'], 'every item again');
+        // Restored from the view's state, and an empty filtered list says why.
+        const again = setup(t, [items[0]], { queueTab: 'chg1', chatOnly: true });
+        assert.match(again.w.document.getElementById('queueList').textContent, /No item of run chg1 comes from the chat panel/);
+    });
+});

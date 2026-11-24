@@ -85,3 +85,14 @@
 .icon-btn.toggle-btn { opacity: 0.6; border: 1px solid transparent; border-radius: 3px; }
 .icon-btn.toggle-btn.pressed { opacity: 1; background: var(--vscode-inputOption-activeBackground, rgba(0, 127, 212, 0.4)); border-color: var(--vscode-inputOption-activeBorder, #007acc); color: var(--vscode-inputOption-activeForeground, inherit); }
 .icon-btn.toggle-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
+/* The Available models overlay (the status bar's model button): the Anthropic API's and VS Code LM's lists. */
+.models-popup .modal-popup-body { padding: 8px 12px; max-height: 60vh; overflow: auto; }
+.models-head { font-weight: 600; margin: 6px 0 2px; }
+.models-count { font-weight: 400; opacity: 0.75; }
+.models-list { margin: 0 0 6px; padding-left: 18px; }
+.models-list li { margin: 1px 0; }
+.models-list code { font-size: 0.9em; opacity: 0.75; }
+.models-empty { opacity: 0.8; font-style: italic; margin: 0 0 6px; }
+.models-note { opacity: 0.7; font-size: 0.9em; margin-top: 6px; }
+#anthropic-models-btn.models-problem .codicon { color: var(--vscode-errorForeground, #f85149); }
