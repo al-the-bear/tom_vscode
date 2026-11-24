@@ -103,15 +103,16 @@ describe('every completion path funnels through the one gate', () => {
      */
     const ADVANCES = /\b(?:sendNext|delaySendNext)\(/;
 
-    test('the manager has exactly the seven known item-completion sites', () => {
+    test('the manager has exactly the eight known item-completion sites', () => {
         // The seventh is the process-move marker moving the process
-        // (_runProcessMoveMarker). An eighth would mean a new tail that this
+        // (_runProcessMoveMarker), the eighth an item marked sent by hand
+        // (changeItemStatus). A ninth would mean a new tail that this
         // test has not been thought about for — fail loudly rather than
         // silently stop covering it.
         assert.equal(
             completionLines.length,
-            7,
-            `expected 7 item-completion sites, found ${completionLines.length} `
+            8,
+            `expected 8 item-completion sites, found ${completionLines.length} `
             + `at lines ${completionLines.map(c => c.idx + 1).join(', ')}`,
         );
     });

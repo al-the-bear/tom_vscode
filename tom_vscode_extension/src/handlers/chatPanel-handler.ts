@@ -608,6 +608,36 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // Writes the level, then refreshes every view showing it (this panel included).
                         await handleAspectPickerMessage(message);
                         break;
+                    case 'pickChatRunSession': {
+                        // The ANTHROPIC/LLM subpanel's session link: its run and its session are set together — the
+                        // run (the current one marked), then the session in that run (its sessions, Run default, the
+                        // panel's own, or a new one named in the run). Dismissing either step changes nothing.
+                        const quest = WsPaths.getWorkspaceQuestId();
+                        const { runs, windowRun, subjects } = this._questRuns();
+                        const current = this._chatRun('anthropic');
+                        const runPick = await vscode.window.showQuickPick(
+                            chatRunOptions(runs, windowRun, subjects).map((o) => ({ label: `${o.run === current ? '$(check) ' : ''}${o.label}`, run: o.run })),
+                            { title: 'Session of the ANTHROPIC/LLM subpanel — 1. the run', placeHolder: `Now: ${this._panelSession()} (run ${current})` },
+                        );
+                        if (!runPick) { break; }
+                        const run = effectiveChatRun(runPick.run, runs);
+                        try { ensureRunDefaultSession(sessionsFolder(quest), run); } catch { /* made by the first send */ }
+                        const picked = await pickAgentSdkSession({
+                            questId: quest,
+                            current: run === current ? this._chatSessionChoice() : RUN_DEFAULT_CHOICE,
+                            run,
+                            runDefaultLabel: runDefaultLabel(runQueueSession(this._runSettings(run).defaultAgentSdkSession, run)),
+                            title: `Session of the ANTHROPIC/LLM subpanel — 2. the session in run ${run}`,
+                            defaultLabel: `The panel's own session (${ANTHROPIC_CHAT_SESSION_KEY})`,
+                        });
+                        if (picked === undefined) { break; }
+                        if (run !== current) { await this._setChatRun('anthropic', run); }
+                        await setChatSessionFor(this._context.workspaceState, quest, picked);
+                        this._sendChatRuns();
+                        this._sendChatSession(true);
+                        this.postChatAspects();
+                        break;
+                    }
                     case 'pickAnthropicSession': {
                         const quest = WsPaths.getWorkspaceQuestId();
                         const picked = await pickAgentSdkSession({

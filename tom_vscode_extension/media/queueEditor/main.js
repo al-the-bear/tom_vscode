@@ -1014,6 +1014,10 @@ function toggleSendBetween(id) { vscode.postMessage({ type: 'toggleSendBetween',
 function letNextGoFirst(id) { vscode.postMessage({ type: 'letNextGoFirst', id }); }
 /** The run chip of a staged or pending item: the host asks for the run it moves to. */
 function moveItemToRun(id) { vscode.postMessage({ type: 'moveItemToRun', id }); }
+// eslint-disable-next-line no-unused-vars -- the run and session chips (queueEntryRenderFunctions.js)
+function relocateItem(id) { vscode.postMessage({ type: 'relocateItem', id }); }
+// eslint-disable-next-line no-unused-vars -- the status label (queueEntryRenderFunctions.js)
+function pickItemStatus(id) { vscode.postMessage({ type: 'pickItemStatus', id }); }
 function sendNow(id) { vscode.postMessage({ type: 'sendNow', id }); }
 function continueSending(id) { vscode.postMessage({ type: 'continueSending', id }); }
 function resendLastPrompt(id) { vscode.postMessage({ type: 'resendLastPrompt', id }); }

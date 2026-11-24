@@ -528,12 +528,12 @@ describe('chat sends and the queue buttons', () => {
             .map((el: Win) => (el.id === `${section}-run` ? 'RUN' : el.getAttribute('data-action')));
         const a = actions('anthropic');
         const at = (x: string): number => a.indexOf(x);
-        for (const x of ['addToQueue', 'addToQueueNext', 'pickAnthropicSession', 'RUN', 'send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) {
+        for (const x of ['addToQueue', 'addToQueueNext', 'pickChatRunSession', 'send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) {
             assert.ok(at(x) >= 0, `${x} in ${a.join(', ')}`);
         }
-        assert.ok(at('addToQueue') < at('pickAnthropicSession') && at('addToQueueNext') < at('pickAnthropicSession'), 'the default-run buttons first');
-        assert.ok(at('pickAnthropicSession') < at('RUN'));
-        for (const x of ['send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) { assert.ok(at(x) > at('RUN'), `${x} after the run`); }
+        assert.equal(at('RUN'), -1, 'no run field of its own: run and session are one link');
+        assert.ok(at('addToQueue') < at('pickChatRunSession') && at('addToQueueNext') < at('pickChatRunSession'), 'the default-run buttons first');
+        for (const x of ['send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) { assert.ok(at(x) > at('pickChatRunSession'), `${x} after the session`); }
         const c = actions('copilot');
         assert.ok(c.indexOf('addToQueue') < c.indexOf('RUN') && c.indexOf('RUN') < c.indexOf('send') && c.indexOf('send') < c.indexOf('addToQueuePanelTarget'), c.join(', '));
         // Every action button an icon button.
@@ -556,23 +556,32 @@ describe('chat sends and the queue buttons', () => {
         // Session and Run: a field each, its label above, its value a link; the run's name, its full label in the
         // tooltip, marked when it is not the PROCESS view's run; a click asks the host for VS Code's run picker.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { anthropic: 'collab' }, windowRun: 'default' } }));
-        const runLink = w.document.getElementById('anthropic-run');
+        assert.equal(w.document.getElementById('anthropic-run'), null, 'the ANTHROPIC/LLM run is part of its session link');
+        const runLink = w.document.getElementById('copilot-run');
         assert.equal(runLink.tagName, 'A');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { copilot: 'collab' }, windowRun: 'default' } }));
         assert.equal(runLink.textContent, 'collab');
         assert.match(runLink.title, /^Run: collab — the subject/);
         assert.ok(runLink.classList.contains('run-other'), 'another run than the PROCESS view\'s');
         const fieldOf = (el: Win): [string, string] => [el.parentElement.className, el.parentElement.querySelector('.chat-field-label').textContent];
         assert.deepEqual(fieldOf(runLink), ['chat-field', 'Run']);
         assert.deepEqual(fieldOf(w.document.getElementById('anthropic-session-link')), ['chat-field', 'Session']);
-        assert.ok(w.document.getElementById('anthropic-session-link').parentElement.nextElementSibling === runLink.parentElement, 'the session field, then the run field');
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicSession', name: 'work@collab', label: 'work@collab', tooltip: 'Session work@collab' } }));
+        assert.equal(w.document.getElementById('anthropic-session-name').textContent, 'work@collab', 'one text: the session and its run');
+        assert.match(w.document.getElementById('anthropic-session-link').title, /click to pick the run, then the session in it/);
         posted.length = 0;
-        runLink.click();
         w.document.getElementById('anthropic-session-link').click();
-        w.document.getElementById('copilot-run').click();
-        assert.deepEqual(posted.map((m: Win) => m.type === 'pickChatRun' ? [m.type, m.section] : [m.type]), [['pickChatRun', 'anthropic'], ['pickAnthropicSession'], ['pickChatRun', 'copilot']]);
+        runLink.click();
+        assert.deepEqual(posted.map((m: Win) => m.type === 'pickChatRun' ? [m.type, m.section] : [m.type]), [['pickChatRunSession'], ['pickChatRun', 'copilot']]);
         assert.equal(w.document.querySelector('select#anthropic-run, select#copilot-run'), null, 'no run dropdowns');
         assert.match(media('chatPanel', 'style.css'), /\.chat-link \{ color: var\(--vscode-textLink-foreground\); text-decoration: underline; cursor: pointer;/, 'marked clickable');
         assert.match(src('handlers', 'chatPanel-handler.ts'), /case 'pickChatRun':[\s\S]{0,800}showQuickPick\([\s\S]{0,600}this\._setChatRun\(section, picked\.run\)/, 'the host picks and switches');
+        // The session link's flow: the run, then the session in that run, both set together.
+        const flow = src('handlers', 'chatPanel-handler.ts');
+        const block = flow.slice(flow.indexOf("case 'pickChatRunSession':"), flow.indexOf("case 'pickAnthropicSession':"));
+        assert.match(block, /showQuickPick\([\s\S]{0,400}1\. the run/);
+        assert.match(block, /pickAgentSdkSession\(\{[\s\S]{0,200}run,/, 'the sessions of that run');
+        assert.match(block, /if \(picked === undefined\) \{ break; \}\s*if \(run !== current\) \{ await this\._setChatRun\('anthropic', run\); \}\s*await setChatSessionFor/, 'nothing changes before both are chosen');
     });
 
     test('CB-15: the run switch selects the run\'s default session', () => {

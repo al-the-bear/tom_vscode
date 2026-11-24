@@ -74,7 +74,8 @@ import { queuedByFrom, queuedByToYaml, type QueuedBy } from '../utils/queuedBy';
 import { onDoneDueAtSettle } from '../utils/todoOnDoneRun';
 import { runTodoOnDone, takeDeferredTodoOnDone } from '../services/todoOnDoneRunner';
 import { recordTodoAnswer, type TodoAnswerPort } from '../utils/todoLastAnswer';
-import { itemToSendBetween, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
+import { itemToSendBetween, isLoopItem, orderForBetween, toggleSendBetween, nextQueuePosition, runningLoopAbove } from '../utils/queueSendBetween';
+import { ACTIVE_QUEUE_STATUSES, PARKED_QUEUE_STATUSES, canRelocateQueueItem, laneInsertIndex, queueStatusChoices, type LaneItem, type LanePlace, type ManualQueueStatus } from '../utils/queueStatusChange';
 import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
 import { groupItemMembers, parseGroupSelection, selectionOf, withMemberChoice, withSelectionFlags, type GroupMemberView, type GroupSelection } from '../utils/groupItemSelection';
 import { claimTodo, reclaimForResend, releaseTodoClaim, settleGroupClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
@@ -3947,6 +3948,138 @@ export class PromptQueueManager {
             void this.sendNext();
         }
         return true;
+    }
+
+    /**
+     * Set an item's status by hand (the queue editor's status label, utils/queueStatusChange.ts): an item in
+     * `error`, `waiting` or `retry` goes back to `pending` or `staged` — its failure, wait and retry countdown
+     * cleared — or is marked `sent` when its work was done; a running or held item is stopped first (as
+     * Stop does: its dispatch cancelled, its todo claim handed back) and then takes the status chosen.
+     * Answers why it is refused.
+     */
+    changeItemStatus(id: string, to: ManualQueueStatus): { ok: true } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return { ok: false, reason: 'no such item' }; }
+        if (!queueStatusChoices(item.status).some((c) => c.status === to)) {
+            return { ok: false, reason: `an item that is ${item.status} cannot be set to ${to}` };
+        }
+        const fromStatus = item.status;
+        if (ACTIVE_QUEUE_STATUSES.includes(item.status)) {
+            // Stopped first, as Stop does; then the status chosen.
+            if (item.status === 'sending' || item.status === 'interrupted') {
+                this.setStatus(id, 'staged');
+            } else {
+                delete item.blockedOn;
+                delete item.blockedTodo;
+                item.status = 'staged';
+            }
+        }
+        if (PARKED_QUEUE_STATUSES.includes(item.status)) {
+            item.waitingUntil = undefined;
+            item.waitingResetLabel = undefined;
+            clearRetryBookkeeping(item);
+            item.outOfBudget = undefined;
+            item.warning = undefined;
+            item.error = undefined;
+            item.status = 'staged';
+        }
+        if (to === 'sent') {
+            item.status = 'sent';
+            item.sentAt = item.sentAt || new Date().toISOString();
+            item.sendBetween = undefined;
+            item.yieldAfterIteration = undefined;
+            this.removePendingReminderFor(item.id);
+            logQueue(`Status set by hand: id=${item.id}, from=${fromStatus} → to=${item.status}`);
+            this.persist();
+            this._onDidChange.fire();
+            // Done by hand is a completion like any other: its lane goes on — unless the run is paused or the
+            // item says "pause after this" (the one gate every completion asks).
+            if (this._shouldAdvanceQueueAfter(item)) {
+                void this.sendNext();
+            }
+            return { ok: true };
+        }
+        item.status = to;
+        logQueue(`Status set by hand: id=${item.id}, from=${fromStatus} → to=${item.status}`);
+        this.persist();
+        this._onDidChange.fire();
+        if (to === 'pending' && this._autoSendFor(item) && this._mayDrain()) {
+            void this.sendNext();
+        }
+        return { ok: true };
+    }
+
+    /**
+     * Move an item that is not sent (staged, pending, parked after a failure, running or held) to run `run`,
+     * with session `session` (a name in that run, `''` for the run's queue default, undefined to keep its own
+     * as that run's), at `place` in the run's lane (utils/queueStatusChange.ts laneInsertIndex): the end, the
+     * top, or next — between the iterations of the run's iterating sending item. A running or held item is
+     * stopped first and goes on as pending, a parked one as pending too. Refused for an item of a Proceed run
+     * and a process-move marker (they belong to their run), and for a session the item's profile cannot
+     * continue.
+     */
+    relocateItem(id: string, opts: { run: string; session?: string; place: LanePlace }): { ok: true; sendBetween: boolean } | { ok: false; reason: string } {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return { ok: false, reason: 'no such item' }; }
+        if (!canRelocateQueueItem(item.status)) { return { ok: false, reason: `an item that is ${item.status} stays where it is` }; }
+        if (item.processMove) { return { ok: false, reason: 'a process-move marker stays with its Proceed run' }; }
+        const to = normalizeRun(opts.run);
+        if (item.processRun && to !== itemRun(item)) { return { ok: false, reason: 'the item belongs to a Proceed run and runs as its process position' }; }
+        const nextSession = opts.session === undefined
+            ? (item.session ? runSessionName(sessionBaseName(item.session), to) : undefined)
+            : (opts.session || undefined);
+        const refusal = this.sessionRefusal({ ...item, session: nextSession, sessionCreate: undefined });
+        if (refusal) { return { ok: false, reason: refusal }; }
+        if (ACTIVE_QUEUE_STATUSES.includes(item.status) || PARKED_QUEUE_STATUSES.includes(item.status)) {
+            const r = this.changeItemStatus(id, 'staged');
+            if (!r.ok) { return r; }
+            item.status = 'pending';
+        }
+        item.run = to;
+        item.session = nextSession;
+        item.sessionCreate = undefined;
+        item.sendBetween = undefined;
+        item.yieldAfterIteration = undefined;
+        this._items.splice(this._items.indexOf(item), 1);
+        const lane: LaneItem[] = this._items.map((i) => ({ id: i.id, status: i.status, run: itemRun(i), iterates: isLoopItem(i) }));
+        const at = laneInsertIndex(lane, to, opts.place);
+        this._items.splice(at, 0, item);
+        let between = false;
+        if (opts.place === 'next' && item.status === 'pending' && runningLoopAbove(this._items, item.id)) {
+            between = toggleSendBetween(this._items, item.id).length > 0 && !!item.sendBetween;
+        }
+        logQueue(`Item ${item.id} moved by hand to run ${to}${item.session ? `, session ${item.session}` : ''}, ${opts.place}${between ? ' (between iterations)' : ''}`);
+        this.persist();
+        this._onDidChange.fire();
+        if (item.status === 'pending' && this._autoSendFor(item) && this._mayDrain()) {
+            void this.sendNext();
+        }
+        return { ok: true, sendBetween: between };
+    }
+
+    /**
+     * Give every item of run `run` that is not sent yet and may change its session (staged, pending) session
+     * `session` (`''`: the run's queue default). Answers how many changed and which could not (their profile
+     * cannot continue it).
+     */
+    setSessionOfRunItems(run: string, session: string, exceptId?: string): { changed: number; refused: string[] } {
+        const to = normalizeRun(run);
+        let changed = 0;
+        const refused: string[] = [];
+        for (const item of this._items) {
+            if (item.id === exceptId || itemRun(item) !== to || !this.canChangeSession(item.status)) { continue; }
+            const next = session || undefined;
+            if (this.sessionRefusal({ ...item, session: next, sessionCreate: undefined })) { refused.push(item.id); continue; }
+            if (item.session === next) { continue; }
+            item.session = next;
+            item.sessionCreate = undefined;
+            changed++;
+        }
+        if (changed) {
+            this.persist();
+            this._onDidChange.fire();
+        }
+        return { changed, refused };
     }
 
     /**

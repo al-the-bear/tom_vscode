@@ -15,7 +15,7 @@
  *        (`Session: walk based on prep (per iteration)`), all of it the link
  *   QC-4 an Anthropic item's session chip: a `*` after the name when its effective session has a base,
  *        the tooltip naming base and lifetime; the same for a session the item's spec will create;
- *        clicking it posts `editItemSession`
+ *        clicking it starts the move flow (`relocateItem`: run, session, place)
  *   QC-5 the host: `editItemSession` opens the item's session picker — it no longer falls through into
  *        `pickRole`, which opened the ROLE picker — and the state carries every session's base and lifetime
  *   QC-7 the toolbar is icon buttons only: Send all staged, Retry all errors, Delete errors, Clear sent and Clear all
@@ -142,7 +142,7 @@ describe('Prompt Queue editor — the context bar', () => {
         const chip = (id: string): Win => window.document.querySelector(`[data-id="${id}"] .queue-session-chip`)
             ?? [...window.document.querySelectorAll('.queue-session-chip')].find((c: Win) => (c.getAttribute('onclick') ?? '').includes(`'${id}'`));
         assert.equal(chip('own').textContent, 'walk*', 'a based session is marked');
-        assert.match(chip('own').title, /Session walk, based on prep, started again for every prompt — click to change/);
+        assert.match(chip('own').title, /Session walk, based on prep, started again for every prompt — click to change its run, session and place/);
         assert.equal(chip('plain').textContent, 'solo', 'no base: no mark');
         assert.equal(chip('spec').textContent, 'fresh*', 'a spec not created yet: from the spec');
         assert.match(chip('spec').title, /based on prep, started again for every queue iteration — created when the item is sent/);
@@ -150,9 +150,9 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.match(chip('inherit').title, /\(queue default\)/);
         posted.length = 0;
         // jsdom runs no inline handlers here: run the chip's onclick as the browser would.
-        assert.equal(chip('own').getAttribute('onclick'), "editItemSession('own')");
-        window.eval(chip('own').getAttribute('onclick'));
-        assert.deepEqual(posted.filter((m) => m.type === 'editItemSession'), [{ type: 'editItemSession', id: 'own' }]);
+        assert.equal(chip('own').getAttribute('onclick'), "event.stopPropagation();relocateItem('own')");
+        window.relocateItem('own');
+        assert.deepEqual(posted.filter((m) => m.type === 'relocateItem'), [{ type: 'relocateItem', id: 'own' }]);
     });
 
     test('QC-5: the host opens the session picker for an item', () => {

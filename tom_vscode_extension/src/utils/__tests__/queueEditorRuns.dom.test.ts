@@ -21,8 +21,9 @@
  *        `openReminderSettings` (the Status Page's reminder settings); the role of another run than the window's is
  *        its step's, shown, not picked
  *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
- *        and posts `moveItemToRun` with the item; on a sending item or an item of a Proceed run it is not; the host
- *        picks among the quest's other runs and calls the manager's moveItemToRun
+ *        and posts `relocateItem` with the item — a sending item's too (it is stopped and goes on as pending); an item
+ *        of a Proceed run keeps its run; the host's move flow picks the run, the session in it and the place, and calls
+ *        the manager's relocateItem
  *   QR-9 Make default (vscimpb60g): a codicon button among the icon buttons of the run settings' first context bar
  *        (beside Chat Variables, Reminder settings, Prompt Templates, Queue Templates), not in the toolbar; enabled only while the tab's run differs
  *        from the start values (the state's `startQueueSettings`; unset equals ""), its tooltip naming what differs;
@@ -30,6 +31,9 @@
  *        setDefaultQueueSettings and confirms in the status bar
  *   QR-16 From the chat panel only: the toolbar's filter button shows only the items queued from the @CHAT panel
  *        (`fromChatPanel`) and the chat sends; a second click shows every item again; kept in the view's state
+ *   QR-17 the status label: an item in error, waiting, retrying, sending (or held), staged, pending or sent is a
+ *        button posting `pickItemStatus`, its tooltip naming the choices (a running one: stopped first); a chat
+ *        send's is not; the host offers queueStatusChoices and calls the manager's changeItemStatus
  *   QR-10 a deleted run's tab (vscimpb86): a run that is no longer among the quest's runs and still has items keeps
  *        its tab, muted and marked `(deleted run)` in its label and tooltip, with a remove button beside it (codicon
  *        trash, "Remove this deleted run's queue: delete its items"); live runs and `default` never have it; a click
@@ -241,17 +245,18 @@ describe('Prompt Queue editor — one tab per run', () => {
             assert.ok(c.classList.contains('queue-from-chip'), 'the todo chip\'s look');
             assert.match(c.textContent, /^run chg1$/);
         }
-        assert.deepEqual(['p', 's', 'x', 'q'].map((id) => chip(id).classList.contains('movable')), [true, true, false, false]);
+        assert.deepEqual(['p', 's', 'x', 'q'].map((id) => chip(id).classList.contains('movable')), [true, true, true, false]);
         assert.match(chip('q').title, /Proceed run/);
-        assert.match(chip('p').getAttribute('onclick'), /moveItemToRun\('p'\)/);
-        assert.equal(chip('x').getAttribute('onclick'), null, 'a sending item: no click');
-        w.moveItemToRun('p');
-        assert.deepEqual(posted.filter((m) => m.type === 'moveItemToRun'), [{ type: 'moveItemToRun', id: 'p' }]);
+        assert.match(chip('p').getAttribute('onclick'), /relocateItem\('p'\)/);
+        assert.match(chip('x').getAttribute('onclick'), /relocateItem\('x'\)/, 'a sending item too');
+        assert.match(chip('x').title, /stopped; it goes on as pending/);
+        w.relocateItem('p');
+        assert.deepEqual(posted.filter((m) => m.type === 'relocateItem'), [{ type: 'relocateItem', id: 'p' }]);
         const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
-        const handler = host.slice(host.indexOf("case 'moveItemToRun':"), host.indexOf("case 'letNextGoFirst':"));
-        assert.match(handler, /queueRunState\(\)/, 'the quest\'s runs');
-        assert.match(handler, /filter\(\(r\) => r !== current\)/, 'not its own');
-        assert.match(handler, /qm\.moveItemToRun\(id, picked\.label\)/);
+        const flow = host.slice(host.indexOf('async function relocateItemFlow('), host.indexOf('function queueRunState('));
+        assert.match(flow, /queueRunState\(\)/, 'the quest\'s runs');
+        assert.match(flow, /pickAgentSdkSession\(\{[\s\S]{0,300}run,/, 'the session in that run');
+        assert.match(flow, /qm\.relocateItem\(id, \{ run, session, place: placePick\.place \}\)/);
     });
 
     test('QR-9: Make default', (t) => {
@@ -350,5 +355,25 @@ describe('Prompt Queue editor — one tab per run', () => {
         // Restored from the view's state, and an empty filtered list says why.
         const again = setup(t, [items[0]], { queueTab: 'chg1', chatOnly: true });
         assert.match(again.w.document.getElementById('queueList').textContent, /No item of run chg1 comes from the chat panel/);
+    });
+
+    test('QR-17: the status label', (t) => {
+        const make = (id: string, status: string, extra: Record<string, unknown> = {}) => ({ ...base, id, status, originalText: id, expandedText: id, run: 'chg1', ...extra });
+        const items = [make('e', 'error', { error: 'overloaded' }), make('w', 'waiting'), make('r', 'retry'), make('x', 'sending'), make('s', 'staged'), make('c', 'chat-sent', { chatSource: 'panel' })];
+        const { w, posted } = setup(t, items, { queueTab: 'chg1' });
+        const label = (id: string): Win => w.document.querySelector(`#queueList .queue-item[data-qid="${id}"] .status-bar .status-pick`);
+        for (const id of ['e', 'w', 'r', 'x', 's']) {
+            assert.ok(label(id), `${id}: a clickable status`);
+            assert.match(label(id).getAttribute('onclick'), new RegExp(`pickItemStatus\\('${id}'\\)`));
+            assert.match(label(id).title, /click to set it: pending, staged or sent/);
+        }
+        assert.match(label('x').title, /stopped first/, 'a running item');
+        assert.equal(label('c'), null, 'a chat send: not the queue\'s');
+        w.pickItemStatus('e');
+        assert.deepEqual(posted.filter((m) => m.type === 'pickItemStatus'), [{ type: 'pickItemStatus', id: 'e' }]);
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        const block = host.slice(host.indexOf("case 'pickItemStatus':"), host.indexOf("case 'relocateItem':"));
+        assert.match(block, /queueStatusChoices\(item\.status\)/);
+        assert.match(block, /qm\.changeItemStatus\(id, picked\.status\)/);
     });
 });

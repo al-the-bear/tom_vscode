@@ -19,6 +19,7 @@ import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileC
 import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { RUN_DEFAULT_CHOICE } from '../utils/runDefaultChoice';
+import { runSessionName, sessionRun } from '../utils/runSessions';
 
 type SessionItem = vscode.QuickPickItem & { action: 'pick' | 'new' | 'based' | 'clear' | 'runDefault'; name?: string };
 
@@ -42,9 +43,15 @@ export async function pickAgentSdkSession(opts: {
      * picking it answers {@link RUN_DEFAULT_CHOICE}, and `current` equal to it marks it current.
      */
     runDefaultLabel?: string;
+    /**
+     * Only the sessions of this process run (`<name>@<run>`; plain names and the shared `chat` for the
+     * `default` run, `chat` for every run), and a new session is named in it (`<name>@<run>`).
+     */
+    run?: string;
 }): Promise<string | undefined> {
     const folder = sessionsFolder(opts.questId);
-    const sessions = listSessions(folder);
+    const all = listSessions(folder);
+    const sessions = opts.run === undefined ? all : all.filter((s) => sessionInRun(s.name, opts.run as string));
     const items: SessionItem[] = [];
     if (opts.runDefaultLabel !== undefined) {
         items.push({
@@ -78,7 +85,13 @@ export async function pickAgentSdkSession(opts: {
     if (chosen.action === 'clear') { return ''; }
     if (chosen.action === 'runDefault') { return RUN_DEFAULT_CHOICE; }
     if (chosen.action === 'pick') { return chosen.name; }
-    return createSessionInteractively(folder, sessions, chosen.action === 'based');
+    return createSessionInteractively(folder, opts.run === undefined ? sessions : all, chosen.action === 'based', opts.run);
+}
+
+/** Whether session `name` belongs to run `run`: its `@<run>`, a plain name for the `default` run, `chat` for every run. */
+export function sessionInRun(name: string, run: string): boolean {
+    if (name === 'chat') { return true; }
+    return sessionRun(name) === (run || 'default');
 }
 
 /**
@@ -161,7 +174,7 @@ export async function pickDefinitionSession(opts: { questId: string; current?: s
     return definitionSpecFromChoices(name, basedOn, how.mode, profilePick.choice);
 }
 
-async function createSessionInteractively(folder: string, sessions: SessionRecord[], based: boolean): Promise<string | undefined> {
+async function createSessionInteractively(folder: string, sessions: SessionRecord[], based: boolean, run?: string): Promise<string | undefined> {
     let basedOn: string | undefined;
     if (based) {
         const base = await vscode.window.showQuickPick(
@@ -181,15 +194,18 @@ async function createSessionInteractively(folder: string, sessions: SessionRecor
         { title: 'The Anthropic profile the session runs with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true },
     );
     if (!profilePick) { return undefined; }
-    const name = await vscode.window.showInputBox({
+    // In a run the session is named in it: `<name>@<run>` (utils/runSessions.ts).
+    const inRun = (v: string): string => (run === undefined ? v : runSessionName(v, run));
+    const typed = await vscode.window.showInputBox({
         title: basedOn ? `New session based on "${basedOn}"` : 'New session',
-        prompt: 'Session name: letters, digits, "_" and "-"',
+        prompt: run === undefined || run === 'default' ? 'Session name: letters, digits, "_" and "-"' : `Session name: letters, digits, "_" and "-" — it is named in run ${run} (<name>@${run})`,
         validateInput: (v) => {
-            if (!isValidSessionName(v)) { return 'Letters, digits, "_" and "-" only, starting with a letter or digit.'; }
-            return sessions.some((s) => s.name === v) ? `The session "${v}" already exists.` : undefined;
+            if (!isValidSessionName(v) || (run !== undefined && v.includes('@'))) { return 'Letters, digits, "_" and "-" only, starting with a letter or digit.'; }
+            return sessions.some((s) => s.name === inRun(v)) ? `The session "${inRun(v)}" already exists.` : undefined;
         },
     });
-    if (!name) { return undefined; }
+    if (!typed) { return undefined; }
+    const name = inRun(typed);
     // The file is written now, so the session shows everywhere at once; its conversation starts on first use.
     const created = createSession(folder, name, newSessionOptions(basedOn, how.mode, profilePick.choice, section as ProfileSection | undefined));
     if (!created.ok) {

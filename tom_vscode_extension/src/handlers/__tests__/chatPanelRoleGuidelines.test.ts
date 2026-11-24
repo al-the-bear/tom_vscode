@@ -251,8 +251,8 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
                 assert.notEqual($(id).previousElementSibling?.tagName, 'LABEL', `${id} unlabelled`);
                 assert.ok($(id).title, `${id} named by its tooltip`);
             }
-            assert.ok($('anthropic-run').classList.contains('chat-link'), 'the run: a link');
-            assert.ok($('anthropic-session-name').closest('.chat-link'), 'the session: a link');
+            assert.equal($('anthropic-run'), null, 'the run: part of the session link');
+            assert.ok($('anthropic-session-name').closest('.chat-link'), 'the session (with its run): a link');
             // Run default first (the panel's run's template), then No template.
             assert.deepEqual([...$('anthropic-userMessage').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
             assert.deepEqual([...$('copilot-template').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
@@ -264,7 +264,6 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             // Every choice of the action bar is a field: its label above, its value a link; the select behind it is hidden.
             const field = (id: string): [string, string] => { const f = $(id).closest('.chat-field'); return [f.querySelector('.chat-field-label').textContent, f.querySelector('.chat-link').textContent]; };
             assert.deepEqual(field('anthropic-session-name'), ['Session', 'chat']);
-            assert.deepEqual(field('anthropic-run'), ['Run', 'default']);
             assert.deepEqual(field('copilot-run'), ['Run', 'default']);
             const linked = (id: string): [string, string] => [$(id + '-field').querySelector('.chat-field-label').textContent, $(id + '-field').querySelector('.chat-link').textContent];
             for (const [id, label] of [['anthropic-profile', 'Model'], ['anthropic-userMessage', 'Template'], ['anthropic-role', 'Role'], ['copilot-template', 'Template'],

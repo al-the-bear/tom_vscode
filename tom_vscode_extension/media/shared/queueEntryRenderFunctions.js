@@ -1,4 +1,10 @@
 // @ts-nocheck
+/* The statuses a person may set an item's status from (src/utils/queueStatusChange.ts queueStatusChoices), and those
+   in which a turn runs or holds (changing them stops it first). */
+var QUEUE_MANUAL_STATUS_FROM = ['staged', 'pending', 'sent', 'error', 'waiting', 'retry', 'sending', 'interrupted', 'todo-blocked', 'decision-needed'];
+var QUEUE_ACTIVE_STATUSES = ['sending', 'interrupted', 'todo-blocked', 'decision-needed'];
+/* The statuses an item may move to another run or session from (canRelocateQueueItem): everything not sent. */
+var QUEUE_RELOCATABLE_STATUSES = ['staged', 'pending', 'error', 'waiting', 'retry', 'sending', 'interrupted', 'todo-blocked', 'decision-needed'];
 /* eslint-disable no-undef */
 // queueEntryRenderFunctions — extracted verbatim from queueEntryRenderFunctions() in src/handlers/queueEntryComponent.ts (Phase B.13 webview
 // restructuring). This is a host-scope mixin: its functions reference page
@@ -26,6 +32,7 @@ function formatRepeatLabel(repeatCountRaw, repeatIndex, resolvedRepeatCount) {
 }
 
 function renderEntry(item, idx) {
+  var safeId = escapeJsSingleQuoted(item.id);
   var safeStatus = normalizeQueueStatus(item.status);
   // A chat send (status `chat` while it runs, `chat-sent` after; src/utils/chatQueueItems.ts): drawn like
   // every other item, with its own headline colour (`chat-kind`). The queue never sends it, so only the
@@ -125,9 +132,14 @@ function renderEntry(item, idx) {
   var softLabel = isSending ? softInterruptRowLabel(item) : '';
   if (softLabel) { stateWord = 'sending'; stateDetail = ''; stateDetailHtml = '\u2014 ' + softLabel; }
   var statusKind = queueStatusKindLabel(stateWord, queueItemKindOf(item));
-  var statusLabel = '<span class="' + statusKind.cls + '" title="' + (isChat
+  // The status set by hand (the queue editor): error, waiting and retry back to pending or staged, or sent when the
+  // work was done; a running or held item stopped first (src/utils/queueStatusChange.ts, the host's pickItemStatus).
+  var statusChangeable = editorMode === 'queue' && !isChat && QUEUE_MANUAL_STATUS_FROM.indexOf(safeStatus) >= 0;
+  var statusLabel = '<span class="' + statusKind.cls + (statusChangeable ? ' status-pick' : '') + '"'
+    + (statusChangeable ? ' role="button" style="cursor:pointer;" onclick="event.stopPropagation();pickItemStatus(\'' + safeId + '\')"' : '')
+    + ' title="' + (isChat
       ? (isChatRunning ? 'A chat send, running' : 'A chat send, ended') + ' \u2014 shown here, never sent by the queue'
-      : 'Status and kind of the item') + '">' + escapeHtml(statusKind.text) + '</span>' +
+      : 'Status and kind of the item' + (statusChangeable ? ' \u2014 click to set it: pending, staged or sent' + (QUEUE_ACTIVE_STATUSES.indexOf(safeStatus) >= 0 ? ' (the running or held turn is stopped first)' : '') : '')) + '">' + escapeHtml(statusKind.text) + '</span>' +
     (stateDetail ? ' ' + escapeHtml(stateDetail) : '') + (stateDetailHtml ? ' ' + stateDetailHtml : '');
 
   // Green→amber header for the head-of-queue item. The queue is "active" while
@@ -151,7 +163,6 @@ function renderEntry(item, idx) {
   var repeatCount = repeatCountIsVar ? 0 : Math.max(0, parseInt(String(repeatCountRaw || 0), 10) || 0);
   var repeatCountDisplay = repeatCountIsVar ? String(repeatCountRaw) : String(Math.max(1, repeatCount));
   var repeatIndex = Math.max(0, parseInt(String(item.repeatIndex || 0), 10) || 0);
-  var safeId = escapeJsSingleQuoted(item.id);
   var currentRepeatNumber = repeatCount > 0 ? Math.min(repeatIndex + 1, repeatCount) : 0;
 
   // Main prompt repeat progress: "MP 1/3 (varName)" with input + skip button when sending/staged.
@@ -351,12 +362,16 @@ function renderEntry(item, idx) {
   // The process run the item belongs to (vscimpb45): a chip like the todo chip beside it (runChip, in the header's
   // right part). A staged or pending item's chip opens the run picker: the item moves into that run's queue.
   var itemRunName = item.run || (item.processRun && item.processRun.run) || 'default';
-  var runMovable = (isStaged || isPending) && !item.processRun && !item.processMove;
+  // The run and session chips of an item not sent (staged, pending, parked after a failure, running or held) start
+  // the move flow (the host's relocateItem: run, session, place); an item of a Proceed run keeps its run.
+  var relocatable = editorMode === 'queue' && !isChat && QUEUE_RELOCATABLE_STATUSES.indexOf(safeStatus) >= 0 && !item.processMove;
+  var runMovable = relocatable && !item.processRun;
   var runChip = '<span class="queue-from-chip queue-run-chip' + (runMovable ? ' movable' : '') + '" data-run="' + escapeHtml(itemRunName) + '" data-qid="' + escapeHtml(String(item.id)) + '"'
-    + (runMovable ? ' onclick="event.stopPropagation();moveItemToRun(\'' + safeId + '\')"' : '')
+    + (runMovable ? ' onclick="event.stopPropagation();relocateItem(\'' + safeId + '\')"' : '')
     + ' title="' + escapeHtml('The process run of the quest this item belongs to' + (itemRunName === 'default' ? ' (the quest\'s own position)' : '')
-      + (runMovable ? '. Click to move it into another run\'s queue.'
-        : (isStaged || isPending) ? '. It belongs to a Proceed run, so it stays in this run.' : '')) + '">'
+      + (runMovable ? '. Click to move it: the run, its session there (or a new one), and its place — at the end, at the top, or next between iterations'
+        + (QUEUE_ACTIVE_STATUSES.indexOf(safeStatus) >= 0 ? ' (its running or held turn is stopped; it goes on as pending)' : '') + '.'
+        : relocatable ? '. It belongs to a Proceed run, so it stays in this run.' : '')) + '">'
     + (runMovable ? '<span class="codicon codicon-arrow-swap"></span>' : '') + 'run ' + escapeHtml(itemRunName) + '</span>';
   if (item.processMove) {
     processBadge += '  <span class="process-badge process-move" style="background:#8a63d2;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Process-move marker: never sent to a model. When the queue reaches it with the step\'s items done, it moves the process (' +
@@ -490,9 +505,9 @@ function renderEntry(item, idx) {
           // Agent SDK session of an Anthropic item: the session's name (the
           // queue default when unset); staged / pending items can change it.
           ((item.transport || (typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot')) === 'anthropic'
-            ? '<span class="queue-session-chip" style="' + ((isStaged || isPending) ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
-              + ((isStaged || isPending) ? ' onclick="editItemSession(\'' + safeId + '\')"' : '')
-              + ' title="' + escapeHtml(chipSession.tooltip) + (item.session ? '' : ' (queue default)') + ((isStaged || isPending) ? ' — click to change' : '') + '">'
+            ? '<span class="queue-session-chip" style="' + (relocatable ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
+              + (relocatable ? ' onclick="event.stopPropagation();relocateItem(\'' + safeId + '\')"' : '')
+              + ' title="' + escapeHtml(chipSession.tooltip) + (item.session ? '' : ' (queue default)') + (relocatable ? ' — click to change its run, session and place' : '') + '">'
               + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
               + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
             : '') +

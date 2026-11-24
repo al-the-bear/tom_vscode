@@ -55,7 +55,8 @@ import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
-import { DEFAULT_RUN_SESSION } from '../utils/runSessions';
+import { DEFAULT_RUN_SESSION, runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
+import { canRelocateQueueItem, iteratingSendingItem, queueStatusChoices, type LanePlace } from '../utils/queueStatusChange';
 import { runDefaultFieldsOf, runDefaultPickerEntries, runDefaultsApplySummary, type RunDefaultField, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
 import { waitMessageViews } from '../utils/itemWaitMessages';
 import { answerItemAsk, itemAskViews } from '../services/queueItemAsks';
@@ -998,6 +999,30 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             qm.setStatus(msg.id, msg.status);
           }
           break;
+        case 'pickItemStatus': {
+            // The status label of an item: pending, staged or sent, as its state allows (utils/queueStatusChange.ts).
+            const id = String(msg.id ?? '');
+            const item = qm.getById(id);
+            if (!item) { break; }
+            const choices = queueStatusChoices(item.status);
+            if (!choices.length) { break; }
+            const running = ['sending', 'interrupted', 'todo-blocked', 'decision-needed'].includes(item.status);
+            const picked = await vscode.window.showQuickPick(choices.map((c) => ({ label: c.label, description: c.detail, status: c.status })), {
+                title: `The status of this item (now ${item.status})`,
+                placeHolder: running ? 'Its running or held turn is stopped first' : 'Pick the status it takes',
+            });
+            if (!picked) { break; }
+            const r = qm.changeItemStatus(id, picked.status);
+            if (!r.ok) { void vscode.window.showInformationMessage(`Set the status: ${r.reason}.`); }
+            sendState();
+            break;
+        }
+        case 'relocateItem': {
+            // The run or session chip of an item that is not sent: run, then session (or a new one), then the place.
+            await relocateItemFlow(String(msg.id ?? ''));
+            sendState();
+            break;
+        }
         // Editing a pending (or staged) item's text: the queue waits for it while it is open.
         case 'beginTextEdit':
             if (!qm.beginTextEdit(String(msg.id))) {
@@ -1980,6 +2005,81 @@ function runContextsFor(items: readonly QueuedPrompt[]): Record<string, QueueRun
     const out: Record<string, QueueRunContext> = {};
     for (const run of runs) { out[run] = runContextOf(run); }
     return out;
+}
+
+/**
+ * Move an item to another run and session, and decide where it goes (the queue editor's run and session chips):
+ * the run (the current one marked), then — on Anthropic — the session in that run (an existing one, the run's
+ * queue default, or a new one created there), then the place in the run's lane: at the end, at the top, or next
+ * (between the iterations of the run's iterating sending item, offered only while there is one). A changed
+ * session is then offered to the run's other items not sent yet. A running or held item is stopped and goes on
+ * as pending (PromptQueueManager.relocateItem).
+ */
+async function relocateItemFlow(id: string): Promise<void> {
+    const qm = PromptQueueManager.instance;
+    const item = qm.getById(id);
+    if (!item) { return; }
+    if (!canRelocateQueueItem(item.status)) { void vscode.window.showInformationMessage(`An item that is ${item.status} stays where it is.`); return; }
+    if (item.processMove) { void vscode.window.showInformationMessage('A process-move marker stays with its Proceed run.'); return; }
+    const current = item.run || item.processRun?.run || 'default';
+    const { processRuns, currentRun } = queueRunState();
+    let run = current;
+    if (item.processRun) {
+        void vscode.window.showInformationMessage(`The item belongs to the Proceed run ${current}: only its session and place can change.`);
+    } else {
+        const runPick = await vscode.window.showQuickPick(
+            (processRuns.includes(current) ? processRuns : [current, ...processRuns]).map((r) => ({
+                label: `${r === current ? '$(check) ' : ''}${r}`,
+                description: [r === current ? 'its run now' : '', r === currentRun ? 'this window\'s run' : '', r === 'default' ? 'the quest\'s own position' : ''].filter(Boolean).join(', ') || undefined,
+                run: r,
+            })),
+            { title: 'Move the item — 1. the run', placeHolder: `Now in run ${current}` },
+        );
+        if (!runPick) { return; }
+        run = runPick.run;
+    }
+    const settings = qm.runQueueSettings(run);
+    const transport = item.transport ?? settings.defaultTransport;
+    const before = item.session;
+    let session: string | undefined;
+    if (transport === 'anthropic') {
+        const queueDefault = runQueueSession(settings.defaultAgentSdkSession, run);
+        const picked = await pickAgentSdkSession({
+            questId: WsPaths.getWorkspaceQuestId(),
+            current: item.session ? runSessionName(sessionBaseName(item.session), run) : undefined,
+            run,
+            title: `Move the item — 2. the session in run ${run}`,
+            defaultLabel: `The run's queue default (${queueDefault})`,
+        });
+        if (picked === undefined) { return; }
+        session = picked;
+    }
+    const lane = qm.items.filter((i) => i.id !== id).map((i) => ({ id: i.id, status: i.status, run: i.run || i.processRun?.run || 'default', iterates: isLoopItem(i) }));
+    const loop = iteratingSendingItem(lane, run);
+    const places: Array<vscode.QuickPickItem & { place: LanePlace }> = [
+        { label: '$(list-ordered) At the end', description: `behind every item of run ${run}`, place: 'end' },
+        { label: '$(arrow-up) At the top', description: `before the first item of run ${run} not being sent`, place: 'top' },
+        ...(loop ? [{ label: '$(debug-step-over) Next, between iterations', description: `right after the running item ${loop.id}, before its next iteration`, place: 'next' as const }] : []),
+    ];
+    const placePick = await vscode.window.showQuickPick(places, { title: `Move the item — 3. its place in run ${run}`, placeHolder: 'Where it goes in the run\'s queue' });
+    if (!placePick) { return; }
+    const r = qm.relocateItem(id, { run, session, place: placePick.place });
+    if (!r.ok) { void vscode.window.showInformationMessage(`Move the item: ${r.reason}.`); return; }
+    // A changed session: the run's other items not sent yet too?
+    if (session !== undefined && (session || undefined) !== before) {
+        const others = qm.items.filter((i) => i.id !== id && (i.run || i.processRun?.run || 'default') === run && (i.status === 'staged' || i.status === 'pending'));
+        if (others.length) {
+            const label = session || `the run's queue default`;
+            const all = await vscode.window.showQuickPick([
+                { label: 'Only this item', all: false },
+                { label: `Every item of run ${run} not sent yet (${others.length})`, description: 'the staged and pending ones', all: true },
+            ], { title: `Session ${label}: also for the run's other items?`, placeHolder: 'The items being sent or held keep theirs' });
+            if (all?.all) {
+                const res = qm.setSessionOfRunItems(run, session, id);
+                vscode.window.setStatusBarMessage(`$(check) Session ${label}: ${res.changed} more item${res.changed === 1 ? '' : 's'}${res.refused.length ? `, ${res.refused.length} kept theirs (their profile cannot continue it)` : ''}`, 5000);
+            }
+        }
+    }
 }
 
 function queueRunState(): { processRuns: string[]; currentRun: string } {

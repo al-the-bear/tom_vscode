@@ -617,13 +617,11 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — in the default run (default@default), sent next, with the prompt queue&#39;s profile, session and default template; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-arrow-circle-up"></span></button>' +
                 // Agent SDK session: the button names the session the panel sends in; a click opens VS Code's picker
                 // (pick / new / based on). A run switch selects the run's default session (vscimpb151).
-                // Session and run, each a field: its label above, its value a link below; a click opens VS Code's picker
-                // (pickAnthropicSession, pickChatRun). The run this subpanel is on (vscimpb48): its session in that run,
-                // its chat variables, its queued items.
+                // Session and run in one field: the session the panel sends in, `<session>@<run>`, its label above, the
+                // link below; a click goes through the run, then the session in that run (or a new one): pickChatRunSession.
+                // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
                 '<span class="chat-field"><span class="chat-field-label">Session</span>' +
-                    '<a href="#" id="anthropic-session-link" class="chat-link session-link" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span id="anthropic-session-name" class="session-name">chat</span></a></span>' +
-                '<span class="chat-field"><span class="chat-field-label">Run</span>' +
-                    '<a href="#" id="anthropic-run" class="chat-link run-link" data-action="pickChatRun" data-id="anthropic" data-run-section="anthropic" title="The process run this subpanel works on — click to pick another">default</a></span>' +
+                    '<a href="#" id="anthropic-session-link" class="chat-link session-link" data-action="pickChatRunSession" data-id="anthropic" title="Agent SDK session and its run — click to pick the run, then the session in it (or a new one)"><span id="anthropic-session-name" class="session-name">chat</span></a></span>' +
                 // The role of this subpanel's sends (gsel6): their item role; the run's chat variable is untouched.
                 '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Run default</option></select>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
@@ -1098,6 +1096,7 @@ function handleAction(action, id, slot) {
         case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
         case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
+        case 'pickChatRunSession': vscode.postMessage({ type: 'pickChatRunSession' }); break;
         case 'pickChatRun': vscode.postMessage({ type: 'pickChatRun', section: id }); break;
         case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
@@ -1636,7 +1635,7 @@ window.addEventListener('message', function(e) {
         var sessionLabel = document.getElementById('anthropic-session-name');
         if (sessionLabel) { sessionLabel.textContent = msg.label || msg.name || 'chat'; }
         var sessionBtn = sessionLabel ? sessionLabel.closest('.session-link') : null;
-        if (sessionBtn && msg.tooltip) { sessionBtn.title = msg.tooltip + ' — click to pick another or create one'; }
+        if (sessionBtn && msg.tooltip) { sessionBtn.title = msg.tooltip + ' — click to pick the run, then the session in it (or a new one)'; }
         // A session just picked that names a profile: preselect it (the panel's choice still wins).
         if (msg.profileId) {
             var sessionProfileSel = document.getElementById('anthropic-profile');
