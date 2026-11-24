@@ -335,7 +335,7 @@ The **@TOM INFO** sidebar (its own Activity Bar icon, beside @TOM, @TOM WS and @
 
 The bar's 📖 opens the notes in the MD Browser, the file icon in an editor for more space. With no quest open the view says so.
 
-**RUNS** — below the notes, every process run of every VS Code window on this machine, grouped by window (its quest; this window on top; a window that has not written its heartbeat for 90 s is shown as gone, and left out 10 minutes after its last one). One line per run: its name, its subject (the run's `process-subject`), its process › position, and a badge with its state and what it waits for:
+**RUNS** — below the notes, every process run of every VS Code window on this machine, grouped by window (its quest; this window on top; a window that has not written its heartbeat for 90 s is shown as gone, and left out 10 minutes after its last one). Each window is a tile that folds: it is expanded while one of its runs waits for you, collapsed otherwise; a collapsed tile shows its runs' state badges in its headline, in the runs' alphabetical order (hover a badge for its run). A click on the headline (or Enter) folds or unfolds it; your choice holds until the tile's need for you changes. Expanded, one line per run: its name, its subject (the run's `process-subject`), its process › position, and a badge with its state and what it waits for:
 
 - **waiting for user** — a question, approval, plan, picker or MD Browser ask of the run is open (its title), or an item is held on its todo's open decisions;
 - **waiting for event** — its turn waits in tomAi_waitFor (the reason and until when);

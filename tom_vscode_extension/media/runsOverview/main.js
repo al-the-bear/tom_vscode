@@ -4,6 +4,10 @@
 // (src/utils/runActivity.ts runsOverviewWindows) on every state-file change and
 // once per heartbeat interval while shown. A click on a run of this window
 // selects it; on another window's run it opens its details in place.
+// Each window is a tile that folds: expanded while one of its runs waits for the
+// user, collapsed otherwise; collapsed, its headline shows its runs' state badges
+// in the runs' alphabetical order. A tile folded or unfolded by hand stays so
+// until its need for the user changes; the choice is kept in the view's state.
 /* global acquireVsCodeApi */
 (function () {
     var vscode = acquireVsCodeApi();
@@ -18,6 +22,26 @@
     /** Details opened, by `windowId run`, kept across refreshes. */
     var open = {};
     var last = [];
+    var saved = (vscode.getState && vscode.getState()) || {};
+    /** Tiles folded or unfolded by hand, by window id: {expanded, needsUser} — the need it was chosen at. */
+    var folded = saved.folded && typeof saved.folded === 'object' ? saved.folded : {};
+    function keepState() { if (vscode.setState) { vscode.setState({ folded: folded }); } }
+    /** Whether a run waits for the user: its state says so. */
+    function needsUser(r) { return String(r && r.state || '') === 'waiting for user'; }
+    /** Whether the window's tile is expanded: the hand's choice while its need is unchanged, else whether a run needs the user. */
+    function isExpanded(w) {
+        var needs = (w.runs || []).some(needsUser);
+        var choice = folded[w.windowId];
+        if (choice && choice.needsUser === needs) { return !!choice.expanded; }
+        if (choice) { delete folded[w.windowId]; keepState(); }
+        return needs;
+    }
+    /** The state badges of a collapsed tile: one per run, in the runs' alphabetical order. */
+    function headBadges(w) {
+        return (w.runs || []).slice().sort(function (a, b) { return String(a.run).localeCompare(String(b.run)); }).map(function (r) {
+            return '<span class="badge ' + stateClass(r.state) + '" title="' + esc('Run ' + r.run + ': ' + r.state + (r.detail ? ' — ' + r.detail : '')) + '">' + esc(r.state) + '</span>';
+        }).join('');
+    }
 
     function esc(text) {
         return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, function (c) {
@@ -59,18 +83,40 @@
         if (!last.length) { root.innerHTML = '<div class="muted">No window of this machine has written its runs yet.</div>'; return; }
         root.innerHTML = last.map(function (w) {
             var tag = w.isThisWindow ? 'this window' : (w.alive ? '' : 'gone, ' + age(w.heartbeatAgeSeconds) + ' ago');
-            var runs = (w.runs || []).length
-                ? w.runs.map(function (r) { return runHtml(w, r); }).join('')
-                : '<div class="run-sub no-runs">No runs reported (an older build, or no quest).</div>';
-            return '<div class="window' + (w.alive ? '' : ' gone') + '">'
-                + '<div class="window-head"><span class="codicon codicon-window"></span>'
+            var expanded = isExpanded(w);
+            var runs = !expanded ? ''
+                : (w.runs || []).length
+                    ? w.runs.map(function (r) { return runHtml(w, r); }).join('')
+                    : '<div class="run-sub no-runs">No runs reported (an older build, or no quest).</div>';
+            return '<div class="window' + (w.alive ? '' : ' gone') + (expanded ? ' expanded' : ' collapsed') + '" data-window-id="' + esc(w.windowId) + '">'
+                + '<div class="window-head" role="button" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '" title="' + (expanded ? 'Collapse' : 'Expand to see its runs') + '">'
+                + '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + ' fold"></span>'
+                + '<span class="codicon codicon-window"></span>'
                 + '<span class="name" title="' + esc(w.windowId) + '">' + esc(w.quest || w.workspace || w.windowId) + '</span>'
-                + (tag ? '<span class="tag">' + esc(tag) + '</span>' : '') + '</div>'
+                + (tag ? '<span class="tag">' + esc(tag) + '</span>' : '')
+                + (expanded ? '' : '<span class="head-badges">' + headBadges(w) + '</span>')
+                + '</div>'
                 + runs + '</div>';
         }).join('');
     }
 
+    /** Fold or unfold a window's tile by hand. */
+    function toggleWindow(head) {
+        var tile = head.closest('.window');
+        var id = tile ? tile.getAttribute('data-window-id') : '';
+        var w = last.filter(function (x) { return x.windowId === id; })[0];
+        if (!w) { return; }
+        folded[id] = { expanded: !isExpanded(w), needsUser: (w.runs || []).some(needsUser) };
+        keepState();
+        render(last);
+    }
+    root.addEventListener('keydown', function (ev) {
+        var head = ev.target.closest && ev.target.closest('.window-head');
+        if (head && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); toggleWindow(head); }
+    });
     root.addEventListener('click', function (ev) {
+        var head = ev.target.closest('.window-head');
+        if (head) { toggleWindow(head); return; }
         var el = ev.target.closest('.run');
         if (!el) { return; }
         var windowId = el.getAttribute('data-window');

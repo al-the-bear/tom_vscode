@@ -8,7 +8,11 @@ body {
 .muted { color: var(--vscode-descriptionForeground); }
 .window { border-bottom: 1px solid var(--vscode-panel-border, transparent); padding: 4px 0; }
 .window.gone { opacity: 0.55; }
-.window-head { display: flex; align-items: center; gap: 4px; font-weight: 600; }
+.window-head { display: flex; align-items: center; gap: 4px; font-weight: 600; cursor: pointer; border-radius: 3px; }
+.window-head:hover { background: var(--vscode-list-hoverBackground); }
+.window-head .fold { font-size: 12px; flex: 0 0 auto; }
+/* A collapsed tile: its runs' state badges in the headline, in the runs' alphabetical order. */
+.window-head .head-badges { display: inline-flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; font-weight: normal; flex: 0 1 auto; min-width: 0; }
 .window-head .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .window-head .tag { font-weight: normal; font-size: 0.85em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
 .run { padding: 2px 0 2px 12px; cursor: pointer; border-radius: 3px; }
