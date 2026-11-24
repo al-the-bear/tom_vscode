@@ -6,11 +6,14 @@
  * three so the webview stays glue-only and the behaviour is unit-testable
  * without the VS Code host:
  *
- *  1. **Up to 10 heading levels.** HTML only has `h1`–`h6`. A level 1–10
- *     heading is emitted as a *capped* markdown heading (max 6 hashes, so marked
- *     still renders inline markdown in the title) carrying an invisible marker
- *     span with `data-level` = the true level. The webview promotes that to a
- *     `md-h{level}` class for per-level styling.
+ *  1. **Any heading level.** HTML only has `h1`–`h6`. A heading of any level
+ *     is emitted as a *capped* markdown heading (max 6 hashes, so marked still
+ *     renders inline markdown in the title) carrying an invisible marker span
+ *     with `data-level` = the true level. The webview promotes that to a
+ *     `md-h{level}` class for per-level styling. A styled-div heading of a
+ *     readable rendition (`<div class="heading<N>" …><!--[ID]--> Title</div>`,
+ *     N ≥ 7; reading_view part *The MD Browser*) is read as a heading of level
+ *     N and rewritten the same way, one line for one line.
  *
  *  2. **Per-heading IDs.** An id may be declared in a leading HTML comment:
  *     `###### <!--[FR-3]--> Functional Requirement 3`. The id is always shown as
@@ -26,7 +29,7 @@
 
 /** A heading line split into its level, optional id, and remaining text. */
 export interface ParsedHeading {
-    /** Heading depth, 1..10 (counted from the leading hashes). */
+    /** Heading depth, 1 or more (the leading hashes, or a heading div's N). */
     level: number;
     /** The id from a leading `<!--[id]-->` comment, or '' when absent. */
     id: string;
@@ -40,8 +43,14 @@ export interface TransformOptions {
     convertLineBreaks?: boolean;
 }
 
-// Up to 3 leading spaces (CommonMark), 1–10 hashes, optional space + text.
-const HEADING_RE = /^ {0,3}(#{1,10})(?:[ \t]+([^\n]*?))?[ \t]*$/;
+// Up to 3 leading spaces (CommonMark), one or more hashes, optional space + text.
+const HEADING_RE = /^ {0,3}(#+)(?:[ \t]+([^\n]*?))?[ \t]*$/;
+// A styled-div heading of a readable rendition: `<div class="heading<N>" …>` … `</div>` on one line.
+const HEADING_DIV_RE = /^ {0,3}<div\s+class="heading(\d+)"[^>]*>(.*)<\/div>[ \t]*$/;
+/** The lowest level a heading div is read at (a `heading<N>` div with N ≤ 6 stays content). */
+export const HEADING_DIV_MIN_LEVEL = 7;
+// An empty HTML anchor in a heading div's title (`<a id="X"></a>`), kept as HTML.
+const EMPTY_ANCHOR_RE = /<a\s+(?:id|name)="[^"]*"\s*><\/a>/g;
 // A leading `<!--[id]-->` comment (spaces around the brackets are tolerated).
 const ID_COMMENT_RE = /^<!--\s*\[([^\]]+)\]\s*-->\s*/;
 // An ATX closing hash sequence (` ##` at end of line).
@@ -50,10 +59,14 @@ const CLOSING_HASHES_RE = /\s+#+\s*$/;
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
 
 /**
- * Parse a single line as an ATX heading. Returns `null` when the line is not a
- * heading (including 11+ hashes, or hashes with no following space + text).
+ * Parse a single line as an ATX heading (any number of hashes) or a styled-div
+ * heading (`<div class="heading<N>" …><!--[ID]--> Title</div>`, N ≥ 7). Returns
+ * `null` when the line is not a heading (hashes with no following space + text,
+ * a `heading<N>` div with N ≤ 6, a `\<div` line).
  */
 export function parseHeadingLine(line: string): ParsedHeading | null {
+    const div = parseHeadingDiv(line);
+    if (div) { return div; }
     const m = HEADING_RE.exec(line);
     if (!m) { return null; }
     const level = m[1].length;
@@ -66,6 +79,48 @@ export function parseHeadingLine(line: string): ParsedHeading | null {
         rest = rest.slice(idm[0].length);
     }
     return { level, id, text: rest.trim() };
+}
+
+/**
+ * A styled-div heading: its level N (≥ {@link HEADING_DIV_MIN_LEVEL}), the id
+ * of its leading `<!--[ID]-->` and its title as the div showed it — HTML
+ * entities unescaped, then the Markdown punctuation escaped, so marked renders
+ * the text and not its markup. Empty `<a id>` anchors in the title stay HTML
+ * (the targets of links into the rendition).
+ */
+function parseHeadingDiv(line: string): ParsedHeading | null {
+    const m = HEADING_DIV_RE.exec(line);
+    if (!m) { return null; }
+    const level = parseInt(m[1], 10);
+    if (!(level >= HEADING_DIV_MIN_LEVEL)) { return null; }
+    let rest = m[2].trim();
+    let id = '';
+    const idm = ID_COMMENT_RE.exec(rest);
+    if (idm) {
+        id = idm[1].trim();
+        rest = rest.slice(idm[0].length);
+    }
+    const anchors = rest.match(EMPTY_ANCHOR_RE) ?? [];
+    const title = escapeMarkdown(unescapeHtml(rest.replace(EMPTY_ANCHOR_RE, '').trim()));
+    return { level, id, text: [...anchors, title].filter(Boolean).join(' ') };
+}
+
+const HTML_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+
+/** HTML entities (named, `&#n;`, `&#xh;`) as their characters; an unknown name stays as written. */
+function unescapeHtml(s: string): string {
+    return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
+        if (name[0] === '#') {
+            const code = name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+            return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+        }
+        return HTML_ENTITIES[name.toLowerCase()] ?? whole;
+    });
+}
+
+/** Every character Markdown or HTML would read as markup, backslash-escaped (CommonMark escapes any ASCII punctuation). */
+function escapeMarkdown(s: string): string {
+    return s.replace(/[\\`*_{}[\]()<>#+!|~&]/g, (c) => `\\${c}`);
 }
 
 /**

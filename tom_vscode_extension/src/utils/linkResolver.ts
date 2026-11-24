@@ -35,6 +35,14 @@ export interface ResolvedLink {
     /** For anchor links: the anchor ID (without #). */
     anchor?: string;
 
+    /**
+     * The anchor is a section id the target Markdown file carries (a heading's
+     * `<!--[ID]-->`, an element's `id="ID"`, a table row's first cell): the
+     * browser reveals the heading or row with that id. Unset: a plain anchor
+     * (reading_view part *The MD Browser*, 05b_rdv1).
+     */
+    anchorById?: boolean;
+
     /** For file links with line number: 1-based line number. */
     lineNumber?: number;
 
@@ -136,10 +144,11 @@ export function resolveLink(href: string, context: LinkContext = {}): ResolvedLi
         return { type: 'external', action: 'open-external', identifier: trimmedHref };
     }
 
-    // 2. Pure anchor link (#section)
+    // 2. Pure anchor link (#section): by id when the current Markdown file carries the section id
     if (trimmedHref.startsWith('#')) {
-        const anchor = trimmedHref.slice(1);
-        return { type: 'anchor', action: 'scroll-to-anchor', anchor };
+        const anchor = safeDecode(trimmedHref.slice(1));
+        const byId = context.currentFilePath ? fileHasSectionId(context.currentFilePath, anchor) : false;
+        return { type: 'anchor', action: 'scroll-to-anchor', anchor, ...(byId ? { anchorById: true } : {}) };
     }
 
     // 3. Check for custom link handlers (issue:, todo:, etc.)
@@ -247,11 +256,14 @@ export function resolveFoundFile(resolvedPath: string, anchor?: string): Resolve
 
     if (isMarkdown) {
         if (anchor) {
+            // The fragment-by-id step: a section id the target carries is revealed by id.
+            const byId = fileHasSectionId(resolvedPath, safeDecode(anchor));
             return {
                 type: 'file-with-anchor',
                 action: 'navigate-md-anchor',
                 filePath: resolvedPath,
                 anchor,
+                ...(byId ? { anchorById: true } : {}),
             };
         } else {
             return {
@@ -285,6 +297,42 @@ export function resolveFoundFile(resolvedPath: string, anchor?: string): Resolve
                 filePath: resolvedPath,
             };
         }
+    }
+}
+
+// ============================================================================
+// Section ids in Markdown (the fragment-by-id step)
+// ============================================================================
+
+/** A DocSpecs section id: upper case letters and digits, `-`-separated (blocks.js MDB_SECTION_ID). */
+const SECTION_ID_RE = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/;
+
+function escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Whether the Markdown `text` carries `id` as a section id: a heading's (or a
+ * heading div's) `<!--[ID]-->`, an element's `id="ID"` (the anchors a
+ * readable rendition writes in headings, record and section rows), or the
+ * first cell of a table row (`| ID |`, a records table's `Id`, a section
+ * table's first column). An id that is no section id (`intro`, `L20`) is never
+ * one.
+ */
+export function markdownHasSectionId(text: string, id: string): boolean {
+    if (!SECTION_ID_RE.test(id)) { return false; }
+    if (text.indexOf(`id="${id}"`) >= 0) { return true; }
+    if (new RegExp(`<!--\\s*\\[${escapeRegExp(id)}\\]\\s*-->`).test(text)) { return true; }
+    return new RegExp(`^[ \\t]*\\|[ \\t]*${escapeRegExp(id)}[ \\t]*\\|`, 'm').test(text);
+}
+
+/** {@link markdownHasSectionId} for a Markdown file; false when it cannot be read or is no `.md` file. */
+function fileHasSectionId(filePath: string, id: string): boolean {
+    if (!SECTION_ID_RE.test(id) || !filePath.toLowerCase().endsWith('.md')) { return false; }
+    try {
+        return markdownHasSectionId(fs.readFileSync(filePath, 'utf8'), id);
+    } catch {
+        return false;
     }
 }
 

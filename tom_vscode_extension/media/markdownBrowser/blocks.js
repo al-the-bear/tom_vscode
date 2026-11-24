@@ -287,6 +287,20 @@ function mdbSectionRefs(text) {
 }
 
 /**
+ * The section id a table row is anchored at (reading_view, 05b_rdv1): the first
+ * word of its first cell's text when it is a section id with a `-` (`ACE-CRIT-3`,
+ * `KEATT-REFE-REF`), else ''. A section table's first cell, a records table's
+ * `Id` cell.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function mdbRowAnchorId(text) {
+    var first = String(text || '').trim().split(/\s+/)[0] || '';
+    return new RegExp('^' + MDB_SECTION_ID + '$').test(first) && first.indexOf('-') > 0 ? first : '';
+}
+
+/**
  * The heading a section reference points at, as an index into `fullIds` (the
  * dotted id paths of the headings, in document order): the first whose last
  * segment is the reference's last id and whose segments hold the outer ids in

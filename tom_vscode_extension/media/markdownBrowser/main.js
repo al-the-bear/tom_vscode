@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode, mdbOwnToken, mdbLocateSelection, mdbSelectionMark, mdbTrackedEdit */
+/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode, mdbOwnToken, mdbLocateSelection, mdbSelectionMark, mdbTrackedEdit, mdbRowAnchorId */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -388,7 +388,8 @@
         // The backend rewrote each heading into a capped (<=h6) markdown heading
         // carrying an invisible `.md-heading-meta` marker (data-level, data-fullid)
         // and a `.md-heading-id` badge. Promote the true level to a per-level
-        // class (md-h1..md-h10) and build the toggle-able full-id sub-line.
+        // class (md-h1..md-h10; a deeper heading takes md-h10 and md-hdeep) and build
+        // the toggle-able full-id sub-line.
         function enhanceHeadings(root, headingsOut) {
             root = root || docRoot;
             if (!root) return;
@@ -400,8 +401,9 @@
                 var fullId = meta.getAttribute('data-fullid') || '';
                 if (heading) {
                     heading.classList.add('md-heading');
-                    if (level >= 1 && level <= 10) {
-                        heading.classList.add('md-h' + level);
+                    if (level >= 1) {
+                        heading.classList.add('md-h' + Math.min(level, 10));
+                        if (level > 10) { heading.classList.add('md-hdeep'); }
                     }
                     heading.setAttribute('data-level', String(level));
                     if (fullId) {
@@ -415,6 +417,75 @@
                 }
                 if (meta.parentNode) meta.parentNode.removeChild(meta);
             }
+        }
+
+        // ---- Form, section and record tables (reading_view, 05b_rdv1) ----
+        // A table headed `TomSpecField | Value` (a form) or `Section | TomSpecField |
+        // Value` (a section table) is shown compact (mdb-form-table): never collapsed,
+        // an ordinary editable table block, without a comment button. A section
+        // table shows each section cell once per group; the group's first row is
+        // the section's anchor. A table whose first column is `Id` (the records of
+        // a `records` div) anchors each row at its id. An anchored row carries its
+        // dotted full id (the heading above it, then its own) and is learnt by
+        // headingsById, so section references and `#ID` links reach it.
+        var FORM_TABLE_HEADER = 'TomSpecField|Value';
+        var SECTION_TABLE_HEADER = 'Section|TomSpecField|Value';
+
+        /** A table cell's text, trimmed. */
+        function mdbCellText(cell) {
+            return String(cell.textContent || '').trim();
+        }
+
+        function enhanceTables(root, ctx, headingsBefore) {
+            var tables = root.querySelectorAll('table');
+            if (tables.length === 0) { return; }
+            // This batch's own headings, in document order, and the last heading before the batch.
+            var own = ctx.headings.slice(headingsBefore);
+            var before = headingsBefore > 0 ? ctx.headings[headingsBefore - 1] : null;
+            Array.prototype.forEach.call(tables, function(table) {
+                var head = table.tHead && table.tHead.rows[0];
+                if (!head) { return; }
+                var names = Array.prototype.map.call(head.cells, mdbCellText);
+                var key = names.join('|');
+                var rows = table.tBodies.length ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+                if (key === FORM_TABLE_HEADER || key === SECTION_TABLE_HEADER) {
+                    table.classList.add('mdb-form-table');
+                    var wrapper = table.closest('.mdb-block');
+                    if (wrapper) { wrapper.__mdbFormTable = true; }
+                    if (key !== SECTION_TABLE_HEADER) { return; }
+                    table.classList.add('mdb-section-table');
+                    var group = '';
+                    rows.forEach(function(row) {
+                        var cell = row.cells[0];
+                        var text = cell ? mdbCellText(cell) : '';
+                        if (!text) { return; }
+                        if (text === group) { cell.classList.add('mdb-form-repeat'); return; }
+                        group = text;
+                        anchorRow(row, text, ctx, own, before);
+                    });
+                    return;
+                }
+                if (names[0] !== 'Id') { return; }
+                rows.forEach(function(row) {
+                    if (row.cells[0]) { anchorRow(row, mdbCellText(row.cells[0]), ctx, own, before); }
+                });
+            });
+        }
+
+        /** Give `row` the id its first cell names (unless an element inside carries it) and its full id. */
+        function anchorRow(row, text, ctx, own, before) {
+            var id = mdbRowAnchorId(text);
+            if (!id) { return; }
+            var inner = row.querySelector('[id]');
+            if (!inner || inner.id !== id) { row.id = id; }
+            var heading = before;
+            for (var i = own.length - 1; i >= 0; i--) {
+                if (own[i].compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) { heading = own[i]; break; }
+            }
+            var parent = heading && heading.dataset.fullid ? heading.dataset.fullid : '';
+            row.dataset.fullid = parent ? parent + '.' + id : id;
+            row.classList.add('mdb-id-row');
+            ctx.idRows.push(row);
         }
 
         // ---- Render Markdown ----
@@ -1027,10 +1098,14 @@
 
         /** Everything a freshly built set of nodes needs before it is shown. */
         function processNodes(nodes, ctx) {
+            var headingsBefore = ctx.headings.length;
             enhanceHeadings(nodes.holder, ctx.headings);
+            enhanceTables(nodes.holder, ctx, headingsBefore);
             assignFoldKeys(nodes.holder, ctx.foldSeen);
             decorateWrappers(nodes.wrappers, nodes.blocks);
             Array.prototype.push.apply(ctx.linkables, nodes.linkables);
+            // A patch (patchAfterSave) builds into its own context: its anchored rows join the shown ones.
+            if (shownCtx && ctx !== shownCtx && shownCtx.idRows) { Array.prototype.push.apply(shownCtx.idRows, ctx.idRows); }
         }
 
         function newDocRoot() {
@@ -1108,7 +1183,7 @@
             var wrappers = [];
             var sections = [];
             var section = null;
-            var ctx = { foldSeen: {}, headings: [], linkables: [] };
+            var ctx = { foldSeen: {}, headings: [], linkables: [], idRows: [] };
             var tasks = [];
             var progress = function(label, at, of) {
                 if (filePathEl && big) { filePathEl.setAttribute('data-progress', label + ' ' + Math.round(100 * at / of) + '%'); }
@@ -1161,7 +1236,7 @@
                 shownBlocks = blocks;
                 shownWrappers = wrappers;
                 shownCtx = ctx;
-                indexHeadings(ctx.headings);
+                indexHeadings(ctx.headings, ctx.idRows);
                 linkify(ctx.linkables);
                 var fresh = newDocRoot();
                 fresh.classList.toggle('mdb-large', big);
@@ -1249,7 +1324,7 @@
             Object.assign(shownLinks, built.links || {});
             shownText = text;
             shownLinesCache = null;
-            indexHeadings(shownCtx.headings);
+            indexHeadings(shownCtx.headings, shownCtx.idRows);
             linkify(nodes.linkables);
             search.texts = null;
             if (hidden) { applyFolding(); } else { refreshFoldControls(); }
@@ -1391,7 +1466,7 @@
             // written must read as answered.
             shownText = lines.join(eol);
             shownLinesCache = null;
-            var ctx = { foldSeen: {}, headings: [], linkables: [] };
+            var ctx = { foldSeen: {}, headings: [], linkables: [], idRows: [] };
             processNodes(nodes, ctx);
             linkify(ctx.linkables);
             var anchor = oldLast.nextSibling;
@@ -1987,7 +2062,8 @@
 
         /** A block inside a form's fields offers no comment. */
         function markFormField(wrapper, block) {
-            var inFields = !!somComments && !block.comment && mdbInRanges(somComments.formFieldRanges, fileLine(block.startLine));
+            var inFields = !block.comment && (wrapper.__mdbFormTable === true
+                || (!!somComments && mdbInRanges(somComments.formFieldRanges, fileLine(block.startLine))));
             wrapper.classList.toggle('mdb-no-comment', inFields);
         }
 
@@ -3153,25 +3229,27 @@
         }
 
         // ---- Anchor Scrolling ----
-        function scrollToAnchor(anchor, record) {
+        function scrollToAnchor(anchor, record, byId) {
             if (!anchor || !contentArea) return false;
 
-            // The order (vscimpb150): an element with that exact id; a heading carrying
-            // the anchor as its section id (`<!--[TOKEN]-->`, data-fullid: its last id, or
-            // a dotted full id as a whole; the first in document order); the marked slug;
-            // the heading text.
+            // The order (vscimpb150): an element with that exact id; a heading or an
+            // anchored table row carrying the anchor as its section id (`<!--[TOKEN]-->`,
+            // data-fullid: its last id, or a dotted full id as a whole; the first in
+            // document order); the marked slug; the heading text. A section id the host
+            // found in the file (`byId`, the fragment-by-id step of the link resolution,
+            // 05b_rdv1) is looked up by id only: never by slug or heading text.
             var target = document.getElementById(anchor);
 
             if (!target) {
                 var sectioned = Array.prototype.filter.call(
-                    contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6'),
+                    contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6, tr.mdb-id-row'),
                     function(h) { return !!(h.dataset && h.dataset.fullid); });
                 var at = mdbSectionAnchorIndex(anchor, sectioned.map(function(h) { return h.dataset.fullid; }));
                 if (at >= 0) { target = sectioned[at]; }
             }
 
             // If not found, try common heading ID patterns generated by marked.js
-            if (!target) {
+            if (!target && !byId) {
                 // marked.js generates IDs by lowercasing and replacing spaces/special chars
                 var normalizedAnchor = anchor.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
                 target = document.getElementById(normalizedAnchor);
@@ -3179,7 +3257,7 @@
 
             // Try finding by heading text content: the heading's own words, without its
             // section-id label and fold controls, trimmed (the rendered text ends in a space).
-            if (!target) {
+            if (!target && !byId) {
                 var headings = contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6');
                 for (var i = 0; i < headings.length; i++) {
                     var h = headings[i];
@@ -3238,9 +3316,9 @@
         // above it. Indexed by last id after each full render.
         var headingsById = {};
 
-        function indexHeadings(headings) {
+        function indexHeadings(headings, rows) {
             headingsById = {};
-            headings.forEach(function(h) {
+            headings.concat(rows || []).forEach(function(h) {
                 var full = h.dataset.fullid || '';
                 var last = full.slice(full.lastIndexOf('.') + 1);
                 (headingsById[last] = headingsById[last] || []).push(h);
@@ -3952,6 +4030,7 @@
                 shownCrlf = crlfMode;
                 shownLinesCache = null;
                 var anchor = msg.anchor;
+                var anchorById = msg.anchorById === true;
                 var position = msg.position;
                 if (!sameFile) {
                     resetDocNav();
@@ -3968,7 +4047,7 @@
                     applyIndent();
                     var changed = sameFile ? changedOnRender : null;
                     changedOnRender = null;
-                    afterRender(sameFile, anchor, position);
+                    afterRender(sameFile, anchor, position, anchorById);
                     showChangedQuestions(changed);
                     if (afterNextRender) {
                         var then = afterNextRender;
@@ -3980,7 +4059,7 @@
         }
 
         /** Where the reader is put after a full render. */
-        function afterRender(sameFile, anchor, position) {
+        function afterRender(sameFile, anchor, position, anchorById) {
             decorateTeamReview();
             markOwnLines();
             if (sameFile && restoreScrollTop !== null) {
@@ -3998,7 +4077,7 @@
                 return;
             }
             if (anchor) {
-                setTimeout(function() { scrollToAnchor(anchor); }, 50);
+                setTimeout(function() { scrollToAnchor(anchor, false, anchorById); }, 50);
             } else if (liveMode && followTail) {
                 // Layout may not be final yet (Mermaid blocks can resize the
                 // doc after they render): wait a frame, then pin to the bottom.
@@ -4072,7 +4151,7 @@
             } else if (msg.type === 'scrollToAnchor') {
                 // Scroll to anchor within current document
                 if (msg.anchor) {
-                    scrollToAnchor(msg.anchor, true);
+                    scrollToAnchor(msg.anchor, true, msg.anchorById === true);
                 }
             } else if (msg.type === 'reconnected') {
                 // Backend re-attached the watch and pushed fresh content; pin to

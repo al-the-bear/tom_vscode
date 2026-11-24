@@ -2,10 +2,12 @@
  * The MD Browser renders headings with three extensions the raw markdown
  * pipeline (marked.js) does not provide:
  *
- *  1. Up to 10 heading levels. HTML only has h1–h6, so levels 7–10 are carried
+ *  1. Any heading level. HTML only has h1–h6, so levels 7 and deeper are carried
  *     on a marker span (`data-level`) that the webview promotes to a per-level
  *     class; the transform therefore caps the markdown hashes at 6 but records
- *     the true level.
+ *     the true level. A readable rendition's styled-div heading
+ *     (`<div class="heading<N>" …><!--[ID]--> Title</div>`, N ≥ 7) is read as a
+ *     heading of level N (reading_view part *The MD Browser*, 05b_rdv1).
  *  2. A per-heading ID declared in a leading HTML comment
  *     (`###### <!--[FR-3]--> Title`). The id is always shown as a badge and is
  *     also chained with its ancestors' ids into a dotted "full id".
@@ -28,8 +30,8 @@ import {
 } from '../markdownHeadings.js';
 
 describe('parseHeadingLine', () => {
-    it('parses all levels 1..10 by counting hashes', () => {
-        for (let level = 1; level <= 10; level++) {
+    it('parses every level by counting hashes, beyond 10 too', () => {
+        for (let level = 1; level <= 14; level++) {
             const line = '#'.repeat(level) + ' Title';
             const h = parseHeadingLine(line);
             assert.ok(h, `level ${level} should parse`);
@@ -67,10 +69,25 @@ describe('parseHeadingLine', () => {
         assert.equal(h!.text, 'Indented');
     });
 
-    it('returns null for non-heading lines and >10 hashes', () => {
+    it('returns null for non-heading lines', () => {
         assert.equal(parseHeadingLine('not a heading'), null);
-        assert.equal(parseHeadingLine('#'.repeat(11) + ' too many'), null);
         assert.equal(parseHeadingLine('####nospace'), null);
+    });
+
+    it('reads a styled-div heading at level 7 and 14, its title unescaped then escaped', () => {
+        const style = ' style="margin:1em 0 0.5em;padding-left:0.75em;font-weight:bold"';
+        const h7 = parseHeadingLine(`<div class="heading7"${style}><!--[RQDEP-ITEM-1]--> <a id="RQDEP-ITEM-1"></a> Requirement Dependency 1</div>`);
+        assert.deepEqual(h7, { level: 7, id: 'RQDEP-ITEM-1', text: '<a id="RQDEP-ITEM-1"></a> Requirement Dependency 1' }, 'the anchor stays HTML');
+        const h14 = parseHeadingLine('<div class="heading14"><!--[X-14]--> A &amp; B &lt;c&gt; *d* [e]</div>');
+        assert.deepEqual(h14, { level: 14, id: 'X-14', text: 'A \\& B \\<c\\> \\*d\\* \\[e\\]' }, 'entities unescaped, Markdown punctuation escaped');
+        assert.deepEqual(parseHeadingLine('<div class="heading9">No id</div>'), { level: 9, id: '', text: 'No id' });
+    });
+
+    it('leaves a heading div with N ≤ 6, a \\<div line and other divs as content', () => {
+        assert.equal(parseHeadingLine('<div class="heading6"><!--[X]--> Six</div>'), null);
+        assert.equal(parseHeadingLine('\\<div class="heading7"><!--[X]--> Escaped</div>'), null);
+        assert.equal(parseHeadingLine('<div class="note">Seven</div>'), null);
+        assert.equal(parseHeadingLine('<div class="heading7"><!--[X]--> Not closed'), null, 'the div on one line');
     });
 
     it('parses an empty heading (hashes only)', () => {
@@ -175,6 +192,29 @@ describe('transformMarkdown', () => {
     it('html-escapes ids in the badge and attributes', () => {
         const out = transformMarkdown('# <!--[A&<B]--> Title');
         assert.match(out, /A&amp;&lt;B/);
+    });
+});
+
+describe('transformMarkdown: heading divs', () => {
+    it('rewrites a heading div into the capped heading, one line for one line, nested under the headings above', () => {
+        const raw = [
+            '###### <!--[DAENT-ENTI-GRANT]--> Grant',
+            '',
+            '<div class="heading7" style="x"><!--[RQDEP-ITEM-1]--> <a id="RQDEP-ITEM-1"></a> Requirement &amp; Dependency</div>',
+            'text',
+            '<div class="heading14"><!--[DEEP-1]--> Deep</div>',
+            '<div class="heading6"><!--[SIX]--> Six</div>',
+        ].join('\n');
+        const lines = transformMarkdown(raw).split('\n');
+        assert.equal(lines.length, 6, 'one line for one line');
+        assert.match(lines[2], /^###### <span class="md-heading-id">RQDEP-ITEM-1<\/span> <a id="RQDEP-ITEM-1"><\/a> Requirement \\& Dependency <span class="md-heading-meta" data-level="7" data-fullid="DAENT-ENTI-GRANT\.RQDEP-ITEM-1"><\/span>$/);
+        assert.match(lines[4], /data-level="14" data-fullid="DAENT-ENTI-GRANT\.RQDEP-ITEM-1\.DEEP-1"/);
+        assert.equal(lines[5], '<div class="heading6"><!--[SIX]--> Six</div>', 'N ≤ 6 stays content');
+    });
+
+    it('leaves a heading div inside fenced code alone', () => {
+        const raw = '```\n<div class="heading7"><!--[X]--> In code</div>\n```';
+        assert.equal(transformMarkdown(raw), raw);
     });
 });
 

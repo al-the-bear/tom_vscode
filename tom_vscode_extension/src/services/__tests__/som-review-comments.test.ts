@@ -4,9 +4,11 @@
  *
  *   MC-1 the next comment number is the runtime's (annot2 nextCommentId): one past the highest C-<n>
  *        among the document's comments, 1 without any
- *   MC-2 form fields: every form section's lines from its first field label to the next heading —
- *        an item's own form (FR-01's `Status:`) and a form with its own heading (FRED, FREP) alike;
- *        the heading and the lines before the first label are not in a range
+ *   MC-2 form fields: every form section's lines from its first form line — the header of its form table
+ *        (`| TomSpecField | Value |`, the table layout the runtime writes) or a field label (`Description:`) —
+ *        to the next heading: an item's own form (FR-01's Status row) and a form with its own heading (FRED,
+ *        FREP) alike; a section table's lines; the heading and the lines before the first form line are not
+ *        in a range. The field layout (the committed sample: `Status: approved`) still reads the same way
  *   MC-3 a document the import does not reproduce faithfully (an extra blank line, a heading it rejects) still
  *        gets the ranges of the sections it understood, at the file's own lines; a YAML document has none
  *   MC-4 the worker client: the same answer off the extension host's thread; null for a file that is not SOM
@@ -34,6 +36,10 @@ const MERIDIAN_MD = fs.readFileSync(path.join(SAMPLES, 'meridian_order_managemen
 const MERIDIAN_YAML = fs.readFileSync(path.join(SAMPLES, 'meridian_order_management.tomspecs.yaml'), 'utf8');
 
 import { SpecQuestionDraft } from 'tom_som_typescript_runtime';
+import { renderedMarkdown } from '../../tools/__tests__/_somSamples.js';
+
+/** The sample in the table layout this build's runtime writes (the committed `.tomspecs.md` may be older). */
+const MERIDIAN_TABLES = renderedMarkdown(MERIDIAN_YAML);
 
 const service = new SomModelService();
 const store = new SomDocumentStore(service, nodeSomDocumentIo);
@@ -56,26 +62,49 @@ describe('review comments in SOM Markdown', () => {
     });
 
     test('MC-2: form fields', () => {
-        const loaded = store.load(write('mc2.md', MERIDIAN_MD));
-        assert.deepEqual(loaded.fidelityProblems, [], 'the sample is faithful');
+        const loaded = store.load(write('mc2.md', MERIDIAN_TABLES));
+        assert.deepEqual(loaded.fidelityProblems, [], 'the rendered sample is faithful');
         const { formFieldRanges } = somCommentContext(loaded, service);
-        const lines = MERIDIAN_MD.split('\n');
+        const lines = MERIDIAN_TABLES.split('\n');
         const covered = (i: number): boolean => formFieldRanges.some(([a, b]) => i >= a && i < b);
-        const at = (needle: string): number => lines.findIndex((l) => l.startsWith(needle));
+        const at = (needle: string, from = 0): number => lines.findIndex((l, i) => i >= from && l.startsWith(needle));
         const item = at('###### <!--[FRE-REQU-ORDER-CAPTURE]');
-        const status = lines.indexOf('Status: approved', item);
-        const fred = lines.findIndex((l, i) => i > item && l.startsWith('####### <!--[FRED]'));
-        const description = lines.findIndex((l, i) => i > fred && l.startsWith('Description: '));
-        assert.ok(item > 0 && status > item && fred > status && description > fred);
+        const header = at('| TomSpecField | Value |', item);
+        const status = at('| Status | approved |', item);
+        const fred = at('####### <!--[FRED]', item);
+        const fredTable = at('| TomSpecField | Value |', fred);
+        const description = at('Description: ', fred);
+        assert.ok(item > 0 && header > item && status > header && fred > status && fredTable > fred && description > fredTable);
         assert.equal(covered(item), false, 'a heading is not a field');
-        assert.equal(covered(status), true, 'an item\'s own form field');
-        assert.equal(covered(status + 1), true, 'up to the next heading');
+        assert.equal(covered(item + 1), false, 'the blank line after it');
+        assert.equal(covered(header), true, 'the form table, from its header');
+        assert.equal(covered(status), true, 'an item\'s own form field: a table row');
         assert.equal(covered(fred), false);
-        assert.equal(covered(fred + 1), false, 'between the heading and the first label: the preamble');
-        assert.equal(covered(description), true, 'a form with its own heading');
-        assert.ok(formFieldRanges.every(([a, b]) => a < b && !/^#{1,6} /.test(lines[a])));
+        assert.equal(covered(fred + 1), false, 'between the heading and the first form line: the preamble');
+        assert.equal(covered(fredTable), true, 'a form with its own heading');
+        assert.equal(covered(description), true, 'a paragraph field after the table: up to the next heading');
+        assert.ok(formFieldRanges.every(([a, b]) => a < b && !/^#+ /.test(lines[a])));
+        const sectionTable = at('| Section | TomSpecField | Value |');
+        assert.ok(sectionTable > 0, 'the sample has a section table');
+        assert.equal(covered(sectionTable), true, 'a section table');
+        assert.equal(covered(sectionTable + 2), true, 'its rows');
         const intro = at('# <!--[SBP]');
         assert.equal(covered(intro + 2), false, 'plain content is not a form');
+
+        // The field layout the runtime still imports (the committed sample).
+        const fields = store.load(write('mc2-fields.md', MERIDIAN_MD));
+        const fieldRanges = somCommentContext(fields, service).formFieldRanges;
+        const flines = MERIDIAN_MD.split('\n');
+        const fcovered = (i: number): boolean => fieldRanges.some(([a, b]) => i >= a && i < b);
+        const fitem = flines.findIndex((l) => l.startsWith('###### <!--[FRE-REQU-ORDER-CAPTURE]'));
+        const fstatus = flines.indexOf('Status: approved', fitem);
+        const ffred = flines.findIndex((l, i) => i > fitem && l.startsWith('####### <!--[FRED]'));
+        const fdescription = flines.findIndex((l, i) => i > ffred && l.startsWith('Description: '));
+        assert.ok(fitem > 0 && fstatus > fitem && ffred > fstatus && fdescription > ffred);
+        assert.equal(fcovered(fitem), false);
+        assert.equal(fcovered(fstatus), true, 'a field label');
+        assert.equal(fcovered(ffred + 1), false);
+        assert.equal(fcovered(fdescription), true);
     });
 
     test('MC-3: a document that is not faithful, and YAML', () => {
@@ -83,18 +112,20 @@ describe('review comments in SOM Markdown', () => {
         assert.deepEqual(somCommentContext(yaml, service).formFieldRanges, []);
         assert.equal(somCommentContext(yaml, service).nextCommentNumber, 1, 'a YAML document still counts its comments');
 
-        const shifted = MERIDIAN_MD.replace('Status: approved\n\n', 'Status: approved\n\n\n')
-            .replace('####### <!--[FRED]--> Details', '####### <!--[NOSUCH]--> Not in the model\n\nStray: text\n\n####### <!--[FRED]--> Details');
+        const fredHeading = '####### <!--[FRED]--> <a id="FRED"></a> Details';
+        assert.ok(MERIDIAN_TABLES.includes('| Status | approved |\n\n') && MERIDIAN_TABLES.includes(fredHeading));
+        const shifted = MERIDIAN_TABLES.replace('| Status | approved |\n\n', '| Status | approved |\n\n\n')
+            .replace(fredHeading, '####### <!--[NOSUCH]--> Not in the model\n\nStray: text\n\n' + fredHeading);
         const odd = store.load(write('mc3.md', shifted));
         assert.ok(odd.fidelityProblems.length > 0 || odd.rejections.length > 0, 'the import does not reproduce this file');
         const { formFieldRanges } = somCommentContext(odd, service);
         const lines = shifted.split('\n');
         const covered = (i: number): boolean => formFieldRanges.some(([a, b]) => i >= a && i < b);
-        const fred = lines.findIndex((l) => l.startsWith('####### <!--[FRED]'));
+        const fred = lines.indexOf(fredHeading);
         const description = lines.findIndex((l, i) => i > fred && l.startsWith('Description: '));
         assert.equal(covered(description), true, 'the section after the rejected heading still has its fields, at the file\'s line');
         assert.equal(covered(lines.indexOf('Stray: text')), false, 'nothing under a heading the import rejected');
-        assert.equal(covered(lines.indexOf('Status: approved')), true);
+        assert.equal(covered(lines.indexOf('| Status | approved |')), true);
     });
 
     test('MC-4: the worker client', async () => {

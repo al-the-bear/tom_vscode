@@ -60,6 +60,8 @@
  *         again) with its edit / remove; the change keeps accept / reject; a change without one has Comment,
  *         which opens an empty editor and posts a reviewMark `comment`; a change comment left by a decided
  *         change shows the change and its outcome as a label; both count as inline comments
+ *   MD-26 form tables (05b_rdv1): a form table edited and saved is patched in place and stays a form table
+ *         (compact, no comment button); a section table's rows keep their anchors after the patch
  */
 
 import test, { describe } from 'node:test';
@@ -857,5 +859,33 @@ describe('Markdown Browser editing', () => {
         decided.querySelector('.mdb-rm-remove').click();
         assert.deepEqual([last('reviewMark').markup, last('reviewMark').decision], ['{>> [~~ 30 ~> 15 ~~ | accepted] why shorter? <<}', 'remove']);
         assert.equal(notes.length, 2, 'both change comments count as inline comments for the navigation');
+    });
+
+    test('MD-26: a form table edited and saved', () => {
+        const { window, posted } = setup();
+        const doc = ['# T', '', '| TomSpecField | Value |', '| --- | --- |', '| DataType | uuid |', '',
+            '| Section | TomSpecField | Value |', '| --- | --- | --- |', '| KEATT-REFE-REF | Ref | role |', '', 'after'].join('\n');
+        send(window, content(doc));
+        window.document.getElementById('editModeBtn').click();
+        const form = (): Win => $(window, 'table')[0];
+        const before = form();
+        form().closest('.mdb-block').querySelector('.mdb-edit-btn').click();
+        const area = $(window, '.mdb-editor textarea')[0];
+        area.value = area.value.replace('uuid', 'text');
+        $(window, '.mdb-editor-btn')[0].click();
+        send(window, { type: 'editResult', editId: lastEdit(posted).editId, ok: true });
+        assert.notEqual(form(), before, 'patched: the table re-rendered');
+        assert.ok(form().textContent.includes('text'));
+        assert.ok(form().classList.contains('mdb-form-table'), 'still a form table');
+        assert.ok(form().closest('.mdb-block').classList.contains('mdb-no-comment'), 'still without a comment button');
+        assert.ok(window.document.getElementById('KEATT-REFE-REF'), 'the section table\'s anchor');
+        // The section table itself edited: its row anchored again.
+        $(window, 'table')[1].closest('.mdb-block').querySelector('.mdb-edit-btn').click();
+        const again = $(window, '.mdb-editor textarea')[0];
+        again.value = again.value.replace('role', 'user');
+        $(window, '.mdb-editor-btn')[0].click();
+        send(window, { type: 'editResult', editId: lastEdit(posted).editId, ok: true });
+        const row = window.document.getElementById('KEATT-REFE-REF');
+        assert.ok(row && row.textContent.includes('user') && row.classList.contains('mdb-id-row'), 'the patched row is anchored');
     });
 });

@@ -674,6 +674,21 @@ body.mdb-no-navigation .mdb-link-popup { display: none !important; }
 .mdb-read-refs-compact .mdb-rd[data-kind="refs"] > .mdb-rd-body li { display: inline; margin-right: 0.6em; }
 .mdb-read-records-compact .mdb-rd[data-kind="records"] > .mdb-rd-body { overflow-x: auto; }
 .mdb-read-records-compact .mdb-rd[data-kind="records"] > .mdb-rd-body table { white-space: nowrap; }
+
+/* Form and section tables (reading_view, 05b_rdv1): headed `TomSpecField | Value` or
+   `Section | TomSpecField | Value`. Compact and scannable: the label columns narrow, in the
+   muted monospace of field labels; the Value column takes the rest and wraps. A section cell
+   is shown once per group (mdb-form-repeat). Never collapsed: content. */
+.markdown-body table.mdb-form-table { width: 100%; margin: 6px 0 10px; font-size: 0.95em; }
+.markdown-body table.mdb-form-table th { padding: 2px 8px; font-size: 0.85em; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.markdown-body table.mdb-form-table td { padding: 2px 8px; vertical-align: top; }
+.markdown-body table.mdb-form-table th:not(:last-child),
+.markdown-body table.mdb-form-table td:not(:last-child) { width: 1%; white-space: nowrap; font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-descriptionForeground); }
+.markdown-body table.mdb-form-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
+.markdown-body table.mdb-section-table td.mdb-form-repeat { color: transparent; border-top-color: transparent; }
+.markdown-body table.mdb-section-table td.mdb-form-repeat * { visibility: hidden; }
+/* A row a section reference or a `#ID` link reached is flashed like a heading. */
+.markdown-body tr.mdb-id-row { scroll-margin-top: 8px; }
 /* The kinds popup. */
 .read-kind-pop { min-width: 260px; }
 .read-kind-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 12px; white-space: nowrap; }

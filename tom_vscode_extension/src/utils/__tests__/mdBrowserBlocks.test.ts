@@ -49,6 +49,9 @@
  *         `(-> ids)` trace, `(<- …)` / `(<~ …)` provenance, balanced parentheses only; the per-element key
  *   MB-26 a div is one block from its opening to its closing fence, editable, its content lexed inside it; a
  *         stray closing fence is a block of its own
+ *   MB-27 the table forms (reading_view, 05b_rdv1): a form table (`TomSpecField | Value`) and a section table
+ *         (`Section | TomSpecField | Value`) are ordinary editable table blocks, inside a `records` div too;
+ *         the id a row is anchored at is its first cell's first word when it is a section id with a `-`
  */
 
 import test, { describe } from 'node:test';
@@ -97,6 +100,7 @@ interface BlocksApi {
     mdbReadingSpan(src: string): { raw: string; text: string; kind: string; classes: string[]; id: string; attrs: Record<string, string> } | null;
     mdbCitation(src: string): { raw: string; arrow: string; content: string; kind: string } | null;
     mdbReadingKey(kind: string, text: string, seen: Record<string, number>): string;
+    mdbRowAnchorId(text: string): string;
     mdbReadingMode(modes: Record<string, { block?: string; span?: string }> | null, kind: string, span: boolean): string;
 }
 
@@ -587,5 +591,29 @@ describe('Markdown Browser source mapping', () => {
         const cut = m.lexer('text\n::: aside\nnote\n:::\n');
         assert.deepEqual(cut.filter((t: { type: string }) => t.type !== 'space').map((t: { type: string }) => t.type), ['paragraph', 'readingDiv']);
         assert.deepEqual(m.lexer('\\::: aside\n').filter((t: { type: string }) => t.type !== 'space').map((t: { type: string }) => t.type), ['paragraph']);
+    });
+
+    test('MB-27: form, section and record tables', () => {
+        const m = new Marked();
+        m.use({ extensions: [{
+            name: 'readingDiv', level: 'block',
+            start: (src: string) => api.mdbReadingBlockStart(src),
+            tokenizer(this: { lexer: unknown }, src: string) { return api.mdbReadingDivToken(src, this.lexer) as never; },
+            renderer: () => '',
+        }] });
+        const text = [
+            '| TomSpecField | Value |', '| --- | --- |', '| DataType | uuid |', '',
+            '| Section | TomSpecField | Value |', '| --- | --- | --- |', '| <a id="KEATT-REFE-REF"></a>KEATT-REFE-REF | Ref | [DAENT-ENTI-ROLE](#DAENT-ENTI-ROLE) |', '| | Kind | Foreign |', '',
+            '::: {.records}', '| Id | Mandatory |', '| --- | --- |', '| DATAA-CONS-ROLE | For role grants |', ':::',
+        ].join('\n');
+        const b = JSON.parse(JSON.stringify(api.mdbBlocks(text, m.lexer(text)))) as Block[];
+        assert.deepEqual(b.map((x) => [x.type, x.startLine, x.endLine, x.editable]), [
+            ['table', 0, 3, true], ['table', 4, 8, true], ['readingDiv', 9, 14, true],
+        ], 'editable table blocks; the records div one block');
+        assert.equal(api.mdbRowAnchorId('KEATT-REFE-REF'), 'KEATT-REFE-REF');
+        assert.equal(api.mdbRowAnchorId('  ACE-CRIT-3 the third'), 'ACE-CRIT-3', 'the first word');
+        assert.equal(api.mdbRowAnchorId('DataType'), '', 'a field name is no anchor');
+        assert.equal(api.mdbRowAnchorId('TODO'), '', 'an id needs a `-`');
+        assert.equal(api.mdbRowAnchorId(''), '');
     });
 });

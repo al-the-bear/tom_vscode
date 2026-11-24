@@ -40,7 +40,12 @@ import { WsPaths } from '../utils/workspacePaths.js';
 import { resolveWorkspaceDocsDir } from '../utils/workspaceDocsDir.js';
 import { debugLog } from '../utils/debugLogger.js';
 import { openInExternalApplication } from './handler_shared.js';
-import { resolveLink, resolveFoundFile, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+import { resolveLink, resolveFoundFile, markdownHasSectionId, type ResolvedLink, type LinkContext } from '../utils/linkResolver.js';
+
+/** A link fragment URL-decoded, or as written when it is no valid encoding. */
+function safeDecodeAnchor(anchor: string): string {
+    try { return decodeURIComponent(anchor); } catch { return anchor; }
+}
 import { findLinkedFile, linkSearchName, linkSearchScopes, LINK_SEARCH_SCOPE_LABEL, type LinkSearchScope } from '../utils/linkFileSearch.js';
 import { NavigationHistory, type ReadingPosition } from '../utils/mdBrowserHistory.js';
 import { currentCommentAuthor, type CommentAuthorForm } from '../utils/osUserName.js';
@@ -449,6 +454,8 @@ class MdBrowserPanel {
                 relativePath,
                 fileName: path.basename(absPath),
                 anchor,
+                // The fragment-by-id step (reading_view, 05b_rdv1): a section id this file carries is revealed by id.
+                anchorById: anchor ? markdownHasSectionId(raw, safeDecodeAnchor(anchor)) : false,
                 // Where the reader was when they left this document (back / forward).
                 position,
                 // The author of review comments written in the browser: the user's review member id
@@ -779,7 +786,7 @@ class MdBrowserPanel {
                     if (!linkHref) break;
 
                     await followMdLink(linkHref, currentFile, {
-                        scrollToAnchor: (anchor) => { void this._panel.webview.postMessage({ type: 'scrollToAnchor', anchor }); },
+                        scrollToAnchor: (anchor, byId) => { void this._panel.webview.postMessage({ type: 'scrollToAnchor', anchor, anchorById: byId === true }); },
                         openMarkdown: (filePath, anchor, newPanel) => {
                             if (newPanel) {
                                 // The link popup's "Open in new MD Browser".
@@ -1546,8 +1553,8 @@ function detectProjects(wsRoot: string): Array<{ name: string; relPath: string }
 
 /** Where a followed link goes: the panel showing the document decides. */
 export interface MdLinkTarget {
-    /** An anchor in the shown document. */
-    scrollToAnchor(anchor: string): void;
+    /** An anchor in the shown document; `byId` when it is a section id the document carries (revealed by id). */
+    scrollToAnchor(anchor: string, byId?: boolean): void;
     /** A Markdown file (at an anchor); `newPanel` when the link asked for a panel of its own. */
     openMarkdown(filePath: string, anchor?: string, newPanel?: boolean): void;
 }
@@ -1648,7 +1655,7 @@ async function searchLinkedFile(linkPath: string, currentFilePath: string): Prom
 function followResolvedLink(resolved: ResolvedLink, target: MdLinkTarget, newPanel: boolean): void {
     switch (resolved.action) {
         case 'scroll-to-anchor':
-            if (resolved.anchor) { target.scrollToAnchor(resolved.anchor); }
+            if (resolved.anchor) { target.scrollToAnchor(resolved.anchor, resolved.anchorById === true); }
             break;
         case 'navigate-md':
         case 'navigate-md-anchor':

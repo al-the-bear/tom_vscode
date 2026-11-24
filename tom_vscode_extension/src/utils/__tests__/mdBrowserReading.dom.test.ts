@@ -18,6 +18,15 @@
  *         holding `:::` is rendered in full rather than patched
  *   MR-8  review marks inside a span and a citation render and keep their raw text
  *   MR-9  a search match and an unanswered question inside collapsed elements are revealed by opening them
+ *   MR-10 form and section tables (05b_rdv1): headed `TomSpecField | Value` or `Section | TomSpecField | Value`,
+ *         compact (mdb-form-table), an editable table block without a comment button; a section cell shown once
+ *         per group, the group's first row anchored at its id; another table is untouched
+ *   MR-11 a records table's `Id` rows are anchored and learnt by the section references: a plain-text id links to
+ *         its row; an id inside a link's text is not linked again
+ *   MR-12 a `#ID` link goes to the host, and its `scrollToAnchor` reveals the row or heading with that id,
+ *         unfolding its section; a fragment the host found as a section id (`anchorById`) is looked up by id only, never by slug
+ *   MR-13 heading divs (`<div class="heading<N>">`, the host's transformMarkdown) and headings deeper than 10 are
+ *         headings: their level kept, nested in the full ids, foldable; a section reference reaches them
  */
 
 import test, { describe } from 'node:test';
@@ -25,6 +34,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
+import { transformMarkdown } from '../markdownHeadings.js';
 
 const ROOT = join(__dirname, '..', '..', '..');
 const asset = (file: string): string => readFileSync(join(ROOT, 'media', 'markdownBrowser', file), 'utf-8');
@@ -356,5 +366,113 @@ describe('the reading notation in the Markdown Browser', () => {
         // Navigating to an unanswered question opens its answer editor, inside the opened note.
         const editor = div(w, 'editorial').querySelector('.mdb-editor textarea');
         assert.ok(editor && seen(w, editor), 'the answer editor is reachable');
+    });
+
+    test('MR-10: form and section tables', () => {
+        const { w, posted } = setup();
+        const DOC = [
+            '# Form', '',
+            '| TomSpecField | Value |', '| --- | --- |', '| DataType | uuid |', '',
+            '| Section | TomSpecField | Value |', '| --- | --- | --- |',
+            '| KEATT-REFE-REF | Ref | [DAENT-ENTI-ROLE](#DAENT-ENTI-ROLE) |', '| KEATT-REFE-REF | Kind | Foreign |', '| KEATT-OTHER-ONE | Ref | x |', '',
+            '| A | B |', '| --- | --- |', '| 1 | 2 |',
+        ].join('\n');
+        show(w, DOC);
+        const tables = $(w, 'table');
+        assert.equal(tables.length, 3);
+        assert.deepEqual(tables.map((t: Win) => t.classList.contains('mdb-form-table')), [true, true, false], 'the two form layouts, not another table');
+        assert.ok(tables[1].classList.contains('mdb-section-table'));
+        const rows = [...tables[1].tBodies[0].rows];
+        assert.equal(rows[0].id, 'KEATT-REFE-REF', 'the group\'s first row is its anchor');
+        assert.ok(rows[1].cells[0].classList.contains('mdb-form-repeat') && rows[1].id === '', 'the section cell once per group');
+        assert.equal(rows[2].id, 'KEATT-OTHER-ONE');
+        w.document.getElementById('editModeBtn').click();
+        const wrappers = tables.map((t: Win) => t.closest('.mdb-block'));
+        assert.deepEqual(wrappers.map((x: Win) => x.__mdbBlock.type), ['table', 'table', 'table'], 'ordinary table blocks');
+        assert.deepEqual(wrappers.map((x: Win) => x.classList.contains('mdb-no-comment')), [true, true, false], 'no comment button on a form table');
+        assert.equal(display(w, wrappers[0].querySelector('.mdb-comment-btn')), 'none');
+        assert.notEqual(display(w, wrappers[2].querySelector('.mdb-comment-btn')), 'none');
+        // Edited as source, saved through applyEdit.
+        wrappers[0].querySelector('.mdb-edit-btn').click();
+        const area = $(w, '.mdb-editor textarea')[0];
+        assert.match(area.value, /\| TomSpecField \| Value \|\n\| --- \| --- \|\n\| DataType \| uuid \|/);
+        area.value = area.value.replace('uuid', 'text');
+        $(w, '.mdb-editor-btn')[0].click();
+        const edit = posted.filter((m) => m.type === 'applyEdit').pop() as Record<string, unknown>;
+        assert.match(String(edit.replacement), /\| DataType \| text \|/);
+        assert.equal(edit.startLine, 1);
+    });
+
+    test('MR-11: record rows, references to them, ids inside links', () => {
+        const { w } = setup();
+        show(w, [
+            '# Constraints', '',
+            '::: records', '| Id | Mandatory |', '| --- | --- |', '| DATAA-CONS-ROLE | For role grants |', '| <a id="DATAA-CONS-USER"></a>DATAA-CONS-USER | For user grants |', ':::', '',
+            'See DATAA-CONS-ROLE for the constraint, and [DATAA-CONS-USER](#DATAA-CONS-USER) linked already.',
+        ].join('\n'));
+        const rows = [...div(w, 'records').querySelectorAll('tbody tr')];
+        assert.equal(rows[0].id, 'DATAA-CONS-ROLE', 'an Id cell anchors its row');
+        assert.equal(rows[1].id, '', 'an anchor inside the cell already carries the id');
+        assert.ok(w.document.getElementById('DATAA-CONS-USER'));
+        assert.ok(rows.every((r: Win) => r.classList.contains('mdb-id-row') && r.dataset.fullid));
+        const refs = $(w, 'a.mdb-secref');
+        assert.deepEqual(refs.map((a: Win) => a.textContent), ['DATAA-CONS-ROLE'], 'the plain-text id is linked to its row');
+        const linked = $(w, 'a[href="#DATAA-CONS-USER"]');
+        assert.equal(linked.length, 1);
+        assert.equal(linked[0].querySelector('a'), null, 'an id inside a link\'s text is not linked again');
+        assert.equal(rows[0].querySelector('a.mdb-secref'), null, 'a row\'s own id is not a reference to itself');
+        refs[0].click();
+        assert.match(rows[0].style.backgroundColor || '', /findMatchHighlight/, 'the reference reaches the row');
+    });
+
+    test('MR-12: links by id reveal rows and headings', () => {
+        const { w, posted } = setup();
+        const raw = [
+            '# <!--[DOC]--> Doc', '',
+            '[to the row](#DATAA-CONS-ROLE)', '',
+            '## <!--[SEC-ONE]--> One', '',
+            '::: records', '| Id | Mandatory |', '| --- | --- |', '| DATAA-CONS-ROLE | For role grants |', ':::', '',
+            '## Zz-top band', '', 'text',
+        ].join('\n');
+        show(w, transformMarkdown(raw));
+        const row = w.document.getElementById('DATAA-CONS-ROLE');
+        assert.equal(row.dataset.fullid, 'DOC.SEC-ONE.DATAA-CONS-ROLE', 'under the headings above it');
+        w.document.getElementById('foldAllBtn').click();
+        assert.equal(seen(w, row), false, 'folded away');
+        // A #ID link goes to the host, which resolves it (the fragment-by-id step) and answers scrollToAnchor.
+        $(w, 'a[href="#DATAA-CONS-ROLE"]')[0].click();
+        assert.equal((posted.filter((m) => m.type === 'navigateLink').pop() as Record<string, unknown>).href, '#DATAA-CONS-ROLE');
+        send(w, { type: 'scrollToAnchor', anchor: 'DATAA-CONS-ROLE', anchorById: true });
+        assert.ok(seen(w, row), 'by id: unfolded and reached');
+        const band = $(w, 'h2').find((h: Win) => h.textContent.includes('Zz-top band'));
+        band.style.backgroundColor = '';
+        send(w, { type: 'scrollToAnchor', anchor: 'zz-top-band', anchorById: true });
+        assert.equal(band.style.backgroundColor, '', 'by id only: the slug is not looked for');
+        send(w, { type: 'scrollToAnchor', anchor: 'zz-top-band' });
+        assert.match(band.style.backgroundColor || '', /findMatchHighlight/, 'a plain anchor takes the slug');
+    });
+
+    test('MR-13: heading divs and headings deeper than 10', () => {
+        const { w } = setup();
+        const raw = [
+            '###### <!--[DAENT-ENTI-GRANT]--> Grant', '',
+            '<div class="heading7" style="font-weight:bold"><!--[RQDEP-ITEM-1]--> <a id="RQDEP-ITEM-1"></a> Requirement &amp; Dependency 1</div>', '',
+            'Under seven.', '',
+            '############ <!--[DEEP-TWELVE]--> Twelve', '',
+            'See DAENT-ENTI-GRANT > RQDEP-ITEM-1.',
+        ].join('\n');
+        show(w, transformMarkdown(raw));
+        const h7 = $(w, '.md-heading').find((h: Win) => h.dataset.fullid === 'DAENT-ENTI-GRANT.RQDEP-ITEM-1');
+        assert.ok(h7, 'the heading div is a heading, nested under the one above');
+        assert.ok(h7.classList.contains('md-h7') && h7.getAttribute('data-level') === '7');
+        assert.ok(h7.textContent.includes('Requirement & Dependency 1'), 'its title as the div showed it');
+        assert.ok(h7.querySelector('a#RQDEP-ITEM-1'), 'its anchor kept');
+        const h12 = $(w, '.md-heading').find((h: Win) => h.getAttribute('data-level') === '12');
+        assert.ok(h12 && h12.classList.contains('md-h10') && h12.classList.contains('md-hdeep'), 'deeper than 10: the deepest style, its level kept');
+        assert.equal(h12.dataset.fullid, 'DAENT-ENTI-GRANT.RQDEP-ITEM-1.DEEP-TWELVE');
+        const options = [...w.document.getElementById('foldLevelSelect').options].map((o: Win) => o.value);
+        assert.ok(options.includes('7') && options.includes('12'), 'the fold levels');
+        const ref = $(w, 'a.mdb-secref').find((a: Win) => a.dataset.secref === 'DAENT-ENTI-GRANT > RQDEP-ITEM-1');
+        assert.ok(ref, 'a section reference reaches the heading div');
     });
 });
