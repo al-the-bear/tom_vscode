@@ -95,6 +95,8 @@ export interface AspectSectionEdit {
     options: AspectOptionEdit[];
     /** While it holds, the aspect sends nothing (gsel20); '' or unset: never. */
     removeWhen?: string;
+    /** Its place among the aspects, lowest first (gsel26); unset: after those with one. */
+    order?: number;
     /** What is wrong with the folder as it is on disk. */
     problems: string[];
 }
@@ -167,6 +169,7 @@ export function readSectionsForEdit(dir: string | undefined, layers: readonly As
                 defaultOption: s.defaultOption ?? '',
                 options: s.options.map((o) => optionForEdit(o.name, read, o.when)),
                 ...(s.removeWhen !== undefined ? { removeWhen: s.removeWhen } : {}),
+                ...(s.order !== undefined ? { order: s.order } : {}),
                 problems: [...new Set(problems)],
             });
         } else {
@@ -194,6 +197,7 @@ function unusableForEdit(id: string, raw: AspectSectionYaml, read: ReturnType<ty
         defaultOption: typeof raw.default === 'string' && order.includes(raw.default) ? raw.default : '',
         options: order.map((name) => optionForEdit(name, read, when[name])),
         ...(typeof raw.remove_when === 'string' ? { removeWhen: raw.remove_when } : {}),
+        ...(typeof raw.order === 'number' ? { order: raw.order } : {}),
         problems: [...new Set(problems)],
     };
 }
@@ -228,6 +232,7 @@ export function sectionYamlText(section: Omit<AspectSectionEdit, 'problems'>, sc
     if (section.defaultOption) { doc.default = section.defaultOption; }
     if (section.options.length) { doc.choices = section.options.map((o) => (o.when?.trim() ? { name: o.name, when: o.when.trim() } : o.name)); }
     if (section.removeWhen?.trim()) { doc.remove_when = section.removeWhen.trim(); }
+    if (typeof section.order === 'number' && Number.isFinite(section.order)) { doc.order = section.order; }
     return (schemaRef ? `# yaml-language-server: $schema=${schemaRef}\n` : '') + stringifyYaml(doc);
 }
 

@@ -46,7 +46,7 @@ function escapeHtml(s) {
 function onDisk(id) { return (data.sections || []).find(function(s) { return s.id === id; }); }
 
 function copyOf(s) {
-  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, removeWhen: s.removeWhen || '', options: s.options.map(function(o) {
+  return { id: s.id, name: s.name, label: s.label, placement: s.placement, defaultOption: s.defaultOption, removeWhen: s.removeWhen || '', order: typeof s.order === 'number' ? String(s.order) : '', options: s.options.map(function(o) {
     const mode = o.mode === 'file' ? 'file' : 'own';
     const files = o.files || [];
     const base = o.fileBase || '';
@@ -272,6 +272,8 @@ function render() {
     + '</select><div class="hint">Copilot has no system prompt: there both go before the prompt text.</div></div>'
     + '<div class="field"><label class="title" for="secDefault">Default choice</label><select id="secDefault">' + defaultOptionsHtml(d) + '</select>'
     + '<div class="hint">Chosen when no level chooses.</div></div>'
+    + '<div class="field"><label class="title" for="secOrder">Order</label><input type="number" id="secOrder" value="' + escapeHtml(d.order || '') + '" placeholder="by id">'
+    + '<div class="hint">Its place among the aspects in the prompt, lowest first; empty: after those with one, by id.</div></div>'
     + '</div>'
     + '<div class="field"><label class="title">Remove when</label>' + conditionHtml('remove', 'Remove when', d.removeWhen || '', 'never; e.g. prompt.transport == "direct"')
     + '<div class="hint">While this expression holds the aspect sends nothing, whatever a level chose. Conditions are template expressions (as in ${{ … }}) over the chat variables, the placeholders and prompt.transport, prompt.kind, prompt.todo, prompt.role, prompt.roleType, prompt.run, prompt.process, prompt.quest, prompt.workspace, prompt.night.</div></div>'
@@ -290,6 +292,7 @@ function wireForm(d) {
   document.getElementById('secName').addEventListener('input', function(e) { d.name = e.target.value; changed(); });
   document.getElementById('secLabel').addEventListener('input', function(e) { d.label = e.target.value; changed(); });
   document.getElementById('secPlacement').addEventListener('change', function(e) { d.placement = e.target.value; changed(); });
+  document.getElementById('secOrder').addEventListener('input', function(e) { d.order = e.target.value; changed(); });
   document.getElementById('secDefault').addEventListener('change', function(e) { d.defaultOption = e.target.value; render(); });
   form.querySelectorAll('.option').forEach(function(block) {
     const i = Number(block.dataset.index);
@@ -381,6 +384,7 @@ function save() {
     return out;
   }) } };
   if (d.removeWhen && d.removeWhen.trim()) { message.section.removeWhen = d.removeWhen.trim(); }
+  if (d.order !== undefined && String(d.order).trim() !== '' && Number.isFinite(Number(d.order))) { message.section.order = Number(d.order); }
   if (Object.keys(renames).length) { message.renames = renames; }
   vscode.postMessage(message);
 }

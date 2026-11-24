@@ -16,7 +16,8 @@
  *        reports the position
  *   SC-5 a send end to end from aspect.yaml (`{name, when}`, `remove_when`), `prompt.night` from the night-mode aspect
  *   SC-6 the editor: Condition and Remove when read and written (`{name, when}`), an invalid one refused with its
- *        position, checked as typed; the checkboxes write and take out their terms, the role types as `a || b`
+ *        position, checked as typed; the checkboxes write and take out their terms, the role types as `a || b`;
+ *        `order` written and read back
  *   SC-7 the rename carry-over of lists and `+` entries (in memory and in YAML); the tools' `guidelines` checks
  *        lists; the read tool answers several choices and the conditions; the picker's hover names them
  */
@@ -193,6 +194,10 @@ describe('several choices per aspect, conditional choices (gsel20)', () => {
         assert.deepEqual([read.options.map((o) => [o.name, o.when]), read.removeWhen], [[['dry', 'prompt.kind == "todo"'], ['warm', undefined]], 'prompt.transport == "direct"']);
         assert.throws(() => saveAspectSection(dir, { ...read, options: [{ name: 'dry', text: 'x', when: 'prompt.kind ==' }] }), /The condition of "dry" is no valid expression: .*position/);
         assert.throws(() => saveAspectSection(dir, { ...read, removeWhen: '(' }), /Remove when is no valid expression/);
+        // The send order (gsel26): written, read back, kept by a save that carries it.
+        saveAspectSection(dir, { ...read, order: 4 });
+        assert.match(fs.readFileSync(path.join(dir, 'tone', 'aspect.yaml'), 'utf8'), /^order: 4$/m);
+        assert.equal(readSectionsForEdit(dir)[0].order, 4);
         const ui = { ask: async () => undefined, confirm: async () => true, error: () => undefined, info: () => undefined };
         const check = await handleAspectSectionEditorMessage({ type: 'checkCondition', key: 'opt-0', expression: 'a == "x" &&' }, { dir }, ui);
         assert.equal(check?.type, 'conditionCheck');

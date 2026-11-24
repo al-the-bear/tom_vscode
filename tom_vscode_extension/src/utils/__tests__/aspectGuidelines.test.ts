@@ -13,7 +13,9 @@
  *        sections' order; placement on the Anthropic transports and on Copilot (no system prompt)
  *   AG-6 recursive placeholders: an option's `${file-…}` whose file names another `${file-…}` (and `${guidelines-…}`)
  *   AG-7 the schema accepts the store's aspect.yaml and refuses what the reader refuses (`options`, the key
- *        before format version 10, among them)
+ *        before format version 10, among them); `order` is a number
+ *   AG-8 the send order: aspects with an `order` first, lowest first, then the others by id; an order that is
+ *        no number is a problem
  */
 
 import * as fs from 'fs';
@@ -35,6 +37,7 @@ import {
     buildAspectSection,
     placeAspects,
     resolveAspects,
+    sortAspectSections,
     type AspectLevelChoices,
     type AspectSection,
 } from '../aspectGuidelines.js';
@@ -195,6 +198,7 @@ describe('aspect guidelines', () => {
         for (const ok of [
             { name: 'Answer mode' },
             { name: 'Answer mode', label: 'Answer', placement: 'user', default: 'trail only', choices: ['trail only', 'answer tool'] },
+            { name: 'Index', order: 2 },
         ]) {
             assert.ok(validate(ok), `${JSON.stringify(ok)}: ${JSON.stringify(validate.errors)}`);
         }
@@ -209,8 +213,26 @@ describe('aspect guidelines', () => {
             { name: 'X', choices: ['a', 'a'] },
             { name: 'X', other: 1 },
             { name: 'X', options: ['a'] },
+            { name: 'X', order: 'first' },
         ]) {
             assert.equal(validate(bad), false, JSON.stringify(bad));
         }
+    });
+
+    test('AG-8: the send order', () => {
+        const store = path.join(base, 'store8');
+        put('store8/a_last/aspect.yaml', 'name: A\ndefault: x\n');
+        put('store8/a_last/x.md', 'TEXT A\n');
+        put('store8/z_first/aspect.yaml', 'name: Z\ndefault: x\norder: 1\n');
+        put('store8/z_first/x.md', 'TEXT Z\n');
+        put('store8/m_second/aspect.yaml', 'name: M\ndefault: x\norder: 2\n');
+        put('store8/m_second/x.md', 'TEXT M\n');
+        put('store8/bad/aspect.yaml', 'name: Bad\norder: soon\n');
+        const read = readAspectSections(store);
+        assert.deepEqual(read.sections.map((x) => x.id), ['z_first', 'm_second', 'a_last', 'bad'], 'by order, then those without one by id');
+        assert.ok(read.problems.includes('bad: order must be a number'), JSON.stringify(read.problems));
+        const text = aspectsForSend(store, 'direct', { systemSegments: [], userContent: 'x' }, {}, (t) => t).systemSegments.join('\n');
+        assert.ok(text.indexOf('TEXT Z') < text.indexOf('TEXT M') && text.indexOf('TEXT M') < text.indexOf('TEXT A'), text);
+        assert.deepEqual(sortAspectSections([{ id: 'b' }, { id: 'a', order: 3 }, { id: 'c', order: -1 }]).map((x) => x.id), ['c', 'a', 'b']);
     });
 });

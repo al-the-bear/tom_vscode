@@ -55,6 +55,10 @@
             },
             "description": "The choices' order, by short name, or as {name, when} with the choice's condition; each needs its `<name>.md` (own text or guideline file). Choice files not listed follow by name. `remove` is no choice name: it is the levels' Remove; a name does not start with `+` (it marks an added choice)."
         },
+        "order": {
+            "type": "number",
+            "description": "Its place among the aspects in the prompt, lowest first. Absent: after the aspects that have one, each group by id."
+        },
         "remove_when": {
             "type": "string",
             "minLength": 1,

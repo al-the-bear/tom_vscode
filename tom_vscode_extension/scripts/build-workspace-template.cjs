@@ -234,6 +234,10 @@ const EXCLUDED_PATHS = withGuidelineAliases([
     // The TypeScript rules of this workspace's VS Code extension (gsel25): its only choice, so the aspect stays out too.
     '_copilot_guidelines/aspects/js_ts/vscode_extension.md',
     '_ai/aspect_guidelines/js_ts/aspect.yaml',
+    // The index group of this workspace's _bin/ checks (gsel26): all of it is workspace-specific.
+    '_copilot_guidelines/index_checks_group.md',
+    '_copilot_guidelines/aspects/index_checks/all.md',
+    '_ai/aspect_guidelines/index_checks/aspect.yaml',
 ]);
 
 /**

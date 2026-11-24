@@ -109,6 +109,7 @@ function sectionOf(value: unknown): Omit<AspectSectionEdit, 'problems'> | undefi
         placement: v.placement === 'user' ? 'user' : v.placement === 'system' || v.placement === undefined ? 'system' : (v.placement as 'system'),
         defaultOption: typeof v.defaultOption === 'string' ? v.defaultOption : '',
         ...(typeof v.removeWhen === 'string' && v.removeWhen.trim() ? { removeWhen: v.removeWhen.trim() } : {}),
+        ...(typeof v.order === 'number' && Number.isFinite(v.order) ? { order: v.order } : {}),
         options: options.map((o) => {
             const r = (typeof o === 'object' && o !== null ? o : {}) as Record<string, unknown>;
             return {

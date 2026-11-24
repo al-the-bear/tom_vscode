@@ -75,6 +75,8 @@ export interface AspectSection {
     options: AspectOption[];
     /** While this expression holds the aspect sends nothing, whatever was chosen (gsel20). */
     removeWhen?: string;
+    /** Where the aspect's text goes among the aspects, lowest first (gsel26); unset: after those with one, by id. */
+    order?: number;
 }
 
 /**
@@ -160,6 +162,8 @@ export interface AspectSectionYaml {
     choices?: unknown;
     /** While it holds the aspect sends nothing (gsel20). */
     remove_when?: unknown;
+    /** Its place among the aspects, lowest first (gsel26). */
+    order?: unknown;
     /** The key before format version 10: refused, the migration renames it to `choices`. */
     options?: unknown;
 }
@@ -247,6 +251,10 @@ export function buildAspectSection(
             removeWhen = yaml.remove_when;
         }
     }
+    let order_: number | undefined;
+    if (yaml.order !== undefined && yaml.order !== null) {
+        if (typeof yaml.order === 'number' && Number.isFinite(yaml.order)) { order_ = yaml.order; } else { problems.push(`${id}: order must be a number`); }
+    }
     let defaultOption: string | undefined;
     if (yaml.default !== undefined && yaml.default !== null) {
         if (typeof yaml.default === 'string' && order.includes(yaml.default)) {
@@ -260,6 +268,7 @@ export function buildAspectSection(
             id, name: yaml.name.trim(), label, placement, defaultOption,
             options: order.map((name) => ({ name, text: files[name], ...(sources?.[name] ? { source: sources[name] } : {}), ...(conditions[name] !== undefined ? { when: conditions[name] } : {}) })),
             ...(removeWhen !== undefined ? { removeWhen } : {}),
+            ...(order_ !== undefined ? { order: order_ } : {}),
         },
         problems,
     };
@@ -434,6 +443,21 @@ export function assembleAspects(
         user: renderPart(out.filter((p) => p.placement === 'user')),
         sections: out,
     };
+}
+
+/**
+ * `sections` in the order their texts are sent (gsel26): those with an
+ * `order` by it, lowest first, then the others; each group by id.
+ */
+export function sortAspectSections<T extends { id: string; order?: number }>(sections: readonly T[]): T[] {
+    return [...sections].sort((a, b) => {
+        if (a.order !== undefined || b.order !== undefined) {
+            if (a.order === undefined) { return 1; }
+            if (b.order === undefined) { return -1; }
+            if (a.order !== b.order) { return a.order - b.order; }
+        }
+        return a.id.localeCompare(b.id);
+    });
 }
 
 /** The transports a prompt is sent on. */

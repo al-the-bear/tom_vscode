@@ -592,6 +592,7 @@ choices:                 # the order; choice files not listed follow by name
   - name: answer tool    # a choice with its condition (gsel20)
     when: prompt.transport != "copilot"
 remove_when: prompt.kind == "timed"   # while it holds the aspect sends nothing
+order: 5                 # its place among the aspects, lowest first; absent: after those with one, by id
 ```
 
 Each `<choice>.md` is one choice: its file name without `.md` is the choice's

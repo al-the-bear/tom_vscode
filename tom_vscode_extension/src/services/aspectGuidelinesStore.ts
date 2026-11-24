@@ -31,6 +31,7 @@ import {
     LEGACY_ASPECT_FILE,
     placeAspects,
     resolveAspects,
+    sortAspectSections,
     type AspectLevelChoices,
     type AspectResolution,
     type AspectSection,
@@ -104,7 +105,7 @@ export function orphanProblem(o: { id: string; folders: string[] }): string {
 }
 
 /**
- * The aspects of a store folder, in folder-name order, and the problems found
+ * The aspects of a store folder, in their send order (`order`, then folder name; gsel26), and the problems found
  * reading them. `layers` (gsel17): the guideline layers whose
  * `_agent_guidelines/aspects/<aspect>/<choice>.md` files are choices too.
  */
@@ -135,7 +136,7 @@ export function readAspectSections(dir: string | undefined, layers: readonly Asp
         if (built.section) { sections.push(built.section); }
     }
     for (const o of orphanGuidelineAspects(dir, layers)) { problems.push(orphanProblem(o)); }
-    return { sections, problems };
+    return { sections: sortAspectSections(sections), problems };
 }
 
 /**
