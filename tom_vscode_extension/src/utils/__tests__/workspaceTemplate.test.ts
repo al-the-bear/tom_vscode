@@ -20,6 +20,9 @@
  *        as in the root's file, which is not changed
  *   WT-8 `<!-- workspace-specific -->` blocks are left out of the packed Markdown; unbalanced markers refuse the build;
  *        built from this tree, CLAUDE.md and AGENTS.md pack only their generic parts
+ *   WT-16 the workspace aspect files and CLAUDE-aspects-template.md in both parts: workspace-specific lines left out,
+ *        the workspace part's imports of root files as `{{root}}/…`, an import of a transition copy onto the root's, the
+ *        workspace yaml without its schema line
  *   WT-15 the left-out files under _agent_guidelines/ and this root's and workspace's aspects (fleet, d4rt, js_ts) are not packed.
  *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
  *        them are dropped; a link to a transition copy points to the root's copy
@@ -209,7 +212,8 @@ describe('the workspace template in two parts', () => {
         fs.writeFileSync(path.join(ws, 'CLAUDE.md'), '# Rules\n');
         fs.mkdirSync(path.join(root, '_ai', 'processes'));
         fs.writeFileSync(path.join(root, '_ai', 'processes', 'x.md'), 'x\n');
-        assert.deepEqual((tpl.buildTemplate(root, ws) as { skipped: string[] }).skipped, ['root/_agent_guidelines/aspects', 'root/_ai/aspect_guidelines', 'root/_ai/quests/tomai_introduction']);
+        assert.deepEqual((tpl.buildTemplate(root, ws) as { skipped: string[] }).skipped, ['root/_agent_guidelines/aspects', 'root/workspace_aspects.md', 'root/workspace_aspects.yaml', 'root/CLAUDE-aspects-template.md', 'root/_ai/aspect_guidelines', 'root/_ai/quests/tomai_introduction',
+            'workspace/workspace_aspects.md', 'workspace/workspace_aspects.yaml', 'workspace/CLAUDE-aspects-template.md']);
         assert.match((tpl.buildTemplate(undefined, ws) as { errors: string[] }).errors[0], /no root: no folder with \.tom\/tom_root\.yaml above the extension \(pass --root\)/);
         fs.rmSync(root, { recursive: true, force: true });
     });
@@ -332,6 +336,29 @@ describe('the workspace template in two parts', () => {
         for (const kept of ['root/_agent_guidelines/aspects/documentation/rules.md', 'root/_ai/aspect_guidelines/documentation/aspect.yaml']) {
             assert.ok(names(r).includes(kept), kept);
         }
+        fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    test('WT-16: the workspace aspect files and the CLAUDE aspects template', () => {
+        const { root, ws, put } = fixture();
+        put('workspace_aspects.md', '# Workspace aspects\n\n@_agent_guidelines/aspects/authoring/rules.md\n<!-- workspace-specific -->\n@_agent_guidelines/aspects/fleet/rules.md\n<!-- /workspace-specific -->\n');
+        put('CLAUDE-aspects-template.md', '@AGENTS.md\n@_agent_guidelines/workspace_agents.md\n@workspace_aspects.md\n');
+        put('_agent_guidelines/aspects/docs/rules.md', '## Docs\n');
+        put('ws/_copilot_guidelines/aspects/docs/rules.md', '@../../../../_agent_guidelines/aspects/docs/rules.md\n');
+        put('ws/workspace_aspects.md', '# Workspace aspects\n');
+        put('ws/workspace_aspects.yaml', '# yaml-language-server: $schema=../.tom/json-schema/aspect-guidelines/workspace-aspects.schema.json\nremove:\n  - skills\n');
+        put('ws/CLAUDE-aspects-template.md', '# CLAUDE\n\n@../_agent_guidelines/workspace_agents.md\n@AGENTS.md\n@_copilot_guidelines/aspects/docs/rules.md\n@../workspace_aspects.md\n@workspace_aspects.md\n');
+        const r = tpl.buildTemplate(root, ws);
+        assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
+        for (const f of ['root/workspace_aspects.md', 'root/CLAUDE-aspects-template.md', 'workspace/workspace_aspects.md', 'workspace/workspace_aspects.yaml', 'workspace/CLAUDE-aspects-template.md']) {
+            assert.ok(names(r).includes(f), f);
+        }
+        assert.doesNotMatch(text(r, 'root/workspace_aspects.md'), /fleet/, 'the workspace-specific lines are left out');
+        assert.match(text(r, 'root/workspace_aspects.md'), /^@_agent_guidelines\/aspects\/authoring\/rules\.md$/m);
+        assert.equal(text(r, 'workspace/workspace_aspects.yaml'), 'remove:\n  - skills\n', 'no schema line naming this depth');
+        assert.equal(text(r, 'workspace/CLAUDE-aspects-template.md'),
+            '# CLAUDE\n\n@{{root}}/_agent_guidelines/workspace_agents.md\n@AGENTS.md\n@{{root}}/_agent_guidelines/aspects/docs/rules.md\n@{{root}}/workspace_aspects.md\n@workspace_aspects.md\n',
+            'root imports become the root token; an import of a transition copy points to the root\'s');
         fs.rmSync(root, { recursive: true, force: true });
     });
 

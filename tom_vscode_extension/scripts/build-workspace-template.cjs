@@ -97,6 +97,16 @@ function guidelinesFolderOf(dir) {
  * What each part carries, relative to its source folder. `optional`: packed
  * when present, named when not; `generated`: the build writes it (`data`).
  */
+/** The workspace aspect level's files and the CLAUDE aspects template, in each part when the folder has them (gsel27). */
+const WORKSPACE_ASPECT_FILES = [
+    { path: 'workspace_aspects.md', kind: 'file', optional: true },
+    { path: 'workspace_aspects.yaml', kind: 'file', optional: true },
+    { path: 'CLAUDE-aspects-template.md', kind: 'file', optional: true },
+];
+
+/** The workspace part's files whose `@<path>` lines may import from the root: CLAUDE.md and its aspects template, the workspace aspect file. */
+const ROOT_IMPORTING_FILES = new Set(['CLAUDE.md', 'CLAUDE-aspects-template.md', 'workspace_aspects.md']);
+
 function partSources(rootDir) {
     const rootGuidelines = guidelinesFolderOf(rootDir) ?? '_agent_guidelines';
     return {
@@ -110,6 +120,8 @@ function partSources(rootDir) {
             // Aspect choices as guideline files (gsel17): packed with the guidelines; named so a template without them says so.
             { path: `${rootGuidelines}/aspects`, kind: 'dir', optional: true },
             { path: 'CLAUDE.md', kind: 'file' },
+            // The workspace aspect level and the CLAUDE.md for Claude Code on its own (gsel26 / gsel27).
+            ...WORKSPACE_ASPECT_FILES,
             { path: 'AGENTS.md', kind: 'file', generated: ROOT_AGENTS_STUB },
             { path: '_ai/roles', kind: 'dir' },
             { path: '_ai/role-types', kind: 'dir', optional: true },
@@ -126,6 +138,7 @@ function partSources(rootDir) {
             { path: '.tom', kind: 'emptyDir' },
             { path: 'AGENTS.md', kind: 'file' },
             { path: 'CLAUDE.md', kind: 'file' },
+            ...WORKSPACE_ASPECT_FILES,
             { path: '_copilot_guidelines', kind: 'dir', alt: '_agent_guidelines' },
         ],
     };
@@ -371,9 +384,29 @@ function writeZip(entries) {
  * (`@<path>/<guidelines>/workspace_agents.md`, any path) written with the
  * root token, so Setup can point it at the new folder's root.
  */
-function tokenizeRootImport(text) {
-    return text.replace(/^@(?:[^\s]*\/)?(_agent_guidelines|_copilot_guidelines)\/workspace_agents\.md\s*$/gm,
+function tokenizeRootImport(text, rootRel) {
+    let out = text.replace(/^@(?:[^\s]*\/)?(_agent_guidelines|_copilot_guidelines)\/workspace_agents\.md\s*$/gm,
         (_m, folder) => `@${WORKSPACE_ROOT_TOKEN}/${folder}/workspace_agents.md`);
+    // Any other import of a root file (gsel27): the workspace folder's path to the root becomes the token.
+    if (rootRel && rootRel !== '.') {
+        const prefix = `@${rootRel}/`;
+        out = out.split('\n').map((line) => (line.startsWith(prefix) ? `@${WORKSPACE_ROOT_TOKEN}/${line.slice(prefix.length)}` : line)).join('\n');
+    }
+    return out;
+}
+
+/**
+ * `@<path>` import lines naming a file of `rewrites` (a transition copy the
+ * part leaves out) pointed at the root's copy, `@{{root}}/…` (gsel27).
+ */
+function rewriteImports(text, file, rewrites) {
+    const dir = path.posix.dirname(file);
+    return text.split('\n').map((line) => {
+        const m = /^@(\S+)\s*$/.exec(line);
+        if (!m || m[1].startsWith(WORKSPACE_ROOT_TOKEN) || m[1].startsWith('~') || m[1].startsWith('/')) { return line; }
+        const to = rewrites.get(path.posix.normalize(path.posix.join(dir, m[1])));
+        return to ? `@${to}` : line;
+    }).join('\n');
 }
 
 /**
@@ -412,14 +445,17 @@ function withRootIndexLink(text) {
  * @param {Set<string>} [excluded] files left out of the part (default EXCLUDED_PATHS)
  * @param {'root' | 'workspace'} [part]
  * @param {Map<string, string>} [rewrites] link targets (paths in the part) to point elsewhere: the transition copies, onto the root's
+ * @param {string} [rootRel] the workspace folder's path to the root (`../../..`): its imports of root files become `{{root}}/…`
  */
-function templateFileData(file, data, excluded = EXCLUDED_PATHS, part, rewrites) {
+function templateFileData(file, data, excluded = EXCLUDED_PATHS, part, rewrites, rootRel) {
     if (file === CONFIG_PATH) { return genericConfig(data); }
+    // Its schema line names this folder's depth below the root (gsel27): the unpacked folder may sit at another.
+    if (part === 'workspace' && file === 'workspace_aspects.yaml') { return Buffer.from(data.toString('utf8').replace(/^# yaml-language-server:.*\n/m, ''), 'utf8'); }
     if (!file.endsWith('.md')) { return data; }
     let text = stripWorkspaceSpecific(data.toString('utf8'), file);
     text = dropLinksTo(text, file, excluded);
-    if (rewrites && rewrites.size > 0) { text = rewriteLinks(text, file, rewrites); }
-    if (part === 'workspace' && file === 'CLAUDE.md') { text = tokenizeRootImport(text); }
+    if (rewrites && rewrites.size > 0) { text = rewriteImports(rewriteLinks(text, file, rewrites), file, rewrites); }
+    if (part === 'workspace' && ROOT_IMPORTING_FILES.has(file)) { text = tokenizeRootImport(text, rootRel); }
     if (part === 'workspace' && /^_(agent|copilot)_guidelines\/index\.md$/.test(file)) { text = withRootIndexLink(text); }
     return Buffer.from(text, 'utf8');
 }
@@ -504,6 +540,7 @@ function checkTemplate(entries, sources = partSources(findRoot(EXT_ROOT) ?? DEFA
 function buildTemplate(rootDir, workspaceDir) {
     if (!rootDir) { return { ok: false, errors: ['no root: no folder with .tom/tom_root.yaml above the extension (pass --root)'] }; }
     const sources = partSources(rootDir);
+    const rootRelOf = path.relative(workspaceDir, rootDir).split(path.sep).join('/') || '.';
     const parts = { root: collectPart('root', rootDir, sources.root, rootDir), workspace: collectPart('workspace', workspaceDir, sources.workspace, rootDir) };
     const missing = [...parts.root.missing.map((m) => `${m}: missing in ${rootDir}`), ...parts.workspace.missing.map((m) => `${m}: missing in ${workspaceDir}`)];
     if (missing.length > 0) { return { ok: false, errors: missing }; }
@@ -514,7 +551,7 @@ function buildTemplate(rootDir, workspaceDir) {
         for (const d of p.dirs) { entries.push({ path: `${part}/${d}/`, data: Buffer.alloc(0) }); }
         for (const f of p.files) {
             try {
-                const data = f.generated !== undefined ? Buffer.from(f.generated, 'utf8') : templateFileData(f.path, fs.readFileSync(path.join(dir, f.path)), p.excluded, part, p.rewrites);
+                const data = f.generated !== undefined ? Buffer.from(f.generated, 'utf8') : templateFileData(f.path, fs.readFileSync(path.join(dir, f.path)), p.excluded, part, p.rewrites, rootRelOf);
                 entries.push({ path: `${part}/${f.path}`, data });
             } catch (e) { markerErrors.push(`${part}/${e.message}`); }
         }
@@ -575,7 +612,7 @@ function main() {
 
 module.exports = {
     partSources, findRoot, QUEST_USE_RULES, CONFIG_PATH, EXCLUDED_PATHS, ROOT_AGENTS_STUB, WORKSPACE_ROOT_TOKEN, TEMPLATE_VERSION,
-    genericConfig, stripWorkspaceSpecific, dropLinksTo, rewriteLinks, templateFileData, tokenizeRootImport, withRootIndexLink, TEMPLATE_INFO_PATH, TEMPLATE_TYPE,
+    genericConfig, stripWorkspaceSpecific, dropLinksTo, rewriteLinks, rewriteImports, templateFileData, tokenizeRootImport, withRootIndexLink, TEMPLATE_INFO_PATH, TEMPLATE_TYPE,
     collectPart, checkTemplate, isAllowed, writeZip, buildTemplate, crc32,
 };
 
