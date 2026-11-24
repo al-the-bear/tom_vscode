@@ -14,7 +14,7 @@
  *        and template; Queue next goes through enqueueNext, pending; queueAdded names the section and slot; the
  *        Logs actions go to the chat panel's runSessionAction
  *   CB-14 the action rows (vscimpb151): ANTHROPIC/LLM — Save to Queue and Queue next (the default run) before the
- *        session button and the Run select, Send, Stop and the two panel-target queue buttons after them; the new
+ *        Session and Run fields (label above, value a link), Send, Stop and the two panel-target queue buttons after them; the new
  *        "Queue next with this panel's session and run" posts addToQueue with next and usePanelTarget; Copilot —
  *        Save to Queue before its Run select, Send and Save to Queue in this panel's run after it; every action
  *        button an icon button; the Run select narrow, its options without a "Run:" prefix
@@ -548,17 +548,18 @@ describe('chat sends and the queue buttons', () => {
         w.document.querySelector('[data-action="addToQueuePanelTarget"][data-id="copilot"]').click();
         const cm = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
         assert.deepEqual([cm.usePanelTarget, cm.section, cm.transport], [true, 'copilot', undefined]);
-        // Session above run: two lines of link text; the run's name, its full label in the tooltip, marked when
-        // it is not the PROCESS view's run; a click asks the host for VS Code's run picker.
+        // Session and Run: a field each, its label above, its value a link; the run's name, its full label in the
+        // tooltip, marked when it is not the PROCESS view's run; a click asks the host for VS Code's run picker.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { anthropic: 'collab' }, windowRun: 'default' } }));
         const runLink = w.document.getElementById('anthropic-run');
         assert.equal(runLink.tagName, 'A');
         assert.equal(runLink.textContent, 'collab');
         assert.match(runLink.title, /^Run: collab — the subject/);
         assert.ok(runLink.classList.contains('run-other'), 'another run than the PROCESS view\'s');
-        const lines = runLink.parentElement;
-        assert.ok(lines.classList.contains('session-run-lines'));
-        assert.deepEqual([...lines.children].map((c: Win) => c.id), ['anthropic-session-link', 'anthropic-run'], 'session above run');
+        const fieldOf = (el: Win): [string, string] => [el.parentElement.className, el.parentElement.querySelector('.chat-field-label').textContent];
+        assert.deepEqual(fieldOf(runLink), ['chat-field', 'Run']);
+        assert.deepEqual(fieldOf(w.document.getElementById('anthropic-session-link')), ['chat-field', 'Session']);
+        assert.ok(w.document.getElementById('anthropic-session-link').parentElement.nextElementSibling === runLink.parentElement, 'the session field, then the run field');
         posted.length = 0;
         runLink.click();
         w.document.getElementById('anthropic-session-link').click();

@@ -549,6 +549,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this.postChatAspects();
                         break;
                     }
+                    case 'pickFromSelect': {
+                        // A choice of the action bar shown as a field (its label above, its value a link): VS Code's
+                        // picker over the select's options, the answer set on the select by the webview.
+                        const items = Array.isArray(message.items) ? (message.items as Array<{ label?: unknown; value?: unknown; description?: unknown }>) : [];
+                        const current = typeof message.current === 'string' ? message.current : '';
+                        const picked = await vscode.window.showQuickPick(
+                            items.filter((i) => typeof i.value === 'string').map((i) => ({
+                                label: `${i.value === current ? '$(check) ' : ''}${typeof i.label === 'string' && i.label ? i.label : String(i.value) || '(none)'}`,
+                                description: typeof i.description === 'string' ? i.description : undefined,
+                                value: i.value as string,
+                            })),
+                            { title: typeof message.title === 'string' && message.title ? message.title : 'Choose', placeHolder: 'Pick one' },
+                        );
+                        if (!picked) { break; }
+                        void this._view?.webview.postMessage({ type: 'pickFromSelectResult', requestId: message.requestId, value: picked.value });
+                        break;
+                    }
                     case 'pickChatRun': {
                         // The Run link: VS Code's picker over the quest's runs, then as a run switch.
                         const section = CHAT_RUN_SECTIONS.find((x) => x === message.section);

@@ -132,11 +132,11 @@ function getPanelSlotButtonsHtml(sectionId) {
 }
 
 function getReusablePromptControlsHtml(sectionId) {
-    return '<label>Type:</label>' +
+    // Each select is shown as a field (its label above, its value a link): linkChatSelects.
+    return '' +
     '<select id="' + sectionId + '-reusable-type" class="reusable-prompt-type" title="Reusable prompt type"><option value="global">global</option><option value="project">project</option><option value="quest">quest</option><option value="scan">scan</option></select>' +
-    '<label id="' + sectionId + '-reusable-scope-label" style="display:none;">Project:</label>' +
+    '<label id="' + sectionId + '-reusable-scope-label" class="linked-label" style="display:none;">Project:</label>' +
     '<select id="' + sectionId + '-reusable-scope" class="reusable-prompt-scope" title="Reusable prompt scope" style="display:none;"><option value="">(Select)</option></select>' +
-    '<label>Files:</label>' +
     '<select id="' + sectionId + '-reusable-file" class="reusable-prompt-file" title="Reusable prompt file"><option value="">(File)</option></select>' +
     '<button class="icon-btn" data-action="previewReusablePrompt" data-id="' + sectionId + '" title="Preview in overlay"><span class="codicon codicon-open-preview"></span></button>' +
         '<button class="icon-btn" data-action="openReusablePromptExternal" data-id="' + sectionId + '" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>' +
@@ -533,7 +533,7 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue — in the default run, with the prompt queue&#39;s settings and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
                 // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
                 // A link (click: VS Code's run picker, pickChatRun).
-                '<span class="session-run-lines"><a href="#" id="copilot-run" class="chat-link run-link" data-action="pickChatRun" data-id="copilot" data-run-section="copilot" title="The process run this subpanel works on — click to pick another">default</a></span>' +
+                '<span class="chat-field"><span class="chat-field-label">Run</span><a href="#" id="copilot-run" class="chat-link run-link" data-action="pickChatRun" data-id="copilot" data-run-section="copilot" title="The process run this subpanel works on — click to pick another">default</a></span>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
                 '<span id="copilot-aspects-slot" class="chat-aspects-slot"></span>' +
                 '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
@@ -616,12 +616,13 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="addToQueueNext" data-id="anthropic" title="Queue next — in the default run (default@default), sent next, with the prompt queue&#39;s profile, session and default template; when a repeating item is sending, between its iterations"><span class="codicon codicon-add"></span><span class="codicon codicon-arrow-circle-up"></span></button>' +
                 // Agent SDK session: the button names the session the panel sends in; a click opens VS Code's picker
                 // (pick / new / based on). A run switch selects the run's default session (vscimpb151).
-                // Session above run, two lines of link text: a click opens VS Code's picker (pickAnthropicSession, pickChatRun).
-                // The run this subpanel is on (vscimpb48): its session in that run, its chat variables, its queued items.
-                '<span class="session-run-lines">' +
-                    '<a href="#" id="anthropic-session-link" class="chat-link session-link" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span id="anthropic-session-name" class="session-name">chat</span></a>' +
-                    '<a href="#" id="anthropic-run" class="chat-link run-link" data-action="pickChatRun" data-id="anthropic" data-run-section="anthropic" title="The process run this subpanel works on — click to pick another">default</a>' +
-                '</span>' +
+                // Session and run, each a field: its label above, its value a link below; a click opens VS Code's picker
+                // (pickAnthropicSession, pickChatRun). The run this subpanel is on (vscimpb48): its session in that run,
+                // its chat variables, its queued items.
+                '<span class="chat-field"><span class="chat-field-label">Session</span>' +
+                    '<a href="#" id="anthropic-session-link" class="chat-link session-link" data-action="pickAnthropicSession" data-id="anthropic" title="Agent SDK session — click to pick another or create one"><span id="anthropic-session-name" class="session-name">chat</span></a></span>' +
+                '<span class="chat-field"><span class="chat-field-label">Run</span>' +
+                    '<a href="#" id="anthropic-run" class="chat-link run-link" data-action="pickChatRun" data-id="anthropic" data-run-section="anthropic" title="The process run this subpanel works on — click to pick another">default</a></span>' +
                 // The role of this subpanel's sends (gsel6): their item role; the run's chat variable is untouched.
                 '<select id="anthropic-role" class="chat-compact-select chat-role-select" title="Role of this panel&#39;s sends"><option value="">Run default</option></select>' +
                 // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
@@ -717,6 +718,89 @@ function getSectionContent(id) {
 
 var _rendered = false;
 
+/*
+ * The action bar's choices as fields (the Prompt Queue editor's style): each select stays the
+ * value holder its code fills and listens to, hidden; a field shows its label above and the
+ * selected option as a link below. A click asks the host for VS Code's picker over the
+ * select's options (pickFromSelect); the answer sets the select and fires its change event.
+ */
+var LINKED_SELECT_LABELS = {
+    'anthropic-profile': 'Model',
+    'anthropic-userMessage': 'Template',
+    'anthropic-role': 'Role',
+    'copilot-template': 'Template',
+};
+var pendingSelectPicks = {};
+var selectPickSeq = 0;
+function linkChatSelects() {
+    Object.keys(LINKED_SELECT_LABELS).forEach(function(id) { linkSelect(document.getElementById(id), LINKED_SELECT_LABELS[id]); });
+    ['anthropic', 'copilot'].forEach(function(section) {
+        linkSelect(document.getElementById(section + '-reusable-type'), 'Prompt type');
+        var scopeLabel = document.getElementById(section + '-reusable-scope-label');
+        linkSelect(document.getElementById(section + '-reusable-scope'), function() {
+            return scopeLabel ? scopeLabel.textContent.replace(/:\s*$/, '') : 'Scope';
+        }, scopeLabel);
+        linkSelect(document.getElementById(section + '-reusable-file'), 'Prompt file');
+    });
+}
+function linkSelect(sel, labelFor, labelSource) {
+    if (!sel || sel.getAttribute('data-linked')) { return; }
+    sel.setAttribute('data-linked', '1');
+    var field = document.createElement('span');
+    field.className = 'chat-field';
+    field.id = sel.id + '-field';
+    var label = document.createElement('span');
+    label.className = 'chat-field-label';
+    var link = document.createElement('a');
+    link.href = '#';
+    link.className = 'chat-link chat-field-value';
+    field.appendChild(label);
+    field.appendChild(link);
+    sel.parentNode.insertBefore(field, sel);
+    sel.classList.add('linked-select');
+    var baseTitle = sel.title || '';
+    function sync() {
+        label.textContent = typeof labelFor === 'function' ? labelFor() : labelFor;
+        var opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+        link.textContent = opt ? opt.textContent : '(none)';
+        link.title = (baseTitle ? baseTitle + ': ' : '') + link.textContent + (sel.disabled ? '' : ' — click to choose');
+        link.classList.toggle('disabled', !!sel.disabled);
+        field.style.display = sel.style.display === 'none' ? 'none' : '';
+    }
+    // A value set in code fires no event: the select's own value and selectedIndex keep the field in step.
+    ['value', 'selectedIndex'].forEach(function(prop) {
+        var d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, prop);
+        if (!d || !d.set) { return; }
+        Object.defineProperty(sel, prop, { configurable: true, get: function() { return d.get.call(this); }, set: function(v) { d.set.call(this, v); sync(); } });
+    });
+    var observer = new MutationObserver(sync);
+    observer.observe(sel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'disabled', 'selected', 'title'] });
+    if (labelSource) { observer.observe(labelSource, { childList: true, characterData: true, subtree: true }); }
+    sel.addEventListener('change', sync);
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (sel.disabled) { return; }
+        var requestId = ++selectPickSeq;
+        pendingSelectPicks[requestId] = sel;
+        vscode.postMessage({
+            type: 'pickFromSelect', requestId: requestId, title: label.textContent, current: sel.value,
+            items: Array.prototype.filter.call(sel.options, function(o) { return !o.disabled; }).map(function(o) {
+                return { label: o.textContent, value: o.value, description: o.title || '' };
+            }),
+        });
+    });
+    sync();
+}
+/** The host's answer to pickFromSelect: the picked value set on its select, as a change. */
+function applySelectPick(msg) {
+    var sel = pendingSelectPicks[msg.requestId];
+    delete pendingSelectPicks[msg.requestId];
+    if (!sel || typeof msg.value !== 'string' || sel.value === msg.value) { return; }
+    sel.value = msg.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 function render() {
     var container = document.getElementById('container');
     if (!_rendered) {
@@ -736,6 +820,7 @@ function render() {
         container.innerHTML = html;
         _rendered = true;
         attachEventListeners();
+        linkChatSelects();
         updateResizeHandles();
         populateDropdowns();
     } else {
@@ -1503,6 +1588,8 @@ window.addEventListener('message', function(e) {
         populateDropdowns();
         updateAnthropicApiKeyDot();
         updateClaudeCliDot();
+    } else if (msg.type === 'pickFromSelectResult') {
+        applySelectPick(msg);
     } else if (msg.type === 'chatRuns') {
         applyChatRuns(msg);
     } else if (msg.type === 'chatAspects') {

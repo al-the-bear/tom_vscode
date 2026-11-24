@@ -42,11 +42,15 @@
 .slot-btn.answer-ready.active:hover { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: #111; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
 .answer-slot-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; margin-left: 6px; background: var(--vscode-editorWarning-foreground, #cca700); color: #111; font-size: 11px; font-weight: 700; }
 
-/* Session above run (ANTHROPIC/LLM; the Copilot subpanel has the run only): two lines of link text,
-   a click opens VS Code's picker. */
-.session-run-lines { display: inline-flex; flex-direction: column; justify-content: center; line-height: 1.15; margin: 0 4px; min-width: 0; }
-.chat-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; font-size: 11px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+/* The action bar's choices (the Prompt Queue editor's style): a field each, its label above, its value
+   a link below; a click opens VS Code's picker. The width is limited; a long value ends in an ellipsis
+   and the tooltip names it whole. The select behind a field is hidden (linkChatSelects). */
+.chat-field { display: inline-flex; flex-direction: column; justify-content: center; line-height: 1.15; margin: 0 4px; min-width: 0; max-width: 110px; vertical-align: middle; }
+.chat-field-label { font-size: 9px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .chat-link:hover { color: var(--vscode-textLink-activeForeground); }
+.chat-link.disabled { color: var(--vscode-disabledForeground); text-decoration: none; cursor: default; }
+.linked-select, .linked-label { display: none !important; }
 
 /* Plan mode (CC-3, CC-27): the badge while it is on, and a proposed plan. */
 .plan-mode-badge { align-items: center; gap: 6px; margin: 4px 0; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid currentColor; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }

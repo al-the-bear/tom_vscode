@@ -58,18 +58,19 @@
   .empty { text-align: center; opacity: 0.5; padding: 20px; }
   .context-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; font-size: 0.85em; }
   .context-summary { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: flex-start; min-width: 0; }
-  .context-summary .ctx-field { display: inline-flex; flex-direction: column; min-width: 0; max-width: 220px; }
+  /* The values are shown whole, on one line: no width limit, no ellipsis (the bar wraps between fields). */
+  .context-summary .ctx-field { display: inline-flex; flex-direction: column; flex: 0 0 auto; }
   .context-summary .ctx-label { font-size: 0.85em; opacity: 0.7; white-space: nowrap; }
-  .context-summary .ctx-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .context-summary .ctx-value { white-space: nowrap; }
   .context-summary .ctx-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; }
   .context-summary .ctx-link:hover { color: var(--vscode-textLink-activeForeground); }
   .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
   .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
   .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-  .ctx-btn-double { display: inline-flex; gap: 1px; align-items: center; }
-  .ctx-btn-double .codicon + .codicon { font-size: 0.85em; }
+  /* Two icons of the same size side by side, as the @CHAT action bar's queue buttons. */
+  .ctx-btn-double { display: inline-flex; gap: 0; align-items: center; }
   /* gsel22: label-less choice buttons (the model links above the queue) and the quest / workspace icon groups. */
-  .model-choice { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  .model-choice { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; white-space: nowrap; }
   .model-choice:hover { color: var(--vscode-textLink-activeForeground); }
   .model-choice .codicon { font-size: 0.95em; vertical-align: -2px; text-decoration: none; opacity: 0.8; }
   .aspect-level-group { display: inline-flex; gap: 0; padding-left: 6px; margin-left: 2px; border-left: 1px solid var(--border); }

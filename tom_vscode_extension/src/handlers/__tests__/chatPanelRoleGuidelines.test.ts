@@ -17,7 +17,9 @@
  *   CG-5 the webview: the role dropdown (Run default, the roles, the panel's selected; a change posts
  *        setChatRole) in ANTHROPIC/LLM only; a guideline button in both subpanels (dot when the panel chose,
  *        the effective selection on hover, no list); its popup posts aspectChoose at level chat with the
- *        subpanel; the profile, template, session, Run and role dropdowns unlabelled and compact; No template;
+ *        subpanel; the session, run, model (profile), template, role and reusable-prompt choices each a field (label
+ *        above, value a link, width limited; the select hidden; a click posts pickFromSelect, its answer is a
+ *        change); No template;
  *        the role editor icon posts openRoleEditor; the page loads the picker's script and style
  */
 
@@ -258,7 +260,21 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.equal([...toolbar.querySelectorAll('label')].filter((l: Json) => /Profile|User Prompt/.test(l.textContent)).length, 0, 'no Profile / User Prompt labels');
             const css = fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'style.css'), 'utf8');
             assert.match(css, /\.toolbar select\.chat-compact-select \{ min-width: 36px; max-width: 72px; \}/, '60% of 60–120px');
-            assert.match(css, /\.session-run-lines \{ display: inline-flex; flex-direction: column;/, 'session above run');
+            assert.match(css, /\.chat-field \{ display: inline-flex; flex-direction: column;[^}]*max-width: 110px;/, 'label above value, width limited');
+            // Every choice of the action bar is a field: its label above, its value a link; the select behind it is hidden.
+            const field = (id: string): [string, string] => { const f = $(id).closest('.chat-field'); return [f.querySelector('.chat-field-label').textContent, f.querySelector('.chat-link').textContent]; };
+            assert.deepEqual(field('anthropic-session-name'), ['Session', 'chat']);
+            assert.deepEqual(field('anthropic-run'), ['Run', 'default']);
+            assert.deepEqual(field('copilot-run'), ['Run', 'default']);
+            const linked = (id: string): [string, string] => [$(id + '-field').querySelector('.chat-field-label').textContent, $(id + '-field').querySelector('.chat-link').textContent];
+            for (const [id, label] of [['anthropic-profile', 'Model'], ['anthropic-userMessage', 'Template'], ['anthropic-role', 'Role'], ['copilot-template', 'Template'],
+                ['anthropic-reusable-type', 'Prompt type'], ['anthropic-reusable-file', 'Prompt file'], ['copilot-reusable-type', 'Prompt type'], ['copilot-reusable-file', 'Prompt file']]) {
+                assert.ok($(id).classList.contains('linked-select'), `${id}: hidden behind its field`);
+                assert.equal(linked(id)[0], label, `${id}: labelled ${label}`);
+                assert.equal(linked(id)[1], $(id).options[$(id).selectedIndex]?.textContent ?? '(none)', `${id}: shows the selected option`);
+            }
+            assert.equal(linked('anthropic-reusable-type')[1], 'global');
+            assert.match(css, /\.linked-select, \.linked-label \{ display: none !important; \}/);
             // The role dropdown: ANTHROPIC/LLM only.
             assert.equal($('copilot-role'), null);
             w.dispatchEvent(new w.MessageEvent('message', { data: {
@@ -274,8 +290,14 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             } }));
             assert.deepEqual([...$('anthropic-role').options].map((o: Json) => o.textContent), ['Run default', 'reviewer', 'writer']);
             assert.equal($('anthropic-role').value, 'reviewer');
-            $('anthropic-role').value = 'writer';
-            $('anthropic-role').dispatchEvent(new w.Event('change'));
+            assert.equal(linked('anthropic-role')[1], 'reviewer', 'a value set in code shows in the field');
+            // A click on the field asks the host for VS Code's picker over the options; the answer is a change.
+            $('anthropic-role-field').querySelector('.chat-link').click();
+            const pick = sent.filter((m) => m.type === 'pickFromSelect').at(-1);
+            assert.deepEqual([pick.title, pick.current, pick.items.map((i: Json) => [i.label, i.value])], ['Role', 'reviewer', [['Run default', ''], ['reviewer', 'reviewer'], ['writer', 'writer']]]);
+            w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'pickFromSelectResult', requestId: pick.requestId, value: 'writer' } }));
+            assert.equal($('anthropic-role').value, 'writer');
+            assert.equal(linked('anthropic-role')[1], 'writer');
             assert.deepEqual(sent.filter((m) => m.type === 'setChatRole').at(-1), { type: 'setChatRole', role: 'writer' });
             // The guideline buttons: both subpanels, a dot when the panel chose, hover help only.
             const aBtn = $('anthropic-aspects-btn');
