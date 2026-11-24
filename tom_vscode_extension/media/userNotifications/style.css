@@ -7,6 +7,8 @@ body {
 }
 .muted { color: var(--vscode-descriptionForeground); }
 .bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 2px 0 4px; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+/* The header stays at the top while the list scrolls under it. */
+.bar { position: sticky; top: 0; z-index: 2; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); margin-top: -2px; padding-top: 4px; }
 .bar .grow { flex: 1 1 auto; }
 .bar .summary { font-size: 0.9em; }
 .icon {

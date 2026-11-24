@@ -346,7 +346,7 @@ The bar's 📖 opens the notes in the MD Browser, the file icon in an editor for
 
 When several apply, the first of this list wins. Click a run of this window to work on it here (as selecting it in PROCESS › Runs does); click another window's run to see its details. Each window writes its runs with its heartbeat (every 30 s) and soon after a change, and the view follows those writes; agents read the same entries from `tomAi_getQuestWindowStatus` (`runs`).
 
-**USER NOTIFICATIONS** — above NOTIFICATIONS: everything directed at you, from every window of this machine, kept apart from the busy event list. One row per event, never merged, newest first, each with an icon for its kind, the window (quest), the run, a title and the time:
+**USER NOTIFICATIONS** — above NOTIFICATIONS: everything directed at you, from every window of this machine, kept apart from the busy event list. Its header (the count of what waits for you, Dismiss answered) stays at the top while the list scrolls. One row per event, never merged: what waits for you (open asks, decisions) first, then the rest, each part newest first, each with an icon for its kind, the window (quest), the run, a title and the time:
 
 - **an ask** waiting for you — a question (`tomAi_askUser`), a picker, an MD Browser ask, a plan proposal, a tool approval; shown **open** with how long it waits (bold), and **answered** once it is settled, with the answer or why it closed (timed out, cancelled, the prompt ended);
 - **a message** an agent sent you (`tomAi_notifyUser`), with its urgency and channel;

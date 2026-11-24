@@ -4,7 +4,8 @@
  *
  *   UN-1 the types: the old five keep their order and merge rules; the user-directed types follow, each with a
  *        toggle label and icon; their lines and details (the questions, the outcome, urgency and channel)
- *   UN-2 the rows: one per user-directed event (not merged), newest first; an ask open until its close (paired by
+ *   UN-2 the rows: one per user-directed event (not merged), what waits for the user first, each part newest first;
+ *        the header bar sticks to the top (style.css); an ask open until its close (paired by
  *        window and key), then answered with the outcome; notices; the open count; who, run, queue item, todo
  *   UN-3 dismiss: hidden from USER NOTIFICATIONS only — the log is not touched, NOTIFICATIONS still shows it; the
  *        dismissed set is a file shared by windows, pruned to ids still in the log; "dismiss all answered" leaves
@@ -91,15 +92,16 @@ describe('USER NOTIFICATIONS', () => {
         ];
         const rows = userNotificationRows(events);
         assert.deepEqual(rows.map((r) => [r.title, r.state]), [
-            ['Queue item error: "x"', 'notice'], ['Decision needed in todo t1', 'open'], ['Same key, other window', 'open'], ['Pick', 'open'], ['Q one', 'answered'],
-        ], 'one row per event, newest first; asks paired per window and key; a decision open until answered; queue and todo events not shown');
+            ['Decision needed in todo t1', 'open'], ['Same key, other window', 'open'], ['Pick', 'open'], ['Queue item error: "x"', 'notice'], ['Q one', 'answered'],
+        ], 'one row per event, the open ones first, each part newest first; asks paired per window and key; a decision open until answered; queue and todo events not shown');
+        assert.match(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'media', 'userNotifications', 'style.css'), 'utf8'), /\.bar \{ position: sticky; top: 0;[^}]*background:/, 'the header does not scroll with the list');
         const q = rows.find((r) => r.title === 'Q one')!;
         assert.equal(q.outcome, 'answered: (b)');
         assert.ok(q.details.includes('Answer: answered: (b)') && q.details.includes('Queue item: item-7') && q.details.includes('1. Which?'));
         assert.ok(q.details.includes('From: session default, transport anthropic'));
         assert.ok(rows.find((r) => r.type === 'userTodo')!.details.includes('Todo: q/t1'));
         assert.equal(openAskCount(rows), 3, 'the open asks and the decision waiting');
-        assert.deepEqual(rows.map((r) => r.icon), ['debug-pause', 'person', 'comment-discussion', 'comment-discussion', 'comment-discussion']);
+        assert.deepEqual(rows.map((r) => r.icon), ['person', 'comment-discussion', 'comment-discussion', 'debug-pause', 'comment-discussion']);
     });
 
     test('UN-3: dismiss, kept apart from the log', () => {

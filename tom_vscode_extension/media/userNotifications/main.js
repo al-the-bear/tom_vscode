@@ -2,7 +2,9 @@
 // @TOM INFO › USER NOTIFICATIONS — everything directed at the user, from every
 // window on this machine. Host: src/handlers/userNotifications-handler.ts posts
 // {type: 'state', rows, open, thisWindow} whenever the shared log or the
-// dismissed set changes. One row per event, newest first; an open ask shows how
+// dismissed set changes. One row per event: what waits for the user first, then
+// the rest, each newest first (utils/userNotifications.ts); the header bar stays
+// at the top while the list scrolls (style.css, sticky). An open ask shows how
 // long it waits. A click opens the details; Dismiss (row) and Dismiss answered
 // (bar) post back; Answer (an open ask, a todo waiting for decisions) posts answer, Continue queue (an answered
 // decision whose todo held a queue) posts continueQueue; a click on an open ask of this window posts openAsk; a click on

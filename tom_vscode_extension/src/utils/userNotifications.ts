@@ -158,8 +158,9 @@ export function durationText(ms: number): string {
 }
 
 /**
- * The rows: every user-directed event of the log not dismissed, newest first,
- * an ask paired with its close (by key) when the log holds it.
+ * The rows: every user-directed event of the log not dismissed — what still
+ * waits for the user (open asks, decisions) first, then the rest, each part
+ * newest first — an ask paired with its close (by key) when the log holds it.
  */
 export function userNotificationRows(events: readonly NotificationEvent[], dismissed: ReadonlySet<string> = new Set()): UserNotificationRow[] {
     const closes = new Map<string, NotificationEvent>();
@@ -203,7 +204,8 @@ export function userNotificationRows(events: readonly NotificationEvent[], dismi
         });
     }
     rows.push(...decisionRows(events, dismissed));
-    return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const open = (r: UserNotificationRow): number => (r.state === 'open' ? 0 : 1);
+    return rows.sort((a, b) => (open(a) - open(b)) || (Date.parse(b.at) - Date.parse(a.at)));
 }
 
 /** How many rows are open asks (the view's badge). */
