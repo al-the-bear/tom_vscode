@@ -13,6 +13,12 @@
  * A tab is identified by its label and editor column: that is all VS Code's tab
  * API says about a webview tab, and the MD Browser's titles name their file.
  *
+ * Each record also keeps the panel's **settings** (reading_view part *The MD
+ * Browser*, DP-part-md-browser-1): its reading modes, indent on/off and size,
+ * and the search selection (the search category). A restored panel takes them
+ * back; a new panel opens with the reader's defaults (*Save as default*, kept
+ * in the extension's global state under {@link MD_BROWSER_DEFAULTS_KEY}).
+ *
  * vscode-free.
  */
 
@@ -22,10 +28,72 @@ export interface MdTabRef {
     viewColumn: number | undefined;
 }
 
+/** How a panel shows its documents: what a reader sets and keeps. */
+export interface MdPanelSettings {
+    /** Headings and their sections indented by heading level. */
+    indentOn: boolean;
+    /** Spaces of indentation per level. */
+    indentSize: number;
+    /** The search category: the whole document, or only the errors (rejected blocks). */
+    searchScope: 'all' | 'errors';
+    /** The reader's mode per reading-notation kind (`{block, span}`); a kind left out has the notation's default. */
+    readingModes: Record<string, { block?: string; span?: string }>;
+}
+
 /** What is remembered about one open tab. */
 export interface MdPanelRecord extends MdTabRef {
     filePath: string;
     liveMode: boolean;
+    /** The panel's settings, when it reported any. */
+    settings?: MdPanelSettings;
+}
+
+/** The global-state key of the reader's defaults (*Save as default*), the same in every workspace. */
+export const MD_BROWSER_DEFAULTS_KEY = 'tomAi.mdBrowser.defaultSettings';
+
+/** The indent sizes the toolbar offers. */
+export const MD_INDENT_SIZES: readonly number[] = [1, 2, 3, 4, 6, 8];
+
+/** A kind name or mode name as the notation writes them. */
+const NAME = /^[a-z][a-z0-9_-]*$/;
+
+/**
+ * `value` as panel settings, every field checked: a wrong or missing field
+ * takes the notation's default (indent off, 2 spaces, all, no modes chosen).
+ * null when `value` is no object at all.
+ */
+export function normalizePanelSettings(value: unknown): MdPanelSettings | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    const v = value as Record<string, unknown>;
+    const size = Number(v.indentSize);
+    const modes: MdPanelSettings['readingModes'] = {};
+    const raw = v.readingModes && typeof v.readingModes === 'object' && !Array.isArray(v.readingModes) ? v.readingModes as Record<string, unknown> : {};
+    for (const [kind, m] of Object.entries(raw)) {
+        if (!NAME.test(kind) || !m || typeof m !== 'object') { continue; }
+        const mm = m as Record<string, unknown>;
+        const entry: { block?: string; span?: string } = {};
+        if (typeof mm.block === 'string' && NAME.test(mm.block)) { entry.block = mm.block; }
+        if (typeof mm.span === 'string' && NAME.test(mm.span)) { entry.span = mm.span; }
+        if (entry.block || entry.span) { modes[kind] = entry; }
+    }
+    return {
+        indentOn: v.indentOn === true,
+        indentSize: MD_INDENT_SIZES.includes(size) ? size : 2,
+        searchScope: v.searchScope === 'errors' ? 'errors' : 'all',
+        readingModes: modes,
+    };
+}
+
+/**
+ * The record a restored tab belongs to: the one with its label and column,
+ * else the only one with its label (a moved tab); undefined when none, or when
+ * two records carry the label and the column tells them apart from neither.
+ */
+export function recordForTab(records: readonly MdPanelRecord[], tab: MdTabRef): MdPanelRecord | undefined {
+    const exact = records.find((r) => sameTab(r, tab));
+    if (exact) { return exact; }
+    const byLabel = records.filter((r) => r.label === tab.label);
+    return byLabel.length === 1 ? byLabel[0] : undefined;
 }
 
 /** The workspace-state key the records are kept under. */

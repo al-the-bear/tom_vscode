@@ -313,10 +313,11 @@
                 indentOn = !indentOn;
                 indentBtn.classList.toggle('active', indentOn);
                 applyIndent();
+                postPanelSettings(false);
             });
         }
         if (indentSizeSelect) {
-            indentSizeSelect.addEventListener('change', applyIndent);
+            indentSizeSelect.addEventListener('change', function() { applyIndent(); postPanelSettings(false); });
         }
         // Reading: Show all marked text, and the kinds popup.
         if (readAllBtn) {
@@ -339,6 +340,7 @@
                     Array.prototype.forEach.call(contentArea ? contentArea.querySelectorAll('.mdb-rd.mdb-open, .mdb-rs.mdb-open') : [], function(el) { el.classList.remove('mdb-open'); });
                     applyReadingModes();
                     renderReadingKinds();
+                    postPanelSettings(false);
                 }
             });
             readKindPop.addEventListener('change', function(e) {
@@ -347,6 +349,66 @@
                 setReadingMode(sel.dataset.readKind, sel.dataset.readPart === 'span', sel.value);
             });
             document.addEventListener('click', function() { readKindPop.hidden = true; });
+        }
+
+        // ---- The panel's settings (reading_view, DP-part-md-browser-1) ----
+        // Indent on/off and size, the search category and the reading modes: they come with every
+        // `mdContent` (the panel's own, kept across a reload, or the reader's defaults for a new panel)
+        // and go back to the host with `panelSettings` on every change; Save as default makes them the
+        // defaults of new panels.
+        /** The settings as they are now. */
+        function panelSettingsNow() {
+            var modes = {};
+            Object.keys(readingModes).forEach(function(k) {
+                var m = readingModes[k] || {};
+                var entry = {};
+                if (m.block) { entry.block = m.block; }
+                if (m.span) { entry.span = m.span; }
+                if (entry.block || entry.span) { modes[k] = entry; }
+            });
+            return {
+                indentOn: indentOn,
+                indentSize: Number(indentSizeSelect ? indentSizeSelect.value : 2) || 2,
+                searchScope: searchScope && searchScope.value === 'errors' ? 'errors' : 'all',
+                readingModes: modes,
+            };
+        }
+        /** Tell the host the settings (it keeps them with the panel); `asDefault`: also as the defaults of new panels. */
+        function postPanelSettings(asDefault) {
+            var message = { type: 'panelSettings', settings: panelSettingsNow() };
+            if (asDefault) { message.saveAsDefault = true; }
+            vscode.postMessage(message);
+        }
+        /** Take settings from the host (null: the notation's defaults); nothing is posted back. */
+        function applyPanelSettings(s) {
+            var v = s && typeof s === 'object' ? s : {};
+            indentOn = v.indentOn === true;
+            if (indentBtn) { indentBtn.classList.toggle('active', indentOn); }
+            if (indentSizeSelect) {
+                var size = String(v.indentSize || 2);
+                var known = Array.prototype.some.call(indentSizeSelect.options, function(o) { return o.value === size; });
+                indentSizeSelect.value = known ? size : '2';
+            }
+            var scope = v.searchScope === 'errors' ? 'errors' : 'all';
+            if (searchScope && searchScope.value !== scope) {
+                searchScope.value = scope;
+                search.texts = null;
+                if (search.query) { runSearch(false); }
+            }
+            var modes = {};
+            var given = v.readingModes && typeof v.readingModes === 'object' ? v.readingModes : {};
+            Object.keys(given).forEach(function(k) {
+                if (!readingKnown(k) || !given[k]) { return; }
+                modes[k] = { block: given[k].block, span: given[k].span };
+            });
+            readingModes = modes;
+            applyReadingModes();
+            if (readKindPop && !readKindPop.hidden) { renderReadingKinds(); }
+            applyIndent();
+        }
+        var saveDefaultsBtn = document.getElementById('saveDefaultsBtn');
+        if (saveDefaultsBtn) {
+            saveDefaultsBtn.addEventListener('click', function() { postPanelSettings(true); });
         }
         // A marker is reached with the keyboard too (Enter or Space opens and closes it).
         if (contentArea) {
@@ -916,6 +978,7 @@
             if (!readingKnown(kind)) { return; }
             var cur = readingModes[kind] || {};
             readingModes[kind] = span ? { block: cur.block, span: mode } : { block: mode, span: cur.span };
+            postPanelSettings(false);
             var prefix = kind + '|';
             Object.keys(readingOpen).forEach(function(k) { if (k.indexOf(prefix) === 0) { delete readingOpen[k]; } });
             if (contentArea) {
@@ -3938,6 +4001,7 @@
                 search.texts = null;
                 search.current = -1;
                 runSearch(true);
+                postPanelSettings(false);
             });
         }
         if (searchClearBtn) {
@@ -4209,6 +4273,8 @@
             }
 
             if (msg.type === 'mdContent') {
+                // The panel's settings first, so the document renders with them.
+                if (Object.prototype.hasOwnProperty.call(msg, 'settings')) { applyPanelSettings(msg.settings); }
                 handleContent(msg);
             } else if (msg.type === 'somComments') {
                 // Only for the text shown: the host read exactly that text.

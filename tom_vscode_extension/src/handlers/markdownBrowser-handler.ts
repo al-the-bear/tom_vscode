@@ -79,7 +79,8 @@ import { crlfLineMap, transformMarkdown } from '../utils/markdownHeadings.js';
 import { applyMdLineEdit } from '../utils/markdownBrowserEdits.js';
 import { mdBrowserRegistry } from '../utils/mdBrowserRegistry.js';
 import {
-    MD_BROWSER_RECORDS_KEY, planDormantTabs, rememberedRecords, type MdPanelRecord, type MdTabRef,
+    MD_BROWSER_DEFAULTS_KEY, MD_BROWSER_RECORDS_KEY, normalizePanelSettings, planDormantTabs, recordForTab, rememberedRecords,
+    type MdPanelRecord, type MdPanelSettings, type MdTabRef,
 } from '../utils/mdBrowserRestore.js';
 import type { MdBrowserController } from '../tools/md-browser-tools.js';
 import { mdBrowserAskSlot, type AskInMdBrowserDeps, type AskMdBar } from '../tools/ask-in-md-browser-tool.js';
@@ -180,6 +181,12 @@ class MdBrowserPanel {
     private _askBar?: AskMdBar;
     /** Unsubscribe from the running assist's overlay (services/assistProgress.ts). */
     private _assistUnsubscribe?: () => void;
+    /**
+     * How this panel shows its documents (indent, search category, reading modes): sent with every
+     * `mdContent`, updated by the webview's `panelSettings`, kept in the panel's record across a reload.
+     * null: the notation's defaults.
+     */
+    private _settings: MdPanelSettings | null;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -191,6 +198,10 @@ class MdBrowserPanel {
     ) {
         this._context = context;
         this._liveMode = liveMode;
+        // A restored panel takes back its own settings; a new one opens with the reader's defaults.
+        this._settings = show?.settings !== undefined
+            ? normalizePanelSettings(show.settings)
+            : normalizePanelSettings(context.globalState.get(MD_BROWSER_DEFAULTS_KEY));
         this._history = new NavigationHistory();
         this._pendingInitialFile = filePath;
         this._onDisposeCallback = onDispose;
@@ -272,6 +283,11 @@ class MdBrowserPanel {
     /** This panel's id in the registry. */
     get panelId(): string {
         return this._panelId;
+    }
+
+    /** This panel's settings, for its record (null: the notation's defaults). */
+    get settings(): MdPanelSettings | null {
+        return this._settings;
     }
 
     /** A tool wrote `absPath` (services/documentWrites.ts): render it again when this panel shows it. */
@@ -463,6 +479,8 @@ class MdBrowserPanel {
                 author: reviewMemberId(loadSendToChatConfig()) || currentCommentAuthor(COMMENT_AUTHOR_FORM),
                 memberId: reviewMemberId(loadSendToChatConfig()),
                 liveMode: this._liveMode,
+                // How this panel shows documents (restored across a reload, or the reader's defaults).
+                settings: this._settings,
                 // Tells the webview to render soft (single) newlines as hard line
                 // breaks (marked `breaks`), so real newlines in the file show as
                 // line breaks without disturbing list/block structure.
@@ -664,6 +682,18 @@ class MdBrowserPanel {
                     // The same comment in the markdown preview editor.
                     await showMarkdownHtmlPreview(this._context, { title: String(msg.title || 'Comment'), markdown: String(msg.markdown || '') });
                     break;
+                case 'panelSettings': {
+                    // The reader changed a setting (indent, search category, reading modes), or Save as default.
+                    const next = normalizePanelSettings(msg.settings);
+                    if (!next) { break; }
+                    this._settings = next;
+                    scheduleRememberOpenPanels();
+                    if (msg.saveAsDefault === true) {
+                        await this._context.globalState.update(MD_BROWSER_DEFAULTS_KEY, next);
+                        void vscode.window.setStatusBarMessage('$(check) Markdown Browser: saved as the default for new panels', 4000);
+                    }
+                    break;
+                }
                 case 'editState':
                     // The webview's open in-place editors: text not yet saved.
                     mdBrowserRegistry.update(this._panelId, { unsavedEdits: Number(msg.openEditors) > 0 });
@@ -1058,7 +1088,10 @@ function scheduleRememberOpenPanels(): void {
         try {
             const held: MdPanelRecord[] = mdBrowserRegistry.entries()
                 .filter((e) => e.filePath !== '')
-                .map((e) => ({ label: mdBrowserRegistry.titleOf(e.panelId), viewColumn: e.viewColumn, filePath: e.filePath, liveMode: e.liveMode }));
+                .map((e) => {
+                    const settings = [...allPanels].find((p) => p.panelId === e.panelId)?.settings;
+                    return { label: mdBrowserRegistry.titleOf(e.panelId), viewColumn: e.viewColumn, filePath: e.filePath, liveMode: e.liveMode, ...(settings ? { settings } : {}) };
+                });
             const previous = context.workspaceState.get<MdPanelRecord[]>(MD_BROWSER_RECORDS_KEY, []);
             const records = rememberedRecords(held, previous, openMdBrowserTabs().map((t) => t.ref));
             void context.workspaceState.update(MD_BROWSER_RECORDS_KEY, records);
@@ -1173,6 +1206,8 @@ export function openMarkdownBrowser(
 interface MdBrowserShowOptions {
     viewColumn?: number;
     preserveFocus?: boolean;
+    /** A restored panel's own settings (its record); a new panel takes the reader's defaults. */
+    settings?: unknown;
 }
 
 /** The extension context, kept for the tools' controller (set by registerMarkdownBrowser). */
@@ -1394,6 +1429,9 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
                         return;
                     }
                     const liveMode = restoreState.liveMode === true;
+                    // The panel's own settings, from the record kept for its tab (else the reader's defaults).
+                    const record = recordForTab(context.workspaceState.get<MdPanelRecord[]>(MD_BROWSER_RECORDS_KEY, []), { label: panel.title, viewColumn: panel.viewColumn });
+                    const show = record?.settings ? { settings: record.settings } : undefined;
                     if (liveMode) {
                         const key = path.resolve(filePath);
                         const existing = livePanelInstances.get(key);
@@ -1407,10 +1445,10 @@ export function registerMarkdownBrowser(context: vscode.ExtensionContext): void 
                             if (livePanelInstances.get(key) === restored) {
                                 livePanelInstances.delete(key);
                             }
-                        }, panel);
+                        }, panel, show);
                         livePanelInstances.set(key, restored);
                     } else {
-                        new MdBrowserPanel(context, filePath, false, () => { /* self-contained */ }, panel);
+                        new MdBrowserPanel(context, filePath, false, () => { /* self-contained */ }, panel, show);
                     }
                 } catch (err) {
                     debugLog(`[MdBrowser] deserialize error: ${err}`, 'ERROR', 'mdBrowser');

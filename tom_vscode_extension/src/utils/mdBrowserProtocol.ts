@@ -40,6 +40,7 @@ export const MD_BROWSER_PAGE_MESSAGES: Readonly<Record<string, MdBrowserCapabili
     openExternal: 'core',
     renderMarkdown: 'core',
     openMarkdownPreview: 'core',
+    panelSettings: 'core',
     applyEdit: 'editing',
     editState: 'editing',
     reviewMark: 'reviewMarks',

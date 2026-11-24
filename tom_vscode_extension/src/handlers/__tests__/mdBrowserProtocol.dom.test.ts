@@ -111,7 +111,7 @@ describe('the MD Browser page protocol', () => {
         assert.match(DOC, /\| `mdBrowserGetGroups` \| navigation \| — \| Answers `mdBrowserGroups`\. The page of this version does not send it/);
         assert.deepEqual(sorted(pageRows.keys()), sorted(cases), 'the document lists every page → host message, and no other');
         assert.deepEqual(sorted(Object.keys(MD_BROWSER_PAGE_MESSAGES)), sorted(cases), 'so does the module');
-        assert.equal(cases.size, 25);
+        assert.equal(cases.size, 26);
         for (const [name, capability] of pageRows) { assert.equal(capability, MD_BROWSER_PAGE_MESSAGES[name], `${name}: the document's capability is the module's`); }
 
         // Host → page, as the handler posts them and the page listens.

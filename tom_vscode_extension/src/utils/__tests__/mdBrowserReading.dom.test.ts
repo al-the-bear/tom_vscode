@@ -31,6 +31,10 @@
  *         with the buttons its attributes allow; each button posts the edit blocks.js computes for it; *Errors* is a
  *         navigation kind and a search category; the hint "the document has n errors" until the reader scrolls,
  *         its click going to the first error
+ *   MR-15 the panel's settings (02c_rdv1): `mdContent` brings indent on/off and size, the search category and the
+ *         reading modes, and they apply before the document renders; null is the notation's defaults; every
+ *         change (indent, size, category, a mode, Reset to defaults) posts `panelSettings`; Save as default posts
+ *         them with `saveAsDefault`
  */
 
 import test, { describe } from 'node:test';
@@ -562,5 +566,48 @@ describe('the reading notation in the Markdown Browser', () => {
         show(w, '# Clean\n\nNo errors.', '/ws/clean.md');
         await new Promise((r) => setTimeout(r, 150));
         assert.ok(hint.hidden, 'no errors, no hint');
+    });
+
+    test('MR-15: the panel settings', () => {
+        const { w, posted } = setup();
+        const doc = ['# Doc', '', '::: {.aside}', 'secondary words', ':::', '', '## Sub', '', 'Body.'].join('\n');
+        send(w, { type: 'mdContent', content: doc, filePath: '/ws/doc.md', relativePath: 'doc.md', crlf: false,
+            settings: { indentOn: true, indentSize: 4, searchScope: 'errors', readingModes: { aside: { block: 'shown' } } } });
+        const indentBtn = w.document.getElementById('indentBtn');
+        assert.ok(indentBtn.classList.contains('active'), 'indent on');
+        assert.equal(w.document.getElementById('indentSizeSelect').value, '4');
+        assert.equal(w.document.getElementById('searchScope').value, 'errors');
+        assert.ok(seen(w, body(div(w, 'aside')).querySelector('p')), 'aside shown: its mode came with the content');
+        assert.match(w.document.querySelector('#contentArea h2').closest('[style]')?.getAttribute('style') ?? w.document.querySelector('#contentArea h2').getAttribute('style') ?? '', /margin-left: 4ch/, 'indented by 4');
+        const settingsPosts = () => posted.filter((m) => m.type === 'panelSettings');
+        assert.equal(settingsPosts().length, 0, 'taking settings posts nothing');
+        // Every change goes to the host.
+        indentBtn.click();
+        assert.deepEqual(JSON.parse(JSON.stringify(settingsPosts().at(-1)?.settings)), { indentOn: false, indentSize: 4, searchScope: 'errors', readingModes: { aside: { block: 'shown' } } });
+        const size = w.document.getElementById('indentSizeSelect');
+        size.value = '8';
+        size.dispatchEvent(new w.Event('change'));
+        assert.equal((settingsPosts().at(-1)?.settings as { indentSize: number }).indentSize, 8);
+        const scope = w.document.getElementById('searchScope');
+        scope.value = 'all';
+        scope.dispatchEvent(new w.Event('change'));
+        assert.equal((settingsPosts().at(-1)?.settings as { searchScope: string }).searchScope, 'all');
+        setMode(w, 'trace', 'span', 'shown');
+        assert.deepEqual(JSON.parse(JSON.stringify((settingsPosts().at(-1)?.settings as { readingModes: unknown }).readingModes)), { aside: { block: 'shown' }, trace: { span: 'shown' } });
+        w.document.getElementById('readKindBtn').click();
+        w.document.querySelector('#readKindPop [data-read-reset]').click();
+        assert.deepEqual(JSON.parse(JSON.stringify((settingsPosts().at(-1)?.settings as { readingModes: unknown }).readingModes)), {}, 'Reset to defaults: the notation\'s modes');
+        // Save as default.
+        const save = w.document.getElementById('saveDefaultsBtn');
+        assert.match(save.title, /^Save as default/);
+        save.click();
+        const last = settingsPosts().at(-1) as Record<string, unknown>;
+        assert.equal(last.saveAsDefault, true);
+        assert.deepEqual(JSON.parse(JSON.stringify(last.settings)), { indentOn: false, indentSize: 8, searchScope: 'all', readingModes: {} });
+        // null: the notation's defaults.
+        send(w, { type: 'mdContent', content: doc, filePath: '/ws/other.md', relativePath: 'other.md', crlf: false, settings: null });
+        assert.equal(indentBtn.classList.contains('active'), false);
+        assert.equal(size.value, '2');
+        assert.ok(!seen(w, body(div(w, 'aside')).querySelector('p')), 'aside collapsed again');
     });
 });
