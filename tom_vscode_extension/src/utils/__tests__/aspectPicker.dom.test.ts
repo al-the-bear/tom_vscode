@@ -16,7 +16,8 @@
  *   AP-6 the queue editor's toolbar: the window button (dot when the window chose), the all-windows button
  *        (broadcast, no dot), Set as / Clear quest default (Clear disabled without a quest default); the
  *        window and all-windows pickers post aspectChoose with their level; the quest buttons aspectQuestDefault
- *   AP-7 the run info line: the run's effective selection, the run's own starred; a click opens the run's picker
+ *   AP-7 the run info line: a short value (how many aspects the run set, else "Click to select"), the run's effective
+ *        selection with its own starred as the hover help; a click opens the run's picker
  *        and a choice posts level run with the tab's run
  *   AP-8 queue items: the list row shows only the indicator (an item with choices); the item's details hold the
  *        item-level button (disabled unless staged or pending) and the choices; its picker posts level item
@@ -301,8 +302,9 @@ describe('guideline picker: the Prompt Queue editor', () => {
         const doc = window.document;
         const link = doc.getElementById('runAspectLink');
         assert.ok(link, 'the run info line shows the run\'s selection');
-        assert.equal(link.textContent, 'Answer: full* \u00b7 Night: on');
-        assert.match(link.title, /\* chosen by the run/);
+        assert.equal(link.textContent, '1 set by the run', 'a short value: the whole selection does not fit the field');
+        assert.match(link.title, /^Guidelines of run default: Answer: full · Night: on/, 'the selection is the hover help');
+        assert.match(link.title, /\(\* chosen by the run: Answer: full\* \u00b7 Night: on\) — click to choose$/);
         link.click();
         const popup = doc.getElementById('tomAspectPopup');
         assert.equal(popup.getAttribute('data-level'), 'run');
@@ -310,6 +312,11 @@ describe('guideline picker: the Prompt Queue editor', () => {
         popup.querySelector('.tom-aspect-option[data-section="night"][data-value="remove"]').click();
         assert.deepEqual(chosen(posted), [{ type: 'aspectChoose', level: 'run', run: 'default', section: 'night', value: 'remove' }]);
         assert.equal(posted.some((m) => m.type === 'pickQueueDefaultSession'), false, 'the info line\'s other pick handler leaves it');
+    });
+
+    test('AP-7b: a run without choices of its own', (t) => {
+        const { window } = editor(t, { aspects: ASPECTS() });
+        assert.equal(window.document.getElementById('runAspectLink').textContent, 'Click to select');
     });
 
     test('AP-8: queue items', (t) => {

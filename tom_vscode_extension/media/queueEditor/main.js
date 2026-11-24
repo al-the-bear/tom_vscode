@@ -480,11 +480,15 @@ function updateContextSummary() {
   // The run's default role (gsel3): what its items run as when neither their todo, they nor a step name one.
   field(el, 'Default role', link('defaultRole', settings.defaultRole || '(none)',
     'The role run ' + run + '\'s items run as when neither their todo, the item nor a process step names one — click to choose another'), 'defaultRole');
-  // The run's guideline selection (gsel5, P-3): its effective choices, the run's own starred; a click opens its picker.
+  // The run's guideline selection (gsel5, P-3): a short value — how many aspects the run chose itself, else
+  // "Click to select" — since the whole selection does not fit the field; the selection, the run's own starred,
+  // is the hover help, and a click opens its picker.
   const runAspects = runAspectView(run);
   if (runAspects) {
-    const g = link('guidelines', window.TomAspectPicker.summary(runAspects, { star: true }),
-      window.TomAspectPicker.hoverText(runAspects, 'Guidelines of run ' + run) + '\n(* chosen by the run) — click to choose');
+    const own = runAspects.sections.filter(function(s) { return s.here !== undefined; }).length;
+    const g = link('guidelines', own ? own + ' set by the run' : 'Click to select',
+      window.TomAspectPicker.hoverText(runAspects, 'Guidelines of run ' + run) + '\n(* chosen by the run: '
+        + window.TomAspectPicker.summary(runAspects, { star: true }) + ') — click to choose');
     g.dataset.aspectOpen = 'run';
     g.id = 'runAspectLink';
     field(el, 'Guidelines', g, 'guidelines');
