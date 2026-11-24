@@ -1138,6 +1138,508 @@ function mdbReadingKey(kind, text, seen) {
 }
 
 
+// ---- Rejected blocks (RN-11): the resolution choices a `rejected` div offers ----
+
+/** @typedef {{open: number, close: number, attrs: Record<string, string>, reason: string, content: string[], top: number, bottom: number, code: boolean[]}} MdbRejected */
+
+/** Any heading line of the shown text (SOM Markdown uses more than six levels): a `#` line or a styled-div heading. */
+var MDB_ANY_HEADING = /^ {0,3}(?:#+(?:[ \t]|$)|<div class="heading\d+")/;
+/** A form-field label at column 0, as the SOM Markdown codec reads one. */
+var MDB_FIELD_LABEL = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+/**
+ * An escaped notation fence inside a div (`\:::`, RN-9): the line it stands
+ * for unescaped, and whether it opens a div (`open`, its fence) or closes one.
+ * @param {string} line
+ * @returns {{line: string, open: object|null, colons: number}|null}
+ */
+function mdbEscapedFence(line) {
+    var m = /^( {0,3})\\(:{3,}.*)$/.exec(String(line));
+    if (!m) { return null; }
+    var unescaped = m[1] + m[2];
+    var open = mdbReadingFence(unescaped);
+    if (open) { return { line: unescaped, open: open, colons: open.colons }; }
+    if (MDB_READING_CLOSE.test(unescaped)) { return { line: unescaped, open: null, colons: (/:+/.exec(m[2]) || [''])[0].length }; }
+    return null;
+}
+
+/**
+ * For each line, whether it lies in fenced code (the fence lines included).
+ * @param {string[]} lines
+ * @returns {boolean[]}
+ */
+function mdbCodeLines(lines) {
+    var out = [];
+    var fence = null;
+    for (var i = 0; i < lines.length; i++) {
+        var code = /^ {0,3}(`{3,}|~{3,})/.exec(lines[i]);
+        if (fence) {
+            out.push(true);
+            if (code && code[1].charAt(0) === fence.charAt(0) && code[1].length >= fence.length && /^ {0,3}[`~]+[ \t]*$/.test(lines[i])) { fence = null; }
+            continue;
+        }
+        if (code) { fence = code[1]; out.push(true); continue; }
+        out.push(false);
+    }
+    return out;
+}
+
+/**
+ * The opening lines of the `rejected` divs in lines `start..end` (exclusive),
+ * outside fenced code, in document order — the order the browser shows them.
+ * @param {string[]} lines
+ * @param {number} start
+ * @param {number} end
+ * @returns {number[]}
+ */
+function mdbRejectedOpens(lines, start, end) {
+    var code = mdbCodeLines(lines);
+    var out = [];
+    for (var i = Math.max(0, start); i < Math.min(end, lines.length); i++) {
+        if (code[i]) { continue; }
+        var f = mdbReadingFence(lines[i]);
+        if (f && f.kind === 'rejected') { out.push(i); }
+    }
+    return out;
+}
+
+/**
+ * The cells of a table row (escaped pipes kept in their cell), or null for a line that is no row.
+ * @param {string} line
+ * @returns {string[]|null}
+ */
+function mdbRowCells(line) {
+    var t = String(line).trim();
+    if (t.charAt(0) !== '|') { return null; }
+    var cells = [];
+    var cur = '';
+    for (var i = 1; i < t.length; i++) {
+        var c = t.charAt(i);
+        if (c === '\\' && t.charAt(i + 1) === '|') { cur += '\\|'; i++; continue; }
+        if (c === '|') { cells.push(cur.trim()); cur = ''; continue; }
+        cur += c;
+    }
+    if (cur.trim() !== '') { cells.push(cur.trim()); }
+    return cells;
+}
+/**
+ * @param {string[]} cells
+ * @returns {string}
+ */
+function mdbRowLine(cells) { return '| ' + cells.join(' | ') + ' |'; }
+/**
+ * @param {string} line
+ * @returns {boolean}
+ */
+function mdbIsDelimiterRow(line) { return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(String(line)); }
+/**
+ * A field name compared loosely: case and separators left out.
+ * @param {string} name
+ * @returns {string}
+ */
+function mdbFieldKey(name) { return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/**
+ * The div opened on line `open` with what a resolution needs; null when it is no closed `rejected` div.
+ * @param {string[]} lines
+ * @param {number} open
+ * @returns {MdbRejected|null}
+ */
+function mdbRejectedAt(lines, open) {
+    var f = mdbReadingFence(lines[open]);
+    if (!f || f.kind !== 'rejected') { return null; }
+    var end = mdbReadingDivEnd(lines, open);
+    if (end.unclosed) { return null; }
+    var code = mdbCodeLines(lines);
+    var top = 0;
+    var bottom = lines.length;
+    for (var i = 0; i < lines.length; i++) {
+        if (code[i] || !MDB_ANY_HEADING.test(lines[i])) { continue; }
+        if (i < open) { top = i + 1; } else if (i > end.close) { bottom = i; break; }
+    }
+    var content = lines.slice(open + 1, end.close);
+    while (content.length && content[0].trim() === '') { content.shift(); }
+    while (content.length && content[content.length - 1].trim() === '') { content.pop(); }
+    return { open: open, close: end.close, attrs: f.attrs || {}, reason: (f.attrs || {}).reason || '', content: content, top: top, bottom: bottom, code: code };
+}
+
+/**
+ * `lines` without lines `from..to` (exclusive), one blank line kept where two would meet.
+ * @param {string[]} lines
+ * @param {number} from
+ * @param {number} to
+ * @returns {string[]}
+ */
+function mdbWithoutLines(lines, from, to) {
+    var next = lines.slice(0, from).concat(lines.slice(to));
+    if (from < next.length && next[from].trim() === '' && (from === 0 || next[from - 1].trim() === '')) { next.splice(from, 1); }
+    return next;
+}
+
+/**
+ * `lines` with lines `from..to` (exclusive) replaced by `insert`.
+ * @param {string[]} lines
+ * @param {number} from
+ * @param {number} to
+ * @param {string[]} insert
+ * @returns {string[]}
+ */
+function mdbWithLines(lines, from, to, insert) {
+    return lines.slice(0, from).concat(insert, lines.slice(to));
+}
+
+/**
+ * The one line edit turning `lines` into `next`: the changed lines between
+ * their common start and end, `{startLine, endLine, expected, replacement}`
+ * as the browser's applyEdit takes it (the replacement is never empty: a
+ * removal takes a neighbouring line along). null when nothing changes.
+ * @param {string[]} lines
+ * @param {string[]} next
+ * @returns {{startLine: number, endLine: number, expected: string, replacement: string}|null}
+ */
+function mdbLinesEdit(lines, next) {
+    var p = 0;
+    while (p < lines.length && p < next.length && lines[p] === next[p]) { p++; }
+    if (p === lines.length && p === next.length) { return null; }
+    var s = 0;
+    while (s < lines.length - p && s < next.length - p && lines[lines.length - 1 - s] === next[next.length - 1 - s]) { s++; }
+    var start = p;
+    var endOld = lines.length - s;
+    var endNew = next.length - s;
+    if (endNew === start) {
+        if (start > 0) { start--; } else if (endOld < lines.length) { endOld++; endNew++; }
+    }
+    return { startLine: start, endLine: endOld, expected: lines.slice(start, endOld).join('\n'), replacement: next.slice(start, endNew).join('\n') };
+}
+
+/**
+ * Where a `Label: value` paragraph starting on line `i` ends (exclusive): at a blank line, the next label, a heading or a fence.
+ * @param {string[]} lines
+ * @param {number} i
+ * @param {number} bottom
+ * @returns {number}
+ */
+function mdbLabelParagraphEnd(lines, i, bottom) {
+    var j = i + 1;
+    while (j < bottom && lines[j].trim() !== '' && !MDB_FIELD_LABEL.test(lines[j]) && !MDB_ANY_HEADING.test(lines[j]) && !mdbReadingFence(lines[j]) && !MDB_READING_CLOSE.test(lines[j])) { j++; }
+    return j;
+}
+
+/**
+ * The value the rejected text gives: a row's last cell, or a `Label: value`
+ * paragraph's text after its label. `{kind: 'row'|'label', label, value, cells}`;
+ * null when the text is neither.
+ * @param {string[]} content
+ * @returns {{kind: string, label: string, value: string, cells: string[]}|null}
+ */
+function mdbRejectedValue(content) {
+    if (content.length === 0) { return null; }
+    var cells = mdbRowCells(content[0]);
+    if (cells && content.length === 1 && cells.length >= 2) {
+        return { kind: 'row', label: cells[cells.length - 2], value: cells[cells.length - 1], cells: cells };
+    }
+    var m = MDB_FIELD_LABEL.exec(content[0]);
+    if (m && !cells) {
+        var first = content[0].slice(m[0].length).trim();
+        return { kind: 'label', label: m[1], value: [first].concat(content.slice(1)).join('\n').replace(/^\n+/, ''), cells: [] };
+    }
+    return null;
+}
+
+/**
+ * A value as a row's cell: one line (`<br>` for a break), pipes escaped.
+ * @param {string} value
+ * @returns {string}
+ */
+function mdbCellValue(value) {
+    return String(value).split('\n').map(function(l) { return l.trim(); }).filter(Boolean).join('<br>').replace(/(^|[^\\])\|/g, '$1\\|');
+}
+/**
+ * A cell as a paragraph value: `<br>` as a break, escaped pipes plain.
+ * @param {string} cell
+ * @returns {string}
+ */
+function mdbCellText(cell) {
+    return String(cell).replace(/<br\s*\/?>/gi, '\n').replace(/\\\|/g, '|');
+}
+
+/**
+ * The place of field `field` in lines `top..bottom`, outside fenced code and
+ * the rejected div `skip` (its `[open, close]`): a `Label:` paragraph
+ * (`{kind: 'label', start, end, label, value}`) or a table row whose
+ * label cell names it (`{kind: 'row', start, end, cells, value}`); `rowCells`
+ * — the cell count a row must have — and `prefix` (the cells before the
+ * label, compared) narrow the rows. null when the section has none.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @param {string} field
+ * @param {number} rowCells
+ * @param {string[]|null} prefix
+ * @returns {{kind: string, start: number, end: number, label: string, value: string, cells: string[]}|null}
+ */
+function mdbFieldPlace(lines, at, field, rowCells, prefix) {
+    var key = mdbFieldKey(field);
+    for (var i = at.top; i < at.bottom; i++) {
+        if (at.code[i] || (i >= at.open && i <= at.close)) { continue; }
+        var f = mdbReadingFence(lines[i]);
+        if (f && f.kind === 'rejected') {
+            var e = mdbReadingDivEnd(lines, i);
+            if (!e.unclosed) { i = e.close; }
+            continue;
+        }
+        var m = MDB_FIELD_LABEL.exec(lines[i]);
+        if (m && mdbFieldKey(m[1]) === key) {
+            var end = mdbLabelParagraphEnd(lines, i, at.bottom);
+            var first = lines[i].slice(m[0].length).trim();
+            return { kind: 'label', start: i, end: end, label: m[1], value: [first].concat(lines.slice(i + 1, end)).join('\n').trim(), cells: [] };
+        }
+        var cells = mdbRowCells(lines[i]);
+        if (!cells || mdbIsDelimiterRow(lines[i]) || cells.length < 2) { continue; }
+        if (rowCells && cells.length !== rowCells) { continue; }
+        if (mdbFieldKey(cells[cells.length - 2]) !== key) { continue; }
+        var row = cells;
+        if (prefix && prefix.some(function(/** @type {string} */ c, /** @type {number} */ k) { return c !== '' && c !== row[k]; })) { continue; }
+        return { kind: 'row', start: i, end: i + 1, cells: cells, value: cells[cells.length - 1], label: cells[cells.length - 2] };
+    }
+    return null;
+}
+
+/**
+ * The line a row can be appended after: the last row of the table directly above the div (blank lines between), or -1.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @returns {number}
+ */
+function mdbTableAbove(lines, at) {
+    var i = at.open - 1;
+    while (i >= at.top && lines[i].trim() === '') { i--; }
+    return i >= at.top && !at.code[i] && mdbRowCells(lines[i]) ? i : -1;
+}
+
+/**
+ * `lines` with the div replaced by `content` (the fences gone).
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @param {string[]} content
+ * @returns {string[]}
+ */
+function mdbUnwrapRejected(lines, at, content) {
+    return mdbWithLines(lines, at.open, at.close + 1, content);
+}
+
+/**
+ * `lines` with `row` appended to the table above the div and the div removed; the div unwrapped to `row` when no table is above.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @param {string[]} rows
+ * @returns {string[]}
+ */
+function mdbRowsIntoTable(lines, at, rows) {
+    var after = mdbTableAbove(lines, at);
+    if (after < 0) { return mdbUnwrapRejected(lines, at, rows); }
+    var next = mdbWithoutLines(lines, at.open, at.close + 1);
+    return mdbWithLines(next, after + 1, after + 1, rows);
+}
+
+/**
+ * *Use this value instead*: the kept value replaced by the rejected one, the div removed.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @returns {string[]|null}
+ */
+function mdbResolveUse(lines, at) {
+    var field = at.attrs.field;
+    if (at.reason !== 'malformedBlock' || !field || !at.attrs.kept) { return null; }
+    var given = mdbRejectedValue(at.content);
+    if (!given) { return null; }
+    var place = given.kind === 'row'
+        ? mdbFieldPlace(lines, at, field, given.cells.length, given.cells.slice(0, -2))
+        : mdbFieldPlace(lines, at, field, 0, null);
+    if (!place) { return null; }
+    var replacement;
+    if (place.kind === 'row') {
+        var cells = place.cells.slice();
+        cells[cells.length - 1] = given.kind === 'row' ? given.value : mdbCellValue(given.value);
+        replacement = [mdbRowLine(cells)];
+    } else {
+        var text = given.kind === 'row' ? mdbCellText(given.value) : given.value;
+        var parts = text.split('\n');
+        replacement = [place.label + ': ' + parts[0]].concat(parts.slice(1));
+        if (parts[0] === '') { replacement[0] = place.label + ':'; }
+    }
+    // The div comes after or before the kept value; the later range is changed first.
+    var next = lines;
+    if (at.open > place.start) {
+        next = mdbWithoutLines(next, at.open, at.close + 1);
+        next = mdbWithLines(next, place.start, place.end, replacement);
+    } else {
+        next = mdbWithLines(next, place.start, place.end, replacement);
+        next = mdbWithoutLines(next, at.open, at.close + 1);
+    }
+    return next;
+}
+
+/**
+ * The header cell of a records table close to `field` (the same key, or one edit away).
+ * @param {string[]} cells
+ * @param {string} field
+ * @returns {number}
+ */
+function mdbNearCell(cells, field) {
+    var key = mdbFieldKey(field);
+    /** @type {number[]} */
+    var hits = [];
+    cells.forEach(function(/** @type {string} */ c, /** @type {number} */ i) {
+        if (mdbFieldKey(c) === key || mdbEditDistanceAtMostOne(mdbFieldKey(c), key)) { hits.push(i); }
+    });
+    return hits.length === 1 ? hits[0] : -1;
+}
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function mdbEditDistanceAtMostOne(a, b) {
+    if (a === b) { return true; }
+    if (Math.abs(a.length - b.length) > 1) { return false; }
+    var i = 0;
+    while (i < a.length && i < b.length && a.charAt(i) === b.charAt(i)) { i++; }
+    if (a.length === b.length) { return a.slice(i + 1) === b.slice(i + 1); }
+    return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+}
+
+/**
+ * *Rename to `<field>`* / *Rename to `<child>`*: the label renamed, the value moved where it belongs (a field only if empty).
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @returns {string[]|null}
+ */
+function mdbResolveRename(lines, at) {
+    var content = at.content;
+    if (content.length === 0) { return null; }
+    if (at.reason === 'unknownSection' && at.attrs.section) {
+        var first = mdbRowCells(content[0]);
+        if (!first || first.length < 3 || content.some(function(/** @type {string} */ l) { return !mdbRowCells(l); })) { return null; }
+        first[0] = at.attrs.section;
+        return mdbRowsIntoTable(lines, at, [mdbRowLine(first)].concat(content.slice(1)));
+    }
+    if (at.reason !== 'unknownField' || !at.attrs.field) { return null; }
+    var field = at.attrs.field;
+    // A records table whose column is the near miss: its header cell renamed.
+    if (content.length >= 2 && mdbRowCells(content[0]) && mdbIsDelimiterRow(content[1])) {
+        var header = mdbRowCells(content[0]) || [];
+        var col = mdbNearCell(header, field);
+        if (col < 0) { return null; }
+        header[col] = field;
+        return mdbUnwrapRejected(lines, at, [mdbRowLine(header)].concat(content.slice(1)));
+    }
+    var given = mdbRejectedValue(content);
+    if (!given) { return null; }
+    var place = given.kind === 'row'
+        ? mdbFieldPlace(lines, at, field, given.cells.length, given.cells.slice(0, -2))
+        : mdbFieldPlace(lines, at, field, 0, null);
+    if (place && place.value.trim() !== '') { return null; }
+    if (given.kind === 'row') {
+        var cells = given.cells.slice();
+        cells[cells.length - 2] = field;
+        if (place && place.kind === 'row') {
+            var filled = place.cells.slice();
+            filled[filled.length - 1] = given.value;
+            return mdbWithLines(mdbWithoutLines(lines, at.open, at.close + 1), place.start, place.end, [mdbRowLine(filled)]);
+        }
+        return mdbRowsIntoTable(lines, at, [mdbRowLine(cells)]);
+    }
+    var parts = given.value.split('\n');
+    var renamed = [field + ': ' + parts[0]].concat(parts.slice(1));
+    if (place && place.kind === 'label') {
+        var next = lines;
+        var with1 = [place.label + ': ' + parts[0]].concat(parts.slice(1));
+        if (at.open > place.start) {
+            next = mdbWithLines(mdbWithoutLines(next, at.open, at.close + 1), place.start, place.end, with1);
+        } else {
+            next = mdbWithoutLines(mdbWithLines(next, place.start, place.end, with1), at.open, at.close + 1);
+        }
+        return next;
+    }
+    return mdbUnwrapRejected(lines, at, renamed);
+}
+
+/**
+ * *Close here*: the escaped opening fence written as a fence again and closed at the end of the kept text.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @returns {string[]|null}
+ */
+function mdbResolveClose(lines, at) {
+    var content = at.content.slice();
+    for (var i = 0; i < content.length; i++) {
+        var esc = mdbEscapedFence(content[i]);
+        if (esc && esc.open) {
+            content[i] = esc.line;
+            content.push(new Array(esc.colons + 1).join(':'));
+            return mdbUnwrapRejected(lines, at, content);
+        }
+    }
+    return null;
+}
+
+/**
+ * *Remove the fence*: the escaped fence lines removed, the rest kept.
+ * @param {string[]} lines
+ * @param {MdbRejected} at
+ * @returns {string[]|null}
+ */
+function mdbResolveUnfence(lines, at) {
+    var kept = at.content.filter(function(/** @type {string} */ l) { return !mdbEscapedFence(l); });
+    if (kept.length === at.content.length) { return null; }
+    if (kept.length === 0) { return mdbWithoutLines(lines, at.open, at.close + 1); }
+    return mdbUnwrapRejected(lines, at, kept);
+}
+
+/** The choices in the order the browser offers them: id and label. */
+/** @type {Array<{id: string, label: function(MdbRejected): string, resolve: function(string[], MdbRejected): (string[]|null)}>} */
+var MDB_REJECTED_CHOICES = [
+    { id: 'use', label: function() { return 'Use this value instead'; }, resolve: mdbResolveUse },
+    { id: 'rename', label: function(at) { return 'Rename to ' + (at.attrs.field || at.attrs.section); }, resolve: mdbResolveRename },
+    { id: 'close', label: function() { return 'Close here'; }, resolve: mdbResolveClose },
+    { id: 'unfence', label: function() { return 'Remove the fence'; }, resolve: mdbResolveUnfence },
+    { id: 'remove', label: function() { return 'Remove this'; }, resolve: function(/** @type {string[]} */ lines, /** @type {MdbRejected} */ at) { return mdbWithoutLines(lines, at.open, at.close + 1); } },
+];
+
+/**
+ * The resolution choices of the `rejected` div opened on line `open`
+ * (part *Parser and DocSpecs*, DI-8): those whose edit can be made, in order —
+ * *Use this value instead*, *Rename to …*, *Close here*, *Remove the fence*,
+ * *Remove this* (always). [] when the line opens no closed rejected div.
+ * @param {string[]} lines
+ * @param {number} open
+ * @returns {Array<{id: string, label: string}>}
+ */
+function mdbRejectedChoices(lines, open) {
+    var at = mdbRejectedAt(lines, open);
+    if (!at) { return []; }
+    var found = at;
+    return MDB_REJECTED_CHOICES.filter(function(c) { return !!c.resolve(lines, found); })
+        .map(function(c) { return { id: c.id, label: c.label(found) }; });
+}
+
+/**
+ * The edit choice `choice` writes for the `rejected` div opened on line
+ * `open`: one line edit `{startLine, endLine, expected, replacement}`, an
+ * ordinary edit of the source; null when the choice does not apply.
+ * @param {string[]} lines
+ * @param {number} open
+ * @param {string} choice
+ */
+function mdbResolveRejected(lines, open, choice) {
+    var at = mdbRejectedAt(lines, open);
+    if (!at) { return null; }
+    var c = MDB_REJECTED_CHOICES.filter(function(x) { return x.id === choice; })[0];
+    var next = c ? c.resolve(lines, at) : null;
+    return next ? mdbLinesEdit(lines, next) : null;
+}
+
+
 // ---- Writing inline marks from the browser: a selection's mark, tracked edits (SOM §11.9.3) ----
 
 /** Every inline mark, with the attribution token after it. */

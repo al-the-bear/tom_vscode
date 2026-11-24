@@ -108,6 +108,7 @@
                     <label><input type="checkbox" data-nav-kind="unanswered" checked> Unanswered</label>
                     <label><input type="checkbox" data-nav-kind="marked"> Marked: check here</label>
                     <label><input type="checkbox" data-nav-kind="agent"> Agent comments</label>
+                    <label><input type="checkbox" data-nav-kind="errors"> Errors</label>
                     <div class="nav-kind-head" title="Comments and changes of the authors ticked; questions are not filtered">Whose</div>
                     <div class="nav-authors" id="navAuthors"></div>
                     <div class="nav-kind-head" title="Comments, changes and questions written or changed since then (their recorded change time); markers and conflicts carry no time and are not filtered">Changed since</div>
@@ -161,6 +162,10 @@
                 <span class="codicon codicon-close"></span>
             </button>
         </span>
+        <select id="searchScope" class="search-scope" title="Search in: the whole document, or only the errors (blocks an import could not place)">
+            <option value="all">All</option>
+            <option value="errors">Errors</option>
+        </select>
         <span id="searchCount" class="search-count"></span>
         <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)">
             <span class="codicon codicon-arrow-up"></span>
@@ -169,6 +174,9 @@
             <span class="codicon codicon-arrow-down"></span>
         </button>
     </div>
+
+    <!-- The hint "the document has n errors", until the reader scrolls -->
+    <div class="error-hint" id="errorHint" role="button" tabindex="0" hidden></div>
 
     <!-- Content -->
     <div class="content-area markdown-body" id="contentArea">

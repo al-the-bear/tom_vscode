@@ -740,6 +740,25 @@ body.mdb-no-navigation .mdb-link-popup { display: none !important; }
 .mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"]:not(.mdb-open):not(.mdb-rd-unclosed) > .mdb-rd-toggle { display: inline; }
 .mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"]:not(.mdb-open):not(.mdb-rd-unclosed) { border-left-style: dotted; }
 .mdb-read-rejected-collapsed .mdb-rd[data-kind="rejected"].mdb-open > .mdb-rd-tag { display: inline-block; }
+.mdb-rd[data-kind="rejected"] { border-left-color: var(--vscode-editorError-foreground, #f14c4c); }
+.mdb-rd-error { color: var(--vscode-editorError-foreground, #f14c4c); font-size: 0.9em; margin-right: 4px; vertical-align: middle; cursor: help; }
+.mdb-rejected-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mdb-rejected-actions:empty { display: none; }
+.mdb-rejected-btn {
+    font: inherit; font-size: 0.9em; padding: 2px 8px; border-radius: 2px; cursor: pointer;
+    color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground);
+    border: 1px solid var(--vscode-button-border, transparent);
+}
+.mdb-rejected-btn:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
+.mdb-rejected-btn:disabled { opacity: 0.5; cursor: default; }
+.error-hint {
+    padding: 3px 10px; font-size: 0.9em; cursor: pointer;
+    color: var(--vscode-editorError-foreground, #f14c4c);
+    background: var(--vscode-inputValidation-errorBackground, rgba(241, 76, 76, 0.1));
+    border-bottom: 1px solid var(--vscode-inputValidation-errorBorder, rgba(241, 76, 76, 0.4));
+}
+.error-hint[hidden] { display: none; }
+.search-scope { font: inherit; font-size: 0.85em; margin-left: 4px; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border, transparent); }
 .mdb-read-rejected-marker .mdb-rs[data-kind="rejected"] > .mdb-rs-marker { display: inline; }
 .mdb-read-rejected-marker .mdb-rs[data-kind="rejected"]:not(.mdb-open) > .mdb-rs-body { display: none; }
 .mdb-read-rejected-marker .mdb-rs[data-kind="rejected"].mdb-open > .mdb-rs-body,

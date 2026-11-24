@@ -52,6 +52,11 @@
  *   MB-27 the table forms (reading_view, 05b_rdv1): a form table (`TomSpecField | Value`) and a section table
  *         (`Section | TomSpecField | Value`) are ordinary editable table blocks, inside a `records` div too;
  *         the id a row is anchored at is its first cell's first word when it is a section id with a `-`
+ *   MB-28 rejected blocks (reading_view, 05b_rdv2): the choices each kind of `rejected` div offers and the one
+ *         line edit each writes — use this value (a `Field:` paragraph, a form row), rename (a row filled, appended
+ *         to the table above, refused for a filled field; a section-table row with its continuation rows; a records
+ *         column), close here / remove the fence (an escaped opening fence), remove the fence alone (a stray
+ *         closing fence), remove this; the div's lines in a block in document order
  */
 
 import test, { describe } from 'node:test';
@@ -102,6 +107,9 @@ interface BlocksApi {
     mdbReadingKey(kind: string, text: string, seen: Record<string, number>): string;
     mdbRowAnchorId(text: string): string;
     mdbReadingMode(modes: Record<string, { block?: string; span?: string }> | null, kind: string, span: boolean): string;
+    mdbRejectedOpens(lines: string[], start: number, end: number): number[];
+    mdbRejectedChoices(lines: string[], open: number): Array<{ id: string; label: string }>;
+    mdbResolveRejected(lines: string[], open: number, choice: string): { startLine: number; endLine: number; expected: string; replacement: string } | null;
 }
 
 function load(): BlocksApi {
@@ -615,5 +623,86 @@ describe('Markdown Browser source mapping', () => {
         assert.equal(api.mdbRowAnchorId('DataType'), '', 'a field name is no anchor');
         assert.equal(api.mdbRowAnchorId('TODO'), '', 'an id needs a `-`');
         assert.equal(api.mdbRowAnchorId(''), '');
+    });
+
+    describe('MB-28: rejected blocks', () => {
+        const choices = (lines: string[], open: number): string[] => JSON.parse(JSON.stringify(api.mdbRejectedChoices(lines, open))).map((c: { id: string; label: string }) => `${c.id}:${c.label}`);
+        /** The text after choice `choice`, the edit applied as the host applies it; checks `expected` too. */
+        const resolve = (lines: string[], open: number, choice: string): string[] => {
+            const e = api.mdbResolveRejected(lines, open, choice);
+            assert.ok(e, `${choice} applies`);
+            assert.equal(lines.slice(e.startLine, e.endLine).join('\n'), e.expected, 'expected is the replaced text');
+            assert.ok(e.replacement !== undefined);
+            return [...lines.slice(0, e.startLine), ...e.replacement.split('\n'), ...lines.slice(e.endLine)];
+        };
+
+        test('a field given twice: a `Field:` paragraph', () => {
+            const lines = ['## <!--[OWN]--> Owner', '', 'Owner: Alice', '', 'Status: open', '',
+                '::: {.rejected reason="malformedBlock" line="412" field="Owner" kept="SBP/own" label="field Owner given twice"}',
+                'Owner: Platform team', ':::', '', '## Next'];
+            assert.deepEqual(choices(lines, 6), ['use:Use this value instead', 'remove:Remove this']);
+            assert.deepEqual(resolve(lines, 6, 'use'), ['## <!--[OWN]--> Owner', '', 'Owner: Platform team', '', 'Status: open', '', '## Next']);
+            assert.deepEqual(resolve(lines, 6, 'remove'), ['## <!--[OWN]--> Owner', '', 'Owner: Alice', '', 'Status: open', '', '## Next']);
+            assert.equal(api.mdbResolveRejected(lines, 6, 'rename'), null, 'no rename for a duplicate');
+        });
+
+        test('a field given twice: a form row', () => {
+            const lines = ['| TomSpecField | Value |', '| --- | --- |', '| Owner | Alice |', '| Status | open |', '',
+                '::: {.rejected reason="malformedBlock" field="Owner" kept="SBP/own"}', '| Owner | Platform \\| team |', ':::'];
+            assert.deepEqual(choices(lines, 5), ['use:Use this value instead', 'remove:Remove this']);
+            assert.deepEqual(resolve(lines, 5, 'use'), ['| TomSpecField | Value |', '| --- | --- |', '| Owner | Platform \\| team |', '| Status | open |', '']);
+            // Without the kept value in the section, only Remove this.
+            const lost = lines.slice(); lost[2] = '| Other | x |';
+            assert.deepEqual(choices(lost, 5), ['remove:Remove this']);
+        });
+
+        test('a near-miss field: rename', () => {
+            const absent = ['| TomSpecField | Value |', '| --- | --- |', '| Status | open |', '',
+                '::: {.rejected reason="unknownField" field="Owner" label="unknown field owner_"}', '| owner_ | Platform team |', ':::', '', 'After.'];
+            assert.deepEqual(choices(absent, 4), ['rename:Rename to Owner', 'remove:Remove this']);
+            assert.deepEqual(resolve(absent, 4, 'rename'), ['| TomSpecField | Value |', '| --- | --- |', '| Status | open |', '| Owner | Platform team |', '', 'After.'],
+                'appended to the table above');
+            const empty = ['| TomSpecField | Value |', '| --- | --- |', '| Owner |  |', '| Status | open |', '',
+                '::: {.rejected reason="unknownField" field="Owner"}', '| owner_ | Platform team |', ':::'];
+            assert.deepEqual(resolve(empty, 5, 'rename'), ['| TomSpecField | Value |', '| --- | --- |', '| Owner | Platform team |', '| Status | open |', ''], 'the empty field filled');
+            const filled = empty.slice(); filled[2] = '| Owner | Alice |';
+            assert.deepEqual(choices(filled, 5), ['remove:Remove this'], 'a filled field is not overwritten');
+            // A `Label:` paragraph renamed in place.
+            const para = ['Intro.', '', '::: {.rejected reason="unknownField" field="Owner"}', 'Ownr: Platform team', ':::', '', 'After.'];
+            assert.deepEqual(resolve(para, 2, 'rename'), ['Intro.', '', 'Owner: Platform team', '', 'After.']);
+            // A records column close to a declared field: the header cell renamed.
+            const records = ['::: {.rejected reason="unknownField" field="Mandatory"}', '| Id | Mandatry |', '| --- | --- |', '| A-1 | yes |', ':::'];
+            assert.deepEqual(resolve(records, 0, 'rename'), ['| Id | Mandatory |', '| --- | --- |', '| A-1 | yes |']);
+        });
+
+        test('a near-miss section: rename with the continuation rows', () => {
+            const lines = ['| Section | TomSpecField | Value |', '| --- | --- | --- |', '| KEATT-REFE-REF | Ref | x |', '',
+                '::: {.rejected reason="unknownSection" section="KEATT-REFE-KIND"}', '| KEATT-REFE-KND | Kind | Foreign |', '| | Note | n |', ':::'];
+            assert.deepEqual(choices(lines, 4), ['rename:Rename to KEATT-REFE-KIND', 'remove:Remove this']);
+            assert.deepEqual(resolve(lines, 4, 'rename'), ['| Section | TomSpecField | Value |', '| --- | --- | --- |', '| KEATT-REFE-REF | Ref | x |',
+                '| KEATT-REFE-KIND | Kind | Foreign |', '| | Note | n |', '']);
+        });
+
+        test('an unclosed fence: close here, remove the fence', () => {
+            const lines = ['Text.', '', '::::: {.rejected reason="malformedBlock" label="unclosed refs fence"}', '\\::: {.refs}', '- [A-1](#A-1)', ':::::', '', 'After.'];
+            assert.deepEqual(choices(lines, 2), ['close:Close here', 'unfence:Remove the fence', 'remove:Remove this']);
+            assert.deepEqual(resolve(lines, 2, 'close'), ['Text.', '', '::: {.refs}', '- [A-1](#A-1)', ':::', '', 'After.']);
+            assert.deepEqual(resolve(lines, 2, 'unfence'), ['Text.', '', '- [A-1](#A-1)', '', 'After.']);
+            const stray = ['::::: {.rejected reason="malformedBlock" label="stray fence"}', 'Some text', '\\:::', ':::::'];
+            assert.deepEqual(choices(stray, 0), ['unfence:Remove the fence', 'remove:Remove this'], 'a closing fence cannot be closed');
+            assert.deepEqual(resolve(stray, 0, 'unfence'), ['Some text']);
+        });
+
+        test('anything else: remove this; the divs of a block', () => {
+            const lines = ['# T', '', '::: {.rejected reason="unknownSection" label="unknown section"}', 'Lost text', ':::', '', '```', '::: {.rejected}', '```',
+                '', '::: {.rejected reason="malformedBlock" label="row with three cells"}', '| a | b | c |', ':::'];
+            assert.deepEqual(choices(lines, 2), ['remove:Remove this']);
+            assert.deepEqual(choices(lines, 10), ['remove:Remove this'], 'a malformed row without attributes');
+            assert.deepEqual(resolve(lines, 2, 'remove'), ['# T', '', '```', '::: {.rejected}', '```', '', '::: {.rejected reason="malformedBlock" label="row with three cells"}', '| a | b | c |', ':::']);
+            assert.deepEqual([...api.mdbRejectedOpens(lines, 0, lines.length)], [2, 10], 'a fence in code is no div');
+            assert.deepEqual(choices(lines, 0), [], 'no rejected div there');
+            const last = resolve(['::: {.rejected reason="x"}', 'only', ':::'], 0, 'remove');
+            assert.deepEqual(last, [''], 'the whole text removed');
+        });
     });
 });

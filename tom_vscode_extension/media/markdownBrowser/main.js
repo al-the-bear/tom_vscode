@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global marked, mermaid, Highlight, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode, mdbOwnToken, mdbLocateSelection, mdbSelectionMark, mdbTrackedEdit, mdbRowAnchorId */
+/* global marked, mermaid, Highlight, mdbRejectedOpens, mdbRejectedChoices, mdbResolveRejected, mdbSplitForLexing, mdbCriticMark, mdbEditInlineComment, mdbChangeWithComment, mdbQuestionAt, mdbOptionAnswer, mdbCountLabel, mdbIsCommentLine, mdbCommentAt, mdbNextCommentId, mdbInRanges, mdbWriteComment, MDB_ANSWER_MARKER, mdbFindAnswerMarker, mdbSectionRefs, mdbResolveSectionRef, mdbSectionAnchorIndex, mdbMdPaths, mdbIsMdLink, mdbBlocks, mdbAnswerMarkers, mdbAnswerAt, mdbWriteAnswer, mdbProposedAnswerAt, mdbProposalEdit, mdbFoldHidden, mdbFoldAncestors, mdbFoldLevelGroups, mdbIndentDepths, mdbGroups, mdbNavPick, mdbRevealDelta, mdbAttribution, mdbIsAgentAuthor, mdbCommentAuthor, mdbCommentBody, MDB_CHECK_HERE, MDB_LONG_COMMENT, tomMdOverlayShow, MDB_CHANGE_TIME, mdbIndividualAnswers, mdbMostChosen, mdbOpenSummary, mdbConflictAt, mdbConflictEdit, mdbConflictChosenText, mdbMemberColor, MDB_CONFLICT_HEAD, MDB_CHANGE_TIMES, mdbChangeTimeLabel, mdbLatestChangeTime, mdbCommentHeader, mdbReviewTime, mdbChangedQuestions, MDB_READING_KINDS, mdbReadingDivToken, mdbReadingBlockStart, mdbReadingSpan, mdbCitation, mdbReadingKey, mdbReadingMode, mdbOwnToken, mdbLocateSelection, mdbSelectionMark, mdbTrackedEdit, mdbRowAnchorId */
 // Markdown Browser client — extracted verbatim from the inline <script> of
 // buildHtml() in src/handlers/markdownBrowser-handler.ts (Phase B.21 webview
 // restructuring). Predates strict checkJs (large verbatim extraction).
@@ -852,8 +852,17 @@
                 : '';
             var source = kind === 'provenance' && attrs.source
                 ? '<div class="mdb-rd-source">source: <a href="' + readingEsc(attrs.source) + '">' + readingEsc(attrs.source) + '</a></div>' : '';
+            // A rejected block (RN-11): a small error marker with its reason on hover, its resolution buttons in the body.
+            var error = '';
+            var actions = '';
+            if (kind === 'rejected') {
+                var why = (attrs.reason || 'rejected') + (label ? ': ' + label : '') + (attrs.line ? ' (source line ' + attrs.line + ')' : '');
+                error = '<span class="mdb-rd-error codicon codicon-error" title="' + readingEsc(why) + '"></span>';
+                actions = '<div class="mdb-rejected-actions"></div>';
+                title = why;
+            }
             return '<div class="' + cls + '" data-kind="' + readingEsc(kind) + '" data-rkey="' + readingEsc(reg.key) + '" title="' + readingEsc(title) + '">'
-                + head + '<div class="mdb-rd-body">' + source + inner + '</div></div>\n';
+                + error + head + '<div class="mdb-rd-body">' + source + inner + actions + '</div></div>\n';
         }
         /** The HTML of a span (or a citation): the marker, then the body. `what`: a citation's relation. */
         function readingSpanHtml(kind, attrs, innerHtml, text, what) {
@@ -971,6 +980,77 @@
             }
             return opened;
         }
+        // ---- Rejected blocks (RN-11): their resolution buttons, the errors hint ----
+        /** The opening line of rejected div `el` in the shown text, or -1: the k-th rejected fence of its block. */
+        function rejectedOpenLine(el) {
+            var wrapper = el.closest('.mdb-block');
+            var block = wrapper && wrapper.__mdbBlock;
+            if (!block) { return -1; }
+            var k = Array.prototype.indexOf.call(wrapper.querySelectorAll('.mdb-rd[data-kind="rejected"]'), el);
+            var opens = mdbRejectedOpens(shownLines(), block.startLine, block.endLine);
+            return k >= 0 && k < opens.length ? opens[k] : -1;
+        }
+        /** Each rejected div of the new blocks gets the buttons of the choices its text allows (DI-8). */
+        function decorateRejected(wrappers, blocks) {
+            var lines = null;
+            wrappers.forEach(function(wrapper, i) {
+                var divs = wrapper.querySelectorAll('.mdb-rd[data-kind="rejected"]');
+                if (divs.length === 0 || !blocks[i]) { return; }
+                lines = lines || shownLines();
+                var opens = mdbRejectedOpens(lines, blocks[i].startLine, blocks[i].endLine);
+                var editable = blockEditable(blocks[i]);
+                Array.prototype.forEach.call(divs, function(div, k) {
+                    var bar = div.querySelector(':scope > .mdb-rd-body > .mdb-rejected-actions');
+                    if (!bar) { return; }
+                    var choices = k < opens.length ? mdbRejectedChoices(lines, opens[k]) : [];
+                    bar.innerHTML = choices.map(function(c) {
+                        return '<button class="mdb-rejected-btn" data-choice="' + readingEsc(c.id) + '"' + (editable ? '' : ' disabled title="This block cannot be edited here (CR/LF view)"') + '>'
+                            + readingEsc(c.label) + '</button>';
+                    }).join('');
+                });
+            });
+        }
+        /** A resolution button: its choice written as an ordinary edit of the source. */
+        function resolveRejected(btn) {
+            var div = btn.closest('.mdb-rd[data-kind="rejected"]');
+            var open = div ? rejectedOpenLine(div) : -1;
+            if (open < 0) { return; }
+            var edit = mdbResolveRejected(shownLines(), open, btn.dataset.choice);
+            if (edit) { postEdit(edit); }
+        }
+        var errorHint = document.getElementById('errorHint');
+        var errorHintShownAt = 0;
+        var errorHintDismissed = '';    // the file whose hint the reader scrolled away
+        /** The hint "the document has n errors" at the top, while the document holds any and the reader has not scrolled. */
+        function updateErrorHint() {
+            if (!errorHint || !contentArea) { return; }
+            var n = contentArea.querySelectorAll('.mdb-rd[data-kind="rejected"]').length;
+            var show = n > 0 && errorHintDismissed !== currentFilePath;
+            if (show && errorHint.hidden) { errorHintShownAt = Date.now(); }
+            errorHint.hidden = !show;
+            if (show) { errorHint.textContent = 'The document has ' + n + (n === 1 ? ' error' : ' errors') + ' — click to go to the first'; }
+        }
+        function dismissErrorHint() {
+            if (!errorHint || errorHint.hidden) { return; }
+            errorHint.hidden = true;
+            errorHintDismissed = currentFilePath;
+        }
+        if (errorHint) {
+            errorHint.addEventListener('click', function() {
+                var first = contentArea.querySelector('.mdb-rd[data-kind="rejected"]');
+                dismissErrorHint();
+                if (!first) { return; }
+                setReadingOpen(first, true);
+                jumpWithinDocument(first, first.closest('.mdb-block') || first, first);
+            });
+        }
+        if (contentArea) {
+            // Scrolling the document puts the hint away; the scroll a render makes itself does not.
+            contentArea.addEventListener('scroll', function() {
+                if (errorHint && !errorHint.hidden && Date.now() - errorHintShownAt > 400) { dismissErrorHint(); }
+            });
+        }
+
         /** A click or a key on a toggle, a tag or a marker opens or closes its element; answers whether it was one. */
         function onReadingToggle(t) {
             var btn = t.closest('.mdb-rd-toggle, .mdb-rd-tag, .mdb-rs-marker');
@@ -1103,6 +1183,7 @@
             enhanceTables(nodes.holder, ctx, headingsBefore);
             assignFoldKeys(nodes.holder, ctx.foldSeen);
             decorateWrappers(nodes.wrappers, nodes.blocks);
+            decorateRejected(nodes.wrappers, nodes.blocks);
             Array.prototype.push.apply(ctx.linkables, nodes.linkables);
             // A patch (patchAfterSave) builds into its own context: its anchored rows join the shown ones.
             if (shownCtx && ctx !== shownCtx && shownCtx.idRows) { Array.prototype.push.apply(shownCtx.idRows, ctx.idRows); }
@@ -2978,6 +3059,7 @@
             marked: '.mdb-check-here',
             agent: '.mdb-comment-block[data-agent="1"], .mdb-rm[data-kind="note"][data-agent="1"]',
             conflicts: '.mdb-conflict',
+            errors: '.mdb-rd[data-kind="rejected"]',
             // Next unresolved: a conflict without a decision, a question without a team answer, an undecided change.
             unresolved: '.mdb-conflict[data-open="1"], .mdb-answer-btn[data-unanswered="1"], .mdb-rm[data-kind="change"]',
         };
@@ -3189,7 +3271,7 @@
         if (typeof MutationObserver !== 'undefined') {
             new MutationObserver(function() {
                 if (navCountTimer) { clearTimeout(navCountTimer); }
-                navCountTimer = setTimeout(function() { navCountTimer = null; showNavCount(); }, 100);
+                navCountTimer = setTimeout(function() { navCountTimer = null; showNavCount(); updateErrorHint(); }, 100);
             }).observe(contentArea, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-unanswered'] }); // docRoot is replaced on a full render
         }
         var navPrevBtn = document.getElementById('navPrevBtn');
@@ -3546,6 +3628,13 @@
                     e.preventDefault();
                     return;
                 }
+                var rejectedBtn = t.closest('.mdb-rejected-btn');
+                if (rejectedBtn) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (!rejectedBtn.disabled) { resolveRejected(rejectedBtn); }
+                    return;
+                }
                 var review = t.closest('.mdb-rm-btn');
                 if (review) {
                     e.stopPropagation();
@@ -3661,10 +3750,19 @@
         // first part of a large document, so it could not start where the
         // reader is.
         var search = { query: '', texts: null, els: null, mEl: [], mAt: [], current: -1 };
+        var searchScope = document.getElementById('searchScope');
+
+        /** What the search looks in: the whole document, or (category Errors) the rejected blocks. */
+        function searchScopeElements() {
+            if (searchScope && searchScope.value === 'errors') {
+                return Array.prototype.slice.call(contentArea.querySelectorAll('.mdb-rd[data-kind="rejected"]'));
+            }
+            return topElements();
+        }
 
         function searchIndex() {
             if (!search.texts) {
-                search.els = topElements();
+                search.els = searchScopeElements();
                 search.texts = search.els.map(function(el) { return (el.textContent || '').toLowerCase(); });
             }
         }
@@ -3711,6 +3809,10 @@
             searchIndex();
             var top = topVisibleElement();
             var index = top ? search.els.indexOf(top) : -1;
+            // Errors only: the first error at or below the top of the view.
+            if (index < 0 && searchScope && searchScope.value === 'errors') {
+                index = search.els.findIndex(function(e) { return offsetInView(e) >= 0; });
+            }
             return { el: Math.max(0, index), at: 0 };
         }
 
@@ -3831,6 +3933,13 @@
             });
         }
         if (searchNextBtn) { searchNextBtn.addEventListener('click', function() { stepSearch(1); }); }
+        if (searchScope) {
+            searchScope.addEventListener('change', function() {
+                search.texts = null;
+                search.current = -1;
+                runSearch(true);
+            });
+        }
         if (searchClearBtn) {
             searchClearBtn.addEventListener('click', function() {
                 searchInput.value = '';

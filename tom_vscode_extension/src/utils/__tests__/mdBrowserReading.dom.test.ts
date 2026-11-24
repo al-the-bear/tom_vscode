@@ -27,6 +27,10 @@
  *         unfolding its section; a fragment the host found as a section id (`anchorById`) is looked up by id only, never by slug
  *   MR-13 heading divs (`<div class="heading<N>">`, the host's transformMarkdown) and headings deeper than 10 are
  *         headings: their level kept, nested in the full ids, foldable; a section reference reaches them
+ *   MR-14 rejected blocks (05b_rdv2): collapsed with an error marker (reason and label on hover), opened on click
+ *         with the buttons its attributes allow; each button posts the edit blocks.js computes for it; *Errors* is a
+ *         navigation kind and a search category; the hint "the document has n errors" until the reader scrolls,
+ *         its click going to the first error
  */
 
 import test, { describe } from 'node:test';
@@ -474,5 +478,89 @@ describe('the reading notation in the Markdown Browser', () => {
         assert.ok(options.includes('7') && options.includes('12'), 'the fold levels');
         const ref = $(w, 'a.mdb-secref').find((a: Win) => a.dataset.secref === 'DAENT-ENTI-GRANT > RQDEP-ITEM-1');
         assert.ok(ref, 'a section reference reaches the heading div');
+    });
+
+    test('MR-14: rejected blocks — marker, buttons, navigation, search, hint', async () => {
+        const { w, posted } = setup();
+        const lines = ['# Doc', '', 'Owner: Alice', '', 'Platform outside the errors.', '',
+            '::: {.rejected reason="malformedBlock" line="412" field="Owner" kept="SBP" label="field Owner given twice"}', 'Owner: Platform team', ':::', '',
+            '::::: {.rejected reason="malformedBlock" line="420" label="unclosed refs fence"}', '\\::: {.refs}', '- [A-1](#A-1)', ':::::', '',
+            '| TomSpecField | Value |', '| --- | --- |', '| Status | open |', '',
+            '::: {.rejected reason="unknownField" line="430" field="Owner2"}', '| owner_2 | Platform crew |', ':::', '',
+            '::: {.rejected reason="unknownSection" line="440" label="unknown section"}', 'Lost text', ':::'];
+        show(w, lines.join('\n'));
+        const errs = $(w, '.mdb-rd[data-kind="rejected"]');
+        assert.equal(errs.length, 4);
+        // Collapsed, with the marker and its reason on hover.
+        const first = errs[0];
+        const marker = first.querySelector(':scope > .mdb-rd-error');
+        assert.ok(marker && seen(w, marker), 'the error marker is shown');
+        assert.match(marker.title, /malformedBlock: field Owner given twice/);
+        assert.ok(!seen(w, body(first)), 'collapsed by default');
+        first.querySelector(':scope > .mdb-rd-toggle').click();
+        assert.ok(seen(w, body(first)), 'opens on click');
+        const labels = (el: Win): string[] => [...el.querySelectorAll('.mdb-rejected-btn')].map((b: Win) => b.textContent);
+        assert.deepEqual(labels(first), ['Use this value instead', 'Remove this']);
+        assert.deepEqual(labels(errs[1]), ['Close here', 'Remove the fence', 'Remove this']);
+        assert.deepEqual(labels(errs[2]), ['Rename to Owner2', 'Remove this']);
+        assert.deepEqual(labels(errs[3]), ['Remove this']);
+        // Each button posts the edit blocks.js computes for its choice.
+        const check = (el: Win, open: number, choice: string, label: string): void => {
+            posted.length = 0;
+            const btn = [...el.querySelectorAll('.mdb-rejected-btn')].find((b: Win) => b.textContent === label);
+            btn.click();
+            const edit = posted.find((m) => m.type === 'applyEdit');
+            assert.ok(edit, `${label} posts an edit`);
+            const want = w.mdbResolveRejected(lines, open, choice);
+            assert.deepEqual([edit.startLine, edit.endLine, edit.expected, edit.replacement], [want.startLine, want.endLine, want.expected, want.replacement], label);
+            send(w, { type: 'editResult', ok: false, editId: edit.editId, error: 'test' });
+        };
+        check(first, 6, 'use', 'Use this value instead');
+        assert.match(String(posted[0].replacement), /Owner: Platform team/);
+        check(errs[1], 10, 'close', 'Close here');
+        check(errs[1], 10, 'unfence', 'Remove the fence');
+        check(errs[2], 19, 'rename', 'Rename to Owner2');
+        check(errs[3], 23, 'remove', 'Remove this');
+        // Errors: a navigation kind.
+        const navBox = w.document.querySelector('#navKindPop input[data-nav-kind="errors"]');
+        assert.ok(navBox, 'the Errors kind');
+        $(w, '#navKindPop input[data-nav-kind]').forEach((b: Win) => { b.checked = b === navBox; });
+        navBox.dispatchEvent(new w.Event('change', { bubbles: true }));
+        w.document.getElementById('navNextBtn').click();
+        assert.ok($(w, '.mdb-nav-current')[0]?.matches('.mdb-rd[data-kind="rejected"]'), 'the arrows go to an error');
+        // Errors: a search category.
+        const input = w.document.getElementById('searchInput');
+        input.value = 'platform';
+        input.dispatchEvent(new w.Event('input'));
+        await new Promise((r) => setTimeout(r, 20));
+        assert.match(w.document.getElementById('searchCount').textContent, /\/5$/, 'all: the text outside and each error\'s preview and body');
+        const scope = w.document.getElementById('searchScope');
+        scope.value = 'errors';
+        scope.dispatchEvent(new w.Event('change'));
+        await new Promise((r) => setTimeout(r, 20));
+        assert.match(w.document.getElementById('searchCount').textContent, /\/4$/, 'errors only: the two errors\' previews and bodies');
+        scope.value = 'all';
+        scope.dispatchEvent(new w.Event('change'));
+        // The hint: shown while there are errors, gone on a click (which goes to the first) or a scroll.
+        await new Promise((r) => setTimeout(r, 150));
+        const hint = w.document.getElementById('errorHint');
+        assert.ok(!hint.hidden, 'the hint is shown');
+        assert.match(hint.textContent, /The document has 4 errors/);
+        first.classList.remove('mdb-open');
+        hint.click();
+        assert.ok(hint.hidden, 'a click puts it away');
+        assert.ok(first.classList.contains('mdb-open'), 'and opens the first error');
+        show(w, '# Other\n\n::: {.rejected reason="x"}\nlost\n:::', '/ws/other.md');
+        await new Promise((r) => setTimeout(r, 150));
+        assert.ok(!hint.hidden, 'another document with an error shows it');
+        assert.match(hint.textContent, /1 error\b/);
+        w.document.getElementById('contentArea').dispatchEvent(new w.Event('scroll'));
+        assert.ok(!hint.hidden, 'the render\'s own scroll does not put it away');
+        await new Promise((r) => setTimeout(r, 400));
+        w.document.getElementById('contentArea').dispatchEvent(new w.Event('scroll'));
+        assert.ok(hint.hidden, 'the reader\'s scroll puts it away');
+        show(w, '# Clean\n\nNo errors.', '/ws/clean.md');
+        await new Promise((r) => setTimeout(r, 150));
+        assert.ok(hint.hidden, 'no errors, no hint');
     });
 });
