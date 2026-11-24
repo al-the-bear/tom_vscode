@@ -16,14 +16,22 @@ User-facing documentation for the `tom_vscode_extension` plugin. Implementation 
 - [llm_tools.md](llm_tools.md) — the LLM tool surface, per transport.
 - [chat_log_custom_editor.md](chat_log_custom_editor.md) — Markdown Browser + live-trail follow-tail behavior.
 - [md_browser_page_protocol.md](md_browser_page_protocol.md) — the Markdown Browser page's message protocol as a versioned contract: the version, the capabilities a host declares, every message with its fields and answer, and the decisions that are the host's.
+- [anthropic_sdk_integration.md](anthropic_sdk_integration.md) — the Anthropic SDK integration in full: profiles, configurations, memory, compaction, trails.
+- [llm_configuration.md](llm_configuration.md) — Local LLM, Anthropic and history-compaction settings: per-configuration overrides, tool-trail retention, the placeholders, the aspect guidelines.
+- [chat_enhancements.md](chat_enhancements.md) — chat panel feature design notes.
+- [telegram_integration.md](telegram_integration.md) — Telegram remote control and notifications: commands, per-quest configuration, the live-conversation forwarder, one receiver per bot token.
+- [tomspecs_agent_workflow.md](tomspecs_agent_workflow.md) — for agents: editing a TomSpecs specification with the spec tools and taking it through Phase 4 (CodeSpecs).
 - [multi_transport_prompt_queue_revised.md](multi_transport_prompt_queue_revised.md) — prompt queue model across transports.
 
 ## Editors + visual tools
 
+- [marktext_integration.md](marktext_integration.md) — MarkText editor integration notes.
 - [docspecs_linter_design.md](docspecs_linter_design.md) — DocSpecs linter design.
 
 ## Supporting references
 
+- [placeholder_engine.md](placeholder_engine.md) — the placeholder engine, for maintainers.
+- [reading_notation_sample.md](reading_notation_sample.md) — a sample of the reading notation (provenance notes, citations) as the MD Browser renders it.
 - [file_and_prompt_placeholders.md](file_and_prompt_placeholders.md) — supported placeholders and variable expansion.
 - [workspace_setup.md](workspace_setup.md) — workspace layout expected by the extension.
 - [extension_analysis.md](extension_analysis.md) — activation + command audit.

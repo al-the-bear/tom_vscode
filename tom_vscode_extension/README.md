@@ -80,7 +80,9 @@ The CodeSpecs validate and trace tools, the TomSpecs process check tools
 tool (`tomAi_specCodeSpecsMap`, Phase 4's stage 5) run `tomspecs`, ai_build's
 `tom_specs_clitool` binary, with one command each (`:codespecs-validate`,
 `:spec-<check>`, `:ir-map`; `src/services/tomspecsCalls.ts`), compiled into
-`bin/<platform>/`. `scripts/build-validate-codespecs.cjs`
+`bin/<platform>/` from `tom_ai/ai_build/tom_specs_clitool`. `:ir-map` formats
+the Dart its mapper writes itself (`dart_style` is linked in), so CodeSpecs
+mapping needs no Dart SDK either. `scripts/build-validate-codespecs.cjs`
 (`npm run codespecs:build`) compiles it for the host from
 `bin/tomspecs.dart` with `dart compile exe`; the install scripts run it. The
 installed extension never runs `dart run` for it. It is taken over only when it
@@ -357,7 +359,7 @@ The latest VSIX files are downloads of the GitHub Release
 machine you install on:
 
 | Machine | Download |
-|---|---|
+| --- | --- |
 | macOS, Apple silicon | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-darwin-arm64.vsix> |
 | Linux x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-linux-x64.vsix> |
 | Windows x64 | <https://github.com/al-the-bear/tom_binaries/releases/download/vscode-extension-latest/tom-ai-extension-win32-x64.vsix> |
@@ -394,7 +396,7 @@ code --install-extension <path-to>/tom-ai-extension-0.1.0.vsix        # create_v
 
 What runs there depends on the binaries the VSIX carries for that machine's
 platform. The extension checks them when it starts, for the platform it runs
-on:
+on (`src/services/dartBinariesStatus.ts`):
 
 - `tom_bs` (DartScript) and `tomspecs` (TomSpecs process checks, CodeSpecs
   validation and mapping): for the build machine's platform, when it
@@ -496,6 +498,7 @@ The `_ai` files carry a format version: `_ai/format-version.yaml` (shared,
 versioned) and `_ai/local/format-version.<host>.yaml` for this machine's own
 files (queue, chat variables, sessions; not versioned). When a window starts it
 compares both with the version its build understands:
+
 - **files older, unstamped, or this machine's own files behind:** Tom AI does
   not start; every panel shows the versions and **Upgrade the workspace…**, and
   the page **Upgrade the workspace** opens by itself (also `@T: Migrate _ai
@@ -526,7 +529,8 @@ npm run migrate:ai-formats -- --apply   # does it
 ```
 
 It brings every quest to the current formats in one run and writes the stamps
-last, once nothing is left as a problem. After a reconcile brings older files
+last, once nothing is left as a problem. A change to an `_ai` format raises `AI_FORMAT_VERSION`
+(`src/utils/aiFormatVersion.ts`) and adds its step to the migration. After a reconcile brings older files
 to another machine, that machine's window opens the page there too (its own
 stamp is behind).
 
@@ -538,7 +542,7 @@ The `tom_vscode_*` projects live in the **tom_vscode** repo (mounted at
 `tom_ai/vscode/`); the `tom_d4rt*` projects live in the separate **d4rt** repo
 (cloned at `tom_ai/d4rt/`):
 
-```
+```text
 <workspace-root>/                      # parent of tom_ai (e.g. tom_agent_container)
 ├── tom_ai/
 │   ├── vscode/                        # tom_vscode repo
@@ -765,7 +769,9 @@ npm run codespecs:build  # compile tomspecs into bin/<platform>/ (needs a Dart S
 npm run codespecs:check  # are those binaries built from tom_specs_clitool's current source? (their build stamps)
 npm run check:tom-bs     # which bridge source the prebuilt tom_bs was built from, and whether the bridge changed since
 npm run binaries:report  # per platform in tom_binaries: tom_bs / tomspecs build stamps and whether they are older than the sources
-npm run compile      # tsc -p ./ + copy config json to out/config/
+npm run check:bridges    # tom_vscode_bridge's bridges_fresh_test.dart: are the committed d4rt bridges what the generator writes now
+npm run check:bridge-lock  # scripts/bridge-lock-preflight.cjs --warn: is a tom_* package of the bridge's pubspec.lock behind its newest release (a from-source install runs it with --fix)
+npm run compile      # wipe out/, tsc -p ./, copy config json to out/config/, write out/build-info.json
 npm run watch        # incremental rebuild
 npm test             # every stage: lint media, each test:<area> suite, tool-coverage audit; a summary per stage at the end
 ```
@@ -775,18 +781,43 @@ entries: npm keeps a `file:` tarball whose name and version did not change even
 when its content did, so the next `npm install` would otherwise keep the old
 build.
 
+`npm run compile` wipes `out/` first (`scripts/clean-out.cjs`), so the build
+output is a pure function of `src/`: `tsc` never removes an output whose source
+was deleted, and the test scripts glob `out/**/__tests__/*.test.js`, so a
+deleted test would otherwise keep running from its old build.
+
+`npm test` (`scripts/run-test-stages.cjs`) runs every stage — `lint:media`, each
+`test:*` script of package.json in its order, `audit:tools` last — whatever the
+earlier ones did, and ends with a summary per stage.
+`src/tools/__tests__/mcp-all-tools.test.ts`, in `test:tools`, calls every
+registered tool through the standalone MCP server in a sandbox workspace
+(`_agent_guidelines/tool_testing.md`).
+
 One build at a time on a checkout: `npm test`, `npm run compile`, `npm run
-codespecs:build` and the install scripts hold `.build.lock` (pid, command) while
-they run, and a second one stops with a message naming the one running (`…
-(pid N) is running on this checkout — wait for it`). A lock left by a process
-that no longer runs is taken over.
+codespecs:build` and the install scripts hold `.build.lock` (pid, command, start
+time; `scripts/build-lock.cjs`) while they run, and a second one stops with
+`✖ <command> (pid N) is running on this checkout since HH:MM:SS — wait for it`.
+Their own nested steps pass (`TOM_BUILD_LOCK_HOLDER`); a lock whose process no
+longer runs is taken over.
 
 Run the extension host for manual testing: open this project in VS Code, press
 `F5`, and test commands in the Extension Development Host.
 
 > Reloading the window alone does **not** pick up source changes — it reloads the
-> *installed* VSIX. Repackage + reinstall first (`compile_and_install.sh`), then
-> reload.
+> *installed* VSIX (`~/.vscode/extensions/peter-nicolai-alexis-kyaw.tom-ai-extension-<version>/`;
+> a stack trace pointing there means the extension was not reinstalled since the
+> edit). Repackage + reinstall first (`compile_and_install.sh`; `reinstall_for_testing.sh`
+> also marks it a test reinstall, which shows a reminder after the reload), then reload. The workspace's pattern prompt
+> `!reinstall_extension` runs this cycle, and `!reload_finished` signals that the
+> reload is done.
+
+Every compile writes `out/build-info.json` (commit, dirty, build time). A window
+compares the build it runs with the installed one
+(`src/services/buildStatusService.ts`): when a newer one is installed it shows
+**Reload: newer Tom AI build** in the status bar, an **Extension build** section
+on the Status Page and *reload needed* in WINDOW STATUS. Agents read it as
+`build.reloadNeeded` in `tomAi_getWorkspaceInfo`, and per window in
+`tomAi_getQuestWindowStatus`.
 
 ---
 

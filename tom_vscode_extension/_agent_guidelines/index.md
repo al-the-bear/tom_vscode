@@ -13,6 +13,8 @@ Type: TypeScript extension
 
 - [vscode_extension_overview.md](vscode_extension_overview.md)
 - [architecture.md](architecture.md)
+- [panels_and_views.md](panels_and_views.md) — the bottom panels, the sidebars and their views with the handler or service of each; roles, role types and aspect guidelines in the UI; a folder without a quest
+- [configuration_files.md](configuration_files.md) — the configuration files (the schema and `sendToChatConfig.ts`, the root's `.tom/tom_vscode_extension.json`, the two per-quest `extension_config` files) and the code that owns them
 - [implementation.md](implementation.md)
 - [project.md](project.md)
 - [copilot_guidelines.md](copilot_guidelines.md)
