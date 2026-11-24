@@ -20,6 +20,7 @@
  *        as in the root's file, which is not changed
  *   WT-8 `<!-- workspace-specific -->` blocks are left out of the packed Markdown; unbalanced markers refuse the build;
  *        built from this tree, CLAUDE.md and AGENTS.md pack only their generic parts
+ *   WT-15 the left-out files under _agent_guidelines/ and this root's and workspace's aspects (fleet, d4rt) are not packed.
  *   WT-9 the left-out files (EXCLUDED_PATHS, __pycache__, .pyc) are not packed; list items and table rows linking to
  *        them are dropped; a link to a transition copy points to the root's copy
  *   WT-10 quests_and_processes.md is packed as it is (no Active Quests table to cut)
@@ -66,7 +67,7 @@ const tpl = require(SCRIPT) as {
 const { readCentralDirectory } = require(path.join(EXT, 'scripts', 'check-vsix-contents.cjs')) as { readCentralDirectory(b: Buffer): Array<{ name: string; isSymlink: boolean }> };
 
 const ROOT = tpl.findRoot(EXT);
-const present = !!ROOT && fs.existsSync(path.join(WS, '_copilot_guidelines')) && fs.existsSync(path.join(WS, 'CLAUDE.md'));
+const present = !!ROOT && ['_agent_guidelines', '_copilot_guidelines'].some((g) => fs.existsSync(path.join(WS, g))) && fs.existsSync(path.join(WS, 'CLAUDE.md'));
 const SCRATCH = path.join(EXT, '..', '..', '..', 'ztmp');
 
 /** A fixture root (its own tom_root.yaml) with one workspace folder: every required source. */
@@ -307,6 +308,31 @@ describe('the workspace template in two parts', () => {
         fs.rmSync(root, { recursive: true, force: true });
     });
 
+    test('WT-15: left-out files under _agent_guidelines/, and the aspects of this root and workspace', () => {
+        const { root, ws, put } = fixture();
+        put('ws/_agent_guidelines/index.md', '# Workspace index\n');
+        put('ws/_agent_guidelines/workspace_checks.md', '# Checks\n');
+        put('ws/_agent_guidelines/aspects/d4rt/rules.md', '# D4rt\n');
+        put('ws/_agent_guidelines/aspects/documentation/rules.md', '## Schema\n');
+        put('_agent_guidelines/aspects/fleet/rules.md', '## Fleet\n');
+        put('_agent_guidelines/aspects/documentation/rules.md', '## Docs\n');
+        put('_ai/aspect_guidelines/fleet/aspect.yaml', 'name: fleet\n');
+        put('_ai/aspect_guidelines/d4rt/aspect.yaml', 'name: d4rt\n');
+        put('_ai/aspect_guidelines/documentation/aspect.yaml', 'name: documentation\ndefault: rules\n');
+        fs.rmSync(path.join(ws, '_copilot_guidelines'), { recursive: true, force: true });
+        const r = tpl.buildTemplate(root, ws);
+        assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
+        for (const gone of ['workspace/_agent_guidelines/workspace_checks.md', 'workspace/_agent_guidelines/aspects/d4rt/rules.md',
+            'root/_agent_guidelines/aspects/fleet/rules.md', 'root/_ai/aspect_guidelines/fleet/aspect.yaml', 'root/_ai/aspect_guidelines/d4rt/aspect.yaml',
+            'workspace/_agent_guidelines/aspects/documentation/rules.md']) {
+            assert.ok(!names(r).includes(gone), gone);
+        }
+        for (const kept of ['root/_agent_guidelines/aspects/documentation/rules.md', 'root/_ai/aspect_guidelines/documentation/aspect.yaml']) {
+            assert.ok(names(r).includes(kept), kept);
+        }
+        fs.rmSync(root, { recursive: true, force: true });
+    });
+
     test('WT-10: quests_and_processes.md packed as it is', () => {
         const body = '# Quests\n\n## Active Quests\n\n| ID | Name |\n|----|------|\n| mine | Mine |\n';
         assert.equal(tpl.templateFileData('_agent_guidelines/quests_and_processes.md', Buffer.from(body)).toString('utf8'), body);
@@ -344,7 +370,7 @@ describe('the workspace template in two parts', () => {
 
     test('WT-12: the console Markdown guideline is generic in the template', { skip: present ? false : 'no root and workspace around this checkout' }, () => {
         const r = tpl.buildTemplate(ROOT, WS);
-        const guideline = text(r, 'workspace/_copilot_guidelines/console_markdown.md');
+        const guideline = text(r, names(r).find((n) => /^workspace\/_(agent|copilot)_guidelines\/console_markdown\.md$/.test(n)) ?? 'workspace/_agent_guidelines/console_markdown.md');
         assert.match(guideline, /\[pub\.dev\]\(https:\/\/pub\.dev\/packages\/console_markdown\)/);
         assert.doesNotMatch(guideline, /tom_basics_console|tom_ai\//, 'no package of this workspace');
     });

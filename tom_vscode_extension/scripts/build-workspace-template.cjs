@@ -208,7 +208,7 @@ const IGNORED_EXTENSIONS = new Set(['.pyc']);
  * marked `<!-- workspace-specific -->` in the files themselves. List items and table rows linking to them are
  * dropped from the packed Markdown (dropLinksTo).
  */
-const EXCLUDED_PATHS = new Set([
+const EXCLUDED_PATHS = withGuidelineAliases([
     '_copilot_guidelines/projects_and_repos.md',
     '_copilot_guidelines/workspace_checks.md',
     // Written around this workspace's packages: the D4rt pointer files, and the
@@ -223,7 +223,26 @@ const EXCLUDED_PATHS = new Set([
     '_ai/prompt/bot.chat-history.prompt.md',
     '_ai/prompt/execute-quest-todos-with-follow-up.prompt.md',
     '_ai/prompt/execute_todo_list.prompt.md',
+    // This workspace's D4rt rules as an aspect choice (gsel24): they named this workspace's packages
+    // (inside the workspace-specific block of AGENTS.md before), so the template leaves them out.
+    '_copilot_guidelines/aspects/d4rt/rules.md',
+    '_ai/aspect_guidelines/d4rt/aspect.yaml',
+    // The fleet rules as an aspect choice (gsel24): this root's machines and repositories (the root's
+    // AGENTS.md, which the template carries as a stub), so the template leaves the aspect out.
+    '_agent_guidelines/aspects/fleet/rules.md',
+    '_ai/aspect_guidelines/fleet/aspect.yaml',
 ]);
+
+/**
+ * The excluded paths with each workspace guideline named under both folder
+ * names: the workspace guidelines folder is `_agent_guidelines/` (the older
+ * `_copilot_guidelines/` still read), and the part walks the one that exists.
+ */
+function withGuidelineAliases(paths) {
+    const out = new Set(paths);
+    for (const p of paths) { if (p.startsWith('_copilot_guidelines/')) { out.add(`_agent_guidelines/${p.slice('_copilot_guidelines/'.length)}`); } }
+    return out;
+}
 
 /** Markdown between these marker lines is this workspace's own: the template leaves it out (CLAUDE.md, AGENTS.md, guidelines). */
 const SPECIFIC_OPEN = /^\s*<!--\s*workspace-specific\s*-->\s*$/;

@@ -53,6 +53,8 @@ put(`_ai/quests/${QUEST}/todos.${QUEST}.todo.yaml`, [
     '  - id: t2_aktl-plain', '    title: Plain', '    description: D', '    status: not-started', '',
 ].join('\n'));
 put('.tom/tom_vscode_extension.json', '{}\n');
+// Its own Tom root: the root around this checkout (its workspace_aspects.md, its guideline files) stays out.
+put('.tom/tom_root.yaml', 'version: 1\n');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
 process.env.USERPROFILE = HOME;
