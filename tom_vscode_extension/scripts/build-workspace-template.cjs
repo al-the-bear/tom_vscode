@@ -231,6 +231,9 @@ const EXCLUDED_PATHS = withGuidelineAliases([
     // AGENTS.md, which the template carries as a stub), so the template leaves the aspect out.
     '_agent_guidelines/aspects/fleet/rules.md',
     '_ai/aspect_guidelines/fleet/aspect.yaml',
+    // The TypeScript rules of this workspace's VS Code extension (gsel25): its only choice, so the aspect stays out too.
+    '_copilot_guidelines/aspects/js_ts/vscode_extension.md',
+    '_ai/aspect_guidelines/js_ts/aspect.yaml',
 ]);
 
 /**

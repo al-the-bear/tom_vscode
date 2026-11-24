@@ -32,6 +32,7 @@ import {
     placeAspects,
     resolveAspects,
     type AspectLevelChoices,
+    type AspectResolution,
     type AspectSection,
     type AspectSectionYaml,
     type AspectTransport,
@@ -212,13 +213,8 @@ export function aspectsForSend(
 ): AspectsForSend {
     const read = readAspectSections(dir, layers);
     const problems = read.problems;
-    // A choice's `@<path>` import lines, relative to its file (gsel18), each file once per send.
-    const seen = new Set<string>();
-    const sections = read.sections.map((s) => ({
-        ...s,
-        options: s.options.map((o) => (o.source ? { ...o, text: expandLineImports(o.text, o.source.path, { seen }) } : o)),
-    }));
-    const resolution = resolveAspects(sections, choices ?? {}, conditions ? { evaluate: conditionEvaluator(sections, choices ?? {}, conditions) } : {});
+    const resolution = resolveAspects(read.sections, choices ?? {}, conditions ? { evaluate: conditionEvaluator(read.sections, choices ?? {}, conditions) } : {});
+    const sections = withSentImports(read.sections, resolution);
     if (conditions) {
         for (const r of resolution.sections) {
             for (const c of r.chosen) { if (c.error) { conditions.log?.(`aspect ${r.section}, choice ${c.option}: when ${c.when}: ${c.error}; the choice is not sent`); } }
@@ -228,6 +224,32 @@ export function aspectsForSend(
     for (const i of resolution.ignored) { problems.push(`${i.level}: "${i.section}" → "${i.option}" names no choice of an aspect; skipped`); }
     const assembled = assembleAspects(sections, resolution, resolve);
     return { ...placeAspects(transport, prompt, assembled), assembled, problems };
+}
+
+/**
+ * The sections with the `@<path>` import lines of the choices this send sends
+ * expanded, relative to each choice's file (gsel18): in the order they are sent,
+ * each file once per send. A choice that is not sent imports nothing, so it
+ * cannot take a file away from one that is (gsel25).
+ */
+export function withSentImports(sections: readonly AspectSection[], resolution: AspectResolution): AspectSection[] {
+    const seen = new Set<string>();
+    const expanded = new Map<string, Map<string, string>>();
+    for (const r of resolution.sections) {
+        if (!r.options.length || !r.from) { continue; }
+        const s = sections.find((x) => x.id === r.section);
+        if (!s) { continue; }
+        const texts = new Map<string, string>();
+        for (const name of r.options) {
+            const o = s.options.find((x) => x.name === name);
+            if (o?.source) { texts.set(name, expandLineImports(o.text, o.source.path, { seen })); }
+        }
+        expanded.set(s.id, texts);
+    }
+    return sections.map((s) => {
+        const texts = expanded.get(s.id);
+        return texts ? { ...s, options: s.options.map((o) => (texts.has(o.name) ? { ...o, text: texts.get(o.name)! } : o)) } : s;
+    });
 }
 
 /**

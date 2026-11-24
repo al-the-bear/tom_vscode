@@ -8,7 +8,7 @@
  *
  *   DP-1 every direct and Local LLM profile with a system prompt names `${file-CLAUDE-direct.md}`, after
  *        `${claudeMd}` (CLAUDE.md as Claude Code loads it, CC-14) where it has them, and none the older
- *        `${instructions}`; the four `<model>-direct` todo profiles set effort `high`
+ *        `${instructions}`; every Agent SDK profile names `${file-CLAUDE-agent-sdk.md}` instead; the four `<model>-direct` todo profiles set effort `high`
  *   DP-2 the payload dump of opus-5-5-direct: the system prompt holds CLAUDE.md and then CLAUDE-direct.md,
  *        and the dump's effort line reads `high`
  */
@@ -40,6 +40,7 @@ const transportOf = (p: Profile): string | undefined => {
     return LOCAL.has(id) ? 'localLlm' : undefined;
 };
 const HINTS = '${file-CLAUDE-direct.md}';
+const SDK_NOTES = '${file-CLAUDE-agent-sdk.md}';
 const TODO_PROFILES = ['sonnet-5-5-direct', 'opus-5-5-direct', 'fable-5-2-direct', 'haiku-5-5-direct'];
 
 describe('the direct and Local LLM profiles', () => {
@@ -54,6 +55,7 @@ describe('the direct and Local LLM profiles', () => {
         }
         for (const p of PROFILES.filter((x) => transportOf(x) === 'agentSdk')) {
             assert.ok(!(p.systemPrompt ?? '').includes(HINTS), `${p.id}: the Agent SDK has its own tools`);
+            assert.ok((p.systemPrompt ?? '').includes(SDK_NOTES), `${p.id}: no ${SDK_NOTES} (the chat todo list, guideline sectioning D-25)`);
         }
         for (const id of TODO_PROFILES) {
             assert.equal(PROFILES.find((p) => p.id === id)?.effort, 'high', id);

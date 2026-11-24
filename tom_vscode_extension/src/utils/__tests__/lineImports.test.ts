@@ -10,6 +10,8 @@
  *        that names no file, a folder
  *   LI-5 the injections: `${file-…}`, `${guidelines-…}`, `${guidelines-index}`, `${role-…}`, `${quest-…}`, an aspect
  *        choice file (own text and guideline file); tomAi_readGlobalGuideline's index files
+ *   LI-6 an aspect's import lines are expanded for the choices the send sends only, in their order: a choice not
+ *        sent takes no file away from one that is (each file still once per send)
  */
 
 import * as fs from 'fs';
@@ -125,5 +127,21 @@ describe('@<path> line imports', () => {
         assert.match(await readGlobalGuidelineImpl(root, {}), /# Index\n\nPART ONE TABLE/);
         assert.match(await readGlobalGuidelineImpl(root, { fileName: 'index.md' }), /PART ONE TABLE/);
         assert.match(await readGlobalGuidelineImpl(root, { fileName: 'plain.md' }), /^Plain\n@part_one\.md/m, 'only index files');
+    });
+
+    test('LI-6: only the choices sent import, in the order they are sent', () => {
+        const ws = path.join(base, 'ws6');
+        // `big` comes first in the aspect and imports `small`'s base file; sending only `small` still gets it.
+        put('ws6/_ai/aspect_guidelines/stack/aspect.yaml', 'name: Stack\ndefault: small\n');
+        put('ws6/_agent_guidelines/aspects/stack/big.md', '@base.md\nBIG\n');
+        put('ws6/_agent_guidelines/aspects/stack/small.md', '@base.md\nSMALL\n');
+        put('ws6/_agent_guidelines/aspects/stack/base.md', 'BASE\n');
+        const layers = aspectFileLayers(ws, ws, () => false);
+        const send = (choices: Record<string, Record<string, string | string[]>>): string => aspectsForSend(path.join(ws, '_ai', 'aspect_guidelines'), 'direct',
+            { systemSegments: [], userContent: 'x' }, choices, (t) => t, layers).systemSegments.join('\n');
+        assert.match(send({}), /BASE\nSMALL/, 'the default choice imports its base although an unsent choice names it too');
+        assert.match(send({ todo: { stack: 'big' } }), /BASE\nBIG/);
+        const both = send({ todo: { stack: ['big', 'small'] } });
+        assert.equal(both.split('BASE').length, 2, 'two sent choices: the base once');
     });
 });

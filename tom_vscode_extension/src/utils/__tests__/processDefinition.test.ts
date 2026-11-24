@@ -31,6 +31,7 @@
  *         target at the next iteration, the steps after it too when they are re-entered, Back returns to the
  *         iteration a step was at; a non-repeatable step stays at 1; the record is dropped when the phase
  *         or its iteration changes, repaired with the state, and written to and read from the state file
+ *   PD-23 the rule for working in a process is in the block only while a process runs (not with none, not when finished);
  *   PD-14 a finished process: the completed flag is written and read back, only "back" (reopen) is
  *         offered, and any other change clears it
  *   PD-15 a gate can always be run again: its iteration counts up although it is not marked repeatable
@@ -70,6 +71,7 @@ import {
     parseProcessYaml,
     phaseSteps,
     processContextBlock,
+    PROCESS_FOLLOW_RULE,
     processVariableValues,
     selectPhase,
     selectProcess,
@@ -280,6 +282,11 @@ describe('process definitions', () => {
         assert.match(inRun, /moves on by itself once this prompt and every queue item it queues are done/);
         assert.doesNotMatch(inRun, /record it with `tomAi_setProcessState`/);
         assert.match(block, /record it with `tomAi_setProcessState`/, 'otherwise the agent records its moves');
+        // PD-23: the rule for working in a process comes only with a running process (guideline sectioning D-25).
+        assert.ok(block.includes(PROCESS_FOLLOW_RULE), 'a running process carries the rule');
+        assert.ok(inRun.includes(PROCESS_FOLLOW_RULE), 'a Proceed run too');
+        assert.ok(!processContextBlock(def, { ...s, completed: true }, '').includes(PROCESS_FOLLOW_RULE), 'a finished process does not');
+        assert.ok(!processContextBlock(def, EMPTY_PROCESS_STATE, '').includes(PROCESS_FOLLOW_RULE), 'no process: no rule');
     });
 
     test('PD-8: applying a change request', () => {

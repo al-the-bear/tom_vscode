@@ -569,6 +569,7 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
 **`sessions`.** The tools that read or write per-session storage take an optional `sessions` — a session name, a list of names, or `"all"`; an unknown session is refused (code `unknownSession`) with the sessions there are. Without it they work on the session the call runs in:
+
 - `tomAi_listPromptPairs` / `tomAi_getPromptPair`: those sessions' Anthropic pairs (other subsystems are always included); a call that runs in no session (Copilot, Local LLM, an MCP client) reads every session; the answer names the `sessions` read.
 - `tomAi_listPastToolCalls` / `tomAi_searchPastToolResults` / `tomAi_readPastToolResult`: without `sessions` the caller's in-memory ring buffer as before; with them every result the chosen sessions stored on disk (evicted ones included), each entry and hit tagged with its `session` (keys are per session; a read names the session it came from, `alsoIn` the others holding the key).
 - `tomAi_saveMemory` / `tomAi_updateMemory` / `tomAi_forgetMemory` / `tomAi_readMemory` / `tomAi_listMemory`: quest memory is per session (`_ai/memory/<quest>/<session>/`); a write goes to each chosen session, a read or list shows each under a `## session <name>` heading; the shared scope ignores `sessions`.
@@ -837,6 +838,7 @@ refused when the file is dirty or has changed since it was read.
 | `tomAi_docspecsReplaceSection` | Replace one section's own body (approval). Every other byte is kept, and fenced blocks are respected. A body that would add a heading or leave a fence open is refused. Answers the validation it introduced or resolved; `dryRun` returns a diff. | ✅ | ✅ | ⚪ | ✅ |
 
 The schema is looked up in this order:
+
 1. an explicit `schema` argument (`<id>/<version>` or a schema file);
 2. `.tom/docspecs-schema/<id>/<id>.<version>.docspecs-schema.yaml`, or the
    same file in a suffixed folder `<id>.<suffix>/` (`schema-test.sct/`), in the
@@ -901,6 +903,7 @@ run `tomspecs :codespecs-validate` (tom_specs_clitool's binary, compiled with
 `dart compile exe`), which ships in `bin/<platform>/` beside `tom_bs`.
 
 The concepts:
+
 - An **area** (`CE-…`, 27 in all) is one kind of generated artefact.
 - A **slice** (7) is a group of areas emitted into one project.
 - An **authoring step** (31) is a place in the order artefacts are written.
@@ -1125,7 +1128,7 @@ The raw trail's payload file marks each tool `deferred` or `named by the prompt`
 ### 5.2 Anthropic API direct (`transport: 'direct'`)
 
 - All ✅-rows are on by default; no preset exists. Outside the core set they are deferred and found by tool search (§5.0).
-- Working hints for this transport go into the profile's system prompt with a file placeholder, after `${claudeMd}` (every CLAUDE.md as Claude Code loads it): `${file-CLAUDE-direct.md}` in this workspace (how to read, search, batch calls and recover cut results). Its direct todo profiles also set **Effort** `high` (`output_config.effort`); the raw trail's payload file shows both.
+- Working hints for this transport go into the profile's system prompt with a file placeholder, after `${claudeMd}` (every CLAUDE.md as Claude Code loads it): `${file-CLAUDE-direct.md}` in this workspace (how to read, search, batch calls and recover cut results, and the steps of a prompt as session todos). The Agent SDK profiles name `${file-CLAUDE-agent-sdk.md}` the same way (the chat todo list with `TodoWrite`). Its direct todo profiles also set **Effort** `high` (`output_config.effort`); the raw trail's payload file shows both.
 - `tomAi_runCommandStream`/`tomAi_readCommandOutput`/`tomAi_killCommand` are the only way to stream long-running commands on this transport — leave them on when test-running or building.
 
 ### 5.3 Local LLM (Ollama)

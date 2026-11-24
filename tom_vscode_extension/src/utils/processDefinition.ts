@@ -2590,6 +2590,12 @@ function ioContextLines(def: ProcessDefinition, state: ProcessState): string[] {
     return lines;
 }
 
+/**
+ * The rule for working in a process, carried only while one runs (guideline
+ * sectioning D-25): the always-on instruction files leave it out.
+ */
+export const PROCESS_FOLLOW_RULE = '**Follow the process:** work in the current step as the role it names, record every move with `tomAi_setProcessState` (never by writing chat variables) unless this prompt runs for a step started with Proceed, leave user actions and decisions to the user, and do not leave a phase before its gate passed and its post-gate todos are done.';
+
 export function processContextBlock(def: ProcessDefinition | null, state: ProcessState, processDescription: string, inProceedRun = false, conditions: ConditionOptions = {}, run?: string, subject?: string): string {
     if (!def || !state.process) { return ''; }
     const lines: string[] = [];
@@ -2688,6 +2694,7 @@ export function processContextBlock(def: ProcessDefinition | null, state: Proces
     if (decision) {
         lines.push('', `**Decision** — this position has run; the user decides here how the process goes on: ${decision.options.map((o) => o.label).join('; ')}. An agent does not decide it and does not move past it.`);
     }
+    if (!state.completed) { lines.push('', PROCESS_FOLLOW_RULE); }
     lines.push('', inProceedRun
         ? 'This prompt runs for a step started with Proceed in the PROCESS view: the process moves on by itself once this prompt and every queue item it queues are done. Do not record the move with `tomAi_setProcessState` — that would end the running step (`leaveOut` is the exception: it only records that the step is to be left out). Every item you queue for this step (tomAi_addQueueItem — its todo walks, its closing item) is the step\'s own work: pass `processItem: true`, so it does not count towards the quest refresh.'
         : 'When the work moves on — another step, sub-step, iteration or phase — record it with `tomAi_setProcessState`.');
