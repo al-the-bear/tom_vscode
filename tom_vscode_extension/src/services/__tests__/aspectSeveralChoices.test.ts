@@ -131,6 +131,13 @@ describe('several choices per aspect, conditional choices (gsel20)', () => {
         const night = [aspect('night_mode', ['on', 'off'], { defaultOption: 'on' }), aspect('m', ['x'], {}, { x: 'prompt.night == "on"' })];
         assert.deepEqual(sent(night, { window: { m: 'x' } })[1].options, ['x'], 'prompt.night from the night-mode aspect');
         assert.deepEqual(sent(night, { window: { m: 'x', night_mode: 'off' } })[1].options, []);
+        // The night choice's own `when` (the window's night-mode chat variable, services/nightMode.ts) decides prompt.night too.
+        const byVar = [aspect('night_mode', ['on'], { defaultOption: 'on' }, { on: 'night-mode == "on"' }), aspect('m', ['x'], {}, { x: 'prompt.night == "on"' })];
+        const nightVar = (value: string) => (n: string) => (n === 'night-mode' ? value : undefined);
+        assert.deepEqual(sent(byVar, { window: { m: 'x' } }, {}, undefined, nightVar('on'))[1].options, ['x'], 'night-mode on: prompt.night is on');
+        assert.deepEqual(sent(byVar, { window: { m: 'x' } }, {}, undefined, nightVar('off'))[1].options, [], 'night-mode off: the default is not sent, prompt.night is empty');
+        assert.deepEqual(sent(byVar, {}, {}, undefined, nightVar('off'))[0].options, [], 'the night text itself only while night-mode is on');
+        assert.deepEqual(sent(byVar, {}, {}, undefined, nightVar('on'))[0].options, ['on']);
         const vars = [aspect('m', ['x'], {}, { x: 'my-var == "1"' })];
         assert.deepEqual(sent(vars, { window: { m: 'x' } }, {}, undefined, (n) => (n === 'my-var' ? '1' : undefined))[0].options, ['x'], 'the chat variables and placeholders');
     });

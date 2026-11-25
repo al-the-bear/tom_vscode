@@ -34,6 +34,9 @@
  *   QR-17 the status label: an item in error, waiting, retrying, sending (or held), staged, pending or sent is a
  *        button posting `pickItemStatus`, its tooltip naming the choices (a running one: stopped first); a chat
  *        send's is not; the host offers queueStatusChoices and calls the manager's changeItemStatus
+ *   QR-18 night mode: the moon button in the headline, before the compaction and memory-extraction models; it shows
+ *        the window's night mode (`nightMode` of the state), a click posts `toggleNightMode`; the host asks this
+ *        window or every open window and sends the others `setNightMode`
  *   QR-10 a deleted run's tab (vscimpb86): a run that is no longer among the quest's runs and still has items keeps
  *        its tab, muted and marked `(deleted run)` in its label and tooltip, with a remove button beside it (codicon
  *        trash, "Remove this deleted run's queue: delete its items"); live runs and `default` never have it; a click
@@ -375,5 +378,27 @@ describe('Prompt Queue editor — one tab per run', () => {
         const block = host.slice(host.indexOf("case 'pickItemStatus':"), host.indexOf("case 'relocateItem':"));
         assert.match(block, /queueStatusChoices\(item\.status\)/);
         assert.match(block, /qm\.changeItemStatus\(id, picked\.status\)/);
+    });
+
+    test('QR-18: night mode', (t) => {
+        const { w, posted } = setup(t, [], { queueTab: 'chg1' }, { nightMode: true });
+        const btn = w.document.getElementById('nightModeBtn');
+        assert.ok(btn, 'the button');
+        const bar = w.document.getElementById('compactionPickers');
+        assert.equal(btn.parentElement, bar, 'in the headline bar');
+        assert.ok(btn.compareDocumentPosition(w.document.getElementById('compactionModelLink')) & 4, 'before the compaction model');
+        assert.equal(btn.getAttribute('aria-pressed'), 'true');
+        assert.match(btn.title, /^Night mode: on/);
+        btn.click();
+        assert.deepEqual(posted.filter((m) => m.type === 'toggleNightMode'), [{ type: 'toggleNightMode' }]);
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: [], nightMode: false } }));
+        assert.equal(btn.getAttribute('aria-pressed'), 'false');
+        assert.match(btn.title, /^Night mode: off/);
+        const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
+        const flow = host.slice(host.indexOf('async function toggleNightModeFlow('), host.indexOf('async function toggleNightModeFlow(') + 1800);
+        assert.match(flow, /in this window/);
+        assert.match(flow, /in every open window/);
+        assert.match(flow, /await setNightMode\(next\)/);
+        assert.match(flow, /sendWindowRequest\(windowId, \{ type: 'setNightMode', on: next \}\)/);
     });
 });

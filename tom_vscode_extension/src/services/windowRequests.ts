@@ -16,7 +16,8 @@
  *   aspect section's choice in the window level, the all-windows change of the
  *   guideline selector; `option` absent: *Don't add*) or `renameAspectChoices`
  *   (a guideline section or option renamed: carry the choices the window holds
- *   in memory over to the new name). The window takes each
+ *   in memory over to the new name) or `setNightMode` (night mode on or off in
+ *   the window, services/nightMode.ts). The window takes each
  *   file, deletes it and carries it out.
  *
  * vscode-free (fs).
@@ -33,7 +34,8 @@ export type WindowRequest =
     | { type: 'answerAsk'; id: string; response: Record<string, unknown>; from?: string }
     | { type: 'resumeRun'; run: string; from?: string }
     | { type: 'setAspectChoice'; section: string; option?: string | string[]; from?: string }
-    | { type: 'renameAspectChoices'; rename: AspectRename; from?: string };
+    | { type: 'renameAspectChoices'; rename: AspectRename; from?: string }
+    | { type: 'setNightMode'; on: boolean; from?: string };
 
 /** What a window does with the requests it is sent. */
 export interface WindowRequestHandlers {
@@ -43,6 +45,8 @@ export interface WindowRequestHandlers {
     setAspectChoice?(section: string, option: string | string[] | undefined): boolean;
     /** A guideline section or option renamed: carry this window's choices in memory over. */
     renameAspectChoices?(rename: AspectRename): boolean;
+    /** Night mode on or off in this window (the all-windows switch of the Prompt Queue's night-mode button). */
+    setNightMode?(on: boolean): boolean;
 }
 
 let rootDir: string | undefined;
@@ -126,7 +130,8 @@ export function takeWindowRequests(handlers: WindowRequestHandlers): number {
                     : request.type === 'setAspectChoice' && handlers.setAspectChoice
                         ? handlers.setAspectChoice(String(request.section), (typeof request.option === 'string' && request.option) || (Array.isArray(request.option) && request.option.length) ? request.option : undefined)
                         : request.type === 'renameAspectChoices' ? takeRename(handlers, request.rename)
-                            : false;
+                            : request.type === 'setNightMode' && handlers.setNightMode ? handlers.setNightMode(request.on === true)
+                                : false;
             if (ok) { done++; }
         } catch { /* a failing handler must not stop the others */ }
     }

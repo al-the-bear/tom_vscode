@@ -33,6 +33,8 @@
      the Status Page's History Compaction dropdowns (compactionPickerState).
      Shared by every run: above the tabs. -->
 <div class="context-bar" id="compactionPickers" style="gap:6px;">
+  <!-- Night mode (services/nightMode.ts): the window-wide chat variable night-mode; a click asks this window or every window. -->
+  <button class="ctx-btn-icon night-mode-btn" id="nightModeBtn" aria-pressed="false" title="Night mode: off"><span class="codicon codicon-moon"></span></button>
   <!-- Label-less choice buttons (gsel22): the chosen model as link text; a click opens VS Code's picker (pickCompactionModel). -->
   <a href="#" class="ctx-link model-choice" id="compactionModelLink" data-pick-model="compaction"><span class="codicon codicon-fold"></span> <span class="model-choice-text"></span></a>
   <a href="#" class="ctx-link model-choice" id="memoryModelLink" data-pick-model="memory"><span class="codicon codicon-lightbulb"></span> <span class="model-choice-text"></span></a>

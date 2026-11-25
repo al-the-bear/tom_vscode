@@ -124,6 +124,7 @@ import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
 import { initAnswersPanel } from './handlers/answersPanel-handler';
 import { applyAspectChoiceRequest, applyAspectRenameRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
+import { initNightMode, setNightMode } from './services/nightMode';
 import { registerAspectSectionEditorCommand } from './handlers/aspectSectionEditor-handler';
 
 // Global manager instance for SendToChatAdvanced
@@ -843,6 +844,8 @@ export async function activate(context: vscode.ExtensionContext) {
     ChatVariablesStore.init(context);
     // The quest's process state; supplies the process chat variables, so after ChatVariablesStore.
     ProcessStateStore.init(context);
+    // Night mode: the window-wide chat variable `night-mode` (the Prompt Queue's headline button).
+    initNightMode(context);
     SessionTodoStore.init(context);
     timeStep('chatEnhancementStores', stepStart);
 
@@ -929,6 +932,8 @@ export async function activate(context: vscode.ExtensionContext) {
             },
             // Another window's all-windows guideline change (gsel4).
             setAspectChoice: (section, option) => applyAspectChoiceRequest(section, option),
+            // Another window switched night mode for every window.
+            setNightMode: (on) => { void setNightMode(on); return true; },
             // Another window renamed a guideline section or option (gsel7b).
             renameAspectChoices: (rename) => applyAspectRenameRequest(rename),
         }, () => { syncRemoteAsks(userInteractions); });

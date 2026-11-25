@@ -332,6 +332,20 @@ function syncCopilotOnlyFields() {
   if (addRow) { addRow.style.display = addTransport === 'copilot' ? '' : 'none'; }
 }
 
+/* Night mode (services/nightMode.ts): the button shows the window's night-mode chat variable; a click asks the host. */
+function renderNightMode(on) {
+  const btn = document.getElementById('nightModeBtn');
+  if (!btn) { return; }
+  btn.classList.toggle('active', !!on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.style.opacity = on ? '1' : '0.55';
+  btn.title = on
+    ? 'Night mode: on — the agents work on without asking, take the decisions themselves and record them for the morning (chat variable night-mode, the Interaction level guideline). Click to switch it off, here or in every window'
+    : 'Night mode: off — click to switch it on (here or in every window): the agents then work on without asking and record the decisions they take for the morning';
+}
+const nightModeBtn = document.getElementById('nightModeBtn');
+if (nightModeBtn) { nightModeBtn.addEventListener('click', function () { vscode.postMessage({ type: 'toggleNightMode' }); }); }
+
 /* The compaction / memory-extraction model buttons open VS Code's picker on the host (gsel22). */
 document.querySelectorAll('[data-pick-model]').forEach(function (a) {
   a.addEventListener('click', function (ev) {
@@ -343,6 +357,7 @@ document.querySelectorAll('[data-pick-model]').forEach(function (a) {
 /* Render immediately from embedded state */
 try {
   renderCompactionPickers(__INITIAL__.compactionPickers);
+  renderNightMode(__INITIAL__.nightMode === true);
   renderAspectToolbar();
   applyRunSettings();
   postSettingsRun();
@@ -405,6 +420,7 @@ window.addEventListener('message', e => {
       applyRunSettings();
       questRefreshActive = msg.questRefreshActive === true;
       renderCompactionPickers(msg.compactionPickers);
+      renderNightMode(msg.nightMode === true);
       aspectState = (msg.aspects && typeof msg.aspects === 'object') ? msg.aspects : null;
       renderAspectToolbar();
       normalizeState();

@@ -175,15 +175,26 @@ export const NIGHT_ASPECT_IDS = ['night_mode', 'night'];
 
 /**
  * The evaluator of `conditions`: the facts first, then the variables;
- * `prompt.night` is the effective choices of the night-mode aspect (resolved
- * without conditions), `''` when there is none or it sends nothing.
+ * `prompt.night` is the effective choices of the night-mode aspect that are
+ * sent — each chosen choice whose own `when` holds (read without
+ * `prompt.night`, e.g. the `night-mode` chat variable of services/nightMode.ts),
+ * none while its `remove_when` holds — `''` when there is none or it sends nothing.
  */
 export function conditionEvaluator(sections: readonly AspectSection[], choices: AspectLevelChoices, conditions: AspectConditionContext): (expression: string) => boolean {
     const facts: Record<string, string> = { ...(conditions.facts as Record<string, string>) };
     if (!facts['prompt.night']) {
         const night = sections.filter((s) => NIGHT_ASPECT_IDS.includes(s.id));
         const r = night.length ? resolveAspects(night, choices).sections[0] : undefined;
-        facts['prompt.night'] = r && !r.removed ? r.options.join(',') : '';
+        const plain = (name: string): string | undefined => (name in facts ? facts[name] : conditions.lookup?.(name));
+        const holds = (expression: string): boolean => { try { return evaluateCondition(expression, plain); } catch { return false; } };
+        const section = night[0];
+        let sent = r && !r.removed ? r.options : [];
+        if (section?.removeWhen && holds(section.removeWhen)) { sent = []; }
+        sent = sent.filter((name) => {
+            const when = section?.options.find((o) => o.name === name)?.when;
+            return when === undefined || holds(when);
+        });
+        facts['prompt.night'] = sent.join(',');
     }
     const lookup = (name: string): string | undefined => (name in facts ? facts[name] : conditions.lookup?.(name));
     return (expression) => evaluateCondition(expression, lookup);

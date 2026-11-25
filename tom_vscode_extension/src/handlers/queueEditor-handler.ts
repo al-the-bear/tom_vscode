@@ -55,6 +55,9 @@ import { todoLogTrailSets } from '../utils/todoLogTrailSets';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
+import { isNightMode, onNightModeChange, setNightMode } from '../services/nightMode';
+import { otherOpenWindows } from './aspectChoiceCommands';
+import { sendWindowRequest, windowRequestsOwnWindow } from '../services/windowRequests';
 import { DEFAULT_RUN_SESSION, runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { canRelocateQueueItem, iteratingSendingItem, queueStatusChoices, type LanePlace } from '../utils/queueStatusChange';
 import { runDefaultFieldsOf, runDefaultPickerEntries, runDefaultsApplySummary, type RunDefaultField, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
@@ -207,6 +210,10 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         sendState();
     });
 
+    // Night mode (services/nightMode.ts): the headline button follows it, also when another window switched it.
+    _nightModeListener?.dispose();
+    _nightModeListener = onNightModeChange(() => sendState());
+
     // Re-push state when a Quest Refresh starts/ends so the webview can show
     // (or hide) its orange "refresh running" banner. The refresh fires outside
     // the queue's own change events, so it needs a separate subscription.
@@ -240,7 +247,37 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         _queueListener = undefined;
         _questRefreshListener?.dispose();
         _questRefreshListener = undefined;
+        _nightModeListener?.dispose();
+        _nightModeListener = undefined;
     });
+}
+
+let _nightModeListener: vscode.Disposable | undefined;
+
+/**
+ * The headline's night-mode button: on or off in this window, or in every open window of this machine (the
+ * window request `setNightMode`). Night mode is the window-wide chat variable `night-mode`; the aspect
+ * `night_mode` (Interaction level) sends its text while it is on.
+ */
+async function toggleNightModeFlow(): Promise<void> {
+    const next = !isNightMode();
+    const word = next ? 'on' : 'off';
+    const picked = await vscode.window.showQuickPick([
+        { label: `$(window) Night mode ${word} in this window`, all: false },
+        { label: `$(multiple-windows) Night mode ${word} in every open window`, description: 'the other windows of this machine too', all: true },
+    ], {
+        title: next ? 'Night mode: work on without asking, record the decisions for the morning' : 'Night mode off: ask again when a decision is needed',
+        placeHolder: 'Where',
+    });
+    if (!picked) { return; }
+    await setNightMode(next);
+    let others = 0;
+    if (picked.all) {
+        for (const windowId of otherOpenWindows(windowRequestsOwnWindow())) {
+            if (sendWindowRequest(windowId, { type: 'setNightMode', on: next })) { others++; }
+        }
+    }
+    vscode.window.setStatusBarMessage(`$(${next ? 'moon' : 'sun'}) Night mode ${word}${picked.all ? ` here and in ${others} other window${others === 1 ? '' : 's'}` : ' in this window'}`, 5000);
 }
 
 // ============================================================================
@@ -349,6 +386,10 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           await vscode.commands.executeCommand('revealInExplorer', uri);
           return;
         }
+        case 'toggleNightMode':
+            await toggleNightModeFlow();
+            sendState();
+            break;
         case 'pickCompactionModel': {
           // The label-less model buttons above the queue (gsel22): VS Code's picker, then the same write as setCompactionModel.
           const purpose = msg.purpose === 'memory' ? 'memory' : 'compaction';
@@ -1924,6 +1965,8 @@ function buildState(): Record<string, unknown> {
         promptTemplates,
         // The compaction / memory-extraction model pickers above the queue,
         // the same state as the Status Page's History Compaction dropdowns.
+        // Night mode (services/nightMode.ts): the headline button's state.
+        nightMode: isNightMode(),
         compactionPickers: (() => {
             try { return compactionPickerState(loadSendToChatConfig() as unknown as CompactionPickerConfig); } catch { return undefined; }
         })(),

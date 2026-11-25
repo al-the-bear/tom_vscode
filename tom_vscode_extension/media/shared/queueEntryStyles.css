@@ -67,6 +67,8 @@
   .ctx-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border-radius: 3px; font-size: 0.8em; white-space: nowrap; }
   .ctx-btn-icon { padding: 2px 4px; border: none; background: transparent; color: var(--fg); cursor: pointer; border-radius: 3px; font-size: 0.85em; opacity: 0.7; }
   .ctx-btn-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+  /* Night mode on (the Prompt Queue headline): the moon lit. */
+  .night-mode-btn.active { background: var(--vscode-inputOption-activeBackground, rgba(0,127,212,0.4)); color: var(--vscode-inputOption-activeForeground, var(--fg)); }
   /* Two icons of the same size side by side, as the @CHAT action bar's queue buttons. */
   .ctx-btn-double { display: inline-flex; gap: 0; align-items: center; }
   /* gsel22: label-less choice buttons (the model links above the queue) and the quest / workspace icon groups. */

@@ -69,7 +69,7 @@ export function clearWorkspaceDefaultGuidelines(): string {
 }
 
 /** The other open windows on this machine. */
-function otherOpenWindows(own: string | undefined): string[] {
+export function otherOpenWindows(own: string | undefined): string[] {
     const now = Date.now();
     const states = loadAllWindowStates().map((s) => {
         const state = s as unknown as { windowId?: string; heartbeat?: string };
