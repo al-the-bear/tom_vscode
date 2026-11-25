@@ -217,8 +217,6 @@ export interface ResetToPendingItem {
     warning?: QueueItemWarningLike;
     requestId?: string;
     expectedRequestId?: string;
-    reminderSentCount?: number;
-    lastReminderAt?: string | undefined;
     sentAt?: string;
     /**
      * Snapshot of the last dispatch — preserved across the reset so
@@ -270,8 +268,6 @@ export function applyResetToPending(item: ResetToPendingItem): boolean {
     item.warning = undefined;
     item.requestId = undefined;
     item.expectedRequestId = undefined;
-    item.reminderSentCount = 0;
-    item.lastReminderAt = undefined;
     item.sentAt = undefined;
 
     // Roll back the counter for the stage that was in flight when
@@ -445,8 +441,6 @@ export interface InterruptForContinuationItem {
     requestId?: string;
     expectedRequestId?: string;
     sentAt?: string;
-    reminderSentCount?: number;
-    lastReminderAt?: string;
     inFlightRepetition?: unknown;
     awaitingAnswer?: boolean;
     error?: string;
@@ -476,7 +470,7 @@ export interface InterruptForContinuationResult {
  * rep that was actually dispatched.
  *
  * Only transient send-tracking is cleared — the answer-file expectation,
- * reminders, a stale error string. Counters, pre-prompt statuses,
+ * a stale error string. Counters, pre-prompt statuses,
  * `followUpIndex` and `lastDispatched` are preserved untouched.
  */
 export function applyInterruptForContinuation(item: InterruptForContinuationItem): InterruptForContinuationResult {
@@ -489,8 +483,6 @@ export function applyInterruptForContinuation(item: InterruptForContinuationItem
     item.requestId = undefined;
     item.expectedRequestId = undefined;
     item.sentAt = undefined;
-    item.reminderSentCount = 0;
-    item.lastReminderAt = undefined;
     item.inFlightRepetition = undefined;
     item.error = undefined;
     return { transitioned: true, canResend };

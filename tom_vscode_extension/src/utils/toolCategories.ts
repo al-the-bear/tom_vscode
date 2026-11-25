@@ -219,12 +219,6 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_transferTodos',
         'tomAi_updateQuestTodo',
     ],
-    'Reminders': [
-        'tomAi_createReminderTemplate',
-        'tomAi_deleteReminderTemplate',
-        'tomAi_listReminderTemplates',
-        'tomAi_updateReminderTemplate',
-    ],
     'Session Todos': [
         'tomAi_addSessionTodo',
         'tomAi_deleteSessionTodo',

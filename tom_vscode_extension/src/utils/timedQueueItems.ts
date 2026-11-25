@@ -14,7 +14,7 @@
 const LEGACY_TIMED_TEMPLATE = /^timed:(.+)$/;
 
 /** The kind of a queue item. */
-export type QueueItemKind = 'normal' | 'timed' | 'reminder';
+export type QueueItemKind = 'normal' | 'timed';
 
 /** What an entry file says about an item's kind and template. */
 export interface QueueItemKindRead {
@@ -34,7 +34,8 @@ export function queueItemKindFromYaml(meta: Record<string, unknown>, template: u
     if (legacy) {
         return { type: 'timed', template: '(None)', timedEntryId: legacy[1] };
     }
-    const type: QueueItemKind = meta.type === 'timed' || meta.type === 'reminder' ? meta.type : 'normal';
+    // A stored `type: reminder` (the removed reminder items) is read as a normal item.
+    const type: QueueItemKind = meta.type === 'timed' ? 'timed' : 'normal';
     const entryId = typeof meta['timed-entry-id'] === 'string' && meta['timed-entry-id'] ? meta['timed-entry-id'] : undefined;
     return { type, template: written, ...(type === 'timed' && entryId ? { timedEntryId: entryId } : {}) };
 }

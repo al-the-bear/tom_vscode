@@ -76,10 +76,6 @@ export interface PrePromptSpec {
     template?: string;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -90,10 +86,6 @@ export interface FollowUpSpec {
     template?: string;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -124,10 +116,6 @@ export interface QueueItemSnapshot {
     expectedRequestId?: string;
     createdAt: number;
     sentAt?: number;
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
@@ -187,7 +175,7 @@ export interface QueueItemSnapshot {
  */
 export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
     'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
-    'createdAt', 'sentAt', 'reminderEnabled', 'reminderTemplateId', 'reminderTimeoutMinutes', 'reminderRepeat',
+    'createdAt', 'sentAt',
     'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'role', 'guidelines', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
@@ -232,10 +220,6 @@ export interface EnqueueInput {
     answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
     walkContinuations?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -306,12 +290,6 @@ export interface PromptQueueAccess {
 
     updateText(id: string, text: string): Promise<void>;
     updateItemTemplateAndWrapper(id: string, opts: { template?: string; answerWrapper?: boolean }): Promise<void>;
-    updateItemReminder(id: string, opts: {
-        reminderEnabled?: boolean;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-    }): void;
     /** A GROUP item's members with their markers (vscimpb129); undefined for another item. Unset: not shown. */
     groupMembers?(id: string): GroupMemberView[] | undefined;
     /** Check exactly these members of a GROUP item (vscimpb129); false when refused. Unset: not offered. */
@@ -477,10 +455,6 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         expectedRequestId: i.expectedRequestId || null,
         createdAt: i.createdAt,
         sentAt: i.sentAt || null,
-        reminderEnabled: !!i.reminderEnabled,
-        reminderTemplateId: i.reminderTemplateId || null,
-        reminderTimeoutMinutes: i.reminderTimeoutMinutes ?? null,
-        reminderRepeat: !!i.reminderRepeat,
         followUpIndex: i.followUpIndex || 0,
         followUpCount: i.followUps?.length ?? 0,
         textPreview: String(i.originalText || '').slice(0, 160),
@@ -533,10 +507,6 @@ export interface AddQueueItemInput {
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
     }> : never;
     repeatCount?: number | string;
     repeatPrefix?: string;
@@ -545,10 +515,6 @@ export interface AddQueueItemInput {
     answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
     walkContinuations?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -659,10 +625,6 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             answerWaitMinutes: input.answerWaitMinutes,
             ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
             ...(input.walkContinuations !== undefined ? { walkContinuations: input.walkContinuations } : {}),
-            reminderTemplateId: input.reminderTemplateId,
-            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-            reminderRepeat: input.reminderRepeat,
-            reminderEnabled: input.reminderEnabled,
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
@@ -677,10 +639,6 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
                 template: f.template,
                 repeatCount: f.repeatCount,
                 answerWaitMinutes: f.answerWaitMinutes,
-                reminderTemplateId: f.reminderTimeoutMinutes !== undefined ? f.reminderTemplateId : f.reminderTemplateId,
-                reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-                reminderRepeat: f.reminderRepeat,
-                reminderEnabled: f.reminderEnabled,
             })),
         });
         return ok({
@@ -734,10 +692,6 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             answerWaitMinutes: { type: 'number' },
             backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h)." },
             walkContinuations: { type: 'number', description: "Continuations a `<prefix>*` walk iteration gets when its todo is not completed after the turn (sent into the same session; then the item stops as needs attention). Unset: the queue's walk-continuations, default 2; 0 = none." },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
-            reminderEnabled: { type: 'boolean' },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
@@ -1006,10 +960,6 @@ export interface UpdateQueueItemInput {
     text?: string;
     template?: string;
     answerWrapper?: boolean;
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
@@ -1059,15 +1009,6 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             await access.updateItemTemplateAndWrapper(input.queueItemId, {
                 template: input.template,
                 answerWrapper: input.answerWrapper,
-            });
-        }
-        if (input.reminderEnabled !== undefined || input.reminderTemplateId !== undefined ||
-            input.reminderTimeoutMinutes !== undefined || input.reminderRepeat !== undefined) {
-            access.updateItemReminder(input.queueItemId, {
-                reminderEnabled: input.reminderEnabled,
-                reminderTemplateId: input.reminderTemplateId,
-                reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-                reminderRepeat: input.reminderRepeat,
             });
         }
         if (input.repeatCount !== undefined || input.repeatPrefix !== undefined ||
@@ -1159,7 +1100,6 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             status: updated?.status,
             template: updated?.template,
             answerWrapper: !!updated?.answerWrapper,
-            reminderEnabled: !!updated?.reminderEnabled,
             repeatCount: updated?.repeatCount ?? null,
             templateRepeatCount: updated?.templateRepeatCount ?? null,
             answerWaitMinutes: updated?.answerWaitMinutes ?? null,
@@ -1203,10 +1143,6 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             text: { type: 'string' },
             template: { type: 'string' },
             answerWrapper: { type: 'boolean' },
-            reminderEnabled: { type: 'boolean' },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
             repeatCount: { description: REPEAT_COUNT_DOC },
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
@@ -1341,10 +1277,6 @@ export interface UpdateQueuePrePromptInput {
     template?: string;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -1362,10 +1294,6 @@ export async function updateQueuePrePromptImpl(access: PromptQueueAccess, input:
             template: input.template,
             repeatCount: input.repeatCount,
             answerWaitMinutes: input.answerWaitMinutes,
-            reminderTemplateId: input.reminderTemplateId,
-            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-            reminderRepeat: input.reminderRepeat,
-            reminderEnabled: input.reminderEnabled,
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
@@ -1398,10 +1326,6 @@ export const UPDATE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdateQueuePrePr
             template: { type: 'string' },
             repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
-            reminderEnabled: { type: 'boolean' },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
@@ -1462,10 +1386,6 @@ export interface AddQueueFollowUpInput {
     template?: string;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -1485,10 +1405,6 @@ export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: Add
         const follow = access.addFollowUpPrompt(item.id, {
             originalText: input.text,
             template: input.template,
-            reminderTemplateId: input.reminderTemplateId,
-            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-            reminderRepeat: input.reminderRepeat,
-            reminderEnabled: input.reminderEnabled,
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
@@ -1540,10 +1456,6 @@ export const ADD_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<AddQueueFollowUpInpu
             template: { type: 'string' },
             repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
-            reminderEnabled: { type: 'boolean' },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
@@ -1559,10 +1471,6 @@ export interface UpdateQueueFollowUpInput {
     followUpId: string;
     text?: string;
     template?: string;
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
     repeatCount?: number | string;
     answerWaitMinutes?: number;
     transport?: QueueTransport;
@@ -1580,10 +1488,6 @@ export async function updateQueueFollowUpImpl(access: PromptQueueAccess, input: 
         const ok2 = access.updateFollowUpPrompt(input.queueItemId, input.followUpId, {
             originalText: input.text,
             template: input.template,
-            reminderEnabled: input.reminderEnabled,
-            reminderTemplateId: input.reminderTemplateId,
-            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-            reminderRepeat: input.reminderRepeat,
             repeatCount: input.repeatCount,
             answerWaitMinutes: input.answerWaitMinutes,
             transport: input.transport,
@@ -1618,10 +1522,6 @@ export const UPDATE_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<UpdateQueueFollow
             followUpId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
-            reminderEnabled: { type: 'boolean' },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
             repeatCount: { description: REPEAT_COUNT_DOC },
             answerWaitMinutes: { type: 'number' },
             transport: { type: 'string', enum: ['copilot', 'anthropic'] },

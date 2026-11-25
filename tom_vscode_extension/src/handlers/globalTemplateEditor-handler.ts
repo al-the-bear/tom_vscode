@@ -8,7 +8,6 @@
  * Categories:
  *   1. Copilot — Queue Wrapper       — config.copilot.queueWrapper (one item)
  *   1b. Todo — Done Notification     — config.todoPanel.doneNotificationTemplate (one item)
- *   2. Reminder Templates            — config.reminders.templates
  *   3. Timed Requests                — config.timedRequests
  *   4. Anthropic — Profiles          — config.anthropic.profiles
  *   5. Anthropic — User Message      — config.anthropic.userMessageTemplates
@@ -57,7 +56,6 @@ const TODO_DONE_NOTIFICATION_ITEM_ID = 'todoDoneNotification';
 export type TemplateCategory =
     | 'copilotQueueWrapper'
     | 'todoDoneNotification'
-    | 'reminder'
     | 'timedRequests'
     | 'anthropicProfiles'
     | 'anthropicUserMessage'
@@ -70,7 +68,6 @@ export type TemplateCategory =
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
     copilotQueueWrapper: 'Copilot — Queue Wrapper',
     todoDoneNotification: 'Todo — Done Notification',
-    reminder: 'Reminder',
     timedRequests: 'Timed Requests',
     anthropicProfiles: 'Anthropic — Profiles',
     anthropicUserMessage: 'Anthropic — User Message',
@@ -246,9 +243,6 @@ function _getItemsForCategory(config: SendToChatConfig, category: TemplateCatego
             return [{ id: QUEUE_WRAPPER_ITEM_ID, label: 'Copilot Queue Wrapper' }];
         case 'todoDoneNotification':
             return [{ id: TODO_DONE_NOTIFICATION_ITEM_ID, label: 'Todo Done Notification' }];
-        case 'reminder':
-            return ((config as any).reminders?.templates || [])
-                .map((t: any) => ({ id: t.id, label: t.name || t.id }));
         case 'timedRequests':
             return ((config as any).timedRequests || [])
                 .map((t: any, i: number) => ({
@@ -295,18 +289,6 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
             const placeholders = TODO_DONE_NOTIFICATION_PLACEHOLDERS.map(([p, what]) => `<code>${p}</code> ${what}`).join('<br>');
             fields.push(
                 { name: 'template', label: 'Notification', type: 'textarea', value: todoDoneNotificationTemplate(config) ?? '', help: 'The text of a todo\'s done notification: queued when a todo whose After done (on_done) asks for <strong>notify</strong> is completed and has no notify prompt of its own. It goes into the run and session that queued the todo — the agent session that queued it with a tool, or the run and session chosen in the todo panel while its <strong>Done notification</strong> box is on. A todo without After done notify gets none. While this is empty there is no notification text: a todo with notify but no notify prompt gets none, and the todo panel\'s Done notification box is disabled.<br><br>' + placeholders + '<br><br>Saving it empty, or Delete, removes it.' },
-            );
-            break;
-        }
-        case 'reminder': {
-            const templates: any[] = (config as any).reminders?.templates || [];
-            const tpl = templates.find((t: any) => t.id === itemId);
-            if (!tpl) break;
-            fields.push(
-                { name: 'id', label: 'ID', type: 'text', value: tpl.id, readonly: true },
-                { name: 'name', label: 'Name', type: 'text', value: tpl.name || '' },
-                { name: 'prompt', label: 'Prompt Template', type: 'textarea', value: tpl.prompt || '', help: 'Use {{timeoutMinutes}} for the timeout value.' },
-                { name: 'isDefault', label: 'Is Default', type: 'checkbox', value: String(tpl.isDefault === true) },
             );
             break;
         }
@@ -643,24 +625,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             }
             break;
         }
-        case 'reminder': {
-            if (!(config as any).reminders) (config as any).reminders = {};
-            const templates: any[] = (config as any).reminders.templates || [];
-            const idx = templates.findIndex((t: any) => t.id === itemId);
-            if (idx >= 0) {
-                templates[idx] = {
-                    ...templates[idx],
-                    name: values.name || templates[idx].name,
-                    prompt: values.prompt || '',
-                    isDefault: values.isDefault === 'true',
-                };
-                // If marked as default, un-default others
-                if (values.isDefault === 'true') {
-                    templates.forEach((t: any, i: number) => { if (i !== idx) t.isDefault = false; });
-                }
-            }
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             const idx = requests.findIndex((r: any) => r.id === itemId);
@@ -962,13 +926,6 @@ async function _addItem(category: TemplateCategory): Promise<void> {
     if (!config) return;
 
     switch (category) {
-        case 'reminder': {
-            if (!(config as any).reminders) (config as any).reminders = {};
-            const templates: any[] = (config as any).reminders.templates || [];
-            templates.push({ id: name, name, prompt: '', isDefault: false });
-            (config as any).reminders.templates = templates;
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             const { v4: uuidv4 } = require('uuid');
@@ -1098,7 +1055,6 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
     switch (category) {
         case 'copilotQueueWrapper':   return new Set([QUEUE_WRAPPER_ITEM_ID]);
         case 'todoDoneNotification':  return new Set([TODO_DONE_NOTIFICATION_ITEM_ID]);
-        case 'reminder':              return new Set(((config as any).reminders?.templates ?? []).map((t: any) => t.id));
         case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
         case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
         case 'anthropicUserMessage':  return new Set((config.anthropic?.userMessageTemplates ?? []).map((t) => t.id));
@@ -1140,13 +1096,6 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
     const targetId = newId.trim();
 
     switch (category) {
-        case 'reminder': {
-            const templates: any[] = (config as any).reminders?.templates || [];
-            const src = templates.find((t: any) => t.id === itemId);
-            if (!src) return;
-            templates.push({ ...JSON.parse(JSON.stringify(src)), id: targetId, name: targetId, isDefault: false });
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             const src = requests.find((r: any) => r.id === itemId);
@@ -1258,14 +1207,6 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
     const targetId = newId.trim();
 
     switch (category) {
-        case 'reminder': {
-            const tpls: any[] = (config as any).reminders?.templates || [];
-            const entry = tpls.find((t: any) => t.id === itemId);
-            if (!entry) return;
-            entry.id = targetId;
-            if (entry.name === itemId) { entry.name = targetId; }
-            break;
-        }
         case 'timedRequests': {
             const reqs: any[] = (config as any).timedRequests || [];
             const entry = reqs.find((r: any) => r.id === itemId);
@@ -1346,8 +1287,6 @@ async function _renameItem(category: TemplateCategory, itemId: string): Promise<
 function _categoryArray(config: SendToChatConfig, category: TemplateCategory): { items: any[]; idOf(item: any, index: number): string; set(next: any[]): void } | undefined {
     const byId = (item: any): string => String(item?.id ?? '');
     switch (category) {
-        case 'reminder':
-            return { items: (config as any).reminders?.templates ?? [], idOf: byId, set: (next) => { ((config as any).reminders ??= {}).templates = next; } };
         case 'timedRequests':
             return { items: (config as any).timedRequests ?? [], idOf: (item, i) => String(item?.id || i), set: (next) => { (config as any).timedRequests = next; } };
         case 'anthropicProfiles':
@@ -1408,12 +1347,6 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
         case 'todoDoneNotification':
             if (config.todoPanel) { delete config.todoPanel.doneNotificationTemplate; }
             break;
-        case 'reminder': {
-            const templates: any[] = (config as any).reminders?.templates || [];
-            if (!(config as any).reminders) (config as any).reminders = {};
-            (config as any).reminders.templates = templates.filter((t: any) => t.id !== itemId);
-            break;
-        }
         case 'timedRequests': {
             const requests: any[] = (config as any).timedRequests || [];
             (config as any).timedRequests = requests.filter((r: any) => r.id !== itemId);

@@ -10,7 +10,7 @@
  *        back, so the engine still finds its item after a reload
  *   TT-4 an entry file of an earlier build (template `timed:<entry id>`) reads as a timed item of that entry with
  *        no template, and the engine finds it
- *   TT-5 queueItemKindFromYaml / isTimedItemOf: plain, reminder and timed items; a meta entry id on a non-timed
+ *   TT-5 queueItemKindFromYaml / isTimedItemOf: plain and timed items (a stored `reminder` type reads as plain); a meta entry id on a non-timed
  *        item is ignored
  */
 
@@ -43,7 +43,6 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine, type TimedRequest } from '../../managers/timerEngine.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -67,12 +66,11 @@ const subscriptions: Array<{ dispose(): void }> = [];
     setExtensionPath(EXT_ROOT);
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
 })();
 after(() => {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }
@@ -176,7 +174,7 @@ describe('a timed request\'s template', () => {
     test('TT-5: the helpers', () => {
         assert.deepEqual(queueItemKindFromYaml({}, 'wrapT'), { type: 'normal', template: 'wrapT' });
         assert.deepEqual(queueItemKindFromYaml({}, undefined), { type: 'normal', template: '(None)' });
-        assert.deepEqual(queueItemKindFromYaml({ type: 'reminder' }, '(None)'), { type: 'reminder', template: '(None)' });
+        assert.deepEqual(queueItemKindFromYaml({ type: 'reminder' }, '(None)'), { type: 'normal', template: '(None)' }, 'a stored reminder item (removed) reads as a normal one');
         assert.deepEqual(queueItemKindFromYaml({ type: 'timed', 'timed-entry-id': 'e1' }, 'wrapT'), { type: 'timed', template: 'wrapT', timedEntryId: 'e1' });
         assert.deepEqual(queueItemKindFromYaml({}, 'timed:e2'), { type: 'timed', template: '(None)', timedEntryId: 'e2' });
         assert.deepEqual(queueItemKindFromYaml({ 'timed-entry-id': 'e3' }, 'x'), { type: 'normal', template: 'x' }, 'not timed: no entry id');

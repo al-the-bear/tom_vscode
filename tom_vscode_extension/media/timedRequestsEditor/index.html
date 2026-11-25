@@ -18,7 +18,6 @@
 <div class="context-bar">
   <span id="contextSummary" class="context-summary"></span>
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
-  <button class="ctx-btn-icon" onclick="openReminderSettings()" title="Reminder settings: the alive check and the default reminder template (Status Page)"><span class="codicon codicon-bell"></span></button>
   <button class="ctx-btn-icon" onclick="showFile()" title="Show YAML file"><span class="codicon codicon-go-to-file"></span></button>
 </div>
 <div class="toolbar">
@@ -70,25 +69,6 @@
       <label>Su<input type="checkbox" data-day="0" checked/></label>
     </span>
     <span style="font-size:0.75em;opacity:0.6;margin-left:4px;">(all = any day)</span>
-  </div>
-  <label>Reminder</label>
-  <div class="schedule-row">
-    <label style="display:inline;"><input type="checkbox" id="addReminderEnabled"/> Enabled</label>
-    <select id="addReminder"><option value="">Global Default</option></select>
-    <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
-    <button class="ctx-btn-icon" onclick="editReminderTemplate('addReminder')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
-    <button class="ctx-btn-icon" onclick="deleteReminderTemplate('addReminder')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
-    <span style="font-size:0.8em;opacity:0.85;">Wait:</span>
-    <select id="addReminderTimeout">
-      <option value="5">5 min</option>
-      <option value="10">10 min</option>
-      <option value="15">15 min</option>
-      <option value="30">30 min</option>
-      <option value="60" selected>60 min</option>
-      <option value="120">120 min</option>
-      <option value="240">240 min</option>
-      <option value="480">480 min</option>
-    </select>
   </div>
   <div class="entry-sections">
     <div class="entry-section">

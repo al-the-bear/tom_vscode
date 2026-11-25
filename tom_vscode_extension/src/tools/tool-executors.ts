@@ -1258,7 +1258,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     MEMORY_LIST_TOOL,
 
     // --- Families defined in dedicated files ---
-    ...CHAT_ENHANCEMENT_TOOLS,  // quest/session todos, notify, queue, timed, templates, reminders
+    ...CHAT_ENHANCEMENT_TOOLS,  // quest/session todos, notify, queue, timed, templates
     LIST_REPOSITORIES_TOOL,     // the repositories of the root's repos.yaml (read-only)
     ...EDITOR_CONTEXT_TOOLS,    // getWorkspaceInfoFull, getActiveEditor, getOpenEditors
     ...MD_BROWSER_TOOLS,        // listMdBrowserPanels

@@ -125,7 +125,7 @@ export function logTimed(message: string): void {
 
 /**
  * Log an error (with optional stack trace) to the queue channel.
- * Intended for try-catch blocks in promptQueueManager / reminderSystem.
+ * Intended for try-catch blocks in promptQueueManager.
  */
 export function logQueueError(context: string, error: unknown): void {
     if (!_loggingEnabled) { return; }

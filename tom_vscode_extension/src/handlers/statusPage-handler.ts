@@ -19,7 +19,6 @@ import { binaryFileName, currentDartBinariesStatus, DART_BINARY_FEATURE, HELP_CO
 import { BUILD_TOOL_PURPOSE, buildToolFileName, type BuildToolSource } from '../services/buildTools';
 import { resetUsage, usageSummary } from '../services/usageLedgerService';
 import { usageSectionHtml } from '../utils/usageSection';
-import { parseReminderTimeout, reminderSettingsHtml, type ReminderSettingsModel } from '../utils/reminderSettingsSection';
 import { extensionToolsOverviewHtml, toolById } from '../utils/extensionToolsCatalog';
 import { compactionPickerState, parseCompactionTarget, resolveCompactionTarget, type CompactionPickerConfig } from '../utils/compactionTarget';
 import type { UsageSummary } from '../utils/usageLedger';
@@ -1060,42 +1059,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             } catch { /* not initialised */ }
             break;
         }
-        // The alive check and the window's run's default reminder template (the Queue & Timer section).
-        case 'setReminderOn':
-        case 'setReminderOff': {
-            try {
-                const { ReminderSystem } = await import('../managers/reminderSystem.js');
-                ReminderSystem.instance?.updateConfig({ enabled: action === 'setReminderOn' });
-            } catch { /* not initialised */ }
-            await refreshStatusPage();
-            break;
-        }
-        case 'saveReminderSettings': {
-            const minutes = parseReminderTimeout(message?.timeoutMinutes);
-            if (minutes === undefined) {
-                vscode.window.showWarningMessage('Alive check: the timeout is a whole number of minutes, at least 1.');
-                break;
-            }
-            try {
-                const { ReminderSystem } = await import('../managers/reminderSystem.js');
-                ReminderSystem.instance?.updateConfig({ defaultTimeoutMinutes: minutes });
-            } catch { /* not initialised */ }
-            try {
-                const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-                const templateId = String(message?.templateId ?? '').trim();
-                PromptQueueManager.instance.setRunQueueSettings(undefined, { defaultReminderTemplateId: templateId || undefined });
-            } catch { /* not initialised */ }
-            vscode.window.showInformationMessage(`Reminders: the alive check reminds after ${minutes} minute${minutes === 1 ? '' : 's'}`);
-            await refreshStatusPage();
-            break;
-        }
-        case 'editReminderTemplates': {
-            await vscode.commands.executeCommand('tomAi.editor.promptTemplates', {
-                category: 'reminder',
-                itemId: message?.itemId || undefined,
-            });
-            break;
-        }
         case 'saveReloadPromptAfterReload': {
             const questId = WsPaths.getWorkspaceQuestId();
             const settings = readQueueSettings() || {};
@@ -1773,8 +1736,6 @@ export interface StatusData {
     timer: {
         timerActivated: boolean;
     };
-    /** The alive check and the window's run's default reminder template. */
-    reminders: ReminderSettingsModel;
     cliServer: {
         running: boolean;
         port?: number;
@@ -2023,26 +1984,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         timerActivated = TimerEngine.instance.timerActivated;
         schedule = [...TimerEngine.instance.schedule];
     } catch { /* not initialised yet */ }
-    const reminders: ReminderSettingsModel = {
-        enabled: true, timeoutMinutes: 5, run: queueRun, fallbackTemplateId: 'default', templates: [],
-    };
-    try {
-        const { ReminderSystem } = await import('../managers/reminderSystem.js');
-        const rs = ReminderSystem.instance;
-        if (rs) {
-            reminders.enabled = rs.config.enabled;
-            reminders.timeoutMinutes = rs.config.defaultTimeoutMinutes;
-            reminders.fallbackTemplateId = rs.config.defaultTemplateId;
-            reminders.templates = rs.templates.map((t) => ({ id: t.id, name: t.name }));
-        }
-    } catch { /* not initialised yet */ }
-    try {
-        const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-        reminders.runDefaultTemplateId = PromptQueueManager.instance.defaultReminderTemplateId;
-    } catch { /* not initialised yet */ }
-
     return {
-        reminders,
         queue: {
             run: queueRun,
             pausedRuns: queuePausedRuns,
@@ -2579,7 +2521,6 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
                 <button class="sp-btn ${!status.timer.timerActivated ? 'primary' : ''}" data-status-action="setTimerOff">Off</button>
             </div>
         </div>
-        ${reminderSettingsHtml(status.reminders)}
         <div class="sp-settings-row" style="align-items:flex-start">
             <label style="padding-top:2px">After Reload:</label>
             <label style="display:inline-flex;align-items:center;gap:4px;color:var(--vscode-foreground)">

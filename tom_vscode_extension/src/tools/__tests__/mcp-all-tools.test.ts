@@ -212,7 +212,6 @@ import type { ResolvedMcpServerSettings } from '../../utils/sendToChatConfig.js'
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
 import { SessionTodoStore } from '../../managers/sessionTodoStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TrailService } from '../../services/trailService.js';
@@ -263,7 +262,6 @@ function inputs(): Record<string, Input> {
     const queued = (p: Record<string, Json>) => find(p.tomAi_addQueueItem, 'id');
     const followUp = (p: Record<string, Json>) => find(p.tomAi_addQueueFollowUp?.followUps ?? p.tomAi_addQueueFollowUp, 'followUpId', 'id');
     const timed = (p: Record<string, Json>) => find(p.tomAi_addTimedRequest, 'id', 'entryId');
-    const reminder = (p: Record<string, Json>) => find(p.tomAi_createReminderTemplate, 'id');
     const sessionTodo = (p: Record<string, Json>) => find(p.tomAi_addSessionTodo, 'id');
     const handle = (p: Record<string, Json>) => find(p.tomAi_runCommandStream, 'handle');
     return {
@@ -284,9 +282,6 @@ function inputs(): Record<string, Input> {
         tomAi_addTimedRequest: { text: 'a timed prompt from the MCP test', intervalMinutes: 60 },
         tomAi_updateTimedRequest: (p: Record<string, Json>) => ({ entryId: timed(p), patch: { intervalMinutes: 90 } }),
         tomAi_removeTimedRequest: (p: Record<string, Json>) => ({ entryId: timed(p) }),
-        tomAi_createReminderTemplate: { name: 'MCP test reminder', prompt: 'Still there after {{waitingMinutes}} minutes?' },
-        tomAi_updateReminderTemplate: (p: Record<string, Json>) => ({ id: reminder(p), name: 'MCP test reminder, renamed' }),
-        tomAi_deleteReminderTemplate: (p: Record<string, Json>) => ({ id: reminder(p) }),
         tomAi_createPromptTemplate: { name: 'mcp-test', template: 'Sandbox: ${originalPrompt}' },
         tomAi_updatePromptTemplate: { name: 'mcp-test', template: 'Sandbox, changed: ${originalPrompt}' },
         tomAi_deletePromptTemplate: { name: 'mcp-test' },
@@ -540,7 +535,7 @@ function gitStatus(dir: string): string {
  * The extension's stores, started as activation starts them, on a context whose
  * storage lives in the sandbox — so the tools that keep their state there
  * (chat variables, session todos, the process position, the queue, timed
- * requests, reminder templates) run their real writes.
+ * requests) run their real writes.
  */
 const subscriptions: Array<{ dispose(): unknown }> = [];
 // ---------------------------------------------------------------------------
@@ -669,12 +664,11 @@ function startStores(): void {
     ProcessStateStore.init(context);
     SessionTodoStore.init(context);
     TrailService.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
 }
 function stopStores(): void {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }

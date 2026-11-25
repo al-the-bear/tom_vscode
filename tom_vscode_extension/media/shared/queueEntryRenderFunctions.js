@@ -8,7 +8,7 @@ var QUEUE_RELOCATABLE_STATUSES = ['staged', 'pending', 'error', 'waiting', 'retr
 /* eslint-disable no-undef */
 // queueEntryRenderFunctions — extracted verbatim from queueEntryRenderFunctions() in src/handlers/queueEntryComponent.ts (Phase B.13 webview
 // restructuring). This is a host-scope mixin: its functions reference page
-// globals (currentItems, vscode, detailsExpanded, reminderTemplates, editorMode,
+// globals (currentItems, vscode, detailsExpanded, editorMode,
 // render, …) declared by the host panel main.js (media/queueEditor or media/queueTemplateEditor), so no-undef is disabled. Promoted to media/shared in B.14 (used by both editors).
 // Both the queue editor and the queue template editor load this file as a
 // <script src> from media/shared/ (loader {{sharedUri}}), keeping one source of truth.
@@ -40,10 +40,9 @@ function renderEntry(item, idx) {
   var isChat = safeStatus === 'chat' || safeStatus === 'chat-sent';
   var isChatRunning = safeStatus === 'chat';
   var queuePos = idx + 1;
-  var typeIconClass = item.type === 'timed' ? 'codicon-watch' : item.type === 'reminder' ? 'codicon-bell' : 'codicon-comment';
+  var typeIconClass = item.type === 'timed' ? 'codicon-watch' : 'codicon-comment';
   var cls = [safeStatus];
   if (isChat) cls.push('chat-item');
-  if (item.type === 'reminder') cls.push('reminder');
   // Yellow left border for items carrying an interruption warning
   // (rate limit / quota / overloaded / cancelled / interrupted).
   if ((item.warning && item.warning.kind) || (Array.isArray(item.apiKeyWarnings) && item.apiKeyWarnings.length > 0)) cls.push('warned');
@@ -68,7 +67,6 @@ function renderEntry(item, idx) {
   var isRetry = safeStatus === 'retry';
   var isInterrupted = safeStatus === 'interrupted';
   var isTodoBlocked = safeStatus === 'todo-blocked';
-  var reminderEnabled = item.reminderEnabled !== false;
   var pauseAfter = item.pauseAfter === true;
   var isEditable = editorMode === 'template' || isStaged;
   // A pending item's text opened for editing in the queue editor (queueTextEdits,
@@ -76,7 +74,7 @@ function renderEntry(item, idx) {
   var textEditDraft = (isPending && typeof queueTextEdits !== 'undefined' && queueTextEdits && Object.prototype.hasOwnProperty.call(queueTextEdits, item.id))
     ? queueTextEdits[item.id] : undefined;
   var isMainPromptActive = safeStatus === 'sending' && !!item.requestId && (item.followUpIndex || 0) === 0;
-  var statusBarCls = item.type === 'reminder' ? 'reminder' : isChat ? 'chat-kind' + (isChatRunning ? ' running' : '') : safeStatus;
+  var statusBarCls = isChat ? 'chat-kind' + (isChatRunning ? ' running' : '') : safeStatus;
   // The label: status and kind in one (vscimpb128: PENDING TODO, SENDING GROUP, STAGED PROMPT, …;
   // queueStatusKindLabel in queueEntryUtils.js), then what holds or delays it (`stateDetail`).
   var stateWord = safeStatus;
@@ -151,7 +149,7 @@ function renderEntry(item, idx) {
   var queueActive = (typeof autoSend !== 'undefined' && autoSend === true)
     || (typeof currentItems !== 'undefined' && Array.isArray(currentItems)
         && currentItems.some(function(it) { return it && it.status === 'sending' && it.awaitingAnswer; }));
-  if (!queueActive && item.type !== 'reminder' && (isSending || isPending)) {
+  if (!queueActive && (isSending || isPending)) {
     statusBarCls += ' idle';
   }
 
@@ -260,7 +258,6 @@ function renderEntry(item, idx) {
   /* --- Template picker row --- */
   var templateRow = '';
   if (isEditable) {
-    var noReminderSelected = item.reminderEnabled === false && !item.reminderTemplateId;
     var repeatPrefix = (typeof item.repeatPrefix === 'string') ? item.repeatPrefix : '';
     var repeatSuffix = (typeof item.repeatSuffix === 'string') ? item.repeatSuffix : '';
     var templateRepeatCountRaw = item.templateRepeatCount;
@@ -270,7 +267,7 @@ function renderEntry(item, idx) {
     // templates store; Copilot items stay on the Copilot store.
     // Queue-template editor (editorMode='template') no longer exposes
     // a per-item template — all main prompts inherit the queue-level
-    // template at queue-dispatch time. Reminder dropdown stays.
+    // template at queue-dispatch time.
     var mpIsAnthropic = item.transport === 'anthropic';
     var mpTplOptions = mpIsAnthropic
       ? (anthropicUserMessageTemplates || []).map(function(t) {
@@ -288,20 +285,10 @@ function renderEntry(item, idx) {
            mpTplOptions +
          '</select>')
       : '';
-    // The reminder and the answer wait act on Copilot answer files only: shown for a Copilot item.
+    // The answer wait acts on Copilot answer files only: shown for a Copilot item.
     var itemIsCopilot = stageTransportOf(item) === 'copilot';
     templateRow = '<div class="template-row">' +
       templateSelectHtml +
-      (itemIsCopilot
-        ? '<label class="copilot-only" style="font-size:0.85em;font-weight:600;margin-left:0;">Reminder:</label>' +
-          '<select class="copilot-only" onchange="updateItemReminder(\'' + safeId + '\', \'template\', this.value)">' +
-            '<option value=""' + (!noReminderSelected && !item.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
-            '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
-            reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (item.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-          '</select>' +
-          '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-          '<select class="copilot-only" onchange="updateItemReminder(\'' + safeId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(item.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
-        : '') +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
       '<input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:50px" placeholder="1 or var" title="Number or variable name (e.g. batchCount)" onchange="updateItemRepeat(\'' + safeId + '\', { repeatCount: this.value })">' +
       (itemIsCopilot
@@ -469,7 +456,6 @@ function renderEntry(item, idx) {
                 ? '<span class="codicon codicon-debug-step-over yield-btn" style="cursor:pointer;color:#000;" onclick="letNextGoFirst(\'' + safeId + '\')" title="' + (isSending ? 'Let the next item go first: this iteration finishes, then the next item of its lane is sent; the walk resumes after it' : 'Let the next item go first: this item moves behind the next item of its lane') + '"></span>'
                 : '<span class="codicon codicon-debug-step-over yield-btn disabled" aria-disabled="true" style="color:#999;cursor:not-allowed;" title="Let the next item go first — not now: ' + escapeHtml(String(item.letNextGoFirstUnavailable || '')) + '"></span>')
             : '') +
-          (isSending ? '<span class="codicon ' + (reminderEnabled ? 'codicon-bell' : 'codicon-bell-slash') + '" style="cursor:pointer;color:' + (reminderEnabled ? '#000' : '#888') + ';" onclick="toggleReminder(\'' + safeId + '\', ' + !reminderEnabled + ')" title="' + (reminderEnabled ? 'Reminders ON - click to disable' : 'Reminders OFF - click to enable') + '"></span>' : '') +
           // Pause after this — let the item finish its repeat loop, then hold
           // the queue instead of starting the next item. Shown wherever the
           // item can still run, plus on any item that carries the flag so a
@@ -567,11 +553,6 @@ function renderEntry(item, idx) {
     '</div>';
   }
 
-  /* Reminder row (queue mode only for main prompt, template mode always) */
-  var reminderRow = '';
-  if (isEditable) {
-    reminderRow = '';
-  }
 
   var answerBlock = renderAnswerBlock(item, safeId);
 
@@ -628,7 +609,6 @@ function renderEntry(item, idx) {
     // The item editor's guideline button and choices (gsel5; queue editor only).
     (!isChat && typeof queueItemAspectRow === 'function' ? queueItemAspectRow(item) : '') +
     (editorMode === 'template' || isChat ? '' : renderDoneNotification(item, safeId, safeStatus)) +
-    reminderRow +
     renderPrePrompts(item, safeStatus) +
     renderFollowUps(item, safeStatus) +
     answerBlock +
@@ -1436,8 +1416,6 @@ function renderPrePrompts(item, status) {
     var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex, pp.resolvedRepeatCount);
     var ppSkipBtn = (isActive && ppRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeItemId + '\')" title="Skip to next PP iteration"></span>' : '';
     var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
-    var ppHasExplicitReminder = pp.reminderEnabled === true || !!pp.reminderTemplateId;
-    var ppNoReminderSelected = !ppHasExplicitReminder;
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
         '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ppSkipBtn + ']' : '') +
@@ -1468,15 +1446,6 @@ function renderPrePrompts(item, status) {
             return '<textarea onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'text\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
           '<div class="template-row">' +
             ppTplHtml +
-            (stageTransportOf(item, pp) === 'copilot'
-              ? '<select class="copilot-only" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTemplateId\', this.value)">' +
-                  '<option value=""' + (!ppNoReminderSelected && !pp.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
-                  '<option value="__none__"' + (ppNoReminderSelected ? ' selected' : '') + '>No reminder</option>' +
-                  reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (pp.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-                '</select>' +
-                '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-                '<select class="copilot-only" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'reminderTimeoutMinutes\', this.value)">' + reminderTimeoutOptions(pp.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
-              : '') +
             '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
             '<input type="text" value="' + escapeHtml(ppRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'repeatCount\', this.value)">' +
             (stageTransportOf(item, pp) === 'copilot'
@@ -1512,9 +1481,6 @@ function renderFollowUps(item, status) {
   var rows = followUps.map(function(f, idx) {
     var safeFollowUpId = escapeJsSingleQuoted(f.id || '');
     var safeTemplate = escapeJsSingleQuoted(f.template || '');
-    var safeReminderTemplateId = escapeJsSingleQuoted(f.reminderTemplateId || '');
-    var fuHasExplicitReminder = f.reminderEnabled === true || !!f.reminderTemplateId;
-    var noReminderSelected = !fuHasExplicitReminder;
     var doneMark = idx < sentFollowUps ? '\u2713 ' : '';
     var templateLabel = formatPromptTemplateName(f.template || '(None)');
     var isActive = idx === activeFollowUpIndex;
@@ -1551,15 +1517,6 @@ function renderFollowUps(item, status) {
           '<div class="followup-actions">' +
             '<div class="followup-row">' +
               fuTplHtml +
-              (stageTransportOf(item, f) === 'copilot'
-                ? '<select class="copilot-only" onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'template\', this.value)">' +
-                '<option value=""' + (!noReminderSelected && !f.reminderTemplateId ? ' selected' : '') + '>Global Default</option>' +
-                '<option value="__none__"' + (noReminderSelected ? ' selected' : '') + '>No reminder</option>' +
-                reminderTemplates.map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + (f.reminderTemplateId === t.id ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>'; }).join('') +
-              '</select>' +
-              '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;">Wait:</span>' +
-              '<select class="copilot-only" onchange="updateFollowUpReminder(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'timeout\', this.value)">' + reminderTimeoutOptions(f.reminderTimeoutMinutes || responseTimeoutMinutes) + '</select>'
-                : '') +
               '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
               '<input type="text" value="' + escapeHtml(fuRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'repeatCount\', this.value)">' +
               (stageTransportOf(item, f) === 'copilot'

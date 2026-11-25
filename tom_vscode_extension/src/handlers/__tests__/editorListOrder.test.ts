@@ -51,7 +51,6 @@ describe('editor lists: Up / Down on the host', () => {
     test('EO-1: a configuration list is reordered in its array', () => {
         const config = {
             anthropic: { profiles: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], userMessageTemplates: [{ id: 'u1' }, { id: 'u2' }] },
-            reminders: { templates: [{ id: 'r1' }, { id: 'r2' }] },
         } as unknown as SendToChatConfig;
         assert.equal(moveTemplateItemInConfig(config, 'anthropicProfiles', 'p3', 'up'), true);
         assert.deepEqual(ids(config.anthropic!.profiles as Json), ['p1', 'p3', 'p2']);
@@ -59,8 +58,6 @@ describe('editor lists: Up / Down on the host', () => {
         assert.equal(moveTemplateItemInConfig(config, 'anthropicProfiles', 'p2', 'down'), false);
         assert.equal(moveTemplateItemInConfig(config, 'anthropicProfiles', 'nope', 'down'), false);
         assert.deepEqual(ids(config.anthropic!.profiles as Json), ['p1', 'p3', 'p2']);
-        assert.equal(moveTemplateItemInConfig(config, 'reminder', 'r1', 'down'), true);
-        assert.deepEqual(ids((config as Json).reminders.templates), ['r2', 'r1']);
         assert.deepEqual(ids(config.anthropic!.userMessageTemplates as Json), ['u1', 'u2'], 'the other lists stay');
         assert.equal(moveTemplateItemInConfig(config, 'compaction', 'c1', 'down'), false, 'a list the configuration does not have');
         assert.equal(moveTemplateItemInConfig(config, 'copilotQueueWrapper' as never, 'x', 'down'), false, 'one fixed entry: nothing to order');

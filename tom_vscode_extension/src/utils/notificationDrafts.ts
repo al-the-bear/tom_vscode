@@ -3,7 +3,7 @@
  * built from what they change: a queue item queued or deleted, a todo filed,
  * edited or with its status changed. Who did it comes from the call's context
  * (services/notificationLog.ts), except where the item itself says: an item
- * another quest sent (`from`), a timed request, a reminder, a done
+ * another quest sent (`from`), a timed request, a done
  * notification or a reload prompt (the extension on its own).
  *
  * vscode-free and pure.
@@ -32,7 +32,6 @@ export function itemOwnWho(item: DraftQueueItem): NotificationWho | undefined {
     if (item.from) { return { kind: 'agent', fromQuest: item.from.quest, ...(item.from.session ? { session: item.from.session } : {}) }; }
     if (item.notificationOf) { return { kind: 'extension', label: `done notification of ${item.notificationOf}` }; }
     if (item.type === 'timed') { return { kind: 'extension', label: 'timed request' }; }
-    if (item.type === 'reminder') { return { kind: 'extension', label: 'reminder' }; }
     if (item.reloadPrompt) { return { kind: 'extension', label: 'reload prompt' }; }
     return undefined;
 }

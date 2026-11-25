@@ -1020,29 +1020,17 @@ export interface NextTemplateIterationSource extends TemplateIterationCarried {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     templateRepeatIndex?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     prePrompts?: Array<{
         text: string;
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
     }>;
     followUps?: Array<{
         originalText: string;
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
     }>;
 }
 
@@ -1063,29 +1051,17 @@ export interface NextTemplateIterationParams extends TemplateIterationCarried {
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
     templateRepeatIndex: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     prePrompts: Array<{
         text: string;
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
     }>;
     followUps: Array<{
         originalText: string;
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
     }>;
     initialStatus: 'pending';
     deferSend: true;
@@ -1144,29 +1120,17 @@ export function buildNextTemplateIterationParams(
         repeatSuffix: sending.repeatSuffix,
         templateRepeatCount: sending.templateRepeatCount,
         templateRepeatIndex: decision.nextRepeatIndex,
-        reminderTemplateId: sending.reminderTemplateId,
-        reminderTimeoutMinutes: sending.reminderTimeoutMinutes,
-        reminderRepeat: sending.reminderRepeat,
-        reminderEnabled: sending.reminderEnabled,
         prePrompts: (sending.prePrompts || []).map(pp => ({
             text: pp.text,
             template: pp.template,
             repeatCount: pp.repeatCount,
             answerWaitMinutes: pp.answerWaitMinutes,
-            reminderTemplateId: pp.reminderTemplateId,
-            reminderTimeoutMinutes: pp.reminderTimeoutMinutes,
-            reminderRepeat: pp.reminderRepeat,
-            reminderEnabled: pp.reminderEnabled,
         })),
         followUps: (sending.followUps || []).map(f => ({
             originalText: f.originalText,
             template: f.template,
             repeatCount: f.repeatCount,
             answerWaitMinutes: f.answerWaitMinutes,
-            reminderTemplateId: f.reminderTemplateId,
-            reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-            reminderRepeat: !!f.reminderRepeat,
-            reminderEnabled: !!f.reminderEnabled,
         })),
         initialStatus: 'pending',
         deferSend: true,

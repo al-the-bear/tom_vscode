@@ -28,7 +28,6 @@ import {
 } from '../storage/queueFileStorage';
 import { loadSendToChatConfig } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { ReminderSystem } from '../managers/reminderSystem';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
 import { moveDirection } from '../utils/listOrder';
@@ -215,7 +214,6 @@ async function handleMessage(msg: any): Promise<void> {
       // In template mode, updates the template's main prompt text (the saved template, not the prompt-to-send)
       break;
     case 'updateItemTemplate':
-    case 'updateItemReminder':
     case 'addEmptyFollowUp':
     case 'updateFollowUp':
     case 'removeFollowUp':
@@ -250,12 +248,6 @@ function buildState(selectedId?: string): Record<string, unknown> {
     }
   }
 
-  let reminderTemplates: { id: string; name: string }[] = [];
-  try {
-    const rs = ReminderSystem.instance;
-    reminderTemplates = rs.templates.map(t => ({ id: t.id, name: t.name }));
-  } catch { /* not ready */ }
-
   // The template dropdowns: the one template store (ids; the webview labels
   // them by name from anthropicUserMessageTemplates).
   let promptTemplates: string[] = [];
@@ -280,7 +272,6 @@ function buildState(selectedId?: string): Record<string, unknown> {
     selectedId: selected || '',
     selectedName: selected ? (templateEntries.find(e => e.id === selected)?.displayName || selected) : '',
     currentItem,
-    reminderTemplates,
     promptTemplates,
     anthropicUserMessageTemplates,
   };
@@ -328,10 +319,6 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     status: 'staged',
     type: 'normal',
     createdAt: (meta as any).created || new Date().toISOString(),
-    reminderEnabled: mainPrompt?.reminder?.enabled || false,
-    reminderTemplateId: mainPrompt?.reminder?.['template-id'] || '',
-    reminderTimeoutMinutes: mainPrompt?.reminder?.['timeout-minutes'] || 60,
-    reminderRepeat: mainPrompt?.reminder?.repeat || false,
     repeatCount: typeof mainPrompt?.['repeat-count'] === 'string' ? mainPrompt['repeat-count'] : Math.max(0, Math.round(Number(mainPrompt?.['repeat-count'] || 0))),
     repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.['repeat-index'] || 0))),
     repeatPrefix: mainPrompt?.['repeat-prefix'] || '',
@@ -345,10 +332,6 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
       status: 'pending',
       repeatCount: pp['repeat-count'],
       answerWaitMinutes: pp['answer-wait-minutes'],
-      reminderTemplateId: pp.reminder?.['template-id'],
-      reminderTimeoutMinutes: pp.reminder?.['timeout-minutes'],
-      reminderRepeat: pp.reminder?.repeat,
-      reminderEnabled: pp.reminder?.enabled,
     })),
     followUps: followUps.map(fu => ({
       id: fu.id || generateId(),
@@ -356,10 +339,6 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
       template: fu.template || '',
       repeatCount: fu['repeat-count'],
       answerWaitMinutes: fu['answer-wait-minutes'],
-      reminderEnabled: fu.reminder?.enabled || false,
-      reminderTemplateId: fu.reminder?.['template-id'] || '',
-      reminderTimeoutMinutes: fu.reminder?.['timeout-minutes'] || 60,
-      reminderRepeat: fu.reminder?.repeat || false,
       createdAt: new Date().toISOString(),
     })),
     followUpIndex: 0,
@@ -384,12 +363,6 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     'answer-wait-minutes': Math.max(0, Math.round(Number(item.answerWaitMinutes || 0))) || undefined,
     'template-repeat-count': item.templateRepeatCount || undefined,
     'template-repeat-index': item.templateRepeatIndex || undefined,
-    reminder: item.reminderEnabled ? {
-      enabled: true,
-      'template-id': item.reminderTemplateId || undefined,
-      'timeout-minutes': item.reminderTimeoutMinutes || 60,
-      repeat: item.reminderRepeat || false,
-    } : undefined,
     'pre-prompt-refs': [] as string[],
     'follow-up-refs': [] as string[],
   };
@@ -406,14 +379,6 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
       'repeat-count': pp.repeatCount || undefined,
       'answer-wait-minutes': pp.answerWaitMinutes || undefined,
     };
-    if (pp.reminderEnabled) {
-      ppYaml.reminder = {
-        enabled: true,
-        'template-id': pp.reminderTemplateId || undefined,
-        'timeout-minutes': pp.reminderTimeoutMinutes || 60,
-        repeat: pp.reminderRepeat || false,
-      };
-    }
     prompts.push(ppYaml);
     main['pre-prompt-refs']!.push(ppId);
   });
@@ -430,14 +395,6 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
       'repeat-count': fu.repeatCount || undefined,
       'answer-wait-minutes': fu.answerWaitMinutes || undefined,
     };
-    if (fu.reminderEnabled) {
-      fuYaml.reminder = {
-        enabled: true,
-        'template-id': fu.reminderTemplateId || undefined,
-        'timeout-minutes': fu.reminderTimeoutMinutes || 60,
-        repeat: fu.reminderRepeat || false,
-      };
-    }
     prompts.push(fuYaml);
     main['follow-up-refs']!.push(fuId);
   });
@@ -574,8 +531,7 @@ async function queueFromTemplate(msg: any): Promise<void> {
     // stores per-item templates; they all inherit from the prompt
     // queue's current picker selection the moment the template is
     // queued. Gate / decision flow-control nodes are skipped (they
-    // don't render as prompts). Reminders stay on the item (Copilot-
-    // only; still edited in the queue-template editor).
+    // don't render as prompts).
     try {
       const queueModule = await import('../managers/promptQueueManager.js');
       const qm = queueModule.PromptQueueManager.instance;

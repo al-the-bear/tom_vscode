@@ -343,10 +343,6 @@ export class TomScriptingBridgeHandler {
                     originalText: params.promptText,
                     template: params.template || '(None)',
                     answerWrapper: params.answerWrapper,
-                    reminderEnabled: params.reminderEnabled,
-                    reminderTemplateId: params.reminderTemplateId,
-                    reminderTimeoutMinutes: params.reminderTimeoutMinutes,
-                    reminderRepeat: params.reminderRepeat,
                     // Queued right after the item when it is done or fails for good (src/utils/doneNotification.ts).
                     ...(typeof params.doneNotificationPrompt === 'string' && params.doneNotificationPrompt.trim()
                         ? { doneNotificationPrompt: params.doneNotificationPrompt } : {}),
@@ -392,14 +388,8 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'queue.updateReminderVce': {
-                qm.updateItemReminder(params.itemId, {
-                    reminderEnabled: params.enabled,
-                    reminderTemplateId: params.templateId,
-                    reminderTimeoutMinutes: params.timeoutMinutes,
-                    reminderRepeat: params.repeat,
-                });
-                const item = qm.getById(params.itemId);
-                return item || null;
+                // Queue reminders are gone (al_the_bear ai_format_migration AC-22): the call changes nothing.
+                throw new Error('Queue reminders are no longer part of the prompt queue: queue.updateReminderVce does nothing.');
             }
 
             case 'queue.moveToVce': {
@@ -422,10 +412,6 @@ export class TomScriptingBridgeHandler {
                 const followUp = qm.addFollowUpPrompt(params.itemId, {
                     originalText: params.promptText,
                     template: params.template,
-                    reminderEnabled: params.reminderEnabled,
-                    reminderTemplateId: params.reminderTemplateId,
-                    reminderTimeoutMinutes: params.reminderTimeoutMinutes,
-                    reminderRepeat: params.reminderRepeat,
                 });
                 return followUp;
             }
@@ -439,10 +425,6 @@ export class TomScriptingBridgeHandler {
                 const success = qm.updateFollowUpPrompt(params.itemId, params.followUpId, {
                     originalText: params.text,
                     template: params.template,
-                    reminderEnabled: params.reminderEnabled,
-                    reminderTemplateId: params.reminderTemplateId,
-                    reminderTimeoutMinutes: params.reminderTimeoutMinutes,
-                    reminderRepeat: params.reminderRepeat,
                 });
                 return { success };
             }
@@ -511,10 +493,6 @@ export class TomScriptingBridgeHandler {
                     scheduleMode: params.scheduleMode || 'interval',
                     intervalMinutes: params.intervalMinutes,
                     scheduledTimes: params.scheduledTimes,
-                    reminderEnabled: params.reminderEnabled,
-                    reminderTemplateId: params.reminderTemplateId,
-                    reminderTimeoutMinutes: params.reminderTimeoutMinutes,
-                    reminderRepeat: params.reminderRepeat,
                 });
                 return entry;
             }
@@ -527,10 +505,6 @@ export class TomScriptingBridgeHandler {
                 if (params.scheduleMode !== undefined) { updates.scheduleMode = params.scheduleMode; }
                 if (params.intervalMinutes !== undefined) { updates.intervalMinutes = params.intervalMinutes; }
                 if (params.scheduledTimes !== undefined) { updates.scheduledTimes = params.scheduledTimes; }
-                if (params.reminderEnabled !== undefined) { updates.reminderEnabled = params.reminderEnabled; }
-                if (params.reminderTemplateId !== undefined) { updates.reminderTemplateId = params.reminderTemplateId; }
-                if (params.reminderTimeoutMinutes !== undefined) { updates.reminderTimeoutMinutes = params.reminderTimeoutMinutes; }
-                if (params.reminderRepeat !== undefined) { updates.reminderRepeat = params.reminderRepeat; }
                 if (params.enabled !== undefined) { updates.enabled = params.enabled; }
                 te.updateEntry(params.entryId, updates);
                 return te.getEntry(params.entryId) || null;

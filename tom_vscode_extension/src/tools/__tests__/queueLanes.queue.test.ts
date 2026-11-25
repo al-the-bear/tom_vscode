@@ -12,7 +12,7 @@
  *        next prompt (the pause gate); resuming it starts it; each run's auto-send is in the settings file
  *        (`runs-by-quest.<quest>`), no lane keys
  *   QM-6 an error in one run (an item the API refuses) pauses only that run; the other run's next item sends
- *   QM-7 each run's defaults: transport, profile, configuration, session, prompt template, reminder template,
+ *   QM-7 each run's defaults: transport, profile, configuration, session, prompt template,
  *        Copilot answer timeout and walk continuations are the item's run's
  *   QM-8 Auto-Pause per run: a run whose lane empties pauses (Auto-Pause on); a run with it off goes on
  *   QM-9 Auto-Start and Auto-Continue per run at activation: a run with Auto-Start sends, one without starts
@@ -80,7 +80,6 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -111,13 +110,12 @@ const subscriptions: Array<{ dispose(): void }> = [];
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
     ProcessStateStore.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
     installProcessMoveMarkers();
 })();
 after(() => {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }
@@ -267,9 +265,9 @@ describe('lanes and settings per run', () => {
         clean();
         queue().setRunQueueSettings('r1', {
             defaultTransport: 'anthropic', defaultAnthropicProfileId: 'p1', defaultAnthropicConfigId: 'c1', defaultAgentSdkSession: 'work',
-            defaultMessageTemplateId: 't1', defaultReminderTemplateId: 'rem1', responseTimeoutMinutes: 30, walkContinuations: 4,
+            defaultMessageTemplateId: 't1', responseTimeoutMinutes: 30, walkContinuations: 4,
         });
-        queue().setRunQueueSettings('r2', { defaultTransport: 'copilot', defaultReminderTemplateId: 'rem2', responseTimeoutMinutes: 120, walkContinuations: 0 });
+        queue().setRunQueueSettings('r2', { defaultTransport: 'copilot', responseTimeoutMinutes: 120, walkContinuations: 0 });
         const plain = (run: string): Promise<QueuedPrompt> => queue().enqueue({ originalText: `x ${run}`, run, deferSend: true } as never);
         const i1 = await plain('r1');
         const i2 = await plain('r2');
@@ -277,7 +275,6 @@ describe('lanes and settings per run', () => {
         const t2 = (queue() as Json).resolveStageTransportAsQueued(i2);
         assert.deepEqual([t1.transport, t1.anthropicProfileId, t1.anthropicConfigId, t1.session], ['anthropic', 'p1', 'c1', 'work@r1']);
         assert.equal(t2.transport, 'copilot');
-        assert.deepEqual([i1.reminderTemplateId, i2.reminderTemplateId], ['rem1', 'rem2'], 'the reminder template of the run');
         assert.deepEqual([queue().responseTimeoutMinutesFor(i1), queue().responseTimeoutMinutesFor(i2)], [30, 120], 'the Copilot answer timeout of the run');
         assert.deepEqual([queue().walkContinuationsOf(i1), queue().walkContinuationsOf(i2)], [4, 0], 'walk continuations of the run');
         assert.equal(queue().runQueueSettings('r1').defaultMessageTemplateId, 't1');
@@ -286,9 +283,6 @@ describe('lanes and settings per run', () => {
         queue().setDefaultAgentSdkSession('other', 'r2');
         assert.deepEqual([queue().runQueueSettings('r2').defaultMessageTemplateId, queue().runQueueSettings('r2').defaultAnthropicProfileId, queue().runQueueSettings('r2').defaultAgentSdkSession], ['t2', 'p2', 'other']);
         assert.equal(queue().runQueueSettings('r1').defaultAnthropicProfileId, 'p1', 'r1 unchanged');
-        // The window's run's accessors (the Status Page and the tools read them) are the window's run's settings.
-        queue().defaultReminderTemplateId = 'remDefault';
-        assert.deepEqual([queue().runQueueSettings('default').defaultReminderTemplateId, queue().runQueueSettings('r1').defaultReminderTemplateId], ['remDefault', 'rem1']);
         clean();
     });
 
@@ -332,7 +326,7 @@ describe('lanes and settings per run', () => {
         const file = path.join(getQueueFolder()!, 'queue-settings.yaml');
         const keep = fs.readFileSync(file, 'utf8');
         fs.writeFileSync(file, [
-            'response-timeout-minutes: 30', 'default-reminder-template-id: remOld', 'auto-send-enabled: true', 'auto-start-enabled: true',
+            'response-timeout-minutes: 30', 'auto-send-enabled: true', 'auto-start-enabled: true',
             'auto-pause-enabled: false', 'auto-continue-enabled: true', 'walk-continuations: 3', 'default-transport: anthropic',
             'default-anthropic-profile-id: pOld', 'default-agent-sdk-session: sOld', 'default-message-template-id: tOld',
             'queue-per-run: true', 'held-runs: [x]', '',
@@ -340,8 +334,8 @@ describe('lanes and settings per run', () => {
         (queue() as Json).restoreSettings();
         const d = queue().runQueueSettings('default');
         assert.deepEqual(
-            [d.responseTimeoutMinutes, d.defaultReminderTemplateId, d.autoSend, d.autoStart, d.autoPause, d.autoContinue, d.walkContinuations, d.defaultTransport, d.defaultAnthropicProfileId, d.defaultAgentSdkSession, d.defaultMessageTemplateId],
-            [30, 'remOld', true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
+            [d.responseTimeoutMinutes, d.autoSend, d.autoStart, d.autoPause, d.autoContinue, d.walkContinuations, d.defaultTransport, d.defaultAnthropicProfileId, d.defaultAgentSdkSession, d.defaultMessageTemplateId],
+            [30, true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
             'the old keys are the default run\'s',
         );
         assert.equal(queue().runQueueSettings('brandnew').defaultAnthropicProfileId, 'pOld', 'and a new run\'s start values');

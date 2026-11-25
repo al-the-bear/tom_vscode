@@ -40,8 +40,6 @@ export interface RunStateItem {
     requestId?: string;
     expectedRequestId?: string;
     followUpIndex?: number;
-    reminderSentCount?: number;
-    lastReminderAt?: string;
     error?: unknown;
     warning?: unknown;
     lastDispatched?: unknown;
@@ -74,8 +72,6 @@ export function resetItemRunState(item: RunStateItem): void {
     item.requestId = undefined;
     item.expectedRequestId = undefined;
     item.followUpIndex = 0;
-    item.reminderSentCount = 0;
-    item.lastReminderAt = undefined;
     item.error = undefined;
     item.warning = undefined;
     item.lastDispatched = undefined;

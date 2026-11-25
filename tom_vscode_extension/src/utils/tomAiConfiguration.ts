@@ -14,8 +14,6 @@ import {
     BRIDGE_MAX_RESTARTS,
     BRIDGE_REQUEST_TIMEOUT,
     BRIDGE_RESTART_DELAY,
-    REMINDER_CHECK_INTERVAL,
-    REMINDER_DEFAULT_TIMEOUT,
 } from './constants';
 import { COMPACT_TRAIL_DEFAULT_MAX_ENTRIES } from './compactTrailTrim';
 
@@ -23,7 +21,6 @@ export type CopilotConfig = Record<string, unknown>;
 export type TrailConfig = Record<string, unknown>;
 export type BridgeConfig = Record<string, unknown>;
 export type TodoConfig = Record<string, unknown>;
-export type RemindersConfig = Record<string, unknown>;
 export type FavoriteEntry = Record<string, unknown>;
 
 export interface TomAiConfigDefaults {
@@ -32,7 +29,6 @@ export interface TomAiConfigDefaults {
     trail: TrailConfig;
     bridge: BridgeConfig;
     todo: TodoConfig;
-    reminders: RemindersConfig;
     favorites: FavoriteEntry[];
     /** Where the user-global overlay is: placeholders `${home}`, `~`, `${tomRoot}`, `${workspaceFolder}`. */
     userConfigPath: string;
@@ -155,13 +151,6 @@ export class TomAiConfiguration {
             todo: {
                 defaultColumns: ['backlog', 'in-progress', 'done'],
             },
-            reminders: {
-                templates: [],
-                config: {
-                    checkInterval: REMINDER_CHECK_INTERVAL,
-                    defaultTimeout: REMINDER_DEFAULT_TIMEOUT,
-                },
-            },
             favorites: [],
             userConfigPath: DEFAULT_USER_CONFIG_PATH,
         };
@@ -240,14 +229,12 @@ export class TomAiConfiguration {
     getTrail(): TrailConfig { return this.getSection<TrailConfig>('trail') ?? {}; }
     getBridge(): BridgeConfig { return this.getSection<BridgeConfig>('bridge') ?? {}; }
     getTodo(): TodoConfig { return this.getSection<TodoConfig>('todo') ?? {}; }
-    getReminders(): RemindersConfig { return this.getSection<RemindersConfig>('reminders') ?? {}; }
     getFavorites(): FavoriteEntry[] { return this.getSection<FavoriteEntry[]>('favorites') ?? []; }
 
     async saveCopilot(config: CopilotConfig): Promise<void> { await this.updateSection('copilot', config); }
     async saveTrail(config: TrailConfig): Promise<void> { await this.updateSection('trail', config); }
     async saveBridge(config: BridgeConfig): Promise<void> { await this.updateSection('bridge', config); }
     async saveTodo(config: TodoConfig): Promise<void> { await this.updateSection('todo', config); }
-    async saveReminders(config: RemindersConfig): Promise<void> { await this.updateSection('reminders', config); }
     async saveFavorites(favorites: FavoriteEntry[]): Promise<void> { await this.updateSection('favorites', favorites); }
 
     getSection<T>(key: string): T | undefined {

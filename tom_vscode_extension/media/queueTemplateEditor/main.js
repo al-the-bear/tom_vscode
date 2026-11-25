@@ -4,7 +4,7 @@
 // src/handlers/queueTemplateEditor-handler.ts (Phase B.14 webview restructuring).
 //
 // Host-scope script: it declares the page globals (vscode, currentItems,
-// reminderTemplates, promptTemplates, editorMode, detailsExpanded,
+// promptTemplates, editorMode, detailsExpanded,
 // responseTimeoutMinutes, …) consumed by the shared queue-entry component
 // (media/shared/queueEntry{Utils,RenderFunctions,MessageHandlers}.js), and it
 // calls + overrides the functions those partials define — so no-undef is
@@ -40,7 +40,6 @@ var templateEntries = __INITIAL__.templateEntries || [];
 var selectedName = __INITIAL__.selectedName || '';
 var selectedId = __INITIAL__.selectedId || '';
 var currentItems = __INITIAL__.currentItem ? [__INITIAL__.currentItem] : [];
-var reminderTemplates = __INITIAL__.reminderTemplates || [];
 var promptTemplates = __INITIAL__.promptTemplates || [];
 var anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
 var responseTimeoutMinutes = 60;
@@ -64,7 +63,6 @@ window.addEventListener('message', function(e) {
     selectedName = msg.selectedName || '';
     selectedId = msg.selectedId || '';
     currentItems = msg.currentItem ? [msg.currentItem] : [];
-    reminderTemplates = msg.reminderTemplates || [];
     promptTemplates = msg.promptTemplates || [];
     anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
     renderSidebar();
@@ -234,10 +232,6 @@ addEmptyFollowUp = function(id) {
       id: newId,
       originalText: '',
       template: '',
-      reminderEnabled: false,
-      reminderTemplateId: '',
-      reminderTimeoutMinutes: 60,
-      reminderRepeat: false,
       createdAt: new Date().toISOString()
     });
     renderEditor();
@@ -272,28 +266,6 @@ updateFollowUpTemplate = function(id, followUpId, template) {
     if (fu) { fu.template = template || ''; }
   }
   __updateFollowUpTemplate(id, followUpId, template);
-};
-
-var __updateFollowUpReminder = updateFollowUpReminder;
-updateFollowUpReminder = function(id, followUpId, field, value) {
-  if (currentItems.length > 0 && currentItems[0].id === id && Array.isArray(currentItems[0].followUps)) {
-    var fu = currentItems[0].followUps.find(function(f) { return f.id === followUpId; });
-    if (fu) {
-      if (field === 'enabled') fu.reminderEnabled = !!value;
-      if (field === 'template') {
-        if (value === '__none__') {
-          fu.reminderEnabled = false;
-          fu.reminderTemplateId = '';
-        } else {
-          fu.reminderTemplateId = value || '';
-          fu.reminderEnabled = true;
-        }
-      }
-      if (field === 'timeout') fu.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || 60;
-      if (field === 'repeat') fu.reminderRepeat = !!value;
-    }
-  }
-  __updateFollowUpReminder(id, followUpId, field, value);
 };
 
 /* Override pre-prompt handlers */
@@ -345,16 +317,6 @@ updatePrePromptField = function(id, index, field, value) {
         pp.repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
       }
       if (field === 'answerWaitMinutes') pp.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
-      if (field === 'reminderTemplateId') {
-        if (value === '__none__') {
-          pp.reminderEnabled = false;
-          pp.reminderTemplateId = '';
-        } else {
-          pp.reminderTemplateId = value || '';
-          pp.reminderEnabled = true;
-        }
-      }
-      if (field === 'reminderTimeoutMinutes') pp.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
     }
   }
   __updatePrePromptField(id, index, field, value);
@@ -373,26 +335,6 @@ updateFollowUpField = function(id, followUpId, field, value) {
     }
   }
   __updateFollowUpField(id, followUpId, field, value);
-};
-
-/* Override reminder update */
-var __updateItemReminder = updateItemReminder;
-updateItemReminder = function(id, field, value) {
-  if (currentItems.length > 0 && currentItems[0].id === id) {
-    if (field === 'enabled') currentItems[0].reminderEnabled = !!value;
-    if (field === 'template') {
-      if (value === '__none__') {
-        currentItems[0].reminderEnabled = false;
-        currentItems[0].reminderTemplateId = '';
-      } else {
-        currentItems[0].reminderTemplateId = value || '';
-        currentItems[0].reminderEnabled = true;
-      }
-    }
-    if (field === 'timeout') currentItems[0].reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || 60;
-    if (field === 'repeat') currentItems[0].reminderRepeat = !!value;
-  }
-  __updateItemReminder(id, field, value);
 };
 
 /* Request state */

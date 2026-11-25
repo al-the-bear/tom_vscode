@@ -3,7 +3,7 @@
  *
  * A command-opened webview panel that shows the ordered queue of
  * prompts destined for Copilot Chat.  Each item is editable with
- * status, expanded preview, reordering, and per-item reminder config.
+ * status, expanded preview and reordering.
  *
  * Opened via `tomAi.editor.promptQueue` command.
  */
@@ -21,12 +21,10 @@ import { PromptQueueManager, QueuedPrompt, applyTemplateWrapping } from '../mana
 import * as questTodo from '../managers/questTodoManager';
 import { SOFT_INTERRUPT_TIMEOUT_MS, type SoftInterruptState } from '../services/softInterrupt';
 import type { LaneSummary } from '../utils/queueLanes';
-import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { compactionPickItems, compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../utils/compactionTarget';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
-import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { renderTransportPicker } from '../utils/transportPicker';
@@ -344,10 +342,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             }
             return;
         // The context links of a run's tab open that run's data, and the editors say which run (vscimpb60c).
-        // The alive check and the window's default reminder template: the Status Page's reminder settings.
-        case 'openReminderSettings':
-            await vscode.commands.executeCommand('tomAi.statusPage', 'reminders');
-            return;
         case 'openChatVariablesEditor':
             await vscode.commands.executeCommand('tomAi.editor.chatVariables', tabRunOf(msg));
             return;
@@ -746,18 +740,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           await persistCollapsedQueueState();
           return;
         }
-        case 'addReminderTemplate':
-          await addReminderTemplate();
-          sendState();
-          return;
-        case 'editReminderTemplate':
-          await editReminderTemplate(msg.id);
-          sendState();
-          return;
-        case 'deleteReminderTemplate':
-          await deleteReminderTemplate(msg.id);
-          sendState();
-          return;
         case 'addPromptTemplate':
           await addPromptTemplate();
           sendState();
@@ -1004,9 +986,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             );
           }
           break;
-        case 'toggleReminder':
-            qm.updateItemReminder(msg.id, { reminderEnabled: msg.enabled });
-            break;
         case 'openItemLiveTrail': {
           // The item headline's icon: the live trail of the session the item runs in (live MD Browser).
           const session = typeof msg.id === 'string' ? PromptQueueManager.instance.stageSessionOf(msg.id) : undefined;
@@ -1118,14 +1097,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               answerWrapper: !!(msg.template && msg.template !== '(None)')
             });
             break;
-        case 'updateItemReminder':
-          qm.updateItemReminder(msg.id, {
-            reminderEnabled: msg.reminderEnabled,
-            reminderTemplateId: msg.reminderTemplateId,
-          reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-            reminderRepeat: msg.reminderRepeat,
-          });
-          break;
         // The toolbar of a run's tab: every action acts on that run's items (`run`; none: the whole queue).
         case 'clearSent':
             qm.clearByStatus('sent', tabRunOf(msg));
@@ -1271,10 +1242,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           qm.setRunQueueSettings(settingsRunOf(msg), { responseTimeoutMinutes: Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60) });
           sendState();
           break;
-        case 'setDefaultReminderTemplate':
-          qm.setRunQueueSettings(settingsRunOf(msg), { defaultReminderTemplateId: msg.templateId || undefined });
-          sendState();
-          break;
         case 'addPrompt':
             try {
                 console.log('[QueueEditor] addPrompt received, text length:', msg.text?.length);
@@ -1292,10 +1259,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
                     // Copilot answer-wrapper is a Copilot-only construct
                     // (spec §4.7). Anthropic items skip it.
                     answerWrapper: addTransport === 'anthropic' ? false : (msg.answerWrapper || false),
-                    reminderTemplateId: msg.reminderTemplateId,
-                    reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-                    reminderRepeat: !!msg.reminderRepeat,
-                    reminderEnabled: !!msg.reminderEnabled,
                     repeatCount: normalizeRepeatCountInput(msg.repeatCount),
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
                     repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
@@ -1319,10 +1282,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const follow = qm.addFollowUpPrompt(msg.id, {
               originalText: msg.text || '',
               template: msg.template || undefined,
-              reminderTemplateId: msg.reminderTemplateId || undefined,
-              reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-              reminderRepeat: !!msg.reminderRepeat,
-              reminderEnabled: !!msg.reminderEnabled,
             });
             if (!follow) {
               _panel?.webview.postMessage({ type: 'addError', error: 'Failed to add follow-up prompt' });
@@ -1342,10 +1301,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               template: msg.template,
               repeatCount: msg.repeatCount,
               answerWaitMinutes: msg.answerWaitMinutes,
-              reminderTemplateId: msg.reminderTemplateId,
-              reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-              reminderRepeat: msg.reminderRepeat,
-              reminderEnabled: msg.reminderEnabled,
             });
             break;
           }
@@ -1363,10 +1318,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               template: msg.template,
               repeatCount: msg.repeatCount,
               answerWaitMinutes: msg.answerWaitMinutes,
-              reminderTemplateId: msg.reminderTemplateId,
-              reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
-              reminderRepeat: msg.reminderRepeat,
-              reminderEnabled: msg.reminderEnabled,
             });
             break;
           }
@@ -1383,72 +1334,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             return;
           }
     }
-}
-
-async function addReminderTemplate(): Promise<void> {
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'reminder' });
-  }
-}
-
-async function editReminderTemplate(id?: string): Promise<void> {
-  const templates = ReminderSystem.instance.templates;
-  if (templates.length === 0) {
-    vscode.window.showWarningMessage('No reminder templates available.');
-    return;
-  }
-
-  let template = id ? templates.find(t => t.id === id) : undefined;
-  if (!template) {
-    const picked = await vscode.window.showQuickPick(
-      templates.map(t => ({ label: t.name, description: t.id, id: t.id })),
-      { placeHolder: 'Select reminder template to edit' },
-    );
-    if (!picked?.id) {
-      return;
-    }
-    template = templates.find(t => t.id === picked.id);
-  }
-  if (!template) {
-    return;
-  }
-
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'reminder', itemId: template.id });
-  }
-}
-
-async function deleteReminderTemplate(id?: string): Promise<void> {
-  const templates = ReminderSystem.instance.templates;
-  if (templates.length === 0) {
-    vscode.window.showWarningMessage('No reminder templates available.');
-    return;
-  }
-
-  let template = id ? templates.find(t => t.id === id) : undefined;
-  if (!template) {
-    const picked = await vscode.window.showQuickPick(
-      templates.map(t => ({ label: t.name, description: t.id, id: t.id })),
-      { placeHolder: 'Select reminder template to delete' },
-    );
-    if (!picked?.id) {
-      return;
-    }
-    template = templates.find(t => t.id === picked.id);
-  }
-  if (!template) {
-    return;
-  }
-
-  const answer = await vscode.window.showWarningMessage(
-    `Delete reminder template "${template.name}"?`,
-    { modal: true },
-    'Delete',
-  );
-  if (answer !== 'Delete') {
-    return;
-  }
-  ReminderSystem.instance.removeTemplate(template.id);
 }
 
 async function addPromptTemplate(): Promise<void> {
@@ -1835,8 +1720,6 @@ function buildState(): Record<string, unknown> {
     let autoPause = true;
     let autoContinue = false;
   let responseTimeoutMinutes = 60;
-  let defaultReminderTemplateId: string | undefined;
-    let templates: { id: string; name: string }[] = [];
     let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
@@ -1860,7 +1743,6 @@ function buildState(): Record<string, unknown> {
         autoPause = qm.autoPauseEnabled;
         autoContinue = qm.autoContinueEnabled;
         responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
-        defaultReminderTemplateId = qm.defaultReminderTemplateId;
         queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
@@ -1870,11 +1752,6 @@ function buildState(): Record<string, unknown> {
     } catch (e) {
         console.error('[QueueEditor] buildState: PromptQueueManager not ready:', e);
     }
-
-    try {
-        const rs = ReminderSystem.instance;
-        templates = rs.templates.map(t => ({ id: t.id, name: t.name }));
-    } catch { /* not ready */ }
 
     let quest = '';
     let role = '';
@@ -1986,8 +1863,6 @@ function buildState(): Record<string, unknown> {
         autoPause,
         autoContinue,
         responseTimeoutMinutes,
-        defaultReminderTemplateId,
-        reminderTemplates: templates,
         promptTemplates,
         // The compaction / memory-extraction model pickers above the queue,
         // the same state as the Status Page's History Compaction dropdowns.

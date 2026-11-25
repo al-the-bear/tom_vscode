@@ -37,7 +37,6 @@ import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_
 import { WsPaths } from '../utils/workspacePaths';
 import { liveSectionsReader } from './aspect-guideline-tools';
 import { telegramNotifyTarget } from '../handlers/telegram-config';
-import { ReminderSystem } from '../managers/reminderSystem';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
 import { RENAME_QUEST_TODO_TOOL, RENAME_TODO_PREFIX_TOOL, renameQuestTodoImpl, renameTodoPrefixImpl, TRANSFER_TODOS_TOOL, transferTodosImpl, type RenameQuestTodoInput, type RenameTodoPrefixInput, type TransferTodosInput } from './todo-transfer-tools';
 
@@ -737,10 +736,6 @@ const livePromptQueueAccess: PromptQueueAccess = {
     },
     async updateText(id, text) { await (await getQueueManager()).updateText(id, text); },
     async updateItemTemplateAndWrapper(id, opts) { await (await getQueueManager()).updateItemTemplateAndWrapper(id, opts); },
-    updateItemReminder(id, opts) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemReminder(id, opts);
-    },
     updateItemRepetition(id, opts) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemRepetition(id, opts);
@@ -1042,8 +1037,6 @@ function projectTimedEntry(e: any): TimedEntrySnapshot {
         intervalMinutes: e.intervalMinutes, scheduledTimes: e.scheduledTimes,
         repeatCount: e.repeatCount, repeatPrefix: e.repeatPrefix, repeatSuffix: e.repeatSuffix,
         sendMaximum: e.sendMaximum, answerWaitMinutes: e.answerWaitMinutes,
-        reminderEnabled: e.reminderEnabled, reminderTemplateId: e.reminderTemplateId,
-        reminderTimeoutMinutes: e.reminderTimeoutMinutes, reminderRepeat: e.reminderRepeat,
         lastSentAt: e.lastSentAt,
     };
 }
@@ -1218,98 +1211,6 @@ export const DELETE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<DeletePromptTempl
 };
 
 // ============================================================================
-// Reminder Templates (4) — relocated to `reminder-template-tools.ts` (vscode-
-// free impls + narrow `ReminderTemplateStore` dep) by the entry #21 coverage
-// refactor. The bridge wires the live `ReminderSystem.instance` to the
-// interface.
-// ============================================================================
-
-import {
-    LIST_REMINDER_TEMPLATES_TOOL as LIST_REMINDER_TEMPLATES_DEF,
-    CREATE_REMINDER_TEMPLATE_TOOL as CREATE_REMINDER_TEMPLATE_DEF,
-    UPDATE_REMINDER_TEMPLATE_TOOL as UPDATE_REMINDER_TEMPLATE_DEF,
-    DELETE_REMINDER_TEMPLATE_TOOL as DELETE_REMINDER_TEMPLATE_DEF,
-    ListReminderTemplatesInput,
-    CreateReminderTemplateInput,
-    UpdateReminderTemplateInput,
-    DeleteReminderTemplateInput,
-    type ReminderTemplateEntry,
-    type ReminderTemplateStore,
-    createReminderTemplateImpl,
-    deleteReminderTemplateImpl,
-    listReminderTemplatesImpl,
-    updateReminderTemplateImpl,
-} from './reminder-template-tools';
-
-function projectReminderTemplate(t: { id: string; name: string; prompt: string; isDefault: boolean }): ReminderTemplateEntry {
-    return { id: t.id, name: t.name, prompt: t.prompt, isDefault: !!t.isDefault };
-}
-
-const liveReminderTemplateStore: ReminderTemplateStore = {
-    list() {
-        return ReminderSystem.instance.templates.map(projectReminderTemplate);
-    },
-    findById(id) {
-        const t = ReminderSystem.instance.templates.find((x) => x.id === id);
-        return t ? projectReminderTemplate(t) : undefined;
-    },
-    findByName(name) {
-        const t = ReminderSystem.instance.templates.find((x) => x.name === name);
-        return t ? projectReminderTemplate(t) : undefined;
-    },
-    add(entry) {
-        const created = ReminderSystem.instance.addTemplate({
-            name: entry.name,
-            prompt: entry.prompt,
-            isDefault: entry.isDefault,
-        });
-        return projectReminderTemplate(created);
-    },
-    update(id, patch) {
-        const existed = ReminderSystem.instance.templates.find((x) => x.id === id);
-        if (!existed) { return undefined; }
-        ReminderSystem.instance.updateTemplate(id, {
-            name: patch.name,
-            prompt: patch.prompt,
-            isDefault: patch.isDefault,
-        });
-        const updated = ReminderSystem.instance.templates.find((x) => x.id === id);
-        return updated ? projectReminderTemplate(updated) : undefined;
-    },
-    delete(id) {
-        const existed = ReminderSystem.instance.templates.find((x) => x.id === id);
-        if (!existed) { return { existed: false }; }
-        const wasDefault = existed.isDefault;
-        ReminderSystem.instance.removeTemplate(id);
-        if (!wasDefault) { return { existed: true }; }
-        // Manager auto-promotes the first remaining; surface that.
-        const remaining = ReminderSystem.instance.templates;
-        const promotedDefault = remaining.find((x) => x.isDefault);
-        return {
-            existed: true,
-            promotedDefault: promotedDefault ? projectReminderTemplate(promotedDefault) : undefined,
-        };
-    },
-};
-
-export const LIST_REMINDER_TEMPLATES_TOOL: SharedToolDefinition<ListReminderTemplatesInput> = {
-    ...LIST_REMINDER_TEMPLATES_DEF,
-    execute: () => listReminderTemplatesImpl(liveReminderTemplateStore),
-};
-export const CREATE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<CreateReminderTemplateInput> = {
-    ...CREATE_REMINDER_TEMPLATE_DEF,
-    execute: (input) => createReminderTemplateImpl(liveReminderTemplateStore, input),
-};
-export const UPDATE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<UpdateReminderTemplateInput> = {
-    ...UPDATE_REMINDER_TEMPLATE_DEF,
-    execute: (input) => updateReminderTemplateImpl(liveReminderTemplateStore, input),
-};
-export const DELETE_REMINDER_TEMPLATE_TOOL: SharedToolDefinition<DeleteReminderTemplateInput> = {
-    ...DELETE_REMINDER_TEMPLATE_DEF,
-    execute: (input) => deleteReminderTemplateImpl(liveReminderTemplateStore, input),
-};
-
-// ============================================================================
 // §1.5  Delete Quest Todo — bridged to `quest-todo-tools.ts` impl.
 // ============================================================================
 
@@ -1456,10 +1357,6 @@ export const CHAT_ENHANCEMENT_TOOLS: SharedToolDefinition<any>[] = [
     CREATE_PROMPT_TEMPLATE_TOOL,
     UPDATE_PROMPT_TEMPLATE_TOOL,
     DELETE_PROMPT_TEMPLATE_TOOL,
-    LIST_REMINDER_TEMPLATES_TOOL,
-    CREATE_REMINDER_TEMPLATE_TOOL,
-    UPDATE_REMINDER_TEMPLATE_TOOL,
-    DELETE_REMINDER_TEMPLATE_TOOL,
     // §1.5–§1.9 — Extended tools
     DELETE_TODO_TOOL,
     ARCHIVE_TODOS_TOOL,

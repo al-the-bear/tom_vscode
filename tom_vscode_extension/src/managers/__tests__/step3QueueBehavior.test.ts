@@ -286,7 +286,7 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         assert.equal(params, null);
     });
 
-    test('next template iteration params preserve reminder + answerWrapper + answerWaitMinutes settings', () => {
+    test('next template iteration params preserve answerWrapper + answerWaitMinutes settings', () => {
         // The bug we're fixing surfaces when these inheritable
         // per-iteration knobs silently drop through the gap. Lock them
         // into a regression test so future refactors don't lose them.
@@ -297,10 +297,6 @@ describe('Step 3 - Issue 10: repeat decision', () => {
                 templateRepeatIndex: 1,
                 answerWrapper: true,
                 answerWaitMinutes: 7,
-                reminderTemplateId: 'tpl-42',
-                reminderTimeoutMinutes: 12,
-                reminderRepeat: true,
-                reminderEnabled: true,
             },
             4,
         );
@@ -308,10 +304,6 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         assert.ok(params);
         assert.equal(params!.answerWrapper, true);
         assert.equal(params!.answerWaitMinutes, 7);
-        assert.equal(params!.reminderTemplateId, 'tpl-42');
-        assert.equal(params!.reminderTimeoutMinutes, 12);
-        assert.equal(params!.reminderRepeat, true);
-        assert.equal(params!.reminderEnabled, true);
         assert.equal(params!.templateRepeatIndex, 2, 'next iteration index advances by one');
     });
 

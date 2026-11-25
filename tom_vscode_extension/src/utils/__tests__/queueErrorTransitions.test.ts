@@ -127,8 +127,6 @@ describe('applyResetToPending', () => {
             warning: { kind: 'rate_limit', message: 'try later', at: '2026-01-01T00:00:00.000Z' },
             requestId: 'req-1',
             expectedRequestId: 'req-1',
-            reminderSentCount: 3,
-            lastReminderAt: '2026-01-01T00:01:00.000Z',
             sentAt: '2026-01-01T00:00:30.000Z',
         };
 
@@ -140,8 +138,6 @@ describe('applyResetToPending', () => {
         assert.equal(item.warning, undefined);
         assert.equal(item.requestId, undefined);
         assert.equal(item.expectedRequestId, undefined);
-        assert.equal(item.reminderSentCount, 0);
-        assert.equal(item.lastReminderAt, undefined);
         assert.equal(item.sentAt, undefined);
     });
 
@@ -444,8 +440,6 @@ describe('applyInterruptForContinuation', () => {
             requestId: 'req-1',
             expectedRequestId: 'req-1',
             sentAt: '2026-09-17T10:00:00.000Z',
-            reminderSentCount: 3,
-            lastReminderAt: '2026-09-17T10:05:00.000Z',
             inFlightRepetition: { stage: 'main' },
             awaitingAnswer: true,
             error: 'stale failure text',
@@ -466,8 +460,6 @@ describe('applyInterruptForContinuation', () => {
         assert.equal(item.requestId, undefined);
         assert.equal(item.expectedRequestId, undefined);
         assert.equal(item.sentAt, undefined);
-        assert.equal(item.lastReminderAt, undefined);
-        assert.equal(item.reminderSentCount, 0);
         assert.equal(item.inFlightRepetition, undefined);
         assert.equal(item.awaitingAnswer, false);
         assert.equal(item.error, undefined);

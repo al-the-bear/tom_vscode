@@ -28,7 +28,7 @@ describe('queue settings per run', () => {
     test('RS-2: the old shape', () => {
         const r = readRunQueueSettings({
             'auto-send-enabled': false, 'auto-pause-enabled': false, 'response-timeout-minutes': 2, 'walk-continuations': -1,
-            'default-transport': 'anthropic', 'default-anthropic-profile-id': 'p', 'default-message-template-id': '', 'default-reminder-template-id': 7,
+            'default-transport': 'anthropic', 'default-anthropic-profile-id': 'p', 'default-message-template-id': '',
         });
         assert.equal(r.start.autoSend, false);
         assert.equal(r.start.autoPause, false);
@@ -37,7 +37,6 @@ describe('queue settings per run', () => {
         assert.equal(r.start.defaultTransport, 'anthropic');
         assert.equal(r.start.defaultAnthropicProfileId, 'p');
         assert.equal(r.start.defaultMessageTemplateId, undefined, '"" is unset');
-        assert.equal(r.start.defaultReminderTemplateId, undefined, 'a number is no template id');
         assert.deepEqual(r.runs.get('default'), r.start);
     });
 
@@ -68,7 +67,7 @@ describe('queue settings per run', () => {
     test('RS-5: Make default', () => {
         assert.deepEqual([...DEFAULT_SETTING_FIELDS].sort(), [
             'autoContinue', 'autoPause', 'autoSend', 'autoStart', 'defaultAgentSdkSession', 'defaultAnthropicConfigId', 'defaultAnthropicProfileId',
-            'defaultMessageTemplateId', 'defaultReminderTemplateId', 'defaultRole', 'defaultTransport', 'responseTimeoutMinutes',
+            'defaultMessageTemplateId', 'defaultRole', 'defaultTransport', 'responseTimeoutMinutes',
         ], 'every per-run setting a tab shows, not the walk continuations');
         const start = { ...BUILTIN_RUN_QUEUE_SETTINGS, defaultMessageTemplateId: 'tOld', walkContinuations: 3 };
         const from = { ...BUILTIN_RUN_QUEUE_SETTINGS, autoSend: false, defaultTransport: 'anthropic' as const, defaultAnthropicProfileId: 'p', walkContinuations: 0 };

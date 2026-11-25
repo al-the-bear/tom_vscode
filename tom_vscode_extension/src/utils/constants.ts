@@ -2,8 +2,6 @@ export const BRIDGE_REQUEST_TIMEOUT = 30_000;
 export const BRIDGE_RESTART_DELAY = 5_000;
 export const BRIDGE_MAX_RESTARTS = 10;
 export const TIMER_TICK_INTERVAL = 30_000;
-export const REMINDER_CHECK_INTERVAL = 30_000;
-export const REMINDER_DEFAULT_TIMEOUT = 600_000;
 export const TELEGRAM_POLL_INTERVAL = 300_000;
 export const BRIDGE_AUTO_START_DELAY = 2_000;
 export const CLI_SERVER_AUTO_START_DELAY = 1_000;
@@ -194,15 +192,11 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_addTestComment',
     'tomAi_setTestStatus',
     'tomAi_toggleTestLabel',
-    // Prompt + reminder templates (split from manage-style)
+    // Prompt templates (split from manage-style)
     'tomAi_listPromptTemplates',
     'tomAi_createPromptTemplate',
     'tomAi_updatePromptTemplate',
     'tomAi_deletePromptTemplate',
-    'tomAi_listReminderTemplates',
-    'tomAi_createReminderTemplate',
-    'tomAi_updateReminderTemplate',
-    'tomAi_deleteReminderTemplate',
     // Id generation
     'tomAi_generateIdPrefix',
     // Skills (.claude/skills)

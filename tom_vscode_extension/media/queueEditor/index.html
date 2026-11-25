@@ -52,7 +52,6 @@
 <div class="context-bar">
   <span id="contextSummary" class="context-summary"></span>
   <button class="ctx-btn-icon" onclick="openChatVariables()" title="Chat Variables"><span class="codicon codicon-symbol-key"></span></button>
-  <button class="ctx-btn-icon" onclick="openReminderSettings()" title="Reminder settings: the alive check and the default reminder template (Status Page)"><span class="codicon codicon-bell"></span></button>
   <button class="ctx-btn-icon" onclick="openTemplateEditor()" title="Prompt Templates"><span class="codicon codicon-file-code"></span></button>
   <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
   <button class="ctx-btn-icon" id="makeDefaultBtn" onclick="makeRunSettingsDefault()" title="Make this run's settings the default for new runs"><span class="codicon codicon-pinned"></span></button>
@@ -65,7 +64,7 @@
      in the queue-settings YAML; new items without an explicit transport
      inherit this at dispatch. Per-item / per-stage overrides still win.
      Picker markup is rendered host-side and injected here by main.js. -->
-<!-- The run's Copilot answer timeout and reminder template: only while its default transport is Copilot. -->
+<!-- The run's Copilot answer timeout: only while its default transport is Copilot. -->
 <div class="context-bar" id="copilotDefaultsRow">
   <span id="copilotQueueSettings" class="copilot-only">
   <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
@@ -79,11 +78,6 @@
     <option value="240">240 Minutes</option>
     <option value="480">480 Minutes</option>
   </select>
-  <label style="font-size:0.85em;opacity:0.85;">Reminder Template:</label>
-  <select id="toolbarReminderTemplate" onchange="setDefaultReminderTemplate(this.value)"></select>
-  <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
-  <button class="ctx-btn-icon" onclick="editReminderTemplate()" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
-  <button class="ctx-btn-icon" onclick="deleteReminderTemplate()" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
   </span>
 </div>
 <div class="toolbar">
@@ -118,24 +112,7 @@
     <button class="ctx-btn-icon" onclick="editPromptTemplate()" title="Edit Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deletePromptTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
   </div>
-  <div class="add-options copilot-only" id="addReminderRow">
-    <label style="margin-right:6px;">Reminder:</label>
-    <select id="addReminderTemplate"><option value="">Global Default</option><option value="__none__">No reminder</option></select>
-    <button class="ctx-btn-icon" onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>
-    <button class="ctx-btn-icon" onclick="editReminderTemplate('addReminderTemplate')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>
-    <button class="ctx-btn-icon" onclick="deleteReminderTemplate('addReminderTemplate')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>
-    <span style="font-size:0.8em;opacity:0.85;">Wait:</span>
-    <select id="addReminderTimeout">
-      <option value="5">5 min</option>
-      <option value="10">10 min</option>
-      <option value="15">15 min</option>
-      <option value="30">30 min</option>
-      <option value="60" selected>60 min</option>
-      <option value="120">120 min</option>
-      <option value="240">240 min</option>
-      <option value="480">480 min</option>
-    </select>
-  </div>
+
   <div class="add-options">
     <span id="addRunLabel" title="The item belongs to the selected tab's run (its sessions are the run's, `<session>@<run>`)"></span>
   </div>

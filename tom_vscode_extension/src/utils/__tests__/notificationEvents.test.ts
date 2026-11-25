@@ -8,7 +8,7 @@
  *   NE-3 the line texts: single events of every type, and grouped ones
  *   NE-4 the details: who, the agent, what it was working on, the fields, the members
  *   NE-5 the todo update: the changed fields (old → new, cut), a status change vs an edit, nothing changed
- *   NE-6 the queue drafts: kind, run, preview; who from the item itself (another quest, timed, reminder, done
+ *   NE-6 the queue drafts: kind, run, preview; who from the item itself (another quest, timed, done
  *        notification) or the call's context
  *   NE-7 the window choices: every window the events name, newest first
  */
@@ -124,7 +124,6 @@ describe('texts', () => {
         assert.equal(queueItemDraft('itemQueued', { id: 'm', status: 'pending', processRun: { run: 'r' } }).run, 'r', 'a Proceed item is its run\'s');
         assert.deepEqual(queueItemDraft('itemQueued', { id: 'x', status: 'pending', from: { quest: 'tom_specs' } }).who, { kind: 'agent', fromQuest: 'tom_specs' });
         assert.equal(queueItemDraft('itemQueued', { id: 'x', status: 'pending', type: 'timed' }).who!.label, 'timed request');
-        assert.equal(queueItemDraft('itemQueued', { id: 'x', status: 'pending', type: 'reminder' }).who!.label, 'reminder');
         assert.match(queueItemDraft('itemQueued', { id: 'x', status: 'pending', notificationOf: 'q9' }).who!.label!, /done notification of q9/);
         assert.equal(queueItemDraft('itemDeleted', { id: 'x', status: 'sent', type: 'timed' }).who, undefined, 'a deletion: the caller\'s context');
     });

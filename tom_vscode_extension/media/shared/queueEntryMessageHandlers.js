@@ -2,7 +2,7 @@
 /* eslint-disable no-undef */
 // queueEntryMessageHandlers — extracted verbatim from queueEntryMessageHandlers() in src/handlers/queueEntryComponent.ts (Phase B.13 webview
 // restructuring). This is a host-scope mixin: its functions reference page
-// globals (currentItems, vscode, detailsExpanded, reminderTemplates, editorMode,
+// globals (currentItems, vscode, detailsExpanded, editorMode,
 // render, …) declared by the host panel main.js (media/queueEditor or media/queueTemplateEditor), so no-undef is disabled. Promoted to media/shared in B.14 (used by both editors).
 // Both the queue editor and the queue template editor load this file as a
 // <script src> from media/shared/ (loader {{sharedUri}}), keeping one source of truth.
@@ -119,41 +119,9 @@ function submitTemplateStartIndexFromStatus(event, id, inputEl) {
   updateItemRepeat(id, { templateRepeatIndex: num });
 }
 function updateItemTemplate(id, template) { vscode.postMessage({ type: 'updateItemTemplate', id: id, template: template || '' }); }
-function updateItemReminder(id, field, value) {
-  var msg = { type: 'updateItemReminder', id: id };
-  if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') {
-    if (value === '__none__') {
-      msg.reminderEnabled = false;
-      msg.reminderTemplateId = '';
-    } else {
-      msg.reminderTemplateId = value || '';
-      msg.reminderEnabled = true; // Enable reminders when selecting a template
-    }
-  }
-  if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
-  if (field === 'repeat') msg.reminderRepeat = !!value;
-  vscode.postMessage(msg);
-}
 function addEmptyFollowUp(id) { vscode.postMessage({ type: 'addEmptyFollowUp', id: id }); }
 function updateFollowUp(id, followUpId, text) { vscode.postMessage({ type: 'updateFollowUp', id: id, followUpId: followUpId, text: text }); }
 function updateFollowUpTemplate(id, followUpId, template) { vscode.postMessage({ type: 'updateFollowUp', id: id, followUpId: followUpId, template: template || '' }); }
-function updateFollowUpReminder(id, followUpId, field, value) {
-  var msg = { type: 'updateFollowUp', id: id, followUpId: followUpId };
-  if (field === 'enabled') msg.reminderEnabled = !!value;
-  if (field === 'template') {
-    if (value === '__none__') {
-      msg.reminderEnabled = false;
-      msg.reminderTemplateId = '';
-    } else {
-      msg.reminderTemplateId = value || '';
-      msg.reminderEnabled = true;
-    }
-  }
-  if (field === 'timeout') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
-  if (field === 'repeat') msg.reminderRepeat = !!value;
-  vscode.postMessage(msg);
-}
 function removeFollowUp(id, followUpId) { vscode.postMessage({ type: 'removeFollowUp', id: id, followUpId: followUpId }); }
 function addPrePrompt(id) { vscode.postMessage({ type: 'addPrePrompt', id: id, text: '', template: '' }); }
 function updatePrePrompt(id, index, text, template) {
@@ -172,16 +140,6 @@ function updatePrePromptField(id, index, field, value) {
     msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
   }
   if (field === 'answerWaitMinutes') msg.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
-  if (field === 'reminderTemplateId') {
-    if (value === '__none__') {
-      msg.reminderEnabled = false;
-      msg.reminderTemplateId = '';
-    } else {
-      msg.reminderTemplateId = value || '';
-      msg.reminderEnabled = true;
-    }
-  }
-  if (field === 'reminderTimeoutMinutes') msg.reminderTimeoutMinutes = parseInt(String(value || '0'), 10) || undefined;
   vscode.postMessage(msg);
 }
 function updateFollowUpField(id, followUpId, field, value) {

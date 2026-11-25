@@ -108,7 +108,6 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
 import { useRun } from './_processTestRun.js';
 import { ProcessStateStore } from '../../managers/processStateStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, PROCESS_MARKER_HELD_ERROR, parseProcessMove, type QueuedPrompt } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -143,14 +142,13 @@ function start(): void {
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
     ProcessStateStore.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
     installProcessMoveMarkers();
 }
 start();
 after(() => {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }

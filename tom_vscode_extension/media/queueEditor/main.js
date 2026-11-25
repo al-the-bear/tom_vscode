@@ -4,7 +4,7 @@
 // src/handlers/queueEditor-handler.ts (Phase B.13 webview restructuring).
 //
 // Host-scope script: it declares the page globals (currentItems, vscode,
-// detailsExpanded, reminderTemplates, editorMode, render, …) consumed by the
+// detailsExpanded, editorMode, render, …) consumed by the
 // component partials (queueEntryUtils/RenderFunctions/MessageHandlers.js) and
 // transportPicker.js, and it calls the functions those partials define — so
 // no-undef is disabled. Component scripts load BEFORE this one (their globals
@@ -137,7 +137,7 @@ let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQu
 // The start values (queue-settings.yaml's top-level keys): what a run without settings of its own starts from (vscimpb60g).
 let startQueueSettings = (__INITIAL__.startQueueSettings && typeof __INITIAL__.startQueueSettings === 'object') ? __INITIAL__.startQueueSettings : null;
 /* The settings Make default copies (utils/runQueueSettings.ts DEFAULT_SETTING_FIELDS): every per-run setting a tab shows. */
-const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'responseTimeoutMinutes', 'defaultReminderTemplateId',
+const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'responseTimeoutMinutes',
   'defaultTransport', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'];
 
 /** The shown settings in which the tab's run differs from the start values ([] = Make default has nothing to write). */
@@ -166,7 +166,7 @@ function renderMakeDefault() {
 /** The run of the selected tab: its items, its toolbar and its settings. */
 function settingsRun() { return selectedRun || currentRun; }
 
-/** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults, Copilot timeout and reminder). */
+/** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults, Copilot timeout). */
 function applyRunSettings() {
   const s = runQueueSettings[settingsRun()];
   if (!s) { return; }
@@ -175,7 +175,6 @@ function applyRunSettings() {
   autoPause = s.autoPause !== false;
   autoContinue = s.autoContinue === true;
   responseTimeoutMinutes = s.responseTimeoutMinutes || 60;
-  defaultReminderTemplateId = s.defaultReminderTemplateId || '';
   queueDefaultTransport = s.defaultTransport || 'copilot';
   queueDefaultSessionLabel = s.defaultAgentSdkSession || 'default';
   queueDefaultAnthropicProfileId = s.defaultAnthropicProfileId || '';
@@ -208,8 +207,6 @@ let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : fa
 let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
 let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
 let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
-let defaultReminderTemplateId = __INITIAL__.defaultReminderTemplateId || '';
-let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
 // Multi-transport UI state (spec §4.10). Populated from the state
 // payload so the queue editor's Add form can show a profile +
@@ -266,8 +263,6 @@ function normalizeState() {
       };
     });
 
-  if (!Array.isArray(reminderTemplates)) { reminderTemplates = []; }
-  reminderTemplates = reminderTemplates.filter(function(t) { return t && typeof t.id === 'string' && typeof t.name === 'string'; });
 
   if (!Array.isArray(promptTemplates)) { promptTemplates = []; }
   promptTemplates = promptTemplates.filter(function(name) { return typeof name === 'string'; });
@@ -316,9 +311,8 @@ if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormP
 if (__afSlot) { __afSlot.addEventListener('change', function () { syncCopilotOnlyFields(); }); }
 
 /**
- * Copilot-only settings (the answer timeout, the reminder template, the add
- * form's reminder): shown only where the transport is Copilot — the toolbar's
- * when the queue's default transport is, the add form's when its picker is.
+ * The Copilot-only setting (the answer timeout): shown only while the queue's
+ * default transport is Copilot.
  */
 function syncCopilotOnlyFields() {
   var bar = document.getElementById('copilotQueueSettings');
@@ -326,10 +320,6 @@ function syncCopilotOnlyFields() {
   // The defaults row holding them goes with them.
   var row = document.getElementById('copilotDefaultsRow');
   if (row) { row.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
-  var addRow = document.getElementById('addReminderRow');
-  var addT = document.querySelector('#addTransportRow select[id$="-transport-t"]');
-  var addTransport = addT && addT.value ? addT.value : queueDefaultTransport;
-  if (addRow) { addRow.style.display = addTransport === 'copilot' ? '' : 'none'; }
 }
 
 /* Night mode (services/nightMode.ts): the button shows the window's night-mode chat variable; a click asks the host. */
@@ -403,8 +393,6 @@ window.addEventListener('message', e => {
       autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
       autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
       responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
-      defaultReminderTemplateId = msg.defaultReminderTemplateId || '';
-      reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
       anthropicProfiles = msg.anthropicProfiles || [];
       defaultProfileNoApiKey = msg.defaultProfileNoApiKey === true;
@@ -560,10 +548,6 @@ function updateContextSummary() {
     'The prompt template run ' + run + '\'s items take unless they name their own ("Run default") — click to choose'), 'template');
 }
 
-function openReminderSettings() {
-  vscode.postMessage({ type: 'openReminderSettings' });
-}
-
 function openChatVariables() {
   vscode.postMessage({ type: 'openChatVariablesEditor', run: settingsRun() });
 }
@@ -602,7 +586,7 @@ function render() {
     apBtn.style.opacity = autoPause ? '1' : '0.5';
   }
 
-  // The answer timeout and reminder template act on Copilot answer files only: shown when the queue sends on Copilot.
+  // The answer timeout acts on Copilot answer files only: shown when the queue sends on Copilot.
   syncCopilotOnlyFields();
   const timeoutSel = document.getElementById('responseTimeout');
   if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
@@ -997,15 +981,6 @@ function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem', run: se
 function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation', run: settingsRun() }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged', run: settingsRun() }); }
 function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60, run: settingsRun() }); }
-function setDefaultReminderTemplate(templateId) {
-  const normalizedTemplateId = templateId || '';
-  defaultReminderTemplateId = normalizedTemplateId;
-  const addSel = document.getElementById('addReminderTemplate');
-  if (addSel) {
-    addSel.value = normalizedTemplateId;
-  }
-  vscode.postMessage({ type: 'setDefaultReminderTemplate', templateId: normalizedTemplateId, run: settingsRun() });
-}
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
 function clearSent() { vscode.postMessage({ type: 'clearSent', run: settingsRun() }); }
 function clearAll() { vscode.postMessage({ type: 'clearAll', run: settingsRun() }); }
@@ -1072,7 +1047,6 @@ function resetToPending(id) { vscode.postMessage({ type: 'resetToPending', id })
 function retryWaitingNow(id) { vscode.postMessage({ type: 'retryWaitingNow', id }); }
 function retryRetryingNow(id) { vscode.postMessage({ type: 'retryRetryingNow', id }); }
 function stopRetrying(id) { vscode.postMessage({ type: 'stopRetrying', id }); }
-function toggleReminder(id, enabled) { vscode.postMessage({ type: 'toggleReminder', id, enabled }); }
 /** The item headline's icon: open the live trail of the session the item runs in. */
 function openItemLiveTrail(id) { vscode.postMessage({ type: 'openItemLiveTrail', id: id }); }
 // eslint-disable-next-line no-unused-vars -- called by the speech bubble's message box (queueEntryRenderFunctions.js)
@@ -1088,8 +1062,6 @@ function addPrompt() {
   const ta = document.getElementById('addText');
   const text = ta.value.trim();
   if (!text) { showAddFeedback('Please enter prompt text', 'error'); return; }
-  const selTpl = document.getElementById('addReminderTemplate');
-  const selTimeout = document.getElementById('addReminderTimeout');
   const inputRepeatCount = document.getElementById('addRepeatCount');
   const inputRepeatPrefix = document.getElementById('addRepeatPrefix');
   const inputRepeatSuffix = document.getElementById('addRepeatSuffix');
@@ -1098,17 +1070,6 @@ function addPrompt() {
   if (selTemplate && selTemplate.value) {
     msg.template = selTemplate.value;
   }
-  // Handle 'No reminder' option
-  if (selTpl && selTpl.value === '__none__') {
-    msg.reminderEnabled = false;
-  } else if (selTpl && selTpl.value) {
-    msg.reminderTemplateId = selTpl.value;
-    msg.reminderEnabled = true;
-  } else {
-    // Global default selected: honor toolbar default, including "No reminder"
-    msg.reminderEnabled = defaultReminderTemplateId === '__none__' ? false : true;
-  }
-  if (selTimeout && selTimeout.value) { msg.reminderTimeoutMinutes = parseInt(String(selTimeout.value || '0'), 10) || undefined; }
   if (inputRepeatCount) {
     var rcVal = String(inputRepeatCount.value || '1').trim();
     msg.repeatCount = /^[0-9]+$/.test(rcVal) ? Math.max(1, parseInt(rcVal, 10)) : rcVal;
@@ -1140,16 +1101,6 @@ function addPrompt() {
   ta.value = '';
 }
 
-function addReminderTemplate() {
-  vscode.postMessage({ type: 'addReminderTemplate' });
-  if (inputRepeatCount) {
-    var rcVal2 = String(inputRepeatCount.value || '0').trim();
-    msg.repeatCount = /^[0-9]+$/.test(rcVal2) ? Math.max(0, parseInt(rcVal2, 10)) : rcVal2;
-  } else {
-    msg.repeatCount = 0;
-  }
-}
-
 function addPromptTemplate() {
   vscode.postMessage({ type: 'addPromptTemplate' });
 }
@@ -1170,24 +1121,6 @@ function editPromptTemplateByName(name) {
 
 function deletePromptTemplateByName(name) {
   vscode.postMessage({ type: 'deletePromptTemplate', name: name || undefined });
-}
-
-function editReminderTemplate(selectId) {
-  const sel = document.getElementById(selectId || 'toolbarReminderTemplate');
-  vscode.postMessage({ type: 'editReminderTemplate', id: sel && sel.value ? sel.value : undefined });
-}
-
-function deleteReminderTemplate(selectId) {
-  const sel = document.getElementById(selectId || 'toolbarReminderTemplate');
-  vscode.postMessage({ type: 'deleteReminderTemplate', id: sel && sel.value ? sel.value : undefined });
-}
-
-function editReminderTemplateById(id) {
-  vscode.postMessage({ type: 'editReminderTemplate', id: id || undefined });
-}
-
-function deleteReminderTemplateById(id) {
-  vscode.postMessage({ type: 'deleteReminderTemplate', id: id || undefined });
 }
 
 function toggleAddForm() {
@@ -1212,35 +1145,6 @@ function populateAddForm() {
   if (tplSel) {
     populateAddFormTemplateList();
   }
-  const toolbarSel = document.getElementById('toolbarReminderTemplate');
-  if (toolbarSel) {
-    toolbarSel.innerHTML = '<option value="">Global Default</option><option value="__none__">No reminder</option>';
-    reminderTemplates.forEach(function(t) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      toolbarSel.appendChild(opt);
-    });
-    // Restore persisted default reminder template
-    toolbarSel.value = defaultReminderTemplateId || '';
-  }
-  // Populate reminder template dropdown
-  const sel = document.getElementById('addReminderTemplate');
-  if (!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">Global Default</option><option value="__none__">No reminder</option>';
-  reminderTemplates.forEach(function(t) {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = t.name;
-    sel.appendChild(opt);
-  });
-  if (prev) {
-    sel.value = prev;
-  } else {
-    sel.value = defaultReminderTemplateId || '';
-  }
-
   // Populate the Anthropic profile + config dropdowns inside every
   // renderTransportPicker instance on the page (spec §4.10 queue-level
   // default + add-form override). Helpers emit selects with IDs of
@@ -1355,24 +1259,12 @@ function populateAddForm() {
     if (prevCfg) { cfgSel.value = prevCfg; }
   }
   // Spec §4.7 + §4.16 — when the add-form's transport flips to
-  // Anthropic, (a) disable reminder / answerWait (Copilot-only
-  // constructs) and (b) repopulate the template dropdown from the
+  // Anthropic, repopulate the template dropdown from the
   // Anthropic user-message templates store, blanking the current
   // selection (spec §5 edge case).
   var tSel = document.getElementById('addForm-transport-t');
   if (tSel) {
     var apply = function() {
-      var isAnthropic = tSel.value === 'anthropic';
-      var remTpl = document.getElementById('addReminderTemplate');
-      var remTimeout = document.getElementById('addReminderTimeout');
-      if (remTpl) {
-        remTpl.disabled = isAnthropic;
-        remTpl.title = isAnthropic ? 'Disabled — reminders apply only to Copilot queue items.' : '';
-      }
-      if (remTimeout) {
-        remTimeout.disabled = isAnthropic;
-        remTimeout.title = isAnthropic ? 'Disabled — anthropic items advance synchronously.' : '';
-      }
       populateAddFormTemplateList();
     };
     tSel.addEventListener('change', apply);

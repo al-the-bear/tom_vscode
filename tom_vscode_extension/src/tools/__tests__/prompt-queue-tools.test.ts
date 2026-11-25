@@ -117,10 +117,6 @@ function makeAccess(): FakeAccess {
                 repeatSuffix: input.repeatSuffix,
                 templateRepeatCount: input.templateRepeatCount,
                 answerWaitMinutes: input.answerWaitMinutes,
-                reminderEnabled: input.reminderEnabled,
-                reminderTemplateId: input.reminderTemplateId,
-                reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-                reminderRepeat: input.reminderRepeat,
                 transport: input.transport ?? 'copilot',
                 anthropicProfileId: input.anthropicProfileId,
                 anthropicConfigId: input.anthropicConfigId,
@@ -161,14 +157,6 @@ function makeAccess(): FakeAccess {
             if (!i) { return; }
             if (opts.template !== undefined) { i.template = opts.template; }
             if (opts.answerWrapper !== undefined) { i.answerWrapper = opts.answerWrapper; }
-        },
-        updateItemReminder(id, opts) {
-            const i = items.find((x) => x.id === id);
-            if (!i) { return; }
-            if (opts.reminderEnabled !== undefined) { i.reminderEnabled = opts.reminderEnabled; }
-            if (opts.reminderTemplateId !== undefined) { i.reminderTemplateId = opts.reminderTemplateId; }
-            if (opts.reminderTimeoutMinutes !== undefined) { i.reminderTimeoutMinutes = opts.reminderTimeoutMinutes; }
-            if (opts.reminderRepeat !== undefined) { i.reminderRepeat = opts.reminderRepeat; }
         },
         updateItemRepetition(id, opts) {
             const i = items.find((x) => x.id === id);
@@ -564,7 +552,7 @@ describe('setQueueItemStatusImpl', () => {
 
 describe('updateQueueItemImpl', () => {
 
-    test('typical update: text + template + reminder + repeat + transport in one call', async () => {
+    test('typical update: text + template + repeat + transport in one call', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'original' }));
         const raw = await withTiming('tomAi_updateQueueItem:typical', () =>
             updateQueueItemImpl(access, {
@@ -572,8 +560,6 @@ describe('updateQueueItemImpl', () => {
                 text: 'updated',
                 template: 'mytemplate',
                 answerWrapper: true,
-                reminderEnabled: true,
-                reminderTemplateId: 'rmd-1',
                 repeatCount: 3,
                 repeatPrefix: 'P',
                 repeatSuffix: 'S',

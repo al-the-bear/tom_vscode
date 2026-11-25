@@ -81,10 +81,6 @@ export interface TimedEntrySnapshot {
     repeatSuffix?: string;
     sendMaximum?: number;
     answerWaitMinutes?: number;
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
     lastSentAt?: number;
 }
 
@@ -104,10 +100,6 @@ export interface AddTimedEntryInput {
     repeatSuffix?: string;
     sendMaximum?: number;
     answerWaitMinutes?: number;
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
 }
 
 // ===========================================================================
@@ -154,10 +146,6 @@ function compactEntry(e: TimedEntrySnapshot): Record<string, unknown> {
         scheduleMode: e.scheduleMode,
         intervalMinutes: e.intervalMinutes ?? null,
         scheduledTimes: e.scheduledTimes ?? [],
-        reminderEnabled: !!e.reminderEnabled,
-        reminderTemplateId: e.reminderTemplateId ?? null,
-        reminderTimeoutMinutes: e.reminderTimeoutMinutes ?? null,
-        reminderRepeat: !!e.reminderRepeat,
         lastSentAt: e.lastSentAt ?? null,
         textPreview: String(e.originalText ?? '').slice(0, 160),
     };
@@ -195,10 +183,6 @@ export async function addTimedRequestImpl(access: TimerEngineAccess, input: AddT
             repeatSuffix: input.repeatSuffix,
             sendMaximum: input.sendMaximum,
             answerWaitMinutes: input.answerWaitMinutes,
-            reminderEnabled: input.reminderEnabled,
-            reminderTemplateId: input.reminderTemplateId,
-            reminderTimeoutMinutes: input.reminderTimeoutMinutes,
-            reminderRepeat: input.reminderRepeat,
         });
         return ok({
             id: entry.id,
@@ -265,10 +249,6 @@ export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedEntryInput> = 
             repeatSuffix: { type: 'string' },
             sendMaximum: { type: 'number', description: 'Auto-pause after N sends; 0 = no cap.' },
             answerWaitMinutes: { type: 'number' },
-            reminderEnabled: { type: 'boolean' },
-            reminderTemplateId: { type: 'string' },
-            reminderTimeoutMinutes: { type: 'number' },
-            reminderRepeat: { type: 'boolean' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -336,10 +316,6 @@ export interface UpdateTimedRequestInput {
         scheduleMode?: TimedScheduleMode;
         intervalMinutes?: number;
         scheduledTimes?: TimedScheduleSlot[];
-        reminderEnabled?: boolean;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
         repeatCount?: number;
         repeatPrefix?: string;
         repeatSuffix?: string;
@@ -418,10 +394,6 @@ export const UPDATE_TIMED_REQUEST_TOOL: SharedToolDefinition<UpdateTimedRequestI
                             },
                         },
                     },
-                    reminderEnabled: { type: 'boolean' },
-                    reminderTemplateId: { type: 'string' },
-                    reminderTimeoutMinutes: { type: 'number' },
-                    reminderRepeat: { type: 'boolean' },
                     repeatCount: { type: 'number' },
                     repeatPrefix: { type: 'string' },
                     repeatSuffix: { type: 'string' },

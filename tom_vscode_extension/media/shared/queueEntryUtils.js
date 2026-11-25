@@ -2,7 +2,7 @@
 /* eslint-disable no-undef */
 // queueEntryUtils — extracted verbatim from queueEntryUtils() in src/handlers/queueEntryComponent.ts (Phase B.13 webview
 // restructuring). This is a host-scope mixin: its functions reference page
-// globals (currentItems, vscode, detailsExpanded, reminderTemplates, editorMode,
+// globals (currentItems, vscode, detailsExpanded, editorMode,
 // render, …) declared by the host panel main.js (media/queueEditor or media/queueTemplateEditor), so no-undef is disabled. Promoted to media/shared in B.14 (used by both editors).
 // Both the queue editor and the queue template editor load this file as a
 // <script src> from media/shared/ (loader {{sharedUri}}), keeping one source of truth.
@@ -32,15 +32,6 @@ function formatPromptTemplateName(name) {
   var list = typeof anthropicUserMessageTemplates !== 'undefined' ? anthropicUserMessageTemplates : [];
   var match = (list || []).find(function(t) { return t && t.id === name; });
   return match && match.name ? match.name : name;
-}
-
-function reminderTimeoutOptions(selectedMinutes) {
-  var options = [5, 10, 15, 30, 60, 120, 240, 480];
-  var selected = Math.max(1, parseInt(String(selectedMinutes || 0), 10) || 0);
-  var rendered = options.map(function(m) {
-    return '<option value="' + m + '"' + (m === selected ? ' selected' : '') + '>' + m + ' min</option>';
-  }).join('');
-  return rendered || '<option value="60">60 min</option>';
 }
 
 // The queue statuses the webview knows how to render (QueuedPromptStatus in

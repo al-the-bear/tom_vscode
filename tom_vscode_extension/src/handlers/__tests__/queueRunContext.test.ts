@@ -9,7 +9,7 @@
  *        variables and process position; a variable set there goes to that run only; opened without a run it shows
  *        the window's run
  *   RC-4 the queue editor host: the context links pass the tab's run (Chat Variables, the state file of its
- *        position); the reminder link opens the Status Page's reminder settings; its state carries each run's context
+ *        position); its state carries each run's context
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- YAML keys */
@@ -135,7 +135,6 @@ describe('the context of a Prompt Queue tab\'s run', () => {
 
     test('RC-4: the queue editor host', () => {
         const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'queueEditor-handler.ts'), 'utf8');
-        assert.match(host, /case 'openReminderSettings':\s+await vscode\.commands\.executeCommand\('tomAi\.statusPage', 'reminders'\);/);
         assert.match(host, /executeCommand\('tomAi\.editor\.chatVariables', tabRunOf\(msg\)\)/);
         assert.match(host, /case 'openRunStateFile': \{[\s\S]{0,300}runContextOf\(tabRunOf\(msg\) \?\? 'default'\)\.stateFile/);
         assert.match(host, /runContexts: runContextsFor\(items\),/);

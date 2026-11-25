@@ -10,22 +10,21 @@
  *        (`setSettingsRun`); the tab is kept in the view state over a reload, a tab that is gone falls back to the
  *        window's run
  *   QR-3 the tab's toolbar posts its run: Add, auto-send, Auto-Start / -Pause / -Continue, Restart, Stop, Interrupt,
- *        Send all staged, Retry / Delete errors, Clear sent / all, the Copilot timeout and reminder, the default
+ *        Send all staged, Retry / Delete errors, Clear sent / all, the Copilot timeout, the default
  *        session picker; Collapse / Expand act on the tab's items
  *   QR-4 gone: the run filter, Group by run, the Queue per run checkbox, the lane strip, the add form's run picker;
  *        the add form names the tab's run; the Copilot defaults row shows only while the run's default transport is
  *        Copilot
  *   QR-5 the host: every toolbar action passes the message's run to the manager (handler source)
  *   QR-6 the context bar shows the tab's run (vscimpb60c): its name, position, role and chat variables, which change
- *        with the tab; Position, Variables and the Chat Variables button post the tab's run; the bell posts
- *        `openReminderSettings` (the Status Page's reminder settings); the role of another run than the window's is
- *        its step's, shown, not picked
+ *        with the tab; Position, Variables and the Chat Variables button post the tab's run; the role of another run
+ *        than the window's is its step's, shown, not picked
  *   QR-8 the run chip: `run <name>` in the todo chip's look beside it; on a staged or pending item it is clickable
  *        and posts `relocateItem` with the item — a sending item's too (it is stopped and goes on as pending); an item
  *        of a Proceed run keeps its run; the host's move flow picks the run, the session in it and the place, and calls
  *        the manager's relocateItem
  *   QR-9 Make default (vscimpb60g): a codicon button among the icon buttons of the run settings' first context bar
- *        (beside Chat Variables, Reminder settings, Prompt Templates, Queue Templates), not in the toolbar; enabled only while the tab's run differs
+ *        (beside Chat Variables, Prompt Templates, Queue Templates), not in the toolbar; enabled only while the tab's run differs
  *        from the start values (the state's `startQueueSettings`; unset equals ""), its tooltip naming what differs;
  *        a click posts `makeRunSettingsDefault` with the tab's run; the host calls the manager's
  *        setDefaultQueueSettings and confirms in the status bar
@@ -185,7 +184,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, 'none', 'chg1 sends on Anthropic: no Copilot defaults');
         clickTab(w, 'chg2');
         assert.equal(w.document.getElementById('addRunLabel').textContent, 'Run: chg2');
-        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, '', 'chg2 on Copilot: its answer timeout and reminder');
+        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, '', 'chg2 on Copilot: its answer timeout');
     });
 
     test('QR-5: the host passes the run of every toolbar action', () => {
@@ -197,7 +196,6 @@ describe('Prompt Queue editor — one tab per run', () => {
             /qm\.interruptActiveItemForContinuation\(msg\.type === 'interruptForContinuation' \? msg\.id : undefined, tabRunOf\(msg\)\)/,
             /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\)/,
             /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ responseTimeoutMinutes:/,
-            /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ defaultReminderTemplateId:/,
             /\.\.\.\(typeof msg\.run === 'string' && msg\.run \? \{ run: addFormRun\(msg\.run\) \} : \{\}\)/,
         ]) { assert.match(host, call); }
     });
@@ -226,10 +224,9 @@ describe('Prompt Queue editor — one tab per run', () => {
         linkOf('position').click();
         linkOf('variables').click();
         w.openChatVariables();
-        w.openReminderSettings();
         assert.deepEqual(posted, [
             { type: 'openRunStateFile', run: 'chg2' }, { type: 'openChatVariablesEditor', run: 'chg2' },
-            { type: 'openChatVariablesEditor', run: 'chg2' }, { type: 'openReminderSettings' },
+            { type: 'openChatVariablesEditor', run: 'chg2' },
         ]);
     });
 

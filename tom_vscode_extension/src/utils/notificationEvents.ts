@@ -102,7 +102,7 @@ export interface NotificationWho {
 export interface NotificationItem {
     id: string;
     run: string;
-    /** normal / timed / reminder / process-move marker / … */
+    /** normal / timed / process-move marker / … */
     kind: string;
     preview: string;
 }

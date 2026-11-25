@@ -57,17 +57,6 @@ export function setQueueStorageDebug(enabled: boolean): void {
 // Types — queue.yaml schema (meta + prompt-queue)
 // ============================================================================
 
-/** Reminder configuration, shared between prompts and follow-ups. */
-export interface QueueReminderConfig {
-    enabled?: boolean;
-    'template-id'?: string;
-    'timeout-minutes'?: number;
-    repeat?: boolean;
-    'sent-count'?: number;
-    'last-sent-at'?: string | null;
-    queued?: boolean;
-}
-
 /** Execution state tracked at runtime. */
 export interface QueueExecutionState {
     'request-id'?: string | null;
@@ -156,14 +145,12 @@ export interface QueuePromptYaml {
     'template-repeat-index'?: number;
     'answer-wait-minutes'?: number;
     'llm-profile'?: string;
-    reminder?: QueueReminderConfig;
     'gate-ref'?: string;
     'pre-prompt-refs'?: QueuePromptRef[];
     'follow-up-refs'?: QueuePromptRef[];
     'gate-condition'?: string;
     'case-expression'?: string;
     'case-mapping'?: Array<{ value: string; 'prompt-ref': QueuePromptRef }>;
-    'case-reminder-ref'?: QueuePromptRef;
     metadata?: Record<string, unknown>;
     execution?: QueueExecutionState;
     // Multi-transport fields — multi_transport_prompt_queue_revised.md
@@ -265,8 +252,8 @@ export interface QueueMetaYaml {
     'yield-after-iteration'?: boolean;
     /** The user interrupted the item's wait (tomAi_waitFor): when it runs again, its last stage is sent again with a note. */
     'resume-after-wait'?: boolean;
-    /** The item's kind when not a plain prompt: `timed` (queued by a timed request) or `reminder`. */
-    type?: 'timed' | 'reminder';
+    /** The item's kind when not a plain prompt: `timed` (queued by a timed request). */
+    type?: 'timed';
     /** On an item a timed request queued: the id of that timed request (TimerEngine). */
     // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
     'timed-entry-id'?: string;
@@ -379,7 +366,6 @@ export interface QueueSettings {
     /** Old shape (a paused run is one whose auto-send is off); ignored. */
     'held-runs'?: string[];
     'response-timeout-minutes'?: number;
-    'default-reminder-template-id'?: string;
     'auto-send-enabled'?: boolean;
     'auto-start-enabled'?: boolean;
     'auto-pause-enabled'?: boolean;

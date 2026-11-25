@@ -94,7 +94,6 @@ var __INITIAL__ = (window.__INIT__ && window.__INIT__.state) || {};
 
 let entries = __INITIAL__.entries || [];
 let timerActivated = __INITIAL__.timerActivated !== undefined ? __INITIAL__.timerActivated : true;
-let reminderTemplates = __INITIAL__.reminderTemplates || [];
 let promptTemplates = __INITIAL__.promptTemplates || [];
 let promptTemplateLabels = __INITIAL__.promptTemplateLabels || {};
 let currentContext = __INITIAL__.context || { quest: '', role: '', activeProjects: [] };
@@ -124,8 +123,6 @@ function normalizeState() {
       };
     });
 
-  if (!Array.isArray(reminderTemplates)) { reminderTemplates = []; }
-  reminderTemplates = reminderTemplates.filter(function(t) { return t && typeof t.id === 'string' && typeof t.name === 'string'; });
 
   if (!Array.isArray(promptTemplates)) { promptTemplates = []; }
   promptTemplates = promptTemplates.filter(function(name) { return typeof name === 'string'; });
@@ -173,7 +170,6 @@ window.addEventListener('message', e => {
     if (msg.type === 'state') {
       entries = msg.entries || [];
       timerActivated = msg.timerActivated !== undefined ? msg.timerActivated : true;
-      reminderTemplates = msg.reminderTemplates || [];
       promptTemplates = msg.promptTemplates || [];
       promptTemplateLabels = msg.promptTemplateLabels || {};
       currentContext = msg.context || { quest: '', role: '', activeProjects: [] };
@@ -201,10 +197,6 @@ function updateContextSummary() {
   if (currentContext.role) parts.push('Role: ' + currentContext.role);
   if (currentContext.activeProjects && currentContext.activeProjects.length) parts.push('Projects: ' + currentContext.activeProjects.join(', '));
   el.textContent = parts.length > 0 ? parts.join('  |  ') : 'No context set';
-}
-
-function openReminderSettings() {
-  vscode.postMessage({ type: 'openReminderSettings' });
 }
 
 function openChatVariables() {
@@ -239,14 +231,6 @@ function populateAddFormDropdowns() {
       promptTemplates.map(k => '<option value="' + esc(k) + '">' + esc(formatPromptTemplateName(k)) + '</option>').join('');
     tplSel.value = val;
   }
-  // Reminder template dropdown
-  const remSel = document.getElementById('addReminder');
-  if (remSel) {
-    const val = remSel.value;
-    remSel.innerHTML = '<option value="">Global Default</option>' +
-      reminderTemplates.map(t => '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>').join('');
-    remSel.value = val;
-  }
 }
 
 function submitNewEntry() {
@@ -259,9 +243,6 @@ function submitNewEntry() {
   const intervalMinutes = parseInt(document.getElementById('addInterval').value) || 30;
   const sendMaximum = Math.max(0, parseInt(String(document.getElementById('addSendMaximum').value || '0'), 10) || 0);
   const answerWaitMinutes = Math.max(0, parseInt(String(document.getElementById('addAnswerWait').value || '0'), 10) || 0);
-  const reminderTemplateId = document.getElementById('addReminder').value || undefined;
-  const reminderTimeoutMinutes = parseInt(document.getElementById('addReminderTimeout').value || '60', 10) || 60;
-  const reminderEnabled = !!document.getElementById('addReminderEnabled').checked;
   const repeatCount = Math.max(1, parseInt(String(document.getElementById('addRepeatCount').value || '1'), 10) || 1);
   const repeatPrefix = document.getElementById('addRepeatPrefix').value || '';
   const repeatSuffix = document.getElementById('addRepeatSuffix').value || '';
@@ -285,7 +266,6 @@ function submitNewEntry() {
     text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum, answerWaitMinutes,
     intervalWeekdays,
     scheduledTimes: [],
-    reminderEnabled, reminderTemplateId, reminderTimeoutMinutes,
     repeatCount, repeatPrefix, repeatSuffix,
   });
 }
@@ -476,10 +456,6 @@ function render() {
       '<span style="font-size:0.75em;opacity:0.6;margin-left:4px;">(all&nbsp;=&nbsp;any&nbsp;day)</span>' +
       '</div>';
 
-    const reminderOpts = reminderTemplates.map(t =>
-      '<option value="' + t.id + '"' + (entry.reminderTemplateId === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>'
-    ).join('');
-
     const tplOpts = promptTemplates.map(k =>
       '<option value="' + esc(k) + '"' + (entry.template === k ? ' selected' : '') + '>' + esc(formatPromptTemplateName(k)) + '</option>'
     ).join('');
@@ -534,22 +510,6 @@ function render() {
             : '<div class="schedule-times">' + scheduledTimesHtml + '</div>') +
         '</div>' +
         '<div class="entry-section">' +
-          '<label>Reminder</label>' +
-          '<div class="schedule-row">' +
-            '<label style="display:inline;"><input type="checkbox"' + (entry.reminderEnabled ? ' checked' : '') + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'reminderEnabled\',this.checked)"/> Enabled</label>' +
-            '<select' + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'reminderTemplateId\',this.value)">' +
-              '<option value="">Global Default</option>' +
-              reminderOpts +
-            '</select>' +
-            '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="addReminderTemplate()" title="Add Reminder Template"><span class="codicon codicon-add"></span></button>' +
-            '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="editReminderTemplateById(\'' + (entry.reminderTemplateId || '') + '\')" title="Edit Reminder Template"><span class="codicon codicon-edit"></span></button>' +
-            '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="deleteReminderTemplateById(\'' + (entry.reminderTemplateId || '') + '\')" title="Delete Reminder Template"><span class="codicon codicon-trash"></span></button>' +
-          '</div>' +
-          '<div class="schedule-row">' +
-            '<span>Timeout:</span> <select' + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'reminderTimeoutMinutes\',parseInt(this.value||\'60\',10)||60)">' +
-              [5,10,15,30,60,120,240,480].map(function(m){ return '<option value="' + m + '"' + ((entry.reminderTimeoutMinutes || 60) === m ? ' selected' : '') + '>' + m + ' min</option>'; }).join('') +
-            '</select>' +
-          '</div>' +
           '<div class="meta">Last sent: ' + lastSent + '</div>' +
           '<label>Repetition</label>' +
           '<div class="schedule-row">' +
@@ -831,28 +791,6 @@ function editPromptTemplateByName(name) {
 
 function deletePromptTemplateByName(name) {
   vscode.postMessage({ type: 'deletePromptTemplate', name: name || undefined });
-}
-
-function addReminderTemplate() {
-  vscode.postMessage({ type: 'addReminderTemplate' });
-}
-
-function editReminderTemplate(selectId) {
-  const sel = document.getElementById(selectId || 'addReminder');
-  vscode.postMessage({ type: 'editReminderTemplate', id: sel && sel.value ? sel.value : undefined });
-}
-
-function deleteReminderTemplate(selectId) {
-  const sel = document.getElementById(selectId || 'addReminder');
-  vscode.postMessage({ type: 'deleteReminderTemplate', id: sel && sel.value ? sel.value : undefined });
-}
-
-function editReminderTemplateById(id) {
-  vscode.postMessage({ type: 'editReminderTemplate', id: id || undefined });
-}
-
-function deleteReminderTemplateById(id) {
-  vscode.postMessage({ type: 'deleteReminderTemplate', id: id || undefined });
 }
 
 // Fallback: also request state via message in case embedded state was stale

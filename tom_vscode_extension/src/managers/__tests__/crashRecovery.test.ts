@@ -11,8 +11,6 @@ describe('applyCrashRecovery', () => {
                 status: 'sending',
                 requestId: 'req-123',
                 expectedRequestId: 'req-123',
-                reminderSentCount: 2,
-                lastReminderAt: 1_700_000_000,
             },
         ];
 
@@ -22,8 +20,6 @@ describe('applyCrashRecovery', () => {
         assert.equal(items[0].status, 'pending');
         assert.equal(items[0].requestId, undefined);
         assert.equal(items[0].expectedRequestId, undefined);
-        assert.equal(items[0].reminderSentCount, 0);
-        assert.equal(items[0].lastReminderAt, undefined);
     });
 
     test('clears the in-flight repetition snapshot', () => {

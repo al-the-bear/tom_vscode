@@ -2,8 +2,8 @@
  * Queue settings per process run (vscimpb60a): every run has its own queue
  * settings — auto-send, Auto-Start, Auto-Pause, Auto-Continue, the walk
  * continuations, the defaults new items take (transport, Anthropic profile and
- * configuration, session, prompt template), the Copilot answer timeout and
- * reminder template. The queue always runs one lane per run
+ * configuration, session, prompt template) and the Copilot answer timeout.
+ * The queue always runs one lane per run
  * (utils/queueLanes.ts): a run whose auto-send is off starts nothing.
  *
  * In the settings file (`queue-settings.yaml`) they are kept under
@@ -38,8 +38,6 @@ export interface RunQueueSettings {
     walkContinuations: number;
     /** Copilot: minutes until an answer file is overdue. */
     responseTimeoutMinutes: number;
-    /** Copilot: the reminder template new items take. */
-    defaultReminderTemplateId?: string;
     defaultTransport: RunQueueTransport;
     defaultAnthropicProfileId?: string;
     defaultAnthropicConfigId?: string;
@@ -86,7 +84,6 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     autoResumeHeld: 'auto-resume-held',
     walkContinuations: 'walk-continuations',
     responseTimeoutMinutes: 'response-timeout-minutes',
-    defaultReminderTemplateId: 'default-reminder-template-id',
     defaultTransport: 'default-transport',
     defaultAnthropicProfileId: 'default-anthropic-profile-id',
     defaultAnthropicConfigId: 'default-anthropic-config-id',
@@ -100,7 +97,7 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
 const ALL_FIELDS = Object.keys(RUN_QUEUE_SETTING_KEYS) as Array<keyof RunQueueSettings>;
 
 const OPTIONAL_TEXT: ReadonlyArray<keyof RunQueueSettings> = [
-    'defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId',
+    'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId',
     'defaultRole',
 ];
 
@@ -147,7 +144,7 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
  * The settings "Make default" copies from a run into the top-level keys: every
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
  * / -Continue, the default transport, profile, configuration, session, role and
- * prompt template, the Copilot answer timeout and reminder template. The walk
+ * prompt template and the Copilot answer timeout. The walk
  * continuations and the auto-resume after a hold (not shown in a tab) keep their top-level value; the run's
  * guideline choices stay the run's own (the quest default is their shared
  * level, gsel4).

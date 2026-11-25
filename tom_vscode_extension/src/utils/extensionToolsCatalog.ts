@@ -45,7 +45,7 @@ export interface ToolEntry {
 export const EXTENSION_TOOLS: readonly ToolEntry[] = [
     // (1) Prompts & templates
     { id: 'promptTemplates', label: 'Prompt Template Editor', group: 'prompts', icon: 'symbol-snippet', command: 'tomAi.editor.promptTemplates',
-        purpose: 'Every template in one editor: Copilot and Anthropic message templates, profiles, configurations, reminder templates, user-message templates, assist prompts.' },
+        purpose: 'Every template in one editor: Copilot and Anthropic message templates, profiles, configurations, user-message templates, assist prompts.' },
     { id: 'queueTemplates', label: 'Queue-Template Editor', group: 'prompts', icon: 'list-ordered', command: 'tomAi.editor.queueTemplates',
         purpose: 'Queue templates (`*.template.queue.yaml`): an item with its pre-prompts and follow-ups, kept to queue again.' },
     { id: 'reusablePrompts', label: 'Reusable Prompt Editor', group: 'prompts', icon: 'note', command: 'tomAi.editor.reusablePrompts',
@@ -68,8 +68,6 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
         purpose: 'Install, update and remove the Anthropic SDK and the Agent SDK with its Claude CLI.' },
     { id: 'telegram', label: 'Telegram', group: 'queue', icon: 'comment-discussion', statusSection: 'telegram',
         purpose: 'Remote control and notifications through the quest\'s Telegram bot (a Status Page section).' },
-    { id: 'reminders', label: 'Reminders', group: 'queue', icon: 'bell', statusSection: 'reminders',
-        purpose: 'The alive check (on / off, its timeout) and the default reminder template of the window\'s run (a Status Page setting).' },
     { id: 'mcpServer', label: 'MCP server', group: 'queue', icon: 'server', statusSection: 'mcpConfig',
         purpose: 'The standalone MCP server: start / stop, its port, key and tool selection (a Status Page section).' },
 

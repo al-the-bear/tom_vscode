@@ -3,7 +3,7 @@
  *
  * Manages an ordered queue of prompts destined for Copilot Chat.
  * Supports auto-send on answer detection, manual reordering,
- * and integration with the Reminder and Timer systems.
+ * and integration with the Timer system.
  */
 
 import { canUpdateRunningPrompt, sendUpdateToRunningPrompt } from '../services/agentSdkLiveInputs';
@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { expandTemplate } from '../handlers/promptTemplate';
-import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute, getConfigPath } from '../handlers/handler_shared';
+import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute } from '../handlers/handler_shared';
 import {
     readAllEntries,
     writeEntry,
@@ -46,7 +46,6 @@ import {
     type QueueEntryFile,
     type QueueFileYaml,
     type QueuePromptYaml,
-    type QueueReminderConfig,
 } from '../storage/queueFileStorage';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
@@ -184,7 +183,7 @@ import { hasUnresolvedDecisions, normaliseTodoDecisions } from '../utils/todoDec
  * `interruptActiveItemForContinuation` / `pickInterruptedResume`.
  */
 export type QueuedPromptStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'waiting' | 'retry' | 'decision-needed' | 'todo-blocked' | 'interrupted' | 'chat' | 'chat-sent';
-export type QueuedPromptType = 'normal' | 'timed' | 'reminder';
+export type QueuedPromptType = 'normal' | 'timed';
 
 /** The error a held process-move marker shows. */
 export const PROCESS_MARKER_HELD_ERROR = 'held: an item of this process step failed — repeat the step or move on (PROCESS view, Proceed)';
@@ -282,10 +281,6 @@ export interface QueuedFollowUpPrompt {
     id: string;
     originalText: string;
     template?: string;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     repeatCount?: number | string;
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this follow-up has been sent (0-based counter)
@@ -306,10 +301,6 @@ export interface QueuedPrePrompt {
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this pre-prompt has been sent (0-based counter)
     answerWaitMinutes?: number;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
     // Multi-transport fields (design doc §4.1).
     transport?: QueuedTransport;
     anthropicProfileId?: string;
@@ -353,13 +344,6 @@ export interface QueuedPrompt {
     createdAt: string;            // ISO timestamp
     sentAt?: string;              // When actually sent to Copilot
     error?: string;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
-    reminderEnabled?: boolean;
-    reminderQueued?: boolean;     // Whether a reminder has been queued for this item
-    reminderSentCount?: number;
-    lastReminderAt?: string;
     requestId?: string;           // Initial request id extracted from the wrapped prompt
     expectedRequestId?: string;   // Request id expected in the next answer file
     prePrompts?: QueuedPrePrompt[];  // Pre-prompts sent before the main prompt
@@ -724,8 +708,6 @@ export interface QueuedPrompt {
 
 const MAX_SENT_HISTORY = 50;
 const MAX_TOTAL_ITEMS = 100;
-const DEFAULT_REMINDER_TEMPLATE_ID = 'default';
-const DEFAULT_REMINDER_TEXT = 'Are you still there? The previous prompt has been waiting for {{timeoutMinutes}} minutes without a response. Please continue or let me know if there\'s an issue.';
 const HEALTH_CHECK_INTERVAL_MS = 60_000;
 const ANSWER_POLL_INTERVAL_MS = 30_000;
 /**
@@ -861,7 +843,7 @@ export class PromptQueueManager {
      * The queue settings of each process run (vscimpb60a, utils/runQueueSettings.ts):
      * auto-send, Auto-Start / -Pause / -Continue, the walk continuations, the
      * defaults new items take (transport, profile, configuration, session,
-     * prompt template), the Copilot answer timeout and reminder template.
+     * prompt template) and the Copilot answer timeout.
      * `default` always; another run once a setting of it was set. A run with
      * none of its own reads {@link _runStart}.
      */
@@ -1765,138 +1747,13 @@ export class PromptQueueManager {
         await this.onAnswerFileChanged(fullPath);
     }
 
-    private loadReminderDataFromConfig(): { templates: Array<{ id: string; prompt: string }>; defaultTemplateId: string } {
-        try {
-            const configPath = getConfigPath();
-            if (!configPath || !fs.existsSync(configPath)) {
-                return {
-                    templates: [{ id: DEFAULT_REMINDER_TEMPLATE_ID, prompt: DEFAULT_REMINDER_TEXT }],
-                    defaultTemplateId: DEFAULT_REMINDER_TEMPLATE_ID,
-                };
-            }
-            const raw = fs.readFileSync(configPath, 'utf-8');
-            const parsed = JSON.parse(raw);
-            const reminders = (parsed?.reminders && typeof parsed.reminders === 'object') ? parsed.reminders : {};
-            const templatesRaw = Array.isArray(reminders.templates) ? reminders.templates : [];
-            const templates = templatesRaw
-                .filter((t: any) => typeof t?.id === 'string' && typeof t?.prompt === 'string')
-                .map((t: any) => ({ id: String(t.id), prompt: String(t.prompt) }));
-            const defaultTemplateId = typeof reminders?.config?.defaultTemplateId === 'string'
-                ? String(reminders.config.defaultTemplateId)
-                : DEFAULT_REMINDER_TEMPLATE_ID;
-            if (templates.length === 0) {
-                templates.push({ id: DEFAULT_REMINDER_TEMPLATE_ID, prompt: DEFAULT_REMINDER_TEXT });
-            }
-            return { templates, defaultTemplateId };
-        } catch {
-            return {
-                templates: [{ id: DEFAULT_REMINDER_TEMPLATE_ID, prompt: DEFAULT_REMINDER_TEXT }],
-                defaultTemplateId: DEFAULT_REMINDER_TEMPLATE_ID,
-            };
-        }
-    }
-
-    private resolveReminderPrompt(templateId?: string): string {
-        const cfg = this.loadReminderDataFromConfig();
-        const byId = templateId ? cfg.templates.find(t => t.id === templateId)?.prompt : undefined;
-        if (byId) { return byId; }
-        const byDefault = cfg.templates.find(t => t.id === cfg.defaultTemplateId)?.prompt;
-        return byDefault || DEFAULT_REMINDER_TEXT;
-    }
-
-    private getActiveReminderTimeoutMinutes(item: QueuedPrompt): number {
-        const followUps = item.followUps || [];
-        const sentFollowUps = item.followUpIndex || 0;
-        const activeFollowUp = sentFollowUps > 0 && sentFollowUps <= followUps.length
-            ? followUps[sentFollowUps - 1]
-            : undefined;
-
-        const timeoutCandidate = activeFollowUp?.reminderTimeoutMinutes
-            ?? item.reminderTimeoutMinutes
-            ?? this._itemSettings(item).responseTimeoutMinutes;
-
-        return Math.max(1, Math.round(timeoutCandidate || this._itemSettings(item).responseTimeoutMinutes));
-    }
-
-    private isReminderEligible(item: QueuedPrompt): boolean {
-        // Fix Issue 3 Bug A: respect reminderEnabled for ALL item types
-        if (item.reminderEnabled === false) { return false; }
-        // Anthropic items don't wait on an answer file — the response is
-        // returned synchronously. Reminders are meaningless here
-        // (spec §4.7). Skip regardless of the flag.
-        if (this.resolveStageTransport(item).transport === 'anthropic') { return false; }
-        if (item.type !== 'timed') { return true; }
-
-        const followUps = item.followUps || [];
-        const sentFollowUps = item.followUpIndex || 0;
-        const activeFollowUp = sentFollowUps > 0 && sentFollowUps <= followUps.length
-            ? followUps[sentFollowUps - 1]
-            : undefined;
-
-        return !!(activeFollowUp?.reminderEnabled ?? item.reminderEnabled);
-    }
-
-    private buildReminderText(item: QueuedPrompt): string {
-        const timeoutMinutes = this.getActiveReminderTimeoutMinutes(item);
-        const now = Date.now();
-        const sentAt = item.sentAt ? new Date(item.sentAt).getTime() : now;
-        const waitingMinutes = Math.max(1, Math.round((now - sentAt) / 60000));
-
-        const followUps = item.followUps || [];
-        const sentFollowUps = item.followUpIndex || 0;
-        const activeFollowUp = sentFollowUps > 0 && sentFollowUps <= followUps.length
-            ? followUps[sentFollowUps - 1]
-            : undefined;
-
-        const reminderTemplateId = activeFollowUp?.reminderTemplateId || item.reminderTemplateId;
-        const template = this.resolveReminderPrompt(reminderTemplateId);
-        const sourcePrompt = activeFollowUp?.originalText || item.originalText;
-        const followUpIndex = sentFollowUps;
-        const followUpTotal = followUps.length;
-        const sentAtIso = item.sentAt || '';
-        const templateLabel = activeFollowUp?.template || item.template || '(None)';
-        const requestId = item.requestId || '';
-        const expectedRequestId = item.expectedRequestId || '';
-        const createdAt = item.createdAt || '';
-        const reminderSentCount = item.reminderSentCount || 0;
-        const queueLength = this._items.length;
-
-        return template
-            .replace(/\{\{timeoutMinutes\}\}/g, String(timeoutMinutes))
-            .replace(/\{\{waitingMinutes\}\}/g, String(waitingMinutes))
-            .replace(/\{\{originalPrompt\}\}/g, sourcePrompt.substring(0, 400))
-            .replace(/\{\{followUpIndex\}\}/g, String(followUpIndex))
-            .replace(/\{\{followUpTotal\}\}/g, String(followUpTotal))
-            .replace(/\{\{sentAt\}\}/g, sentAtIso)
-            .replace(/\{\{followUpText\}\}/g, activeFollowUp?.originalText || '')
-            .replace(/\{\{promptId\}\}/g, item.id)
-            .replace(/\{\{promptType\}\}/g, item.type)
-            .replace(/\{\{status\}\}/g, item.status)
-            .replace(/\{\{template\}\}/g, templateLabel)
-            .replace(/\{\{requestId\}\}/g, requestId)
-            .replace(/\{\{expectedRequestId\}\}/g, expectedRequestId)
-            .replace(/\{\{createdAt\}\}/g, createdAt)
-            .replace(/\{\{reminderSentCount\}\}/g, String(reminderSentCount))
-            .replace(/\{\{queueLength\}\}/g, String(queueLength));
-    }
-
-    private isReminderRepeatEnabled(item: QueuedPrompt): boolean {
-        const followUps = item.followUps || [];
-        const sentFollowUps = item.followUpIndex || 0;
-        const activeFollowUp = sentFollowUps > 0 && sentFollowUps <= followUps.length
-            ? followUps[sentFollowUps - 1]
-            : undefined;
-        return !!(activeFollowUp?.reminderRepeat || item.reminderRepeat);
-    }
-
     private async checkResponseTimeouts(): Promise<void> {
         const sending = this._answerItem();
         if (!sending || !sending.sentAt) { return; }
 
         // Anthropic items don't have an answer-file wait — the response
         // is returned synchronously and the stage advances immediately.
-        // Skip both the answer-wait auto-advance and the reminder
-        // scheduling below for these items (spec §4.7).
+        // Skip the answer-wait auto-advance for these items (spec §4.7).
         if (this.resolveStageTransport(sending).transport === 'anthropic') { return; }
 
         // Answer-wait timer: auto-advance after N minutes without waiting for answer file.
@@ -1914,9 +1771,6 @@ export class PromptQueueManager {
                     if (outcome === 'done') {
                         sending.status = 'sent';
                         sending.expectedRequestId = undefined;
-                        sending.reminderSentCount = 0;
-                        sending.lastReminderAt = undefined;
-                        this.removePendingReminderFor(sending.id);
 
                         await this._afterItemDone(sending, 'answer-wait');
 
@@ -1938,54 +1792,6 @@ export class PromptQueueManager {
                     logQueueError(`checkResponseTimeouts/answerWait(${sending.id})`, err);
                 }
             }
-            return; // Skip reminder logic for answer-wait items
-        }
-
-        const timeoutMinutes = this.getActiveReminderTimeoutMinutes(sending);
-        const elapsed = Math.round((Date.now() - new Date(sending.sentAt).getTime()) / 60_000);
-
-        if (!this.isReminderEligible(sending)) {
-            logQueue(`Reminder check for ${sending.id}: not eligible (reminderEnabled=${sending.reminderEnabled}, type=${sending.type}) — skipped`);
-            return;
-        }
-
-        // Fix Issue 3 Defense: skip if template is explicitly '__none__'
-        if (sending.reminderTemplateId === '__none__') {
-            logQueue(`Reminder check for ${sending.id}: templateId=__none__ — skipped (no reminder)`);
-            return;
-        }
-
-        const now = Date.now();
-        const timeoutMs = timeoutMinutes * 60_000;
-        const firstDue = new Date(sending.sentAt).getTime() + timeoutMs;
-        if (now < firstDue) { return; }
-
-        const reminderSentCount = sending.reminderSentCount || 0;
-        const repeat = this.isReminderRepeatEnabled(sending);
-
-        if (reminderSentCount > 0 && !repeat) {
-            logQueue(`Reminder check for ${sending.id}: already sent ${reminderSentCount}x, repeat=false — skipped`);
-            return;
-        }
-
-        if (reminderSentCount > 0 && sending.lastReminderAt) {
-            const nextDue = new Date(sending.lastReminderAt).getTime() + timeoutMs;
-            if (now < nextDue) {
-                return;
-            }
-        }
-
-        logQueue(`Reminder check for ${sending.id}: templateId=${sending.reminderTemplateId}, reminderEnabled=${sending.reminderEnabled}, elapsed=${elapsed}min, timeout=${timeoutMinutes}min → generating`);
-        const reminderText = this.buildReminderText(sending);
-        try {
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: reminderText });
-            sending.reminderSentCount = reminderSentCount + 1;
-            sending.lastReminderAt = new Date().toISOString();
-            this.persist();
-            this._onDidChange.fire();
-            logQueue(`Reminder sent for ${sending.id} (count=${sending.reminderSentCount})`);
-        } catch (err) {
-            logQueueError('checkResponseTimeouts', err);
         }
     }
 
@@ -2084,7 +1890,7 @@ export class PromptQueueManager {
             return;
         }
 
-        // Only an owned, new answer is announced (the reminder system cancels its reminders on it).
+        // Only an owned, new answer is announced.
         this._onAnswerReceived.fire(answer);
 
         // At this point the answer is relevant for the active sending item.
@@ -2147,9 +1953,6 @@ export class PromptQueueManager {
                 debugLog(`[PromptQueueManager] Marking item ${sending.id} as sent`, 'INFO', 'queue');
                 sending.status = 'sent';
                 sending.expectedRequestId = undefined;
-                sending.reminderSentCount = 0;
-                sending.lastReminderAt = undefined;
-                this.removePendingReminderFor(sending.id);
 
                 await this._afterItemDone(sending, 'answer-file');
 
@@ -2613,8 +2416,6 @@ export class PromptQueueManager {
 
     set responseFileTimeoutMinutes(v: number) { this.setRunQueueSettings(undefined, { responseTimeoutMinutes: v }); }
 
-    get defaultReminderTemplateId(): string | undefined { return this._settingsOf(undefined).defaultReminderTemplateId; }
-    set defaultReminderTemplateId(v: string | undefined) { this.setRunQueueSettings(undefined, { defaultReminderTemplateId: v }); }
 
     get autoSendDelayMs(): number { return this._autoSendDelayMs; }
     set autoSendDelayMs(v: number) { this._autoSendDelayMs = Math.max(500, v); }
@@ -2662,30 +2463,18 @@ export class PromptQueueManager {
         type?: QueuedPromptType;
         /** With `type: 'timed'`: the timed request that queued it (QueuedPrompt.timedEntryId). */
         timedEntryId?: string;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
         position?: number;
         prePrompts?: Array<{
             text: string;
             template?: string;
             repeatCount?: number | string;
             answerWaitMinutes?: number;
-            reminderTemplateId?: string;
-            reminderTimeoutMinutes?: number;
-            reminderRepeat?: boolean;
-            reminderEnabled?: boolean;
         }>;
         followUps?: Array<{
             originalText: string;
             template?: string;
             repeatCount?: number | string;
             answerWaitMinutes?: number;
-            reminderTemplateId?: string;
-            reminderTimeoutMinutes?: number;
-            reminderRepeat?: boolean;
-            reminderEnabled?: boolean;
         }>;
         repeatCount?: number | string;
         repeatIndex?: number;
@@ -2787,12 +2576,6 @@ export class PromptQueueManager {
             },
         );
 
-        // Compute effective reminder template: provided value, or fall back to default
-        let effectiveReminderTemplateId = opts.reminderTemplateId ?? this._settingsOf(itemRun).defaultReminderTemplateId;
-        // Fix Issue 3 Bug B: keep '__none__' as stored value (do NOT clear to undefined)
-        // This preserves the explicit "no reminder" signal through the entire pipeline.
-        const isNoReminder = effectiveReminderTemplateId === '__none__';
-
         const item: QueuedPrompt = {
             id: randomUUID(),
             template: isRunDefaultChoice(opts.template) ? RUN_DEFAULT_TEMPLATE : (opts.template ?? '(None)'),
@@ -2803,12 +2586,6 @@ export class PromptQueueManager {
             type: opts.type ?? 'normal',
             ...(opts.timedEntryId ? { timedEntryId: opts.timedEntryId } : {}),
             createdAt: new Date().toISOString(),
-            reminderTemplateId: effectiveReminderTemplateId,
-            reminderTimeoutMinutes: opts.reminderTimeoutMinutes,
-            reminderRepeat: !!opts.reminderRepeat,
-            reminderEnabled: isNoReminder ? false : !!opts.reminderEnabled,
-            reminderQueued: false,
-            reminderSentCount: 0,
             prePrompts: (opts.prePrompts || [])
                 .filter(p => !!(p.text || '').trim())
                 .map(p => ({
@@ -2817,10 +2594,6 @@ export class PromptQueueManager {
                     status: 'pending' as const,
                     repeatCount: p.repeatCount,
                     answerWaitMinutes: p.answerWaitMinutes,
-                    reminderTemplateId: p.reminderTemplateId,
-                    reminderTimeoutMinutes: p.reminderTimeoutMinutes,
-                    reminderRepeat: p.reminderRepeat,
-                    reminderEnabled: p.reminderEnabled,
                 })),
             followUps: (opts.followUps || [])
                 .filter(f => !!(f.originalText || '').trim())
@@ -2830,10 +2603,6 @@ export class PromptQueueManager {
                     template: f.template,
                     repeatCount: f.repeatCount,
                     answerWaitMinutes: f.answerWaitMinutes,
-                    reminderTemplateId: f.reminderTemplateId,
-                    reminderTimeoutMinutes: f.reminderTimeoutMinutes,
-                    reminderRepeat: !!f.reminderRepeat,
-                    reminderEnabled: !!f.reminderEnabled,
                     createdAt: new Date().toISOString(),
                 })),
             followUpIndex: 0,
@@ -3262,31 +3031,6 @@ export class PromptQueueManager {
         return result;
     }
 
-    updateItemReminder(id: string, patch: { reminderEnabled?: boolean; reminderTemplateId?: string; reminderTimeoutMinutes?: number; reminderRepeat?: boolean }): void {
-        const item = this._items.find(i => i.id === id);
-        if (!item) { return; }
-        // Allow reminderEnabled toggle for sending items, but other changes only for staged
-        const isToggleOnly = patch.reminderEnabled !== undefined && 
-            patch.reminderTemplateId === undefined && 
-            patch.reminderTimeoutMinutes === undefined && 
-            patch.reminderRepeat === undefined;
-        if (!isToggleOnly && !this.isEditableStatus(item.status)) { return; }
-        if (patch.reminderEnabled !== undefined) {
-            item.reminderEnabled = !!patch.reminderEnabled;
-        }
-        if (patch.reminderTemplateId !== undefined) {
-            item.reminderTemplateId = patch.reminderTemplateId || undefined;
-        }
-        if (patch.reminderTimeoutMinutes !== undefined) {
-            item.reminderTimeoutMinutes = patch.reminderTimeoutMinutes ? Math.max(1, Math.round(patch.reminderTimeoutMinutes)) : undefined;
-        }
-        if (patch.reminderRepeat !== undefined) {
-            item.reminderRepeat = !!patch.reminderRepeat;
-        }
-        this.persist();
-        this._onDidChange.fire();
-    }
-
     /**
      * Toggle "pause after this" on an item: it runs to the end of its repeat
      * loop, then the queue stops instead of starting the next item.
@@ -3521,10 +3265,6 @@ export class PromptQueueManager {
     addFollowUpPrompt(itemId: string, followUp: {
         originalText: string;
         template?: string;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
@@ -3537,10 +3277,6 @@ export class PromptQueueManager {
             id: randomUUID(),
             originalText: text,
             template: followUp.template,
-            reminderTemplateId: followUp.reminderTemplateId,
-            reminderTimeoutMinutes: followUp.reminderTimeoutMinutes,
-            reminderRepeat: !!followUp.reminderRepeat,
-            reminderEnabled: !!followUp.reminderEnabled,
             createdAt: new Date().toISOString(),
             transport: followUp.transport,
             anthropicProfileId: followUp.anthropicProfileId,
@@ -3560,10 +3296,6 @@ export class PromptQueueManager {
             id: randomUUID(),
             originalText: '',
             template: undefined,
-            reminderTemplateId: undefined,
-            reminderTimeoutMinutes: undefined,
-            reminderRepeat: false,
-            reminderEnabled: false,
             createdAt: new Date().toISOString(),
         };
         if (!item.followUps) { item.followUps = []; }
@@ -3578,10 +3310,6 @@ export class PromptQueueManager {
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
@@ -3604,18 +3332,6 @@ export class PromptQueueManager {
         }
         if (patch.answerWaitMinutes !== undefined) {
             follow.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
-        }
-        if (patch.reminderTemplateId !== undefined) {
-            follow.reminderTemplateId = patch.reminderTemplateId || undefined;
-        }
-        if (patch.reminderTimeoutMinutes !== undefined) {
-            follow.reminderTimeoutMinutes = patch.reminderTimeoutMinutes ? Math.max(1, Math.round(patch.reminderTimeoutMinutes)) : undefined;
-        }
-        if (patch.reminderRepeat !== undefined) {
-            follow.reminderRepeat = !!patch.reminderRepeat;
-        }
-        if (patch.reminderEnabled !== undefined) {
-            follow.reminderEnabled = !!patch.reminderEnabled;
         }
         // `'key' in patch` → differentiate "no change" from "clear".
         if ('transport' in patch) { follow.transport = patch.transport; }
@@ -3671,10 +3387,6 @@ export class PromptQueueManager {
         template?: string;
         repeatCount?: number | string;
         answerWaitMinutes?: number;
-        reminderTemplateId?: string;
-        reminderTimeoutMinutes?: number;
-        reminderRepeat?: boolean;
-        reminderEnabled?: boolean;
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
@@ -3691,10 +3403,6 @@ export class PromptQueueManager {
             pp.resolvedRepeatCount = undefined;
         }
         if (patch.answerWaitMinutes !== undefined) pp.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
-        if (patch.reminderTemplateId !== undefined) pp.reminderTemplateId = patch.reminderTemplateId || undefined;
-        if (patch.reminderTimeoutMinutes !== undefined) pp.reminderTimeoutMinutes = patch.reminderTimeoutMinutes;
-        if (patch.reminderRepeat !== undefined) pp.reminderRepeat = patch.reminderRepeat;
-        if (patch.reminderEnabled !== undefined) pp.reminderEnabled = patch.reminderEnabled;
         // `'key' in patch` → differentiate "no change" from "clear".
         if ('transport' in patch) { pp.transport = patch.transport; }
         if ('anthropicProfileId' in patch) { pp.anthropicProfileId = patch.anthropicProfileId || undefined; }
@@ -3871,9 +3579,6 @@ export class PromptQueueManager {
 
         sending.status = 'sent';
         sending.expectedRequestId = undefined;
-        sending.reminderSentCount = 0;
-        sending.lastReminderAt = undefined;
-        this.removePendingReminderFor(sending.id);
 
         await this._afterItemDone(sending, reason);
 
@@ -3968,11 +3673,8 @@ export class PromptQueueManager {
             // the lifecycle contract on `InFlightRepetition`.
             item.inFlightRepetition = undefined;
             item.sentAt = undefined;
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
             item.error = undefined;
             logQueue(`Status changed: id=${item.id}, from=${fromStatus} → to=${item.status}`);
-            this.removePendingReminderFor(item.id);
             this.persist();
             this._onDidChange.fire();
             return true;
@@ -4046,7 +3748,6 @@ export class PromptQueueManager {
             item.sentAt = item.sentAt || new Date().toISOString();
             item.sendBetween = undefined;
             item.yieldAfterIteration = undefined;
-            this.removePendingReminderFor(item.id);
             logQueue(`Status set by hand: id=${item.id}, from=${fromStatus} → to=${item.status}`);
             this.persist();
             this._onDidChange.fire();
@@ -4210,9 +3911,8 @@ export class PromptQueueManager {
      *  - Releases any approval-bar awaiters via
      *    `AnthropicHandler.abortPendingApprovals()`.
      *  - Reverts the item to `staged` via `setStatus`, which clears
-     *    `requestId`/`expectedRequestId`/`sentAt`/`reminderSentCount`,
-     *    flips any `sent` pre-prompts back to `pending`, and removes
-     *    pending reminders.
+     *    `requestId`/`expectedRequestId`/`sentAt` and
+     *    flips any `sent` pre-prompts back to `pending`.
      *
      * Copilot-transport items have no in-flight network call to
      * cancel — the queue dispatched the prompt to the chat panel and
@@ -4262,8 +3962,8 @@ export class PromptQueueManager {
 
         logQueue(`stopActiveItem: stopping ${sending.id}`);
         // Revert item to staged. setStatus handles the full reset
-        // (pre-prompts → pending, requestId cleared, reminders
-        // removed, persist + onDidChange + window status update).
+        // (pre-prompts → pending, requestId cleared,
+        // persist + onDidChange + window status update).
         // It also calls _cancelActiveDispatch() again — harmless
         // because cancel on an already-cancelled token is a no-op.
         return this.setStatus(sending.id, 'staged');
@@ -4357,7 +4057,6 @@ export class PromptQueueManager {
         if (soft) { sending.softInterrupt = soft; } else { delete sending.softInterrupt; }
         this._dropHeldConversation(sending);
         SoftInterruptRegistry.instance.clear(sending.id);
-        this.removePendingReminderFor(sending.id);
         // Off, not merely paused: the pause gate only refuses the *next* rep,
         // and the point here is that nothing at all goes out of its run until re-armed.
         this._pauseRunOf(sending, `${sending.id} interrupted for continuation`);
@@ -4632,10 +4331,6 @@ export class PromptQueueManager {
         const chat = newChatItem({ id: randomUUID(), text: opts.text, profileId: opts.profileId, session: opts.session, source: opts.source, windowId: ownWindowId, now: new Date(), run: opts.run });
         const item: QueuedPrompt = {
             ...(chat as unknown as QueuedPrompt),
-            reminderTemplateId: '__none__',
-            reminderEnabled: false,
-            reminderQueued: false,
-            reminderSentCount: 0,
             prePrompts: [],
             followUps: [],
             itemKind: 'chat',
@@ -5264,8 +4959,6 @@ export class PromptQueueManager {
         }
         item.status = 'sending';
         item.sentAt = new Date().toISOString();
-        item.reminderSentCount = 0;
-        item.lastReminderAt = undefined;
         this.persist();
         this._onDidChange.fire();
 
@@ -7083,8 +6776,6 @@ export class PromptQueueManager {
                     : undefined;
                 item.sentAt = new Date().toISOString();
                 item.awaitingAnswer = true; // in flight — a prompt is being processed
-                item.reminderSentCount = 0;
-                item.lastReminderAt = undefined;
                 this.persist();
                 this._onDidChange.fire();
 
@@ -7295,8 +6986,6 @@ export class PromptQueueManager {
             };
             item.sentAt = new Date().toISOString();
             item.awaitingAnswer = true; // in flight — a prompt is being processed
-            item.reminderSentCount = 0;
-            item.lastReminderAt = undefined;
             // The walk goes on: a needs-attention stop is over.
             delete item.needsAttention;
             this.persist();
@@ -7387,8 +7076,6 @@ export class PromptQueueManager {
                 };
                 item.sentAt = new Date().toISOString();
                 item.awaitingAnswer = true; // in flight — a prompt is being processed
-                item.reminderSentCount = 0;
-                item.lastReminderAt = undefined;
                 this.persist();
                 this._onDidChange.fire();
 
@@ -7443,13 +7130,6 @@ export class PromptQueueManager {
                 // File may not exist yet.
             }
         }
-    }
-
-    // ----- reminder helpers --------------------------------------------------
-
-    /** Remove a pending reminder queued for a specific prompt item. */
-    private removePendingReminderFor(promptId: string): void {
-        this._items = this._items.filter(i => !(i.type === 'reminder' && (i as any).parentPromptId === promptId));
     }
 
     /** Check if a timed request already has a pending item in the queue. */
@@ -7683,7 +7363,7 @@ export class PromptQueueManager {
         const next: RunQueueSettings = { ...before, ...patch };
         if (patch.responseTimeoutMinutes !== undefined) { next.responseTimeoutMinutes = Math.max(5, Math.round(patch.responseTimeoutMinutes || 60)); }
         if (patch.walkContinuations !== undefined) { next.walkContinuations = validContinuations(patch.walkContinuations) ?? before.walkContinuations; }
-        for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'] as const) {
+        for (const key of ['defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'] as const) {
             if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
         }
         // Auto-send set by the user or a tool: a hold that paused the run no longer decides its resume.
@@ -8381,13 +8061,6 @@ export class PromptQueueManager {
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
                 error: main.execution?.error || undefined,
-                reminderTemplateId: main.reminder?.['template-id'],
-                reminderTimeoutMinutes: main.reminder?.['timeout-minutes'],
-                reminderRepeat: main.reminder?.repeat,
-                reminderEnabled: main.reminder?.enabled,
-                reminderQueued: main.reminder?.queued,
-                reminderSentCount: main.reminder?.['sent-count'],
-                lastReminderAt: main.reminder?.['last-sent-at'] || undefined,
                 requestId: main.execution?.['request-id'] || undefined,
                 expectedRequestId: main.execution?.['expected-request-id'] || undefined,
                 followUpIndex: main.execution?.['follow-up-index'] || 0,
@@ -8509,10 +8182,6 @@ export class PromptQueueManager {
                         resolvedRepeatCount: pp?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(pp['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(pp?.['repeat-index'] || 0))),
                         answerWaitMinutes: pp?.['answer-wait-minutes'],
-                        reminderTemplateId: pp?.reminder?.['template-id'],
-                        reminderTimeoutMinutes: pp?.reminder?.['timeout-minutes'],
-                        reminderRepeat: pp?.reminder?.repeat,
-                        reminderEnabled: pp?.reminder?.enabled,
                         // Multi-transport (spec §4.14).
                         transport: pp?.transport === 'anthropic' ? 'anthropic' : (pp?.transport === 'copilot' ? 'copilot' : undefined),
                         anthropicProfileId: pp?.['anthropic-profile-id'] || undefined,
@@ -8536,10 +8205,6 @@ export class PromptQueueManager {
                         resolvedRepeatCount: fu?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(fu['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(fu?.['repeat-index'] || 0))),
                         answerWaitMinutes: fu?.['answer-wait-minutes'],
-                        reminderTemplateId: fu?.reminder?.['template-id'],
-                        reminderTimeoutMinutes: fu?.reminder?.['timeout-minutes'],
-                        reminderRepeat: fu?.reminder?.repeat,
-                        reminderEnabled: fu?.reminder?.enabled,
                         createdAt: (fu?.metadata?.created as string) || (meta.created as string) || new Date().toISOString(),
                         // Multi-transport (spec §4.14).
                         transport: fu?.transport === 'anthropic' ? 'anthropic' : (fu?.transport === 'copilot' ? 'copilot' : undefined),
@@ -8625,28 +8290,6 @@ export class PromptQueueManager {
             ...(item.ignoreBlockTodos?.length ? { 'ignore-block-todos': [...item.ignoreBlockTodos] } : {}),
         };
 
-        // Reminder config: persist explicit no-reminder state (reminderEnabled === false)
-        const hasMainReminderConfig =
-            item.reminderEnabled !== undefined ||
-            item.reminderTemplateId !== undefined ||
-            item.reminderTimeoutMinutes !== undefined ||
-            item.reminderRepeat !== undefined ||
-            item.reminderQueued !== undefined ||
-            item.reminderSentCount !== undefined ||
-            item.lastReminderAt !== undefined;
-        if (hasMainReminderConfig) {
-            const reminder: QueueReminderConfig = {
-                enabled: item.reminderEnabled,
-                'template-id': item.reminderTemplateId,
-                'timeout-minutes': item.reminderTimeoutMinutes,
-                repeat: item.reminderRepeat,
-                'sent-count': item.reminderSentCount || 0,
-                'last-sent-at': item.lastReminderAt || null,
-                queued: item.reminderQueued,
-            };
-            mainPrompt.reminder = reminder;
-        }
-
         // Execution state
         if (
             item.requestId || item.expectedRequestId || item.sentAt || item.error
@@ -8717,19 +8360,6 @@ export class PromptQueueManager {
                     ...(pp.anthropicConfigId ? { 'anthropic-config-id': pp.anthropicConfigId } : {}),
                     ...(pp.answerText ? { 'answer-text': pp.answerText } : {}),
                 };
-                const hasPpReminderConfig =
-                    pp.reminderEnabled !== undefined ||
-                    pp.reminderTemplateId !== undefined ||
-                    pp.reminderTimeoutMinutes !== undefined ||
-                    pp.reminderRepeat !== undefined;
-                if (hasPpReminderConfig) {
-                    ppYaml.reminder = {
-                        enabled: pp.reminderEnabled,
-                        'template-id': pp.reminderTemplateId,
-                        'timeout-minutes': pp.reminderTimeoutMinutes,
-                        repeat: pp.reminderRepeat,
-                    };
-                }
                 allPrompts.push(ppYaml);
             });
             mainPrompt['pre-prompt-refs'] = preRefs;
@@ -8757,19 +8387,6 @@ export class PromptQueueManager {
                     ...(fu.anthropicConfigId ? { 'anthropic-config-id': fu.anthropicConfigId } : {}),
                     ...(fu.answerText ? { 'answer-text': fu.answerText } : {}),
                 };
-                const hasFollowUpReminderConfig =
-                    fu.reminderEnabled !== undefined ||
-                    fu.reminderTemplateId !== undefined ||
-                    fu.reminderTimeoutMinutes !== undefined ||
-                    fu.reminderRepeat !== undefined;
-                if (hasFollowUpReminderConfig) {
-                    fuPrompt.reminder = {
-                        enabled: fu.reminderEnabled,
-                        'template-id': fu.reminderTemplateId,
-                        'timeout-minutes': fu.reminderTimeoutMinutes,
-                        repeat: fu.reminderRepeat,
-                    };
-                }
                 allPrompts.push(fuPrompt);
             });
             mainPrompt['follow-up-refs'] = fuRefs;
@@ -8785,7 +8402,7 @@ export class PromptQueueManager {
                 ...(item.sendBetween ? { 'send-between': true } : {}),
                 ...(item.yieldAfterIteration ? { 'yield-after-iteration': true } : {}),
                 ...(item.resumeAfterWait ? { 'resume-after-wait': true } : {}),
-                ...(item.type === 'timed' || item.type === 'reminder' ? { type: item.type } : {}),
+                ...(item.type === 'timed' ? { type: item.type } : {}),
                 // eslint-disable-next-line @typescript-eslint/naming-convention -- the entry file's YAML key
                 ...(item.timedEntryId ? { 'timed-entry-id': item.timedEntryId } : {}),
                 ...doneNotificationMetaToYaml(item),

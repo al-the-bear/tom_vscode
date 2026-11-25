@@ -60,7 +60,6 @@ const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
 (vscodeStub.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -89,7 +88,6 @@ const subscriptions: Array<{ dispose(): void }> = [];
     setExtensionPath(EXT_ROOT);
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
 })();
@@ -103,7 +101,7 @@ const soft = SoftInterruptRegistry.instance;
 after(() => {
     handler.sendMessage = originalSend;
     AskUserRegistry.instance.cancel('test over');
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }

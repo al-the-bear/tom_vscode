@@ -106,7 +106,6 @@ import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
 import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
-import { ReminderSystem } from './managers/reminderSystem';
 import {
     getCliServerAutostart,
     getMcpServerAutostart,
@@ -975,11 +974,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // The window state file follows the role, the process position and the queue as they change.
     watchWindowActivity(context);
     TimerEngine.init(context);
-    ReminderSystem.init(context);
-    ReminderSystem.instance.bindToQueue();
     context.subscriptions.push({ dispose: () => PromptQueueManager.instance.dispose() });
     context.subscriptions.push({ dispose: () => TimerEngine.instance.dispose() });
-    context.subscriptions.push({ dispose: () => ReminderSystem.instance.dispose() });
     timeStep('queueAutomation', stepStart);
 
     // Register Tom AI Chat tools

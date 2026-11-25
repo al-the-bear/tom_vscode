@@ -3,7 +3,7 @@
  *
  * A command-opened webview panel for managing scheduled/repeating
  * request entries.  Each entry has a prompt, schedule config
- * (interval or specific times), reminder overrides, and status.
+ * (interval or specific times), and status.
  *
  * Opened via `tomAi.editor.timedRequests` command.
  */
@@ -11,10 +11,8 @@
 import * as vscode from 'vscode';
 import { TimerEngine, TimedRequest } from '../managers/timerEngine';
 import { applyTemplateWrapping } from '../managers/promptQueueManager';
-import { ReminderSystem } from '../managers/reminderSystem';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig } from './handler_shared';
-import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
 import { userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -147,10 +145,6 @@ async function handleMessage(msg: any): Promise<void> {
         case 'getState':
             sendState();
             return;
-        // The alive check and the default reminder template: the Status Page's reminder settings.
-        case 'openReminderSettings':
-            await vscode.commands.executeCommand('tomAi.statusPage', 'reminders');
-            return;
         case 'openChatVariablesEditor':
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             return;
@@ -196,18 +190,6 @@ async function handleMessage(msg: any): Promise<void> {
             await showPreviewPanel('Timed Request Preview', previewContent);
             return;
         }
-          case 'addReminderTemplate':
-            await addReminderTemplate();
-            sendState();
-            return;
-          case 'editReminderTemplate':
-            await editReminderTemplate(msg.id);
-            sendState();
-            return;
-          case 'deleteReminderTemplate':
-            await deleteReminderTemplate(msg.id);
-            sendState();
-            return;
           case 'addPromptTemplate':
             await addPromptTemplate();
             sendState();
@@ -246,9 +228,6 @@ async function handleMessage(msg: any): Promise<void> {
                     sendMaximum: Number.isFinite(msg.sendMaximum) ? Math.max(0, Math.round(msg.sendMaximum)) : 0,
                     answerWaitMinutes: Number.isFinite(msg.answerWaitMinutes) ? Math.max(0, Math.round(msg.answerWaitMinutes)) : 0,
                     scheduledTimes: msg.scheduledTimes ?? [],
-                  reminderEnabled: !!msg.reminderEnabled,
-                    reminderTemplateId: msg.reminderTemplateId,
-                    reminderTimeoutMinutes: msg.reminderTimeoutMinutes,
                     repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(1, Math.round(msg.repeatCount)) : 1,
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : '',
                     repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : '',
@@ -309,54 +288,6 @@ async function handleMessage(msg: any): Promise<void> {
     }
 }
 
-async function addReminderTemplate(): Promise<void> {
-  if (_ctx) {
-    openGlobalTemplateEditor(_ctx, { category: 'reminder' });
-  }
-}
-
-async function editReminderTemplate(id?: string): Promise<void> {
-  if (!_ctx) return;
-  if (id) {
-    openGlobalTemplateEditor(_ctx, { category: 'reminder', itemId: id });
-  } else {
-    openGlobalTemplateEditor(_ctx, { category: 'reminder' });
-  }
-}
-
-async function deleteReminderTemplate(id?: string): Promise<void> {
-  const templates = ReminderSystem.instance.templates;
-  if (templates.length === 0) {
-    vscode.window.showWarningMessage('No reminder templates available.');
-    return;
-  }
-
-  let template = id ? templates.find(t => t.id === id) : undefined;
-  if (!template) {
-    const picked = await vscode.window.showQuickPick(
-      templates.map(t => ({ label: t.name, description: t.id, id: t.id })),
-      { placeHolder: 'Select reminder template to delete' },
-    );
-    if (!picked?.id) {
-      return;
-    }
-    template = templates.find(t => t.id === picked.id);
-  }
-  if (!template) {
-    return;
-  }
-
-  const answer = await vscode.window.showWarningMessage(
-    `Delete reminder template "${template.name}"?`,
-    { modal: true },
-    'Delete',
-  );
-  if (answer !== 'Delete') {
-    return;
-  }
-  ReminderSystem.instance.removeTemplate(template.id);
-}
-
 async function addPromptTemplate(): Promise<void> {
   addUserMessageTemplate(_ctx);
 }
@@ -375,7 +306,6 @@ async function deletePromptTemplate(currentName?: string): Promise<void> {
 
 function buildState(): Record<string, unknown> {
     let entries: readonly TimedRequest[] = [];
-    let reminderTemplates: { id: string; name: string }[] = [];
     let timerActivated = true;
 
     try {
@@ -386,9 +316,6 @@ function buildState(): Record<string, unknown> {
     } catch (e) {
         console.error('[TimedRequestsEditor] buildState: TimerEngine not ready:', e);
     }
-    try {
-        reminderTemplates = ReminderSystem.instance.templates.map(t => ({ id: t.id, name: t.name }));
-    } catch { /* */ }
 
     let quest = '';
     let role = '';
@@ -413,7 +340,6 @@ function buildState(): Record<string, unknown> {
         type: 'state',
         entries: [...entries],  // spread to plain array for serialisation
         timerActivated,
-        reminderTemplates,
         promptTemplates,
         promptTemplateLabels,
       collapsedIds: Array.from(_collapsedEntryIds),

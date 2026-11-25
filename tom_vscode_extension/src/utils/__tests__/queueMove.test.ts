@@ -54,7 +54,6 @@ const stubbed = installVscodeStub({ workspaceFolders: [WS] });
 (stubbed.stub.workspace as Record<string, unknown>).workspaceFile = { fsPath: path.join(WS, `${QUEST}.code-workspace`), scheme: 'file' };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore';
-import { ReminderSystem } from '../../managers/reminderSystem';
 import { TimerEngine } from '../../managers/timerEngine';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration';
@@ -75,12 +74,11 @@ const subscriptions: Array<{ dispose(): void }> = [];
     } as never;
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
-    ReminderSystem.init(context);
     TimerEngine.init(context);
     PromptQueueManager.init(context);
 })();
 after(() => {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }

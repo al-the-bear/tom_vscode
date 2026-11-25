@@ -41,7 +41,6 @@ const serializers = new Map<string, { deserializeWebviewPanel(panel: unknown, st
 stubWindow.registerWebviewPanelSerializer = (viewType: string, s: never) => { serializers.set(viewType, s); return { dispose: () => undefined }; };
 
 import { ChatVariablesStore } from '../../managers/chatVariablesStore.js';
-import { ReminderSystem } from '../../managers/reminderSystem.js';
 import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
@@ -64,7 +63,7 @@ const context = {
 } as never;
 
 after(() => {
-    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose(), () => ReminderSystem.instance.dispose()]) {
+    for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
     for (const s of subscriptions.splice(0)) { try { s.dispose(); } catch { /* already gone */ } }
@@ -83,7 +82,6 @@ describe('editors restored before their manager starts', () => {
     setExtensionPath(EXT_ROOT);
     TomAiConfiguration.init(context);
     ChatVariablesStore.init(context);
-    ReminderSystem.init(context);
     registerQueueEditorCommand(context);
     registerTimedRequestsEditorCommand(context);
     const queuePanel = newPanel('tomAi.queueEditor');

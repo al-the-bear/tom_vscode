@@ -54,10 +54,6 @@ export interface TimedRequest {
     scheduleMode: 'interval' | 'scheduled';
     intervalMinutes?: number;
     scheduledTimes?: ScheduledTime[];
-    reminderEnabled?: boolean;
-    reminderTemplateId?: string;
-    reminderTimeoutMinutes?: number;
-    reminderRepeat?: boolean;
     repeatCount?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
@@ -505,13 +501,7 @@ export class TimerEngine {
             return;
         }
 
-        const reminderDesc = entry.reminderTemplateId
-            ? `reminder: ${entry.reminderTemplateId}, timeout=${entry.reminderTimeoutMinutes ?? 0}min`
-            : 'no reminder';
-        if (entry.reminderTemplateId) {
-            logTimed(`Entry '${entry.originalText.substring(0, 40)}' has reminder template '${entry.reminderTemplateId}', timeout=${entry.reminderTimeoutMinutes ?? 0}min, repeat=${!!entry.reminderRepeat}`);
-        }
-        logTimed(`Firing entry '${entry.originalText.substring(0, 40)}' → enqueueing to prompt queue (${reminderDesc}, repeat=${!!entry.reminderRepeat})`);
+        logTimed(`Firing entry '${entry.originalText.substring(0, 40)}' → enqueueing to prompt queue`);
 
         // Enqueue
         await queue.enqueue({
@@ -522,10 +512,6 @@ export class TimerEngine {
             type: 'timed',
             timedEntryId: entry.id,
             initialStatus: 'pending',
-            reminderEnabled: !!entry.reminderEnabled,
-            reminderTemplateId: entry.reminderTemplateId,
-            reminderTimeoutMinutes: entry.reminderTimeoutMinutes,
-            reminderRepeat: !!entry.reminderRepeat,
             repeatCount: Math.max(0, Math.round(Number(entry.repeatCount || 0))),
             repeatPrefix: entry.repeatPrefix,
             repeatSuffix: entry.repeatSuffix,

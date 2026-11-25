@@ -1,7 +1,7 @@
 /**
  * The queue entry schema (`_ai/schemas/yaml/queue-entry.schema.json`, named in every `*.entry.queue.yaml` by its
  * yaml-language-server line) knows every key the queue writes (vscimpb113). Its `$defs/prompt`, the execution state,
- * the reminder and most nested objects refuse keys they do not list, so an editor would mark a key the writer
+ * most nested objects refuse keys they do not list, so an editor would mark a key the writer
  * added without a schema entry as an error.
  *
  *   QS-1 an entry written by the queue (`_queuedPromptToDoc`) from an item with EVERY field set — the fixture is a
@@ -32,12 +32,11 @@ const AT = '2026-11-15T10:00:00.000Z';
 
 const prePrompt: Required<QueuedPrePrompt> = {
     text: 'before', template: 'T', status: 'sent', repeatCount: 2, resolvedRepeatCount: 2, repeatIndex: 1, answerWaitMinutes: 3,
-    reminderTemplateId: 'r', reminderTimeoutMinutes: 5, reminderRepeat: true, reminderEnabled: true,
     transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c', answerText: 'pre answer',
 };
 
 const followUp: Required<QueuedFollowUpPrompt> = {
-    id: 'fu-1', originalText: 'after', template: 'T', reminderTemplateId: 'r', reminderTimeoutMinutes: 5, reminderRepeat: true, reminderEnabled: true,
+    id: 'fu-1', originalText: 'after', template: 'T',
     repeatCount: 'count', resolvedRepeatCount: 3, repeatIndex: 0, answerWaitMinutes: 1, createdAt: AT,
     transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c', answerText: 'fu answer',
 };
@@ -46,7 +45,6 @@ const followUp: Required<QueuedFollowUpPrompt> = {
 const ITEM: Required<QueuedPrompt> = {
     id: 'item-1', template: 'T', answerWrapper: true, originalText: 'do ${repeatTodoId}', expandedText: 'do x1_a', status: 'sending', type: 'timed',
     timedEntryId: 'te-1', chatSource: 'panel', chatWindowId: 'w-1', fromChatPanel: 'anthropic', createdAt: AT, sentAt: AT, error: 'an error',
-    reminderTemplateId: 'r', reminderTimeoutMinutes: 10, reminderRepeat: true, reminderEnabled: true, reminderQueued: true, reminderSentCount: 2, lastReminderAt: AT,
     requestId: 'req-1', expectedRequestId: 'req-2', prePrompts: [prePrompt], followUps: [followUp], followUpIndex: 1,
     repeatCount: 'x*', resolvedRepeatCount: 3, repeatIndex: 1, repeatTodoId: 'x1_a', repeatPrefix: 'pre', repeatSuffix: 'suf',
     templateRepeatCount: 2, templateRepeatIndex: 1, answerWaitMinutes: 4,
@@ -118,7 +116,7 @@ describe('the queue entry schema knows every key the queue writes', () => {
         const prompts = doc['prompt-queue'] as Array<Record<string, unknown>>;
         assert.deepEqual(prompts.map((p) => p.type), ['main', 'preprompt', 'followup'], 'a main prompt, a pre-prompt, a follow-up');
         // The fixture reaches the writer's optional branches (spot checks: a key of each kind).
-        for (const key of ['soft-interrupt', 'background-wait', 'waiting-for', 'wait-messages', 'todo-claim', 'repetition-answers', 'process-run', 'process-move', 'reload-prompt', 'session', 'reminder', 'execution']) {
+        for (const key of ['soft-interrupt', 'background-wait', 'waiting-for', 'wait-messages', 'todo-claim', 'repetition-answers', 'process-run', 'process-move', 'reload-prompt', 'session', 'execution']) {
             assert.ok(key in prompts[0], `the main prompt carries ${key}`);
         }
         assert.ok('last-dispatched' in (prompts[0].execution as object));
