@@ -131,7 +131,6 @@ export class TomAiConfiguration {
             trail: {
                 raw: {
                     enabled: true,
-                    maxRawFiles: 1000,
                     stripThinking: true,
                     paths: {
                         localLlm: '${ai}/trail/localllm',

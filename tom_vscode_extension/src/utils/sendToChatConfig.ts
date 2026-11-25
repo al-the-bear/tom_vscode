@@ -113,7 +113,13 @@ export interface SendToChatConfig {
     };
 
     trail?: {
-        /** Max total raw trail files per quest directory before oldest are deleted (default: 1000). */
+        /** The raw trail. */
+        raw?: {
+            /** The raw trail files kept per folder before the oldest are deleted (default 1000; utils/rawTrailLimit.ts). */
+            maxRawFiles?: number;
+            [key: string]: unknown;
+        };
+        /** The file limit as older configs wrote it; read only when `raw.maxRawFiles` is unset, dropped on save. */
         maxRawFiles?: number;
         /** The compact trail (the summary pair `<quest>.<subsystem>.prompts.md` / `.answers.md`). */
         compact?: {

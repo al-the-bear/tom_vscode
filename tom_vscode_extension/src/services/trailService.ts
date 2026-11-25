@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { compactTrailMaxEntries, trimCompactTrailFile } from '../utils/compactTrailTrim';
+import { RAW_TRAIL_DEFAULT_MAX_FILES, rawTrailMaxFiles } from '../utils/rawTrailLimit';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
 import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
@@ -271,7 +272,7 @@ export class TrailService {
         } else {
             fs.writeFileSync(filePath, safeContent, 'utf-8');
         }
-        this.pruneRawTrailDir(base, raw.maxRawFiles ?? 1000);
+        this.pruneRawTrailDir(base, raw.maxRawFiles ?? RAW_TRAIL_DEFAULT_MAX_FILES);
     }
 
     private getRawConfig(): RawTrailConfig {
@@ -279,7 +280,8 @@ export class TrailService {
         const raw = (trail.raw ?? trail) as RawTrailConfig;
         return {
             enabled: raw.enabled !== false,
-            maxRawFiles: typeof raw.maxRawFiles === 'number' && raw.maxRawFiles > 0 ? raw.maxRawFiles : 1000,
+            // One key for the file limit, `trail.raw.maxRawFiles` (the flat key of older configs as fallback).
+            maxRawFiles: rawTrailMaxFiles(trail),
             stripThinking: raw.stripThinking === true,
             paths: {
                 localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}',

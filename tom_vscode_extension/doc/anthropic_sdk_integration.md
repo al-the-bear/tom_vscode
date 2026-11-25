@@ -1175,7 +1175,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
 }
 ```
 
-`trail.compact.maxEntries` is the number of prompt / answer turns each summary trail file (`*.prompts.md` / `*.answers.md`) keeps; every write drops the oldest beyond it (`utils/compactTrailTrim.ts`). The raw trail is limited by `maxRawFiles`.
+`trail.compact.maxEntries` is the number of prompt / answer turns each summary trail file (`*.prompts.md` / `*.answers.md`) keeps; every write drops the oldest beyond it (`utils/compactTrailTrim.ts`). The raw trail is limited by `trail.raw.maxRawFiles`.
 
 ### `memory` section
 

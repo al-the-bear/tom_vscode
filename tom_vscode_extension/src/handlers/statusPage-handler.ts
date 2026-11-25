@@ -48,6 +48,7 @@ import { getLayout, describeAiMissing, layoutWorkspaceFolder } from '../utils/wo
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { compactTrailMaxEntries } from '../utils/compactTrailTrim';
+import { rawTrailMaxFiles, setRawTrailMaxFiles } from '../utils/rawTrailLimit';
 import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import {
@@ -1199,7 +1200,8 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'updateTrailSettings': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.trail) { stcConfig.trail = {}; }
-            if (message.maxRawFiles !== undefined) { stcConfig.trail.maxRawFiles = message.maxRawFiles; }
+            // The raw trail's file limit is trail.raw.maxRawFiles (utils/rawTrailLimit.ts).
+            setRawTrailMaxFiles(stcConfig.trail, message.maxRawFiles);
             // The compact trail's limit (trail.compact.maxEntries, utils/compactTrailTrim.ts).
             if (Number.isFinite(message.compactMaxEntries) && message.compactMaxEntries >= 1) {
                 stcConfig.trail.compact = { ...(stcConfig.trail.compact ?? {}), maxEntries: Math.floor(message.compactMaxEntries) };
@@ -1358,7 +1360,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             stcConfig.compaction.runEveryNRounds = Number.isFinite(s.runEveryNRounds) && s.runEveryNRounds >= 1 ? s.runEveryNRounds : 15;
             stcConfig.compaction.backgroundExtractionEnabled = s.backgroundExtractionEnabled === true;
             if (!stcConfig.trail) { stcConfig.trail = {}; }
-            if (Number.isFinite(s.trailMaxRawFiles)) { stcConfig.trail.maxRawFiles = s.trailMaxRawFiles; }
+            setRawTrailMaxFiles(stcConfig.trail, s.trailMaxRawFiles);
             saveSendToChatConfig(stcConfig);
             // The prompt queue editor shows the two model pickers too.
             void import('./queueEditor-handler.js').then((m) => m.refreshQueueEditorState());
@@ -2095,7 +2097,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         },
         trail: {
             enabled: isTrailEnabled(),
-            maxRawFiles: sendToChatConfig?.trail?.maxRawFiles ?? 1000,
+            maxRawFiles: rawTrailMaxFiles(sendToChatConfig?.trail),
             compactMaxEntries: compactTrailMaxEntries(sendToChatConfig?.trail),
             toolResultsMaxAgeDays: configuredToolResultRetention().maxAgeDays,
             toolResultsMaxPerSession: configuredToolResultRetention().maxPerSession,
