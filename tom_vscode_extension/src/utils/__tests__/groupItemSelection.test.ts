@@ -18,7 +18,8 @@
  *   GS-7 a `<prefix>*` walk lists its todos the same way, lowest number first (only the prefix's, by number); a TODO
  *        item (one todo) lists none
  *   GS-8 the item header shows what a walk walks in place of the repeat counters — `todos <prefix>*`, `todo group
- *        <id>`, `todo <id>` — with no [MP …] / [T …] counter; the prefix walk's list is headed Todos, a group's Members
+ *        <id>`, `todo <id>` — with no [MP …] / [T …] counter and no `todos …` chip of its todo pattern (a group's every
+ *        member id); a plain item naming todos keeps the chip; the prefix walk's list is headed Todos, a group's Members
  *   GS-9 a prefix walk sends exactly its checked todos: a checked completed or blocked one is sent, an unchecked open
  *        one passed
  */
@@ -190,9 +191,10 @@ describe('the queue editor\'s member list', () => {
         const prefixMembers = groupItemMembers({ walk: PREFIX, todos: WW, sent: new Set() });
         const items = [
             { id: 'p-walk', status: 'pending', originalText: 'walk', itemKind: 'prefix', repeatCount: 'ww*', groupMembers: prefixMembers, createdAt: '2026-11-25T10:00:00Z' },
-            { id: 'g-walk', status: 'sending', originalText: 'walk', itemKind: 'group', repeatCount: VALUE, repeatTodoId: 'b1', groupMembers: groupItemMembers({ walk: WALK, todos: TODOS, sent: new Set() }), createdAt: '2026-11-25T10:01:00Z' },
+            { id: 'g-walk', status: 'sending', originalText: 'walk', itemKind: 'group', repeatCount: VALUE, repeatTodoId: 'b1', todoIdPattern: 'b1,b2,b3', groupMembers: groupItemMembers({ walk: WALK, todos: TODOS, sent: new Set() }), createdAt: '2026-11-25T10:01:00Z' },
             { id: 't-item', status: 'staged', originalText: 'one', itemKind: 'todo', repeatCount: 'todo:q1/b1', createdAt: '2026-11-25T10:02:00Z' },
             { id: 'counted', status: 'staged', originalText: 'three times', repeatCount: 3, createdAt: '2026-11-25T10:03:00Z' },
+            { id: 'plain-todos', status: 'staged', originalText: 'two todos', todoIdPattern: 'x1,x2', createdAt: '2026-11-25T10:04:00Z' },
         ];
         const html = readMedia('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
         const dom = new JSDOM(html, { runScripts: 'outside-only' });
@@ -215,6 +217,9 @@ describe('the queue editor\'s member list', () => {
             assert.doesNotMatch(row(id).textContent, /\[MP|\[T /, `${id}: no repeat counters`);
         }
         assert.match(row('g-walk').textContent, /\[b1\]/, 'the todo being worked on beside it');
+        assert.equal(row('g-walk').querySelector('.queue-todo-chip'), null, 'a group walk: no chip of its members in the header');
+        assert.equal(row('p-walk').querySelector('.queue-todo-chip'), null, 'a prefix walk: its header names the prefix already');
+        assert.equal(row('plain-todos').querySelector('.queue-todo-chip')?.textContent, 'todos x1,x2', 'a plain item keeps the chip');
         assert.match(row('counted').innerHTML, /\[MP /, 'a counted repeat keeps its counter');
         assert.equal(row('p-walk').querySelector('.group-members .gm-head').textContent, 'Todos');
         assert.deepEqual([...row('p-walk').querySelectorAll('.gm-row')].map((r: any) => r.getAttribute('data-member')), ['ww1_x', 'ww2_x', 'ww3_x', 'ww10_x']);

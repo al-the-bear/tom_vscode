@@ -8,7 +8,7 @@
 
 import { canUpdateRunningPrompt, sendUpdateToRunningPrompt } from '../services/agentSdkLiveInputs';
 import { DEFAULT_RUN, normalizeRun } from '../utils/processRuns';
-import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, defaultSettingsDiff, questRunsInFile, readQuestRunQueueSettings, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
+import { BUILTIN_RUN_QUEUE_SETTINGS, DEFAULT_RUN_ROLE, DEFAULT_SETTING_FIELDS, RUNS_BY_QUEST_KEY, defaultSettingsDiff, questRunsInFile, readQuestRunQueueSettings, runQueueSettingsToKeys, startWithDefaultsFrom, type RunQueueSettings } from '../utils/runQueueSettings';
 import { runQueueSession, runSessionName, sessionBaseName } from '../utils/runSessions';
 import { itemRun, laneConflict, laneOf, laneSummaries, pickLaneStarts, type LaneSummary, type LaneTarget } from '../utils/queueLanes';
 import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueueRemoval';
@@ -7779,9 +7779,9 @@ export class PromptQueueManager {
         this.setRunQueueSettings(run, { defaultAgentSdkSession: name });
     }
 
-    /** Set a run's default role (default: the window's run); '' / undefined = none (gsel3; utils/promptRole.ts). */
+    /** Set a run's default role (default: the window's run); '' / undefined = the role `default` (gsel3; utils/promptRole.ts). */
     setDefaultRole(role: string | undefined, run?: string): void {
-        this.setRunQueueSettings(run, { defaultRole: role && role.trim() ? role.trim() : undefined });
+        this.setRunQueueSettings(run, { defaultRole: role && role.trim() ? role.trim() : DEFAULT_RUN_ROLE });
     }
 
     /**

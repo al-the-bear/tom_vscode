@@ -49,7 +49,9 @@ export interface RunQueueSettings {
     defaultMessageTemplateId?: string;
     /**
      * The role the run's items run as when neither their todo nor they name
-     * one and no process step does (gsel3; utils/promptRole.ts).
+     * one and no process step does (gsel3; utils/promptRole.ts). Every run
+     * has one: {@link DEFAULT_RUN_ROLE} unless another is chosen; an empty
+     * value in the file means that default.
      */
     defaultRole?: string;
     /**
@@ -58,6 +60,9 @@ export interface RunQueueSettings {
      */
     guidelines?: Record<string, string | string[]>;
 }
+
+/** The default role of every run (the role `_ai/roles/default/`) unless another is chosen. */
+export const DEFAULT_RUN_ROLE = 'default';
 
 /** The settings of a run when neither the file nor its old top-level keys say otherwise. */
 export const BUILTIN_RUN_QUEUE_SETTINGS: Readonly<RunQueueSettings> = Object.freeze({
@@ -69,6 +74,7 @@ export const BUILTIN_RUN_QUEUE_SETTINGS: Readonly<RunQueueSettings> = Object.fre
     walkContinuations: DEFAULT_WALK_CONTINUATIONS,
     responseTimeoutMinutes: 60,
     defaultTransport: 'copilot',
+    defaultRole: DEFAULT_RUN_ROLE,
 });
 
 /** The settings-file key of each setting. */
@@ -114,7 +120,7 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
     for (const key of OPTIONAL_TEXT) {
         const v = r[k[key]];
         if (typeof v === 'string') {
-            if (v) { (out as unknown as Record<string, unknown>)[key] = v; } else { delete out[key]; }
+            if (v) { (out as unknown as Record<string, unknown>)[key] = v; } else if (key === 'defaultRole') { out.defaultRole = DEFAULT_RUN_ROLE; } else { delete out[key]; }
         }
     }
     // The guideline choices: a map; '' or an empty map clears them.

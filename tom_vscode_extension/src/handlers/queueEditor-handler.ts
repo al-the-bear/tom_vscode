@@ -544,8 +544,8 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const current = isDefault ? (pqm.runQueueSettings(run).defaultRole ?? '') : (item?.role ?? '');
           const picked = await vscode.window.showQuickPick(
             [
-              { label: isDefault ? '$(circle-slash) No default role' : '$(circle-slash) Default role', role: '',
-                description: isDefault ? 'the step\'s role, else the chat variable role' : 'the todo\'s, the step\'s, the run\'s default or the chat variable role' },
+              ...(isDefault ? [] : [{ label: '$(circle-slash) Default role', role: '',
+                description: 'the todo\'s, the step\'s or the run\'s default role' }]),
               ...roles.map((r) => ({ label: r, role: r, description: r === current ? '(current)' : '' })),
             ],
             { title: isDefault ? `Default role of run ${run ?? 'default'} in the prompt queue` : 'Role of this queue item', placeHolder: `Current: ${current || '(none)'}` },

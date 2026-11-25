@@ -537,8 +537,10 @@ function renderEntry(item, idx) {
           (item.reloadPrompt
             ? '<span class="queue-from-chip queue-reload-chip" title="' + escapeHtml('Send prompt after reload: queued at the front of this run\'s queue when the window started, and sent as Continue sends it') + '"><span class="codicon codicon-debug-restart"></span> after reload</span>'
             : '') +
-          // The todos it runs (todoIdPattern): a todo id, a group walk prefix*, or several.
-          (item.todoIdPattern
+          // The todos it runs (todoIdPattern): a todo id or several. Not on a todo walk: its header names what it walks
+          // (`todo group <id>`, `todos <prefix>*`, `todo <id>`) and a GROUP item lists its members under the header,
+          // so the pattern (a group's every member id) would only repeat them and push the header out of shape.
+          (item.todoIdPattern && !walkInfo
             ? '<span class="queue-from-chip queue-todo-chip" title="' + escapeHtml('Runs the todos ' + item.todoIdPattern + ' (marked as queued in the todo panel)') + '">todos ' + escapeHtml(String(item.todoIdPattern)) + '</span>'
             : '') +
           '#' + queuePos + '  ' + time + (sentTime ? ' \u2192 ' + sentTime : '') +

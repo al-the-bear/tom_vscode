@@ -49,14 +49,17 @@ const named = (role: string | undefined): role is string => typeof role === 'str
  * The role of a send: `queued` (the queue's stage, absent outside the queue),
  * `stepRole` (the role the process position of the send names; undefined
  * outside a Proceed run, `''` when the step names none), `chatRole` (the chat
- * variable). `''` and `default` name no role.
+ * variable). `''` names no role, nor does `default` — except as the run's
+ * default role, which every run has (`default` unless another is chosen).
  */
 export function effectivePromptRole(input: { queued?: QueueRoleSource; stepRole?: string; chatRole?: string }): PromptRole {
     const q = input.queued ?? {};
     if (named(q.todoRole)) { return { role: q.todoRole, from: 'todo' }; }
     if (named(q.itemRole)) { return { role: q.itemRole, from: 'item' }; }
     if (named(input.stepRole)) { return { role: input.stepRole, from: 'step' }; }
-    if (named(q.runDefaultRole)) { return { role: q.runDefaultRole, from: 'runDefault' }; }
+    // The run's default role is a role even when it is `default` (every run has one, `default` unless another is
+    // chosen): the run's items run as it, and the chat variable is not asked.
+    if (typeof q.runDefaultRole === 'string' && q.runDefaultRole.trim() !== '') { return { role: q.runDefaultRole, from: 'runDefault' }; }
     if (named(input.chatRole)) { return { role: input.chatRole, from: 'chat' }; }
     return { role: '', from: 'none' };
 }

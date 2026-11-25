@@ -42,7 +42,7 @@ function put(rel: string, text: string): void {
     fs.writeFileSync(abs, text);
 }
 put(`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n');
-for (const role of ['stepper', 'writer', 'reviewer', 'planner', 'chatter']) { put(`_ai/roles/${role}/role.md`, `# The ${role} role\n`); }
+for (const role of ['stepper', 'writer', 'reviewer', 'planner', 'chatter', 'default']) { put(`_ai/roles/${role}/role.md`, `# The ${role} role\n`); }
 put('_ai/processes/roled/roled.process.yaml', [
     'id: roled', 'name: roled', 'phases:',
     '  - id: p1', '    name: P1', '    steps:',
@@ -208,13 +208,14 @@ describe('roles per todo, item and run default', () => {
         const proceedItem = queue().items.find((i) => i.processRun && !i.processMove && i.originalText.includes('Work on it'))!;
         assert.deepEqual(await stageRole(proceedItem).then((x) => [x.role, x.from]), ['stepper', 'step'], 'a Proceed prompt keeps its step\'s');
         queue().setDefaultRole('', TEST_RUN);
-        assert.equal(queue().runQueueSettings(TEST_RUN).defaultRole, undefined, '"" clears it');
+        assert.equal(queue().runQueueSettings(TEST_RUN).defaultRole, 'default', '"" goes back to the role default');
     });
 
-    test('QR-4: the chat variable when nothing else names one', async () => {
+    test('QR-4: every run has a default role, `default` unless chosen; the chat variable outside the queue', async () => {
         const plain = await add('plain again');
         const r = await stageRole(plain);
-        assert.deepEqual([r.role, r.from, r.tools, r.placeholder, r.text], ['chatter', 'chat', 'chatter', 'chatter', '# The chatter role']);
+        assert.deepEqual([r.role, r.from, r.tools, r.placeholder, r.text], ['default', 'runDefault', 'default', 'default', '# The default role'],
+            'the run\'s default role `default` is a role: the chat variable is not asked');
         assert.deepEqual(livePromptRole(), { role: 'chatter', from: 'chat' }, 'outside the queue');
     });
 
@@ -277,7 +278,7 @@ describe('roles per todo, item and run default', () => {
 
     test('QR-7: the tools', async () => {
         // tomAi_addQueueItem: an unknown or malformed role is refused.
-        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', role: 'nobody' } as never)).error, /role "nobody" is not a role of _ai\/roles\/ \(the roles: chatter, planner, reviewer, stepper, writer\)/);
+        assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', role: 'nobody' } as never)).error, /role "nobody" is not a role of _ai\/roles\/ \(the roles: chatter, default, planner, reviewer, stepper, writer\)/);
         assert.match(JSON.parse(await ADD_QUEUE_ITEM_TOOL.execute({ text: 'x', role: 'two words' } as never)).error, /role must be a role folder name/);
         // tomAi_updateQueueItem: set, change, clear.
         const item = await add('to update');
@@ -321,7 +322,7 @@ describe('roles per todo, item and run default', () => {
         assert.match(editor, /case 'pickQueueDefaultRole':\n\s*case 'editItemRole':[\s\S]*pqm\.setDefaultRole\(picked\.role, run\)[\s\S]*pqm\.updateItemRole\(id, picked\.role\)/);
         const queueMain = EXT('media', 'queueEditor', 'main.js');
         assert.match(queueMain, /pick === 'defaultRole' \? \{ type: 'pickQueueDefaultRole', run: settingsRun\(\) \}/);
-        assert.match(queueMain, /field\(el, 'Default role', link\('defaultRole', settings\.defaultRole \|\| '\(none\)'/);
+        assert.match(queueMain, /field\(el, 'Default role', link\('defaultRole', settings\.defaultRole \|\| 'default'/);
         assert.match(queueMain, /'defaultMessageTemplateId', 'defaultRole'\];/, 'Make default copies it');
         const panel = EXT('media', 'questTodoPanel', 'main.js');
         assert.match(panel, /qtFormRow\('Role', '<select id="qt-d-role"[^\n]*qtRoleOptions\(todo\.role\)/, 'the detail form');
@@ -370,8 +371,8 @@ describe('roles per todo, item and run default', () => {
         queue().setDefaultRole('', TEST_RUN);
         // A walk with no todo in hand: none known, each todo's own wins; once it has one, that one's.
         const walk = await add('walk t2 ${repeatTodoId}', { repeatCount: 't2_*' });
-        assert.deepEqual([view(walk).role, view(walk).from, view(walk).perTodo], ['', 'none', true]);
-        assert.match(view(walk).title, /No role of its own: it runs as the chat variable role, if any\. A walk: the todo it runs names its own role/);
+        assert.deepEqual([view(walk).role, view(walk).from, view(walk).perTodo], ['default', 'runDefault', true]);
+        assert.match(view(walk).title, /^Runs as role default — the default role of its run\. A walk: the todo it runs names its own role/);
         walk.todoClaim = { questId: QUEST, todoId: 't1_aktl-roled' } as never;
         assert.deepEqual([view(walk).role, view(walk).from], ['writer', 'todo'], 'the claimed todo while it runs');
         walk.todoClaim = undefined;
@@ -386,7 +387,7 @@ describe('roles per todo, item and run default', () => {
         };
         const queued = await runWithQueueRole(queue().stageRoleSource(todoItem, 'main', 't1_aktl-roled'), async () => header(livePromptRole()));
         assert.match(queued, /^## \u{1F680} PROMPT \d{8}_\d{6} \[direct \/ opus-5-5-direct · role writer \(todo\)\]$/u);
-        assert.match(await runWithQueueRole(queue().stageRoleSource(none, 'main'), async () => header(livePromptRole())), /\[direct \/ opus-5-5-direct · role chatter \(chat variable\)\]$/);
+        assert.match(await runWithQueueRole(queue().stageRoleSource(none, 'main'), async () => header(livePromptRole())), /\[direct \/ opus-5-5-direct · role default \(run default\)\]$/);
         assert.match(header({ role: 'reviewer', from: 'item' }), /· role reviewer \(item\)\]$/);
         assert.match(header({ role: 'planner', from: 'runDefault' }), /· role planner \(run default\)\]$/);
         assert.match(header({ role: 'stepper', from: 'step' }), /· role stepper \(process step\)\]$/);
