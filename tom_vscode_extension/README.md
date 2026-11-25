@@ -76,10 +76,12 @@ to `resources/codespecs/`
 (gitignored), which the VSIX carries too.
 
 The CodeSpecs validate and trace tools, the TomSpecs process check tools
-(`tomAi_specImportAnswers`, `tomAi_specRequiredFields`, …) and the CodeSpecs map
-tool (`tomAi_specCodeSpecsMap`, Phase 4's stage 5) run `tomspecs`, ai_build's
-`tom_specs_clitool` binary, with one command each (`:codespecs-validate`,
-`:spec-<check>`, `:ir-map`; `src/services/tomspecsCalls.ts`), compiled into
+(`tomAi_specImportAnswers`, `tomAi_specRequiredFields`, …), the TomSpecs
+document-set tools (`tomAi_specSyncReport`, `tomAi_specBackfill`, …) and the
+CodeSpecs map tool (`tomAi_specCodeSpecsMap`, Phase 4's stage 5) run
+`tomspecs`, ai_build's `tom_specs_clitool` binary, with one command each
+(`:codespecs-validate`, `:spec-<check>`, `:spec-sync-report` …, `:ir-map`;
+`src/services/tomspecsCalls.ts`), compiled into
 `bin/<platform>/` from `tom_ai/ai_build/tom_specs_clitool`. `:ir-map` formats
 the Dart its mapper writes itself (`dart_style` is linked in), so CodeSpecs
 mapping needs no Dart SDK either. `scripts/build-validate-codespecs.cjs`
@@ -187,7 +189,9 @@ on purpose). Such a VSIX lacks two things only:
   (`tomAi_specImportAnswers`, `tomAi_specRequiredFields`,
   `tomAi_specQuestionRegister`, `tomAi_specFeatureRegister`,
   `tomAi_specProjectIdeaCoverage`, `tomAi_specAuthorizationCheck` and
-  `tomAi_specCoverage`) and CodeSpecs mapping (`tomAi_specCodeSpecsMap`).
+  `tomAi_specCoverage`), the TomSpecs document set (`tomAi_specSyncReport`,
+  `tomAi_specBackfill`, `tomAi_specPrefill`, `tomAi_specDeriveFields`,
+  `tomAi_specRenameId`) and CodeSpecs mapping (`tomAi_specCodeSpecsMap`).
 
 Everything else works: the chat panels and their transports, the prompt queue,
 the tools, quests, todos and processes, TomSpecs editing.
