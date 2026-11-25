@@ -705,7 +705,6 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
-                '<button class="icon-btn" data-action="openSharedMemoryInMdBrowser" data-id="anthropic" title="Open shared memory (facts.md in the workspace-wide _ai/memory/shared/) in the MD Browser"><span class="codicon codicon-library"></span></button>' +
                 // The models the API and VS Code LM offer (informational: the profile's configuration drives sends),
                 // in an overlay behind one button, with the reason when a list is unavailable (a missing key).
                 '<button class="icon-btn" data-action="showAvailableModels" data-id="anthropic" id="anthropic-models-btn" title="Available models: what the Anthropic API and VS Code LM offer (informational — the profile\'s configuration decides the model)"><span class="codicon codicon-hubot"></span></button>' +
@@ -1109,7 +1108,6 @@ function handleAction(action, id, slot) {
         case 'runQuestRefresh': { var qrProfile = document.getElementById(id + '-profile'); qrProfile = qrProfile ? qrProfile.value : ''; vscode.postMessage({ type: 'runQuestRefresh', section: id || '', profile: qrProfile }); break; }
         case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
-        case 'openSharedMemoryInMdBrowser': vscode.postMessage({ type: 'openSharedMemoryInMdBrowser' }); break;
         case 'refreshAnthropicModels': vscode.postMessage({ type: 'refreshAnthropicModels' }); break;
         case 'showAvailableModels': { renderAvailableModels(); var mo = document.getElementById('anthropic-models-overlay'); if (mo) { mo.style.display = 'flex'; } break; }
         case 'closeAvailableModels': { var mc = document.getElementById('anthropic-models-overlay'); if (mc) { mc.style.display = 'none'; } break; }

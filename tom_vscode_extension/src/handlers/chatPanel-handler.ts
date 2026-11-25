@@ -935,10 +935,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._openSessionHistoryMarkdown();
                         break;
                     case 'openQuestMemoryInMdBrowser':
-                        await this._openMemoryMarkdown('quest');
-                        break;
-                    case 'openSharedMemoryInMdBrowser':
-                        await this._openMemoryMarkdown('shared');
+                        await this._openMemoryMarkdown();
                         break;
                     case 'saveAsTimedRequest':
                         await this._saveAsTimedRequest(message.text, message.template);
@@ -2209,18 +2206,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the canonical memory file for `scope` in the MD Browser.
-     * Both quest-scoped and shared-scoped memory live as `facts.md`
-     * inside `_ai/memory/<scope>/` (see TwoTierMemoryService's
+     * Open the quest memory's canonical file in the MD Browser: `facts.md`
+     * in `_ai/memory/<quest>/<session>/` (see TwoTierMemoryService's
      * `scopeFolder()` + `filePath()`); the default memory-extraction
      * template writes there. When the file is missing we surface an
      * informational notice naming the path the next extraction pass
      * would create — same pattern as `_openSessionHistoryMarkdown`.
      */
-    private async _openMemoryMarkdown(scope: 'quest' | 'shared'): Promise<void> {
+    private async _openMemoryMarkdown(): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
-        const target = TwoTierMemoryService.instance.filePath(scope, 'facts.md', questId || undefined);
-        const scopeLabel = scope === 'shared' ? 'shared' : `quest "${questId || 'default'}"`;
+        const target = TwoTierMemoryService.instance.filePath('quest', 'facts.md', questId || undefined);
+        const scopeLabel = `quest "${questId || 'default'}"`;
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
                 `No ${scopeLabel} memory yet. The file is written after the first memory-extraction pass that finds something memory-worthy (${target}).`,

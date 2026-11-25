@@ -86,7 +86,7 @@ export const EXTENSION_TOOLS: readonly ToolEntry[] = [
     { id: 'chatVariables', label: 'Chat Variables Editor', group: 'quest', icon: 'symbol-variable', command: 'tomAi.editor.chatVariables',
         purpose: 'The chat variables of the window and of each process run (quest, role, custom keys).' },
     { id: 'memory', label: 'Memory Panel', group: 'quest', icon: 'database', command: 'tomAi.panel.memory',
-        purpose: 'The quest\'s per-session memory and the shared memory files.' },
+        purpose: 'The quest\'s per-session memory files.' },
     { id: 'questNotesPanel', label: 'Quest notes, runs, notifications (@TOM INFO)', group: 'quest', icon: 'book', command: 'tomAi.tomInfoSidebar.focus',
         purpose: 'The active quest\'s notes in a side bar of their own (Edit, and View as the MD Browser renders it), RUNS: every process run of every window on this machine with its state, what it waits for and its subject, and NOTIFICATIONS: the queue and todo events of every window.',
         whenAvailable: 'a quest is open' },

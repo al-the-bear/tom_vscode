@@ -20,7 +20,7 @@ All four share the tool registry and the trail system.
 This specification also covers:
 
 - **Trail files** — Anthropic added as a new raw trail subsystem; raw trail enabled by default; cleanup and `.gitignore` fixes
-- **Memory system** (`_ai/memory/`) — two-tier: workspace-shared + quest-specific
+- **Memory system** (`_ai/memory/`) — the quest's memory, per session
 - **Tool approval** — user confirmation gate for write tools; chat variable writes exempt (panel visibility)
 - **Tool trail** — last two prompt rounds of tool calls, always full, prepended to each prompt
 - **History compaction** — `summary`/`trim_and_summary`/`llm_extract` modes; Local LLM or Anthropic as compaction provider
@@ -103,7 +103,6 @@ graph TD
     COMPACT --> STE
 
     subgraph MemoryLayer["Memory"]
-        MEMSH["_ai/memory/shared/\nworkspace-wide facts"]
         MEMQ["_ai/memory/{quest}/{session}/\nquest-specific facts"]
     end
 
@@ -113,7 +112,6 @@ graph TD
     AH --> COMPACT
     AH --> HC
     HC --> MS
-    MS --> MEMSH
     MS --> MEMQ
 
     LH -.-> OLLAMA[(Ollama / OpenAI-compatible)]
@@ -248,58 +246,27 @@ The ANTHROPIC/LLM panel follows the same pattern (see §11.3).
 
 ## 5. Memory System
 
-### 5.1 Quest-based vs workspace-wide memory — arguments
+### 5.1 Quest memory
 
-**Arguments for quest-scoped memory (`_ai/memory/{quest}/`):**
-
-- Isolation: facts about `vscode_extension` work (specific files, components, decisions) are irrelevant when working on `tom_forge` or `d4rt`
-- Cleaner system prompt injection: only inject memory relevant to the current task
-- Aligns with existing patterns: trails, todos, notes are all per quest
-- Lifecycle management: memory can be archived or deleted with the quest
-- Prevents contradictions: different quests may have conflicting facts about the same files
-
-**Arguments for workspace-wide memory (`_ai/memory/shared/`):**
-
-- Coding preferences apply everywhere: "I prefer functional style", "always use `const`"
-- Project conventions span quests: naming conventions, directory patterns, tech stack
-- User identity facts: "I am working on a Flutter/Dart VS Code extension, TypeScript for extension code, Dart for client code"
-- Avoids duplication: saves writing the same preferences in every quest memory
-
-#### Decision: Two-tier memory
-
-Both are needed. The memory system is organised as two tiers:
+Memory is the quest's: `_ai/memory/{quest}/{session}/`, one folder per session (§18.13). Facts about one quest's work (its files, components, decisions) are irrelevant to another quest, the injected block stays small, and the memory lives and goes with the quest, like its trails and todos. There is no workspace-wide memory: what holds for every quest (preferences, conventions, who the user is) belongs in the guidelines and the instruction files, which every prompt reads.
 
 ```text
 _ai/memory/
-    shared/                   ← workspace-wide, injected in every session
-        preferences.md        ← coding style, language preferences
-        conventions.md        ← project-level naming, patterns, architecture
-        identity.md           ← who the user is, what the project is
-        custom/
-            {topic}.md
-
-    {quest}/                  ← quest-specific, injected only when quest is active
-        facts.md              ← key facts extracted from conversations
-        project-context.md    ← architecture, files, components discussed
-        decisions.md          ← decisions made and rationale
-        open-issues.md        ← known bugs, blockers, open questions
-        history/
-            {timestamp}.history.json   ← serialised compacted message arrays
-        custom/
-            {topic}.md
+    {quest}/
+        {session}/            ← the session's quest memory
+            facts.md          ← key facts extracted from conversations
+            project-context.md
+            decisions.md
+            open-issues.md
+            custom/
+                {topic}.md
 ```
 
-The model and memory tools can write to both tiers. The `tomAi_memory_save` tool accepts a `scope` parameter: `'shared'` or `'quest'` (default: `'quest'`).
+The model and the memory tools write the running session's quest memory; the tools' `sessions` argument reaches other sessions of the quest.
 
 ### 5.2 System prompt injection
 
-At session start, the handler builds the system prompt by injecting:
-
-1. **Shared memory** — all files in `_ai/memory/shared/`, always
-2. **Quest memory** — all files of the running session's quest memory, `_ai/memory/{quest}/{session}/` (§18.13), when a quest is active
-3. **Compacted history** — the most recent `{timestamp}.history.json` as the initial messages array
-
-Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens). If the combined memory exceeds this, shared memory is prioritised, then quest memory files are included newest-first until the budget is used.
+`${memory}` (or `autoInjectMemory`) injects the running session's quest memory, `_ai/memory/{quest}/{session}/`, when a quest is active. Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens): the files are included newest first until the budget is used.
 
 ### 5.3 Memory vs compacted history vs trail
 
@@ -935,7 +902,7 @@ The **Memory button** (`🧠 Memory`) in the panel toolbar opens a **dedicated M
 
 ```text
 Memory Panel (webview)
-├── Scope tabs: [Shared memory] [Quest: vscode_extension]
+├── Header: [Quest: vscode_extension] [Session: default@default]
 ├── File list (left): facts.md | project-context.md | decisions.md | open-issues.md | custom/...
 ├── Content view (right): rendered markdown, editable
 └── Toolbar: [+ New file] [Save] [Delete file] [Open in editor]
@@ -1077,7 +1044,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
 | `handlers/anthropic-handler.ts` | **New** — full Anthropic handler |
 | `handlers/globalTemplateEditor-handler.ts` | Add `anthropicProfiles`, `anthropicUserMessage`, `compaction`, `memoryExtraction` template categories |
 | `services/history-compaction.ts` | **New** — shared compaction module (all modes + tool loop) |
-| `services/memory-service.ts` | **New** — two-tier memory read/write |
+| `services/memory-service.ts` | **New** — quest memory read/write |
 | `services/memory-panel-handler.ts` | **New** — Memory Panel webview |
 | `services/tool-trail.ts` | **New** — session ring buffer |
 | `handlers/chatPanel-handler.ts` | Add ANTHROPIC accordion section |
@@ -1245,7 +1212,7 @@ gantt
         Global Template Editor: all 4 new categories  :t1, after f3, 2d
         chatvar tools (read/write)                    :t2, after f3, 1d
     section Memory & Compaction
-        memory-service.ts two-tier                    :m1, after f3, 2d
+        memory-service.ts quest memory                :m1, after f3, 2d
         memory tools in tool-executors.ts             :m2, after m1, 1d
         memory-panel-handler.ts webview               :m3, after m2, 2d
         history-compaction.ts shared module           :c1, after m1, 2d
@@ -1463,16 +1430,16 @@ Delivers: all four Global Template Editor categories wired up; chat variable rea
 
 ### Phase 3 — Memory & Compaction
 
-Delivers: two-tier memory read/write; memory tools; Memory Panel webview; history compaction module with all modes.
+Delivers: quest memory read/write; memory tools; Memory Panel webview; history compaction module with all modes.
 
 ---
 
 **Step 3.1 — [ ] `services/memory-service.ts`: new file**
 
-- **Spec:** §5 (memory system overview), §5.1 (shared memory), §5.2 (quest memory), §11.2 (what the Memory Panel shows — drives the API shape needed)
+- **Spec:** §5 (memory system overview), §5.1 (quest memory), §5.2 (injection), §11.2 (what the Memory Panel shows — drives the API shape needed)
 - **Read first:** `src/utils/fsUtils.ts` (`safeWriteFile`, `safeReadFile` or equivalent helpers to use); `src/utils/workspacePaths.ts` (how workspace root and `_ai/` path are resolved, to anchor memory paths correctly); `src/managers/chatVariablesStore.ts` (file persistence pattern to mirror)
 - Create `src/services/memory-service.ts` — `TwoTierMemoryService` singleton:
-  - Paths: `_ai/memory/shared/` and `_ai/memory/${quest}/`
+  - Path: `_ai/memory/${quest}/<session>/`
   - `read(scope, file)` → string or `""`
   - `write(scope, file, content)` — creates folder on first use
   - `append(scope, file, content)`
@@ -1500,7 +1467,7 @@ Delivers: two-tier memory read/write; memory tools; Memory Panel webview; histor
 - **Spec:** §11.2 (Memory Panel layout — tabs, file list, content view, toolbar)
 - **Read first:** `src/handlers/trailEditor-handler.ts` (the Summary Trail Editor — closest existing webview panel in structure, use as the pattern for a two-pane webview); `src/extension.ts` (how commands and providers are registered, to know where to add the new registration)
 - Create `src/services/memory-panel-handler.ts` as a `WebviewViewProvider`
-- Webview: scope tabs `[Shared memory]` `[Quest: {quest}]`, file list (left pane), editable content view (right pane)
+- Webview: header `[Quest: {quest}]` `[Session: {name}]`, file list (left pane), editable content view (right pane)
 - Toolbar actions: `[+ New file]` `[Save]` `[Delete file]` `[Open in editor]`
 - Register command `tomAi.panel.memory` in `extension.ts`
 - The `openAnthropicMemory` panel message (§11.4) triggers `vscode.commands.executeCommand('tomAi.panel.memory')`
@@ -1986,7 +1953,7 @@ Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the pro
 | `history/sessions/<session>/trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json`, `current_prompt.*.md` | ignored |
 | `_ai/memory/<quest>/<session>/` | the session's quest memory | tracked |
 
-(`history/` is `_ai/quests/<quest>/history/`.) `_ai/memory/shared/` stays one set of files for every session. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`.
+(`history/` is `_ai/quests/<quest>/history/`.) There is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`.
 
 - **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories, and memory extraction's target). Per send, `activateSession` sets the memory service's active session — `${memory}` and the memory tools use that session's quest memory — and the session's own tool trail.
 - **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.

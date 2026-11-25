@@ -12,7 +12,7 @@
  *        trail; recreate history / memory take the session (the panel passes each one chosen)
  *   SW-4 a based per-prompt session never clears its base's accumulator: the compaction clears the file only when the
  *        session writes its history (before the fix it cleared the scope folder — the base's — unconditionally)
- *   SW-5 quest memory is per session (`_ai/memory/<quest>/<session>/`), shared stays one; the migration runs on first
+ *   SW-5 quest memory is per session (`_ai/memory/<quest>/<session>/`), there is no shared memory; the migration runs on first
  *        use of a quest; a Local LLM memory bucket reads the `default` session's
  *   SW-6 a temporary session's whole storage is removed with it; clearing a session clears that session's tool trail
  */
@@ -87,8 +87,10 @@ describe('per-session storage wiring', () => {
     });
 
     test('SW-5: memory per session', () => {
-        const folder = body(memory, 'scopeFolder(scope: MemoryScope');
-        assert.match(folder, /path\.join\(this\.memoryRoot\(\), 'shared'\)/, 'shared stays one');
+        const folder = body(memory, 'scopeFolder(_scope: MemoryScope');
+        assert.doesNotMatch(folder, /'shared'/, 'no shared memory');
+        assert.match(memory, /export type MemoryScope = 'quest';/);
+        assert.doesNotMatch(body(memory, 'injectForSystemPrompt('), /'shared'/, 'the injection reads the quest memory only');
         assert.match(folder, /sessionMemoryFolder\(this\.memoryRoot\(\), quest, session \|\| this\._activeSession\)/);
         assert.match(folder, /this\.ensureSessionStorage\(quest\)/);
         assert.match(body(memory, 'historyFolder(questId?: string): string {'), /this\.ensureSessionStorage\(quest\)/);

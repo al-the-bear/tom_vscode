@@ -1,5 +1,5 @@
 // @ts-nocheck
-// memoryPanel webview client — the two-tier memory store editor.
+// memoryPanel webview client — the quest memory editor (per session).
 //
 // Verbatim extraction of the inline <script> IIFE from `_getHtml` in
 // src/handlers/memoryPanel-handler.ts. All panel data flows in via postMessage
@@ -13,10 +13,10 @@
 (() => {
     const vscode = acquireVsCodeApi();
     window.__tomVscodeApi = vscode; // shared completion.js reads this
-    let currentScope = 'shared';
+    const currentScope = 'quest';
     let currentFile = '';
     let dirty = false;
-    let snapshot = { quest: '', shared: [], questFiles: [] };
+    let snapshot = { quest: '', questFiles: [] };
 
     const questTab = document.getElementById('quest-tab');
     const fileList = document.getElementById('file-list');
@@ -29,10 +29,6 @@
     const btnSession = document.getElementById('btn-session');
     // Quest memory is per session (_ai/memory/<quest>/<session>/): the host picks whose.
     btnSession.addEventListener('click', () => { vscode.postMessage({ type: 'pickSession' }); });
-
-    document.querySelectorAll('.tab').forEach((el) => {
-        el.addEventListener('click', () => switchScope(el.getAttribute('data-scope')));
-    });
 
     content.addEventListener('input', () => {
         dirty = true;
@@ -65,29 +61,13 @@
         vscode.postMessage({ type: 'openInEditor', scope: currentScope, file: currentFile });
     });
 
-    function switchScope(scope) {
-        if (dirty && !confirm('Discard unsaved changes?')) return;
-        currentScope = scope;
-        currentFile = '';
-        content.value = '';
-        dirty = false;
-        btnSave.disabled = true;
-        btnDelete.disabled = true;
-        btnOpen.disabled = true;
-        status.textContent = '';
-        document.querySelectorAll('.tab').forEach((el) => {
-            el.classList.toggle('active', el.getAttribute('data-scope') === scope);
-        });
-        renderList();
-    }
-
     function renderList() {
-        const files = currentScope === 'shared' ? snapshot.shared : snapshot.questFiles;
+        const files = snapshot.questFiles;
         fileList.innerHTML = '';
         if (!files.length) {
             const empty = document.createElement('div');
             empty.className = 'empty';
-            if (currentScope === 'quest' && !snapshot.quest) {
+            if (!snapshot.quest) {
                 empty.textContent = 'No active quest. Set one in the Chat Variables Editor.';
             } else {
                 empty.textContent = '(no files)';

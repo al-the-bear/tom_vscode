@@ -53,6 +53,14 @@ function deleteResult(result: questTodo.TodoMoveResult, todoId: string): { succe
 }
 
 /**
+ * `_ai/notes/` and the `_ai/clarifications…` folders are gone from the `_ai` format (al_the_bear ai_format_migration AC-17,
+ * AC-18): the scripting API's calls on them are refused with where their content lives now.
+ */
+const REMOVED_AI_FOLDER_MESSAGE = (folder: string): string =>
+    `_ai/${folder} is no longer part of the workspace: notes are the quest's (quest-notes.<quest>.md, QUEST NOTES) ` +
+    'or the workspace notes (WORKSPACE NOTES); a document belongs in its quest folder (doc.listQuestDocsVce).';
+
+/**
  * The todo wire contract (`todo.*Vce`, read by tom_vscode_scripting_api's
  * TomTodoApi):
  *
@@ -647,22 +655,10 @@ export class TomScriptingBridgeHandler {
                 return this.readGuideline(params.name);
             }
 
-            case 'doc.listNotesVce': {
-                const notesDir = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-                return this.listDocuments(notesDir, params.pattern, false);
-            }
-
-            case 'doc.readNoteVce': {
-                const notesDir = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-                const filePath = path.join(notesDir, params.filename);
-                return this.readDocument(filePath);
-            }
-
-            case 'doc.writeNoteVce': {
-                const notesDir = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-                const filePath = path.join(notesDir, params.filename);
-                return this.writeDocument(filePath, params.content);
-            }
+            case 'doc.listNotesVce':
+            case 'doc.readNoteVce':
+            case 'doc.writeNoteVce':
+                throw new Error(REMOVED_AI_FOLDER_MESSAGE('notes'));
 
             case 'doc.listQuestDocsVce': {
                 const questDir = WsPaths.ai('quests', params.questId) || path.join(wsRoot, '_ai', 'quests', params.questId);
@@ -690,15 +686,13 @@ export class TomScriptingBridgeHandler {
         const wsRoot = layoutWorkspaceFolder() ?? '';
         let basePath: string;
 
+        if (folder === 'notes' || folder.startsWith('clarifications')) { throw new Error(REMOVED_AI_FOLDER_MESSAGE(folder)); }
         switch (folder) {
             case 'prompt':
                 basePath = WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
                 break;
             case 'answers':
                 basePath = WsPaths.ai('answers') || path.join(wsRoot, '_ai', 'answers');
-                break;
-            case 'notes':
-                basePath = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
                 break;
             case 'trail':
                 basePath = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
@@ -708,9 +702,6 @@ export class TomScriptingBridgeHandler {
                 break;
             case 'quest':
                 basePath = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
-                break;
-            case 'clarifications':
-                basePath = WsPaths.ai('clarifications') || path.join(wsRoot, '_ai', 'clarifications');
                 break;
             case 'bot_conversations':
                 basePath = WsPaths.ai('bot_conversations') || path.join(wsRoot, '_ai', 'bot_conversations');

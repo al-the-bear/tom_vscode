@@ -47,8 +47,9 @@ import { resolveSessionsArg, SESSIONS_PARAM_SCHEMA } from '../utils/sessionSelec
 // Narrow dep
 // ===========================================================================
 
-export type MemoryScope = 'quest' | 'shared';
-export type MemoryReadScope = MemoryScope | 'all';
+/** The one memory tier: the quest's, per session. There is no shared memory (al_the_bear ai_format_migration AC-18). */
+export type MemoryScope = 'quest';
+const QUEST: MemoryScope = 'quest';
 
 export interface MemoryStore {
     list(scope: MemoryScope): string[];
@@ -76,9 +77,8 @@ export interface WithSessions {
 
 /**
  * Run a memory call once per chosen session, each inside that session (quest
- * memory is per session: `_ai/memory/<quest>/<session>/`). Without `sessions`,
- * or for the shared scope, the call runs once as before — in the session the
- * call runs in. `run` is one of the Impls below: they do all their work
+ * memory is per session: `_ai/memory/<quest>/<session>/`). Without `sessions`
+ * the call runs once — in the session the call runs in. `run` is one of the Impls below: they do all their work
  * synchronously, which `inSession` relies on.
  */
 async function perSession(
@@ -88,7 +88,9 @@ async function perSession(
     run: () => Promise<string>,
     combine: (results: Array<{ session: string; out: string }>) => string,
 ): Promise<string> {
-    if (sessions === undefined || (sessions as unknown) === '' || scope === 'shared' || !store.inSession || !store.knownSessions) {
+    const refused = refuseSharedScope(scope);
+    if (refused) { return refused; }
+    if (sessions === undefined || (sessions as unknown) === '' || !store.inSession || !store.knownSessions) {
         return run();
     }
     const resolved = resolveSessionsArg(sessions, store.knownSessions(), store.callerSession?.() ?? 'default');
@@ -113,22 +115,26 @@ function combineReads(results: Array<{ session: string; out: string }>): string 
     return results.map((r) => `## session ${r.session}\n\n${r.out}`).join('\n\n');
 }
 
-const SESSIONS_DOC = ' Quest memory is per session (`_ai/memory/<quest>/<session>/`; shared memory is one set): '
-    + '`sessions` — a session name, a list, or `"all"` — works on those sessions\' quest memory (writes: each of them; '
+const SESSIONS_DOC = ' Memory is the quest\'s, per session (`_ai/memory/<quest>/<session>/`; there is no shared memory): '
+    + '`sessions` — a session name, a list, or `"all"` — works on those sessions\' memory (writes: each of them; '
     + 'reads and lists: each under a `## session <name>` heading); default the session the call runs in. An unknown '
-    + 'session is refused (code unknownSession) naming the sessions there are. Ignored for scope `shared`.';
+    + 'session is refused (code unknownSession) naming the sessions there are.';
 
 // ===========================================================================
 // Helpers
 // ===========================================================================
 
-function parseWriteScope(scope: unknown): MemoryScope {
-    return scope === 'shared' ? 'shared' : 'quest';
-}
-
-function parseReadScope(scope: unknown): MemoryReadScope {
-    if (scope === 'shared' || scope === 'all') { return scope; }
-    return 'quest';
+/**
+ * The `scope` argument of older callers: `shared` is refused (the shared memory is gone); `quest` and `all` mean
+ * the quest memory, as every call does now. Undefined when the call may go on.
+ */
+export function refuseSharedScope(scope: unknown): string | undefined {
+    if (scope !== 'shared') { return undefined; }
+    return JSON.stringify({
+        error: 'There is no shared memory any more (_ai/memory/shared/ is no longer part of the workspace): memory is the '
+            + 'quest\'s, per session. Call without `scope`.',
+        code: 'noSharedMemory',
+    });
 }
 
 function passesSuffixFilter(file: string, suffix: string | undefined): boolean {
@@ -143,7 +149,8 @@ function passesSuffixFilter(file: string, suffix: string | undefined): boolean {
 // ===========================================================================
 
 export interface MemorySaveInput {
-    scope?: 'quest' | 'shared';
+    /** Older callers' tier; only `shared` matters: it is refused. */
+    scope?: string;
     file?: string;
     content: string;
     heading?: string;
@@ -155,7 +162,7 @@ export async function saveMemoryImpl(store: MemoryStore, input: MemorySaveInput 
 
 async function saveMemoryOne(store: MemoryStore, input: MemorySaveInput): Promise<string> {
     try {
-        const scope = parseWriteScope(input.scope);
+        const scope = QUEST;
         const file = (input.file || 'facts.md').trim() || 'facts.md';
         if (!input.content || !input.content.trim()) {
             return JSON.stringify({ error: '`content` is empty.' });
@@ -189,8 +196,7 @@ export const SAVE_MEMORY_DESCRIPTION =
     'that heading** (heading auto-created if absent). `saveMemory` with ' +
     '`heading` is semantically the same as `updateMemory`; pick `updateMemory` ' +
     'when you specifically want section-replace semantics so the intent is ' +
-    'obvious to the reviewer. Scope is `quest` (default — per-quest facts) ' +
-    'or `shared` (workspace-wide facts).' + SESSIONS_DOC;
+    'obvious to the reviewer.' + SESSIONS_DOC;
 
 export const SAVE_MEMORY_TOOL: SharedToolDefinition<MemorySaveInput> = {
     name: 'tomAi_saveMemory',
@@ -203,9 +209,8 @@ export const SAVE_MEMORY_TOOL: SharedToolDefinition<MemorySaveInput> = {
         type: 'object',
         required: ['content'],
         properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'], description: 'Memory tier (default `quest`).' },
             sessions: SESSIONS_PARAM_SCHEMA,
-            file: { type: 'string', description: 'File name within the scope (default `facts.md`).' },
+            file: { type: 'string', description: 'File name in the memory folder (default `facts.md`).' },
             content: { type: 'string', description: 'Fact body to persist.' },
             heading: { type: 'string', description: 'Optional section heading. Omit to append at end of file.' },
         },
@@ -218,7 +223,8 @@ export const SAVE_MEMORY_TOOL: SharedToolDefinition<MemorySaveInput> = {
 // ===========================================================================
 
 export interface MemoryUpdateInput {
-    scope?: 'quest' | 'shared';
+    /** Older callers' tier; only `shared` matters: it is refused. */
+    scope?: string;
     file: string;
     heading: string;
     content: string;
@@ -230,7 +236,7 @@ export async function updateMemoryImpl(store: MemoryStore, input: MemoryUpdateIn
 
 async function updateMemoryOne(store: MemoryStore, input: MemoryUpdateInput): Promise<string> {
     try {
-        const scope = parseWriteScope(input.scope);
+        const scope = QUEST;
         if (!input.file || !input.heading) {
             return JSON.stringify({ error: '`file` and `heading` are both required.' });
         }
@@ -267,7 +273,6 @@ export const UPDATE_MEMORY_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
         type: 'object',
         required: ['file', 'heading', 'content'],
         properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'] },
             sessions: SESSIONS_PARAM_SCHEMA,
             file: { type: 'string' },
             heading: { type: 'string', description: 'Heading text without the leading `#`.' },
@@ -282,7 +287,8 @@ export const UPDATE_MEMORY_TOOL: SharedToolDefinition<MemoryUpdateInput> = {
 // ===========================================================================
 
 export interface MemoryForgetInput {
-    scope?: 'quest' | 'shared';
+    /** Older callers' tier; only `shared` matters: it is refused. */
+    scope?: string;
     file: string;
     heading?: string;
 }
@@ -293,7 +299,7 @@ export async function forgetMemoryImpl(store: MemoryStore, input: MemoryForgetIn
 
 async function forgetMemoryOne(store: MemoryStore, input: MemoryForgetInput): Promise<string> {
     try {
-        const scope = parseWriteScope(input.scope);
+        const scope = QUEST;
         if (!input.file) {
             return JSON.stringify({ error: '`file` is required.' });
         }
@@ -342,9 +348,8 @@ export const FORGET_MEMORY_TOOL: SharedToolDefinition<MemoryForgetInput> = {
         type: 'object',
         required: ['file'],
         properties: {
-            scope: { type: 'string', enum: ['quest', 'shared'] },
             sessions: SESSIONS_PARAM_SCHEMA,
-            file: { type: 'string', description: 'Exact file name within the scope (no wildcards).' },
+            file: { type: 'string', description: 'Exact file name in the memory folder (no wildcards).' },
             heading: { type: 'string', description: 'Optional heading to clear instead of deleting the whole file.' },
         },
     },
@@ -356,7 +361,8 @@ export const FORGET_MEMORY_TOOL: SharedToolDefinition<MemoryForgetInput> = {
 // ===========================================================================
 
 export interface MemoryReadInput {
-    scope?: 'quest' | 'shared' | 'all';
+    /** Older callers' tier; only `shared` matters: it is refused. */
+    scope?: string;
     file?: string;
     /**
      * Profile suffix. When provided, restricts the read to
@@ -373,33 +379,22 @@ export async function readMemoryImpl(store: MemoryStore, input: MemoryReadInput 
 
 async function readMemoryOne(store: MemoryStore, input: MemoryReadInput): Promise<string> {
     try {
-        const scope = parseReadScope(input.scope);
+        const scope = QUEST;
         const suffix = input.suffix?.trim() || undefined;
 
         if (input.file) {
             // Explicit file path: ignore suffix (model asked for a specific file).
-            if (scope === 'all') {
-                const parts: string[] = [];
-                const shared = store.read('shared', input.file);
-                const quest = store.read('quest', input.file);
-                if (shared) { parts.push(`### shared/${input.file}\n${shared.trimEnd()}`); }
-                if (quest) { parts.push(`### quest/${input.file}\n${quest.trimEnd()}`); }
-                return parts.length > 0 ? parts.join('\n\n') : '(empty)';
-            }
             const body = store.read(scope, input.file);
             return body ? body : '(empty)';
         }
 
-        // No explicit file → concatenate every file in scope (filtered by suffix if set).
-        const tiers: MemoryScope[] = scope === 'all' ? ['shared', 'quest'] : [scope];
+        // No explicit file → concatenate every file (filtered by suffix if set).
         const parts: string[] = [];
-        for (const tier of tiers) {
-            for (const file of store.list(tier)) {
-                if (!passesSuffixFilter(file, suffix)) { continue; }
-                const body = store.read(tier, file);
-                if (!body.trim()) { continue; }
-                parts.push(`### ${tier}/${file}\n${body.trimEnd()}`);
-            }
+        for (const file of store.list(scope)) {
+            if (!passesSuffixFilter(file, suffix)) { continue; }
+            const body = store.read(scope, file);
+            if (!body.trim()) { continue; }
+            parts.push(`### ${scope}/${file}\n${body.trimEnd()}`);
         }
         if (parts.length === 0) {
             return suffix
@@ -414,9 +409,8 @@ async function readMemoryOne(store: MemoryStore, input: MemoryReadInput): Promis
 
 export const READ_MEMORY_DESCRIPTION =
     'Read memory. **Pass `file`** to read one file (returns its raw body, or ' +
-    '`(empty)` if missing). **Omit `file`** to read every file in the scope ' +
-    'concatenated as `### scope/file\\n<body>` blocks. Scope is `quest` ' +
-    '(default), `shared`, or `all` (concatenates both). **Pass `suffix`** ' +
+    '`(empty)` if missing). **Omit `file`** to read every file ' +
+    'concatenated as `### quest/file\\n<body>` blocks. **Pass `suffix`** ' +
     '(e.g. `"gemma4"`) to restrict to `facts-<suffix>.md` only — matches ' +
     'the per-profile memory bucket that gets injected into the system ' +
     'prompt for that profile, so you can verify exactly what the LLM will ' +
@@ -432,9 +426,8 @@ export const READ_MEMORY_TOOL: SharedToolDefinition<MemoryReadInput> = {
     inputSchema: {
         type: 'object',
         properties: {
-            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
             sessions: SESSIONS_PARAM_SCHEMA,
-            file: { type: 'string', description: 'Optional file name within the scope.' },
+            file: { type: 'string', description: 'Optional file name in the memory folder.' },
             suffix: { type: 'string', description: 'Optional profile suffix. Restricts to `facts-<suffix>.md`. Ignored when `file` is set.' },
         },
     },
@@ -446,7 +439,8 @@ export const READ_MEMORY_TOOL: SharedToolDefinition<MemoryReadInput> = {
 // ===========================================================================
 
 export interface MemoryListInput {
-    scope?: 'quest' | 'shared' | 'all';
+    /** Older callers' tier; only `shared` matters: it is refused. */
+    scope?: string;
     suffix?: string;
 }
 
@@ -456,15 +450,12 @@ export async function listMemoryImpl(store: MemoryStore, input: MemoryListInput 
 
 async function listMemoryOne(store: MemoryStore, input: MemoryListInput): Promise<string> {
     try {
-        const scope = parseReadScope(input.scope);
+        const scope = QUEST;
         const suffix = input.suffix?.trim() || undefined;
-        const tiers: MemoryScope[] = scope === 'all' ? ['shared', 'quest'] : [scope];
         const lines: string[] = [];
-        for (const tier of tiers) {
-            for (const f of store.list(tier)) {
-                if (passesSuffixFilter(f, suffix)) {
-                    lines.push(`${tier}/${f}`);
-                }
+        for (const f of store.list(scope)) {
+            if (passesSuffixFilter(f, suffix)) {
+                lines.push(`${scope}/${f}`);
             }
         }
         if (lines.length === 0) {
@@ -479,11 +470,10 @@ async function listMemoryOne(store: MemoryStore, input: MemoryListInput): Promis
 }
 
 export const LIST_MEMORY_DESCRIPTION =
-    'List memory files in the given scope. Returns one `scope/file` per ' +
-    'line. **Empty scopes return a single explicit `(no memory files in ' +
-    '<scope>)` line** — never mixed with path-like lines, so the output ' +
-    'is safe to split-parse. Scope is `quest` (default), `shared`, or ' +
-    '`all`. **Pass `suffix`** to restrict to `facts-<suffix>.md` only ' +
+    'List the memory files. Returns one `quest/file` per ' +
+    'line. **No files return a single explicit `(no memory files in ' +
+    'quest)` line** — never mixed with path-like lines, so the output ' +
+    'is safe to split-parse. **Pass `suffix`** to restrict to `facts-<suffix>.md` only ' +
     '(matches the per-profile injection policy).' + SESSIONS_DOC;
 
 export const LIST_MEMORY_TOOL: SharedToolDefinition<MemoryListInput> = {
@@ -496,7 +486,6 @@ export const LIST_MEMORY_TOOL: SharedToolDefinition<MemoryListInput> = {
     inputSchema: {
         type: 'object',
         properties: {
-            scope: { type: 'string', enum: ['quest', 'shared', 'all'] },
             sessions: SESSIONS_PARAM_SCHEMA,
             suffix: { type: 'string', description: 'Optional profile suffix. Restricts to `facts-<suffix>.md`.' },
         },

@@ -242,18 +242,6 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
                     }
                     break;
                 }
-                case 'openNotesFolder': {
-                    const wsRoot = layoutWorkspaceFolder();
-                    if (!wsRoot) {
-                        break;
-                    }
-                    const notesDir = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-                    if (!fs.existsSync(notesDir)) {
-                        fs.mkdirSync(notesDir, { recursive: true });
-                    }
-                    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(notesDir));
-                    break;
-                }
             }
         } else if (message.panelMode) {
             // Delegate to the issues panel handler
@@ -664,10 +652,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         if (!wsRoot) {
             return null;
         }
-        if (!group || group === 'notes') {
-            return WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-        }
-        if (group === 'workspace') {
+        if (!group || group === 'workspace') {
             return resolveWorkspaceDocsDir(wsRoot, this._docsDirProbe());
         }
         if (group.startsWith('docproject:')) {
@@ -718,11 +703,6 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
 
         if (projectsWithDocs.length > 0) {
             groups.push({ id: 'project', label: 'Projects' });
-        }
-
-        const notesDir = WsPaths.ai('notes') || path.join(wsRoot, '_ai', 'notes');
-        if (fs.existsSync(notesDir)) {
-            groups.push({ id: 'notes', label: 'Notes' });
         }
 
         this._view?.webview.postMessage({ type: 'docsGroups', groups, projects: projectsWithDocs });

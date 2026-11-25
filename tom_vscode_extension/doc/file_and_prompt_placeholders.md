@@ -10,7 +10,7 @@ Primary categories:
 
 - workspace/context values (`workspace`, `workspaceFolder`, `vs-code-workspace-name`, `vs-code-workspace-folder`, file, selection),
 - chat variables (`quest`, `role`, `activeProjects`, `todo`, `workspaceName`),
-- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `agents.md`, `instructions`, `agent-instructions`, `claudeMd`; `copilot-instructions` deprecated), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), arbitrary files (`file-<path>`), and two-tier memory (`memory`, `memory-shared`, `memory-quest`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
+- file-injection placeholders — active role/quest shortcuts (`role-description`, `quest-description`), workspace instructions (`claude.md`, `agents.md`, `instructions`, `agent-instructions`, `claudeMd`; `copilot-instructions` deprecated), named guideline/role/quest files (`guidelines-<name>`, `role-<name>`, `quest-<type>`), arbitrary files (`file-<path>`), and the quest memory (`memory`, `memory-quest`). See [File-injection placeholders](#file-injection-placeholders) below for the full reference.
 
 ## VS Code Workspace Placeholders
 
@@ -132,18 +132,17 @@ Requires the `quest` chat variable to be set. Like `${role-description}`, `${que
 ${file-README.md}                      → <workspace>/README.md
 ${file-src/main.ts}                    → <workspace>/src/main.ts
 ${file-/etc/hosts}                     → /etc/hosts (absolute)
-${file-_ai/notes/design-decisions.md}  → <workspace>/_ai/notes/…
+${file-doc/design-decisions.md}  → <workspace>/doc/design-decisions.md
 ```
 
 ### Memory
 
-The two-tier memory files (`_ai/memory/shared/*.md`, `_ai/memory/quest/<quest>/*.md`) are exposed as placeholders so you can put them wherever gives you the best prompt-caching behavior:
+The quest memory files (`_ai/memory/<quest>/<session>/*.md`, the running session's; there is no shared memory) are exposed as placeholders so you can put them wherever gives you the best prompt-caching behavior:
 
 | Placeholder | Expands to |
 | --- | --- |
-| `${memory}` | Full block: shared memory (priority), then the current quest's memory newest-first, prefixed by `## Memory`. |
-| `${memory-shared}` | Only `_ai/memory/shared/*.md`, prefixed by `## Memory (shared)`. |
-| `${memory-quest}` | Only the current quest's memory, prefixed by `## Memory (quest)`. |
+| `${memory}` | The current quest's memory files, newest first, prefixed by `## Memory`. |
+| `${memory-quest}` | The same as `${memory}`. |
 
 Char budget comes from `anthropic.memory.maxInjectedTokens × 4` (default 3000 tokens → 12000 chars). Files that would push the block past budget are dropped.
 

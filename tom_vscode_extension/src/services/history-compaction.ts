@@ -189,7 +189,6 @@ interface MemoryExtractionTemplateEntry {
     id: string;
     template: string;
     targetFile: string;
-    scope: 'quest' | 'shared' | 'both';
 }
 
 function resolveCompactionTemplate(id?: string): CompactionTemplateEntry | undefined {
@@ -215,12 +214,11 @@ function resolveMemoryExtractionTemplate(id?: string): MemoryExtractionTemplateE
             id: found.id,
             template: found.template,
             targetFile: found.targetFile,
-            scope: found.scope,
         };
     }
     if (templates.length > 0) {
         const t = templates[0];
-        return { id: t.id, template: t.template, targetFile: t.targetFile, scope: t.scope };
+        return { id: t.id, template: t.template, targetFile: t.targetFile };
     }
     return undefined;
 }
@@ -603,7 +601,7 @@ async function runLlmExtract(
     if (latest) {
         try {
             const memorySvc = TwoTierMemoryService.instance;
-            const scope = tpl.scope === 'shared' ? 'shared' : 'quest';
+            const scope = 'quest' as const;
             const existing = memorySvc.read(scope, tpl.targetFile, options.questId);
             const recentHistoryText = formatHistoryForTemplate(latest);
             const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, options.questId);
@@ -641,21 +639,13 @@ async function runLlmExtract(
                 provider: options.llmProvider,
                 configId: options.llmConfigId,
                 model: memoryModel,
-                scope: tpl.scope,
                 targetFile: tpl.targetFile,
                 outputChars: extracted.length,
                 questId: options.questId,
             });
             if (extracted) {
-                if (tpl.scope === 'both') {
-                    memorySvc.prepend('quest', tpl.targetFile, extracted, options.questId);
-                    memorySvc.prepend('shared', tpl.targetFile, extracted, options.questId);
-                    logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-                    logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-                } else {
-                    memorySvc.prepend(scope, tpl.targetFile, extracted, options.questId);
-                    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-                }
+                memorySvc.prepend(scope, tpl.targetFile, extracted, options.questId);
+                logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
             } else {
                 logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
             }
@@ -769,7 +759,7 @@ export async function runIncrementalCompaction(params: {
 /**
  * Every-turn memory extraction. Input: last exchange + current
  * compacted summary + existing memory file. Output is handled by the
- * underlying compaction LLM call and appended to the quest (or shared)
+ * underlying compaction LLM call and appended to the quest
  * memory file by the service.
  *
  * Template placeholders: `${lastTurn}`, `${compactedSummary}`,
@@ -792,7 +782,7 @@ export async function runIncrementalMemoryExtraction(params: {
     const tpl = resolveMemoryExtractionTemplate(params.memoryTemplateId);
     if (!tpl) { return; }
     const memorySvc = TwoTierMemoryService.instance;
-    const scope = tpl.scope === 'shared' ? 'shared' : 'quest';
+    const scope = 'quest' as const;
     const existing = memorySvc.read(scope, tpl.targetFile, params.questId);
     const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
     const historyCap = params.historyMaxChars ?? DEFAULT_HISTORY_MAX_CHARS;
@@ -826,7 +816,7 @@ export async function runIncrementalMemoryExtraction(params: {
     params.onProgress?.(
         `Performing memory extraction ` +
         `(provider=${params.llmProvider}, llmConfigId=${params.llmConfigId}, ` +
-        `template=${tpl.id}, scope=${tpl.scope}, targetFile=${tpl.targetFile}, ` +
+        `template=${tpl.id}, targetFile=${tpl.targetFile}, ` +
         `lastTurnChars=${params.lastTurn.reduce((n, m) => n + (m.content?.length ?? 0), 0)}, ` +
         `existingMemoryChars=${existing.length}, compactedSummaryChars=${params.compactedSummary.length})…`,
     );
@@ -865,7 +855,6 @@ export async function runIncrementalMemoryExtraction(params: {
         provider: params.llmProvider,
         configId: params.llmConfigId,
         model,
-        scope: tpl.scope,
         targetFile: tpl.targetFile,
         outputChars: extracted.length,
         questId: params.questId,
@@ -873,19 +862,12 @@ export async function runIncrementalMemoryExtraction(params: {
     // Prepend newest entries on top of the memory file. Combined with
     // headBounded at read-time, older entries at the bottom fall off
     // cleanly when the file outgrows memoryMaxChars.
-    if (tpl.scope === 'both') {
-        memorySvc.prepend('quest', tpl.targetFile, extracted, params.questId);
-        memorySvc.prepend('shared', tpl.targetFile, extracted, params.questId);
-        logMemoryWrite(`quest:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-        logMemoryWrite(`shared:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-    } else {
-        memorySvc.prepend(scope, tpl.targetFile, extracted, params.questId);
-        logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
-    }
+    memorySvc.prepend(scope, tpl.targetFile, extracted, params.questId);
+    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
     const bulletCount = extracted.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
     params.onProgress?.(
         `Memory extraction succeeded — ${bulletCount} bullet${bulletCount === 1 ? '' : 's'}, ${extracted.length} chars ` +
-        `prepended to ${tpl.scope === 'both' ? 'both' : scope}:${tpl.targetFile}`,
+        `prepended to ${scope}:${tpl.targetFile}`,
     );
 }
 

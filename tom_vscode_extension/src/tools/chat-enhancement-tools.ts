@@ -1324,7 +1324,7 @@ export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
 // Impls and tool defs live in `quest-introspection-tools.ts` (entry #23).
 // Bridges below wire the vscode-bound sources:
 //   - liveProjectSource runs `buildkit :projects --all --json` (services/workspaceProjects.ts).
-//   - liveDocumentSource resolves WsPaths.ai('prompt'|'answersCopilot'|'notes'|'roles')
+//   - liveDocumentSource resolves WsPaths.ai('prompt'|'answersCopilot'|'roles')
 //     and WsPaths.guidelines() for the `guidelines` category.
 //   - liveQuestSource was wired further up where DETERMINE_QUEST_TOOL is exported.
 // ============================================================================
@@ -1341,7 +1341,6 @@ function categoryFolder(category: DocumentCategory): string | undefined {
     switch (category) {
         case 'prompts':    return WsPaths.ai('prompt');
         case 'answers':    return WsPaths.ai('answersCopilot');
-        case 'notes':      return WsPaths.ai('notes');
         case 'roles':      return WsPaths.ai('roles');
         case 'guidelines': return WsPaths.guidelines();
     }
@@ -1350,7 +1349,6 @@ function categoryFolder(category: DocumentCategory): string | undefined {
 const CATEGORY_RELATIVE: Record<Exclude<DocumentCategory, 'guidelines'>, string> = {
     prompts:    '_ai/prompt',
     answers:    '_ai/answers/copilot',
-    notes:      '_ai/notes',
     roles:      '_ai/roles',
 };
 

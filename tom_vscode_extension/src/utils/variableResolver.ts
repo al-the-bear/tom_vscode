@@ -944,9 +944,10 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         return injectFile(resolved, values);
     }
 
-    // ${memory}         — full block: shared/* (priority) + quest/* (newest-first)
-    // ${memory-shared}  — shared scope only
-    // ${memory-quest}   — current quest's scope only
+    // ${memory}         — the quest memory block, newest file first
+    // ${memory-quest}   — the same (kept for templates that name it)
+    // ${memory-shared}  — resolves to nothing: the shared memory is gone (al_the_bear
+    //                     ai_format_migration AC-18); an old template does not show the raw placeholder
     //
     // The budget (chars) is sourced from anthropic.memory.maxInjectedTokens
     // (token × 4). Drop the placeholder into either the profile system
@@ -954,7 +955,8 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
     // appear. When you put it in the user prompt, the (often long) system
     // prompt above stays byte-identical turn-to-turn, so prompt caching
     // keeps hitting.
-    if (key === 'memory' || key === 'memory-shared' || key === 'memory-quest') {
+    if (key === 'memory-shared') { return ''; }
+    if (key === 'memory' || key === 'memory-quest') {
         return resolveMemoryPlaceholder(key, values);
     }
 
@@ -969,7 +971,7 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
  * back to 3000 tokens when neither is configured.
  */
 function resolveMemoryPlaceholder(
-    key: 'memory' | 'memory-shared' | 'memory-quest',
+    key: 'memory' | 'memory-quest',
     values: Record<string, string>,
 ): string {
     try {
@@ -998,31 +1000,9 @@ function resolveMemoryPlaceholder(
         // Anthropic handler at send time; legacy callers omit it and get
         // the unfiltered "every file in scope" behaviour.
         const memorySuffix = values['memorySuffix'] || undefined;
-        // When a subset is requested, shrink the injection to only that
-        // scope's files by re-rendering manually — `injectForSystemPrompt`
-        // always emits both scopes. Cheaper than parameterising the
-        // service for a rarely-used path.
-        if (key === 'memory') {
-            return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix).text;
-        }
-        const charBudget = Math.max(0, budgetTokens * 4);
-        const scope: 'shared' | 'quest' = key === 'memory-shared' ? 'shared' : 'quest';
-        const entries = svc.listWithMeta(scope, quest || undefined);
-        const filtered = memorySuffix
-            ? entries.filter((e) => e.file === `facts-${memorySuffix}.md`)
-            : entries;
-        const ordered = scope === 'quest' ? filtered.sort((a, b) => b.mtime - a.mtime) : filtered;
-        const blocks: string[] = [];
-        let used = 0;
-        for (const e of ordered) {
-            const body = svc.read(scope, e.file, quest || undefined).trim();
-            if (!body) { continue; }
-            const block = `### ${e.scope}/${e.file}\n${body}\n`;
-            if (used + block.length > charBudget) { break; }
-            blocks.push(block);
-            used += block.length;
-        }
-        return blocks.length > 0 ? `## Memory (${scope})\n\n${blocks.join('\n')}` : '';
+        // The quest memory is the only one, so `${memory}` and `${memory-quest}` are the same block.
+        void key;
+        return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix).text;
     } catch {
         return '';
     }
@@ -1368,9 +1348,8 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
 <code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-open_topics}</code>.<br>
 <code>\${file-PATH}</code> – Inline any file; <code>PATH</code> is workspace-relative, or absolute when it starts with <code>/</code>. Example: <code>\${file-README.md}</code>, <code>\${file-/etc/hosts}</code>.<br>
-<code>\${memory}</code> – The full two-tier memory block: shared memory (priority), then the current quest's memory newest-first. Char budget comes from <code>anthropic.memory.maxInjectedTokens</code> (× 4). Put this in the user-message template (preferred, so prompt caching on the system prompt keeps hitting) or directly in the system prompt.<br>
-<code>\${memory-shared}</code> – <code>_ai/memory/shared/*.md</code> only.<br>
-<code>\${memory-quest}</code> – <code>_ai/memory/quest/\${quest}/*.md</code> only, newest-first.<br>
+<code>\${memory}</code> – The quest memory block: the current quest's memory files (this session's), newest first. Char budget comes from <code>anthropic.memory.maxInjectedTokens</code> (× 4). Put this in the user-message template (preferred, so prompt caching on the system prompt keeps hitting) or directly in the system prompt.<br>
+<code>\${memory-quest}</code> – The same as <code>\${memory}</code>.<br>
 <br>
 <em>Path variables support sub-properties:</em><br>
 <code>\${KEY.name}</code> – Filename/basename without extension<br>

@@ -1,12 +1,10 @@
 /**
- * Two-tier memory service for the Anthropic handler and the memory panel.
+ * Memory service for the Anthropic handler and the memory panel (the quest's memory, per session).
  *
  * Spec: anthropic_sdk_integration.md §5 (memory system), §5.1 (scope
  * split), §5.2 (system-prompt injection), §11.2 (Memory Panel API).
  *
- * Tiers:
- *   - shared: `_ai/memory/shared/`       — workspace-wide facts
- *   - quest:  `_ai/memory/{quest}/`       — per-quest facts
+ * The one tier is the quest's: `_ai/memory/<quest>/<session>/`, per session.
  *
  * All write operations are idempotent (a re-run with the same content
  * yields the same file state) and create their parent directory on first
@@ -39,8 +37,12 @@ import {
 export { formatHistoryAsMarkdown } from './historySnapshotFormat';
 export type { HistoryMarkdownInput } from './historySnapshotFormat';
 
-export type MemoryScope = 'quest' | 'shared';
-export type MemoryReadScope = MemoryScope | 'all';
+/**
+ * The memory tier: the quest's, per session (`_ai/memory/<quest>/<session>/`). There is no shared tier: the
+ * workspace-wide `_ai/memory/shared/` is no longer part of the `_ai` format (al_the_bear ai_format_migration AC-18).
+ */
+export type MemoryScope = 'quest';
+export type MemoryReadScope = MemoryScope;
 
 export interface MemoryListEntry {
     scope: MemoryScope;
@@ -202,7 +204,7 @@ export class TwoTierMemoryService {
      * The session whose quest memory the `quest` scope means: the session the
      * running prompt belongs to, set by the Anthropic handler when it selects
      * a send's history (and by `withSession`). Every session keeps its own
-     * quest memory, `_ai/memory/<quest>/<session>/`; shared memory is one set.
+     * quest memory, `_ai/memory/<quest>/<session>/`.
      */
     private _activeSession: string = MIGRATION_TARGET_SESSION;
 
@@ -225,10 +227,7 @@ export class TwoTierMemoryService {
     }
 
     /** Absolute path to the folder for the given scope; `session` defaults to the active one. */
-    scopeFolder(scope: MemoryScope, questId?: string, session?: string): string {
-        if (scope === 'shared') {
-            return path.join(this.memoryRoot(), 'shared');
-        }
+    scopeFolder(_scope: MemoryScope, questId?: string, session?: string): string {
         const quest = questId || this.currentQuest() || 'default';
         this.ensureSessionStorage(quest);
         return sessionMemoryFolder(this.memoryRoot(), quest, session || this._activeSession);
@@ -488,23 +487,19 @@ export class TwoTierMemoryService {
     /** Concatenate all memory files in `scope` for injection. */
     readAll(scope: MemoryReadScope, questId?: string): string {
         const parts: string[] = [];
-        const tiers: MemoryScope[] = scope === 'all' ? ['shared', 'quest'] : [scope];
-        for (const tier of tiers) {
-            for (const file of this.list(tier, questId)) {
-                const body = this.read(tier, file, questId);
-                if (!body.trim()) {
-                    continue;
-                }
-                parts.push(`### ${tier}/${file}\n${body.trimEnd()}\n`);
+        for (const file of this.list(scope, questId)) {
+            const body = this.read(scope, file, questId);
+            if (!body.trim()) {
+                continue;
             }
+            parts.push(`### ${scope}/${file}\n${body.trimEnd()}\n`);
         }
         return parts.join('\n');
     }
 
     /**
      * Build a memory block for the system prompt, respecting a token
-     * budget. Shared memory is included first (priority per §5.2);
-     * quest memory files fill the remaining budget newest-first.
+     * budget: the quest memory files, newest first, until the budget is spent.
      *
      * When `suffix` is provided (e.g. 'gemma4'), the file selection is
      * restricted to `facts-<suffix>.md` only — used by LocalLLM profiles
@@ -531,10 +526,9 @@ export class TwoTierMemoryService {
         const included: MemoryListEntry[] = [];
         let usedChars = 0;
 
-        const orderedShared = this.listWithMeta('shared', questId);
         const orderedQuest = this.listWithMeta('quest', questId).sort((a, b) => b.mtime - a.mtime);
         // When a suffix is set, ignore everything except the exact
-        // `facts-<suffix>.md` file in each scope. We don't broaden to
+        // `facts-<suffix>.md` file. We don't broaden to
         // any `*-<suffix>.md` because the user spec was precise.
         const filter = suffix
             ? (e: MemoryListEntry) => e.file === `facts-${suffix}.md`
@@ -555,7 +549,6 @@ export class TwoTierMemoryService {
             return true;
         };
 
-        for (const entry of orderedShared.filter(filter)) { add(entry); }
         for (const entry of orderedQuest.filter(filter)) { add(entry); }
 
         const text = pieces.length > 0

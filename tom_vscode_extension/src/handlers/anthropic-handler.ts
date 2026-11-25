@@ -307,7 +307,7 @@ export interface AnthropicProfile {
      * automatically, so the user doesn't have to add the placeholder by
      * hand. Default `false` — memory is only included when the profile's
      * `systemPrompt` / `userPromptWrapper` / `userMessageTemplate`
-     * explicitly references `${memory}` / `${memory-shared}` / `${memory-quest}`.
+     * explicitly references `${memory}` / `${memory-quest}`.
      *
      * Note: file-injection placeholders (`${role-description}` /
      * `${quest-description}`) recursively expand any `${memory*}` tokens
@@ -4348,7 +4348,7 @@ export class AnthropicHandler {
         extras?: { toolHistory?: string },
     ): string[] {
         // Memory injection is opt-in. By default the profile must
-        // reference `${memory}` / `${memory-shared}` / `${memory-quest}`
+        // reference `${memory}` / `${memory-quest}`
         // explicitly in its `systemPrompt` (or a user-message template /
         // userPromptWrapper) to include a memory block.
         //
@@ -4376,9 +4376,9 @@ export class AnthropicHandler {
 
     /**
      * Scan `userText` line-by-line for `Remember: ...` and `Forget: ...`
-     * triggers (spec §5.4). Remember writes the fact to `shared/facts.md`;
-     * Forget removes matching lines from `shared/facts.md` (and, if absent
-     * there, from every quest-scope memory file). Triggers are stripped
+     * triggers (spec §5.4). Remember writes the fact to the quest memory's
+     * `facts.md`; Forget removes matching lines from every quest memory
+     * file. Triggers are stripped
      * from the returned `cleaned` text. The leading keyword is matched
      * case-insensitively and may be followed by optional whitespace.
      */
@@ -4403,7 +4403,7 @@ export class AnthropicHandler {
             const fgt = /^\s*forget\s*:\s*(.+)$/i.exec(line);
             if (rem && rememberOn) {
                 try {
-                    TwoTierMemoryService.instance.append('shared', 'facts.md', rem[1].trim(), questId);
+                    TwoTierMemoryService.instance.append('quest', 'facts.md', rem[1].trim(), questId);
                     applied.push(`remember: ${rem[1].trim()}`);
                 } catch { /* ignore — model still sees the cleaned message */ }
                 continue;
@@ -4421,8 +4421,7 @@ export class AnthropicHandler {
     }
 
     /**
-     * Remove lines containing `needle` from `shared/facts.md` first; if no
-     * match, walk every quest-scope memory file and remove there. Case-
+     * Remove lines containing `needle` from every quest memory file. Case-
      * insensitive substring match. Empties left behind are kept as files
      * so the user sees the history of what was removed.
      */
@@ -4433,11 +4432,6 @@ export class AnthropicHandler {
             .split(/\r?\n/)
             .filter((l) => !l.toLowerCase().includes(match))
             .join('\n');
-        const sharedBody = svc.read('shared', 'facts.md', questId);
-        if (sharedBody && sharedBody.toLowerCase().includes(match)) {
-            svc.write('shared', 'facts.md', strip(sharedBody), questId);
-            return;
-        }
         for (const file of svc.list('quest', questId)) {
             const body = svc.read('quest', file, questId);
             if (body && body.toLowerCase().includes(match)) {

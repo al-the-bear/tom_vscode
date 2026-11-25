@@ -269,10 +269,7 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'docsGroups') {
         // The documentPicker fragment already applied these groups via its own
         // message listener. Default-select the FIRST group once, so the initial
-        // file list matches the selected group. Previously main.js instead
-        // hard-requested the 'notes' files while the dropdown visually defaulted
-        // to 'workspace' — the panel then showed Notes files under the Workspace
-        // label, and a real Workspace selection later showed nothing.
+        // file list matches the selected group.
         if (!docsDefaultApplied) {
             var firstDocsGroup = (msg.groups && msg.groups[0]) ? msg.groups[0].id : '';
             if (firstDocsGroup && typeof docs_selectGroup === 'function') {

@@ -157,7 +157,6 @@ const documentSource: DocumentSource = {
         const map: Record<DocumentCategory, string> = {
             prompts:    '_ai/prompt',
             answers:    '_ai/answers/copilot',
-            notes:      '_ai/notes',
             roles:      '_ai/roles',
             guidelines: '_copilot_guidelines',
         };
@@ -413,11 +412,10 @@ describe('listDocumentsImpl', () => {
         assert.deepEqual(r.files, ['dart/coding.md', 'index.md']);
     });
 
-    test('each of the 5 categories resolves to the correct workspace-relative folder', async () => {
+    test('each of the 4 categories resolves to the correct workspace-relative folder', async () => {
         const expectations: Record<DocumentCategory, string> = {
             prompts:    '_ai/prompt',
             answers:    '_ai/answers/copilot',
-            notes:      '_ai/notes',
             roles:      '_ai/roles',
             guidelines: '_agent_guidelines (or _copilot_guidelines)',
         };
@@ -466,10 +464,10 @@ describe('listDocumentsImpl', () => {
 
     test('missing category folder → ok: true with exists: false', async () => {
         const noFolder: DocumentSource = {
-            resolveCategoryFolder: () => ({ absolute: '/nope', relative: '_ai/notes' }),
+            resolveCategoryFolder: () => ({ absolute: '/nope', relative: '_ai/prompt' }),
             listFilesRecursive: () => ({ exists: false, files: [] }),
         };
-        const r = JSON.parse(await listDocumentsImpl(noFolder, { category: 'notes' }));
+        const r = JSON.parse(await listDocumentsImpl(noFolder, { category: 'prompts' }));
         assert.equal(r.ok, true);
         assert.equal(r.exists, false);
         assert.equal(r.fileCount, 0);
@@ -481,8 +479,15 @@ describe('listDocumentsImpl', () => {
             resolveCategoryFolder: () => undefined,
             listFilesRecursive: () => ({ exists: false, files: [] }),
         };
-        const r = JSON.parse(await listDocumentsImpl(closed, { category: 'notes' }));
+        const r = JSON.parse(await listDocumentsImpl(closed, { category: 'roles' }));
         assert.equal(r.ok, false);
         assert.match(r.error, /Workspace not open/);
+    });
+
+    test('the removed `notes` category (`_ai/notes`) is refused, saying where notes are now', async () => {
+        const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'notes' as DocumentCategory }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /Unknown category "notes" \(one of: prompts, answers, roles, guidelines\)/);
+        assert.match(r.error, /_ai\/notes is no longer part of the workspace/);
     });
 });

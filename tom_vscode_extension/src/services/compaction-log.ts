@@ -83,7 +83,6 @@ export interface MemoryExtractionInfo {
     provider: 'anthropic' | 'localLlm';
     configId: string;
     model?: string;
-    scope: 'quest' | 'shared' | 'both';
     targetFile: string;
     outputChars: number;
     questId?: string;
@@ -125,7 +124,7 @@ export function logCompactionEnd(info: CompactionEndInfo): void {
 
 export function logMemoryExtraction(info: MemoryExtractionInfo): void {
     channel().appendLine(
-        `[${ts()}] memory extract    scope=${info.scope}  file=${info.targetFile}  ` +
+        `[${ts()}] memory extract    file=${info.targetFile}  ` +
         `outChars=${info.outputChars}  ` +
         `provider=${info.provider}  config=${info.configId}` +
         (info.model ? ` (${info.model})` : '') +

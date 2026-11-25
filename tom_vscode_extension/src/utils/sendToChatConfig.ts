@@ -431,8 +431,8 @@ export interface SendToChatConfig {
             name: string;
             description?: string;
             template: string;
+            /** The file in the quest memory (`_ai/memory/<quest>/<session>/`) the extraction prepends to. */
             targetFile: string;
-            scope: 'quest' | 'shared' | 'both';
             toolsEnabled?: boolean;
             enabledTools?: string[];
         }>;

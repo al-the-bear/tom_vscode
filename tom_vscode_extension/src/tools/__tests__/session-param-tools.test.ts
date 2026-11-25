@@ -7,7 +7,7 @@
  *   SP-2 past tool calls: without `sessions` the caller's ring buffer; with them every stored result of each chosen
  *        session, tagged with its session; read by key in another session; an unknown session refused
  *   SP-3 quest memory: writes go to each chosen session; reads and lists show each under its own heading; without
- *        `sessions` the call runs once as before; the shared scope ignores `sessions`; an unknown session refused
+ *        `sessions` the call runs once as before; `scope: "shared"` is refused (no shared memory); an unknown session refused
  */
 
 import test, { after, before, describe } from 'node:test';
@@ -124,7 +124,7 @@ describe('sessions — quest memory', () => {
         // A memory store whose quest scope is per session, like TwoTierMemoryService.
         const files: Record<string, Record<string, string>> = {};
         let active = 'chat';
-        const key = (scope: MemoryScope): string => (scope === 'shared' ? 'shared' : `quest:${active}`);
+        const key = (_scope: MemoryScope): string => `quest:${active}`;
         const store: MemoryStore = {
             list: (scope) => Object.keys(files[key(scope)] ?? {}),
             read: (scope, file) => files[key(scope)]?.[file] ?? '',
@@ -146,8 +146,9 @@ describe('sessions — quest memory', () => {
         assert.match(read, /## session chat\n\n### quest\/facts\.md\nown fact/);
         assert.match(read, /## session walk/);
         assert.match(await listMemoryImpl(store, { sessions: ['walk'] }), /## session walk\n\nquest\/facts\.md/);
-        await saveMemoryImpl(store, { scope: 'shared', content: 'shared fact', sessions: ['walk', 'chat'] });
-        assert.deepEqual(files.shared, { 'facts.md': 'shared fact' }, 'shared memory is one set: written once');
+        const shared = JSON.parse(await saveMemoryImpl(store, { scope: 'shared', content: 'shared fact', sessions: ['walk', 'chat'] }));
+        assert.equal(shared.code, 'noSharedMemory', 'no shared memory');
+        assert.equal(JSON.stringify(files).includes('shared fact'), false, 'nothing written');
         assert.deepEqual(JSON.parse(await saveMemoryImpl(store, { content: 'x', sessions: 'nope' })).code, 'unknownSession');
     });
 });

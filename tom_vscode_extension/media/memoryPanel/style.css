@@ -1,6 +1,6 @@
 /*
- * memoryPanel webview styles — the two-tier memory store editor
- * (Shared memory + Quest scope tabs, file list, content textarea).
+ * memoryPanel webview styles — the quest memory editor
+ * (the Quest tab, file list, content textarea).
  *
  * Extracted verbatim from the inline <style> of `_getHtml` in
  * src/handlers/memoryPanel-handler.ts.

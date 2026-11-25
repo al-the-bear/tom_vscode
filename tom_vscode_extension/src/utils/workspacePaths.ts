@@ -82,7 +82,6 @@ const AI_SUBPATHS: Record<string, string> = {
     quests:              'quests',
     roles:               'roles',
     processes:           'processes',
-    notes:               'notes',
     local:               'local',
     schemas:             'schemas/yaml',
     copilot:             'copilot',

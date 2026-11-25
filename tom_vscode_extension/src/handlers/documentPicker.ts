@@ -53,7 +53,6 @@ export const DOC_GROUP_IDS = {
     AGENTS_MD_PREFIX: 'agents-md:',
     WORKSPACE_DOCS: 'workspace',
     PROJECT_DOCS: 'project',
-    NOTES: 'notes',
     OTHER_FILE: 'other',
 } as const;
 

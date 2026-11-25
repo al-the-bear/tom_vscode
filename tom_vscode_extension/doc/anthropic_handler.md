@@ -113,7 +113,7 @@ Which tools a request carries — the core set, the `<!-- tools: … -->` line a
 
 ## 4. Enable memory tools
 
-Two-tier memory (`_ai/memory/shared/` + `_ai/memory/{quest}/`) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
+The quest memory (`_ai/memory/<quest>/<session>/`) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
 
 ```json
 "memoryToolsEnabled": true

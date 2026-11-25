@@ -241,7 +241,7 @@ export const SPEC_QUESTION_REGISTER_TOOL: SharedToolDefinition<SpecQuestionRegis
         type: 'object',
         properties: {
             file: YAML_FILE,
-            index: { type: 'string', description: 'The question index (`*.md`), e.g. clarifications.sbp.md.' },
+            index: { type: 'string', description: 'The question index (`*.md`), e.g. questions.sbp.md.' },
             write: { type: 'boolean', description: 'Rewrite the index\'s counts. Default false.' },
             dryRun: { type: 'boolean', description: 'With `write`: answer the diff, write nothing.' },
             expectedRevision: { type: 'string', description: 'With `write`: the index\'s `revision` from the last read.' },

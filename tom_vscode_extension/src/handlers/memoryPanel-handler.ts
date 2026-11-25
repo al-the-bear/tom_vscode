@@ -1,13 +1,13 @@
 /**
- * Memory Panel — webview that exposes the two-tier memory store
- * (`_ai/memory/shared/` + `_ai/memory/{quest}/`) for inline editing.
+ * Memory Panel — webview that exposes the quest's memory
+ * (`_ai/memory/<quest>/<session>/`) for inline editing.
  *
  * Spec: anthropic_sdk_integration.md §11.2. The panel is opened via the
  * `tomAi.panel.memory` command, which the ANTHROPIC section's Memory
  * button invokes when the webview posts `{ type: 'openAnthropicMemory' }`.
  *
  * Layout (two-pane):
- *   ├── Scope tabs          [Shared memory] [Quest: {quest}]   [Session: {name}]
+ *   ├── Header              [Quest: {quest}]   [Session: {name}]
  *                           (quest memory is per session; the button picks whose)
  *   ├── File list (left)    one entry per file in the selected scope
  *   ├── Content view (right) editable markdown textarea
@@ -27,7 +27,7 @@ let _context: vscode.ExtensionContext | undefined;
 /**
  * The session whose quest memory the Quest tab shows and edits
  * (`_ai/memory/<quest>/<session>/`); chosen with the Session button, at first
- * the session the last send ran in. Shared memory is one set.
+ * the session the last send ran in.
  */
 let _session: string | undefined;
 
@@ -36,6 +36,9 @@ function inPanelSession<T>(fn: () => T): T {
     const svc = TwoTierMemoryService.instance;
     return svc.withSession(_session ?? svc.activeSession, fn);
 }
+
+/** The one memory scope: the quest's. */
+const QUEST: MemoryScope = 'quest';
 
 interface WebviewMessage {
     type: string;
@@ -126,16 +129,16 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
                 _sendSnapshot();
                 return;
             case 'readFile':
-                _sendFile(msg.scope as MemoryScope, String(msg.file ?? ''));
+                _sendFile(QUEST, String(msg.file ?? ''));
                 return;
             case 'saveFile':
-                _saveFile(msg.scope as MemoryScope, String(msg.file ?? ''), String(msg.content ?? ''));
+                _saveFile(QUEST, String(msg.file ?? ''), String(msg.content ?? ''));
                 return;
             case 'deleteFile':
-                _deleteFile(msg.scope as MemoryScope, String(msg.file ?? ''));
+                _deleteFile(QUEST, String(msg.file ?? ''));
                 return;
             case 'newFile':
-                await _newFile(msg.scope as MemoryScope);
+                await _newFile(QUEST);
                 return;
             case 'pickSession': {
                 const svc = TwoTierMemoryService.instance;
@@ -155,7 +158,7 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
                 break;
             }
             case 'openInEditor':
-                _openInEditor(msg.scope as MemoryScope, String(msg.file ?? ''));
+                _openInEditor(QUEST, String(msg.file ?? ''));
                 return;
         }
     } catch (e) {
@@ -169,7 +172,6 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
 function _sendSnapshot(): void {
     const svc = TwoTierMemoryService.instance;
     const quest = svc.currentQuest();
-    const shared = svc.listWithMeta('shared').sort((a, b) => a.file.localeCompare(b.file));
     const questFiles = quest
         ? inPanelSession(() => svc.listWithMeta('quest')).sort((a, b) => a.file.localeCompare(b.file))
         : [];
@@ -177,7 +179,6 @@ function _sendSnapshot(): void {
         type: 'snapshot',
         quest,
         session: _session ?? svc.activeSession,
-        shared: shared.map((e) => ({ file: e.file, bytes: e.bytes })),
         questFiles: questFiles.map((e) => ({ file: e.file, bytes: e.bytes })),
     });
 }

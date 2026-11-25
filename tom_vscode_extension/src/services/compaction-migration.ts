@@ -16,7 +16,7 @@
  *        `rawTurns` field, capped to `rawTurnsKept`.
  *      - Delete `history.json` and `history.md`.
  *
- *   2. For each `.md` file under `_ai/memory/<q>/` and `_ai/memory/shared/`:
+ *   2. For each `.md` file under `_ai/memory/<q>/` (and its sessions' folders):
  *      - Parse lines. Lines already in canonical form
  *        (`- <iso> [<host>] <text>`) are preserved as-is. Lines missing
  *        the prefix are stamped with the file's mtime + `[legacy]` host
@@ -157,13 +157,14 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
 
     // --- Memory files ---
     if (fs.existsSync(memoryRoot)) {
-        for (const sub of listSubdirectories(memoryRoot)) {
+        // `_ai/memory/shared/` is no longer part of the workspace (no shared memory): not read.
+        for (const sub of listSubdirectories(memoryRoot).filter((name) => name !== 'shared')) {
             const subFolder = path.join(memoryRoot, sub);
             // The quest's own files, then each chosen session's (`_ai/memory/<quest>/<session>/`).
             const files = [
                 ...listMarkdownFiles(subFolder).map((f) => ({ file: f, rel: `${sub}/${path.basename(f)}` })),
-                ...(sub === 'shared' ? [] : listSubdirectories(subFolder).filter(chosen).flatMap((session) =>
-                    listMarkdownFiles(path.join(subFolder, session)).map((f) => ({ file: f, rel: `${sub}/${session}/${path.basename(f)}` })))),
+                ...listSubdirectories(subFolder).filter(chosen).flatMap((session) =>
+                    listMarkdownFiles(path.join(subFolder, session)).map((f) => ({ file: f, rel: `${sub}/${session}/${path.basename(f)}` }))),
             ];
             for (const { file, rel } of files) {
                 report.memoryFilesScanned += 1;

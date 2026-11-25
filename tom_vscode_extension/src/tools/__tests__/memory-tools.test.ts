@@ -6,7 +6,8 @@
  * Strategy: a `Map<scope, Map<file, content>>`-backed in-memory
  * `MemoryStore` fake. The real production `TwoTierMemoryService` is
  * fs-backed and already has its own integration tests; here we're
- * pinning the tool-orchestration layer: scope routing, suffix
+ * pinning the tool-orchestration layer: the quest memory as the only
+ * tier (a `scope: "shared"` of an older caller refused), suffix
  * filtering, file-vs-entry handling, wildcard rejection.
  *
  * Coverage entry #12 four-row checklist:
@@ -53,7 +54,6 @@ interface StoreCall {
 function makeStore(seed: Partial<Record<MemoryScope, Record<string, string>>> = {}): MemoryStore & { calls: StoreCall[]; raw: Map<MemoryScope, Map<string, string>> } {
     const raw = new Map<MemoryScope, Map<string, string>>([
         ['quest', new Map(Object.entries(seed.quest ?? {}))],
-        ['shared', new Map(Object.entries(seed.shared ?? {}))],
     ]);
     const calls: StoreCall[] = [];
     return {
@@ -133,10 +133,31 @@ describe('saveMemoryImpl', () => {
         assert.equal(store.calls.length, 0);
     });
 
-    test('shared scope routed correctly', async () => {
-        await saveMemoryImpl(store, { content: 'shared fact', scope: 'shared' });
-        assert.match(store.raw.get('shared')!.get('facts.md')!, /shared fact/);
-        assert.equal(store.raw.get('quest')!.size, 0);
+    test('no shared memory: `scope: "shared"` is refused, nothing written; `quest` / `all` are the quest memory', async () => {
+        for (const run of [
+            () => saveMemoryImpl(store, { content: 'shared fact', scope: 'shared' }),
+            () => updateMemoryImpl(store, { file: 'f.md', heading: 'H', content: 'x', scope: 'shared' }),
+            () => forgetMemoryImpl(store, { file: 'f.md', scope: 'shared' }),
+            () => readMemoryImpl(store, { scope: 'shared' }),
+            () => listMemoryImpl(store, { scope: 'shared' }),
+        ]) {
+            const r = JSON.parse(await run());
+            assert.equal(r.code, 'noSharedMemory');
+            assert.match(r.error, /There is no shared memory any more/);
+        }
+        assert.equal(store.calls.length, 0, 'nothing read or written');
+        const r = JSON.parse(await saveMemoryImpl(store, { content: 'quest fact', scope: 'all' }));
+        assert.equal(r.scope, 'quest');
+        assert.match(store.raw.get('quest')!.get('facts.md')!, /quest fact/);
+    });
+
+    test('the schemas offer no scope', async () => {
+        const tools = await import('../memory-tools.js');
+        for (const t of tools.MEMORY_TOOLS) {
+            const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+            assert.equal('scope' in props, false, `${t.name} has no scope argument`);
+            assert.doesNotMatch(t.description, /`shared`|workspace-wide/, `${t.name} offers no shared memory`);
+        }
     });
 
     test('custom file name honoured', async () => {
@@ -245,16 +266,9 @@ describe('readMemoryImpl', () => {
         assert.equal(out, '(empty)');
     });
 
-    test('scope: all merges shared + quest with labelled headers', async () => {
-        store = makeStore({
-            shared: { 'facts.md': 'shared body' },
-            quest:  { 'facts.md': 'quest body' },
-        });
-        const out = await readMemoryImpl(store, { file: 'facts.md', scope: 'all' });
-        assert.match(out, /### shared\/facts\.md/);
-        assert.match(out, /shared body/);
-        assert.match(out, /### quest\/facts\.md/);
-        assert.match(out, /quest body/);
+    test('scope: all (an older caller) reads the quest memory', async () => {
+        store = makeStore({ quest: { 'facts.md': 'quest body' } });
+        assert.equal(await readMemoryImpl(store, { file: 'facts.md', scope: 'all' }), 'quest body');
     });
 
     test('no file → concatenates every file in the scope', async () => {
@@ -335,14 +349,9 @@ describe('listMemoryImpl', () => {
         assert.doesNotMatch(out, /^quest\//);
     });
 
-    test('scope: all enumerates both tiers', async () => {
-        store = makeStore({
-            shared: { 'globals.md': 'g' },
-            quest: { 'facts.md': 'f' },
-        });
-        const out = await listMemoryImpl(store, { scope: 'all' });
-        assert.match(out, /shared\/globals\.md/);
-        assert.match(out, /quest\/facts\.md/);
+    test('scope: all (an older caller) lists the quest memory', async () => {
+        store = makeStore({ quest: { 'facts.md': 'f' } });
+        assert.equal(await listMemoryImpl(store, { scope: 'all' }), 'quest/facts.md');
     });
 
     test('SUFFIX FILTER: only facts-<suffix>.md entries surface', async () => {

@@ -584,11 +584,6 @@ class MdBrowserPanel {
                 groups.push({ id: 'workspace', label: 'Workspace Docs' });
             }
 
-            const notesDir = WsPaths.ai('notes');
-            if (notesDir && fs.existsSync(notesDir)) {
-                groups.push({ id: 'notes', label: 'Notes' });
-            }
-
             const rolesDir = WsPaths.ai('roles');
             if (rolesDir && fs.existsSync(rolesDir)) {
                 groups.push({ id: 'roles', label: 'Roles' });
@@ -1515,7 +1510,6 @@ function resolveGroupDir(group: string): string | undefined {
     if (group === 'quests') return WsPaths.ai('quests');
     if (group === 'copilot-instructions') return WsPaths.github();
     if (group.startsWith(AGENTS_MD_GROUP_PREFIX)) return agentsMdGroupDir(group, WsPaths.tomRoot, wsRoot);
-    if (group === 'notes') return WsPaths.ai('notes');
     if (group === 'workspace') {
         return resolveWorkspaceDocsDir(wsRoot, workspaceDocsProbe()) ?? undefined;
     }

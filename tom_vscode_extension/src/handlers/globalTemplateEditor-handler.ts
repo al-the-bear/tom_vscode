@@ -424,7 +424,7 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'settingSources', label: 'Setting Sources (Agent SDK)', type: 'multi-checkbox', value: JSON.stringify(parseSettingSources((profile as { settingSources?: unknown }).settingSources) ?? []), options: SETTING_SOURCES.map((s) => ({ value: s, label: s })), help: "Agent SDK transport only: which of Claude Code's settings the SDK loads — <code>user</code> (~/.claude: settings, CLAUDE.md, agents, commands), <code>project</code> (the workspace's .claude/ and CLAUDE.md), <code>local</code> (.claude/settings.local.json, CLAUDE.local.md). Ticked here they win over the configuration's <code>agentSdk.settingSources</code>; none ticked, the configuration's apply." },
                 { name: 'allowInteractiveQuestions', label: 'Allow Interactive Questions', type: 'checkbox', value: String(p.allowInteractiveQuestions === true), help: 'Agent SDK transport only: when the agent calls the built-in <code>AskUserQuestion</code> tool, show a VS Code QuickPick per question and feed your selections back to the model. When unchecked (default), the questions are answered with the fallback template below, telling the agent to proceed autonomously. Requires "Use Built-In Agent SDK Tools"; has no effect when Tool Approval is "Never" (the SDK does not fire the approval callback under <code>bypassPermissions</code>).' },
                 { name: 'interactiveQuestionsTemplateId', label: 'Interactive Questions Fallback', type: 'select', value: p.interactiveQuestionsTemplateId || '', options: interactiveQuestionsTemplateOptions, help: 'Fallback template (from the "Anthropic — Interactive Questions" category) returned to the agent when interactive questions are off or you dismiss the picker. Bodies may reference <code>${questions}</code>. "(built-in default)" uses the hard-coded autonomous fallback.' },
-                { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(p.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the profile explicitly references <code>${memory}</code> / <code>${memory-shared}</code> / <code>${memory-quest}</code> in its System Prompt, User Prompt Wrapper, or user-message template.<br><br><strong>Caveat:</strong> file-injection placeholders (<code>${role-description}</code>, <code>${quest-description}</code>, <code>${guidelines-*}</code>) recursively expand any <code>${memory*}</code> tokens that appear inside the injected file. Leaving this off does NOT prevent that. Audit those files if you want zero memory in the prompt.' },
+                { name: 'autoInjectMemory', label: 'Auto-inject Memory', type: 'checkbox', value: String(p.autoInjectMemory === true), help: 'When checked, append a <code>## Memory</code> section with <code>${memory}</code> to the resolved system prompt automatically. When unchecked (default), memory is only included when the profile explicitly references <code>${memory}</code> / <code>${memory-quest}</code> in its System Prompt, User Prompt Wrapper, or user-message template.<br><br><strong>Caveat:</strong> file-injection placeholders (<code>${role-description}</code>, <code>${quest-description}</code>, <code>${guidelines-*}</code>) recursively expand any <code>${memory*}</code> tokens that appear inside the injected file. Leaving this off does NOT prevent that. Audit those files if you want zero memory in the prompt.' },
                 { name: 'maxRounds', label: 'Max Rounds', type: 'number', value: String(profile.maxRounds ?? ''), help: 'Override <code>configuration.maxRounds</code> for this profile. Leave empty to inherit.' },
                 { name: 'maxTokens', label: 'Max Tokens', type: 'number', value: String((profile as { maxTokens?: number }).maxTokens ?? ''), help: 'Override <code>configuration.maxTokens</code> for this profile. Leave empty to inherit.' },
                 { name: 'historyMode', label: 'History Mode', type: 'text', value: profile.historyMode ?? '', help: 'one of: none, full, last, summary, trim_and_summary, llm_extract — leave empty to inherit from configuration' },
@@ -485,13 +485,12 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
                 { name: 'template', label: 'Template', type: 'textarea', value: tpl.template || '', help: PLACEHOLDER_HELP + '<br><br><strong>Memory extraction placeholders</strong> (only resolved during the extraction call):<br>'
                     + '<code>${lastTurn}</code> – the exchange just completed (user/assistant pair)<br>'
                     + '<code>${compactedSummary}</code> – the running session summary (the same value that sits in the wire payload between raw turns and the current prompt)<br>'
-                    + '<code>${existingMemory}</code> – current contents of the <em>Target File</em> in the <em>Scope</em> you picked below (capped to <code>memoryMaxChars</code> — the file is prepended newest-first, and only the head is fed to the LLM, so older entries fall off)<br>'
+                    + '<code>${existingMemory}</code> – current contents of the <em>Target File</em> in the quest memory (capped to <code>memoryMaxChars</code> — the file is prepended newest-first, and only the head is fed to the LLM, so older entries fall off)<br>'
                     + '<code>${memoryFilePath}</code> – absolute path to that file, so the prompt can cite it<br>'
-                    + '<code>${memoryScope}</code> – either <code>quest</code> or <code>shared</code><br>'
+                    + '<code>${memoryScope}</code> – always <code>quest</code> (the quest memory is the only one)<br>'
                     + '<code>${historyMaxChars}</code> – hard char cap on <code>${compactedSummary}</code> injection (from the History Max Chars setting)<br>'
                     + '<code>${memoryMaxChars}</code> – hard char cap on <code>${existingMemory}</code> injection (from the Memory Max Chars setting)<br>' },
                 { name: 'targetFile', label: 'Target File', type: 'text', value: tpl.targetFile || 'facts.md' },
-                { name: 'scope', label: 'Scope', type: 'text', value: tpl.scope || 'quest', help: 'quest, shared, or both' },
                 { name: 'allToolsEnabled', label: 'All Tools Enabled', type: 'checkbox', value: String(memAllEnabled), help: 'When checked, the memory extraction call exposes every tool in <code>ALL_SHARED_TOOLS</code>. Uncheck to pick a template-specific subset — typically the memory read/write tools.' },
                 { name: 'enabledTools', label: 'Tools', type: 'multi-checkbox', value: JSON.stringify(memEnabled), options: memToolOptions, disabledWhen: { field: 'allToolsEnabled', equals: 'true' }, help: 'Tool subset the memory extraction LLM may call. Typical defaults: <code>tomAi_listMemory</code>, <code>tomAi_readMemory</code>, <code>tomAi_saveMemory</code>, <code>tomAi_updateMemory</code>.' },
             );
@@ -850,7 +849,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
             if (!config.compaction) config.compaction = {};
             const templates = config.compaction.memoryExtractionTemplates ?? [];
             const idx = templates.findIndex(t => t.id === itemId);
-            const scope = (values.scope === 'shared' || values.scope === 'both') ? values.scope : 'quest';
             const memAllTools = values.allToolsEnabled === 'true';
             let memTools: string[] | undefined;
             try {
@@ -863,13 +861,13 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
                 description: values.description || '',
                 template: values.template || '',
                 targetFile: values.targetFile || 'facts.md',
-                scope: scope as 'quest' | 'shared' | 'both',
                 toolsEnabled: memAllTools,
                 ...(memAllTools ? {} : { enabledTools: memTools ?? [] }),
             };
             if (idx >= 0) {
                 const existing = templates[idx] as unknown as Record<string, unknown>;
                 if (memAllTools && 'enabledTools' in existing) { delete existing.enabledTools; }
+                delete existing.scope; // the quest memory is the only one
                 templates[idx] = { ...existing, ...next } as typeof templates[number];
             } else {
                 templates.push(next as typeof templates[number]);
@@ -1028,7 +1026,6 @@ async function _addItem(category: TemplateCategory): Promise<void> {
                 description: '',
                 template: '${recentHistory}',
                 targetFile: 'facts.md',
-                scope: 'quest',
             });
             config.compaction.memoryExtractionTemplates = templates;
             break;

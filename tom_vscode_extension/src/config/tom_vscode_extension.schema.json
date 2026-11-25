@@ -416,7 +416,7 @@
         },
         "memory": {
             "type": "object",
-            "description": "Two-tier memory system settings (anthropic_sdk_integration.md §5, §14).",
+            "description": "Memory settings: the quest memory, per session, _ai/memory/<quest>/<session>/ (anthropic_sdk_integration.md §5, §14).",
             "properties": {
                 "enabled": {
                     "type": "boolean",
@@ -432,7 +432,7 @@
                     "type": "integer",
                     "minimum": 0,
                     "default": 3000,
-                    "description": "Token cap for the ${memory} / ${memory-shared} / ${memory-quest} placeholders. Memory is no longer auto-injected into the system prompt — add the placeholder to your profile's system prompt or user-message template to opt in."
+                    "description": "Token cap for the ${memory} / ${memory-quest} placeholders. Memory is no longer auto-injected into the system prompt — add the placeholder to your profile's system prompt or user-message template to opt in."
                 },
                 "keywordTriggers": {
                     "type": "object",
@@ -686,7 +686,7 @@
                 "autoInjectMemory": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When true, append a `## Memory\\n\\n${memory}` section to the resolved system prompt automatically. When false (default), memory is only injected when the profile explicitly references `${memory}` / `${memory-shared}` / `${memory-quest}` in its System Prompt, User Prompt Wrapper, or user-message template. Note: recursive expansion may still inline memory through file-injection placeholders like `${quest-description}` if those files contain memory tokens — audit those files separately."
+                    "description": "When true, append a `## Memory\\n\\n${memory}` section to the resolved system prompt automatically. When false (default), memory is only injected when the profile explicitly references `${memory}` / `${memory-quest}` in its System Prompt, User Prompt Wrapper, or user-message template. Note: recursive expansion may still inline memory through file-injection placeholders like `${quest-description}` if those files contain memory tokens — audit those files separately."
                 },
                 "allowInteractiveQuestions": {
                     "type": "boolean",
@@ -740,17 +740,13 @@
         },
         "memoryExtractionTemplate": {
             "type": "object",
-            "required": ["id", "name", "template", "targetFile", "scope"],
+            "required": ["id", "name", "template", "targetFile"],
             "properties": {
                 "id": { "type": "string" },
                 "name": { "type": "string" },
                 "description": { "type": "string" },
                 "template": { "type": "string" },
-                "targetFile": { "type": "string", "description": "File name within the chosen scope (e.g. facts.md)." },
-                "scope": {
-                    "type": "string",
-                    "enum": ["quest", "shared", "both"]
-                }
+                "targetFile": { "type": "string", "description": "File name in the quest memory, _ai/memory/<quest>/<session>/ (e.g. facts.md)." }
             }
         }
     }

@@ -16,8 +16,8 @@
  *             tool_results/t<n>.json                        its tool results,
  *             current_prompt.<source>.<variant>.md          and the last prompt it sent
  *
- * and its own quest memory, `_ai/memory/<quest>/<name>/`. Shared memory
- * (`_ai/memory/shared/`) stays one set of files. The session's
+ * and its own quest memory, `_ai/memory/<quest>/<name>/` (there is no
+ * shared memory). The session's
  * `<name>.session.json` stays beside the `sessions/` folder.
  *
  * {@link migrateQuestToSessionStorage} moves a quest's files from the layout
