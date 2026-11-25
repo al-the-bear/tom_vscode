@@ -563,11 +563,16 @@
         // panel can append to it (appendRender) without rendering everything again.
         var shownCtx = null;
         var renderGen = 0;
-        // A large document is rendered in short tasks so the window never waits:
-        // it is lexed in parts (split before headings), parsed part by part and
-        // built off-DOM in batches, each task yielding after TASK_BUDGET_MS.
+        // Every document longer than LEX_PART_CHARS is lexed in parts (blocks.js
+        // mdbSplitForLexing: before a heading or at a safe blank line): marked's
+        // anchored block rules cost time in proportion to the text left in
+        // WebKit (JavaScriptCore), so a large part lexes in O(n²) there — a
+        // 27,963-line document took 16 s with 150,000-character parts, about 2 s
+        // with 8,000 (Chrome 0.3 s either way; webwork mdprobe3). Whether the
+        // work is also sliced into short tasks, each yielding after
+        // TASK_BUDGET_MS so the window never waits, is decided by LARGE_DOC_CHARS.
         var LARGE_DOC_CHARS = 200000;
-        var LEX_PART_CHARS = 150000;
+        var LEX_PART_CHARS = 6000;
         var RENDER_BATCH = 600;
         var TASK_BUDGET_MS = 40;
         // Blocks are grouped into sections of SECTION_BLOCKS. In a large
@@ -1142,9 +1147,36 @@
          * (null for pieces with no source lines, e.g. whitespace). Line numbers
          * are shifted by `lineOffset` (a region rendered on its own).
          */
-        /** Lex `text` (lines from `lineOffset` on) and map its blocks to file lines. */
-        function lexPart(text, lineOffset) {
-            var tokens = marked.lexer(text || '', markedOptions());
+        /**
+         * Lexing is marked's `lex()` in two phases, so a document lexed in parts reads
+         * as one: the block phase of every part first (it collects the link
+         * definitions), then each part's inline content with the definitions of all
+         * parts — a reference link may use a definition of another part.
+         */
+        /** The block phase of `text`: a lexer holding its block tokens, its inline content queued, its definitions. */
+        function lexBlocks(text) {
+            var lexer = new marked.Lexer(markedOptions());
+            lexer.blockTokens(String(text || '').replace(/\r\n|\r/g, '\n'), lexer.tokens);
+            return lexer;
+        }
+
+        /** Add the definitions of `from` that `into` lacks: the first definition of a label wins, as in marked. */
+        function mergeLinks(into, from) {
+            Object.keys(from || {}).forEach(function(key) { if (!Object.prototype.hasOwnProperty.call(into, key)) { into[key] = from[key]; } });
+            return into;
+        }
+
+        /**
+         * The inline phase of a part lexed by lexBlocks, with `links` (every part's definitions), and its blocks
+         * mapped to file lines (`text` from line `lineOffset` on).
+         */
+        function finishLex(lexer, links, text, lineOffset) {
+            lexer.tokens.links = links;
+            for (var q = 0; q < lexer.inlineQueue.length; q++) {
+                lexer.inlineTokens(lexer.inlineQueue[q].src, lexer.inlineQueue[q].tokens);
+            }
+            lexer.inlineQueue = [];
+            var tokens = lexer.tokens;
             var byIndex = {};
             mdbBlocks(text || '', tokens).forEach(function(b) {
                 b.startLine += lineOffset;
@@ -1189,9 +1221,37 @@
          * are shifted by `lineOffset` (a region rendered on its own).
          */
         function buildPieces(text, lineOffset) {
-            var lexed = lexPart(text, lineOffset);
-            var links = Object.assign({}, shownLinks, lexed.tokens.links || {});
-            return { pieces: parsePart(lexed, links), links: lexed.tokens.links || {} };
+            // In parts too (a live trail's tail can grow large): every part's block phase first, then the inline
+            // phase with the region's definitions and the document's (a link may use one outside the region).
+            var parts = lexParts(text || '');
+            var lexers = parts.map(function(part) { return lexBlocks(part.text); });
+            var own = {};
+            lexers.forEach(function(lexer) { mergeLinks(own, lexer.tokens.links); });
+            var links = mergeLinks(Object.assign({}, own), shownLinks);
+            var pieces = [];
+            lexers.forEach(function(lexer, i) {
+                Array.prototype.push.apply(pieces, parsePart(finishLex(lexer, links, parts[i].text, lineOffset + parts[i].startLine), links));
+            });
+            return { pieces: pieces, links: own };
+        }
+
+        /** The part size: LEX_PART_CHARS, or a test's own (`window.__mdbLexPartChars`). */
+        function lexPartChars() {
+            return typeof window.__mdbLexPartChars === 'number' ? window.__mdbLexPartChars : LEX_PART_CHARS;
+        }
+
+        /**
+         * `text` in the parts it is lexed in: one part up to the part size, else split (mdbSplitForLexing). Every
+         * part but the last is lexed with the newline that joins it to the next (`text` of a part is its lines
+         * only), so each block keeps the raw text it has in the whole document — an HTML block, a list, a
+         * paragraph takes the blank line after it.
+         */
+        function lexParts(text) {
+            var chars = lexPartChars();
+            var parts = text.length > chars ? mdbSplitForLexing(text, chars) : [{ startLine: 0, text: text }];
+            return parts.map(function(part, i) {
+                return { startLine: part.startLine, text: i < parts.length - 1 ? part.text + '\n' : part.text };
+            });
         }
 
         /** Turn pieces into DOM nodes in a detached holder; returns the holder and the wrappers made. */
@@ -1318,7 +1378,7 @@
                 return;
             }
             var big = (text || '').length > LARGE_DOC_CHARS;
-            var parts = big ? mdbSplitForLexing(text, LEX_PART_CHARS) : [{ startLine: 0, text: text || '' }];
+            var parts = lexParts(text || '');
             var lexed = [];
             var links = {};
             var pieces = [];
@@ -1332,17 +1392,19 @@
             var progress = function(label, at, of) {
                 if (filePathEl && big) { filePathEl.setAttribute('data-progress', label + ' ' + Math.round(100 * at / of) + '%'); }
             };
+            // The block phase of every part (it collects the definitions), then each part's inline phase and its
+            // parse with the definitions of all parts.
             parts.forEach(function(part, i) {
                 tasks.push(function() {
-                    var l = lexPart(part.text, part.startLine);
-                    lexed.push(l);
-                    Object.assign(links, l.tokens.links || {});
+                    var lexer = lexBlocks(part.text);
+                    lexed.push(lexer);
+                    mergeLinks(links, lexer.tokens.links);
                     progress('Reading', i + 1, parts.length);
                 });
             });
             parts.forEach(function(part, i) {
                 tasks.push(function() {
-                    Array.prototype.push.apply(pieces, parsePart(lexed[i], links));
+                    Array.prototype.push.apply(pieces, parsePart(finishLex(lexed[i], links, part.text, part.startLine), links));
                     lexed[i] = null;
                 });
             });

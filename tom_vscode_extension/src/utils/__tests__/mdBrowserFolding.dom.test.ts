@@ -21,7 +21,8 @@
  *   MF-9c the check holds on a busy machine: a CPU burner on every core for the whole measurement
  *   MF-10 blocks are grouped into sections of 150; only a large document lays sections out lazily
  *   MF-9b also: a reading-div `start` that searches the whole remaining source (not only the paragraph) makes the
- *         render quadratic and fails the check — the bound blocks.js mdbReadingBlockStart keeps
+ *         render of a document lexed whole quadratic and fails the check — the bound blocks.js mdbReadingBlockStart
+ *         keeps (the page's small parts would also bound it)
  *   MF-12 a large document with the reading notation (a provenance div, two trace citations, a span and a records
  *         div per section) renders in linear time too
  *   MF-13 changing a kind's reading mode writes exactly one attribute (the content area's class), however many
@@ -323,6 +324,8 @@ describe('Markdown Browser folding', () => {
         // render is quadratic. A real search of the rest plus work in proportion to the characters it scans (a scan in
         // script, as the bounded one never does on the rest) makes that show above jsdom's own cost per paragraph.
         const unbounded = (w: Win): void => {
+            // Lexed whole: in the page's small parts (LEX_PART_CHARS) the search would be bounded by the part.
+            w.__mdbLexPartChars = 1e12;
             w.mdbReadingBlockStart = (src: string): number | undefined => {
                 const m = /\n {0,3}:{3}/.exec(src);
                 let x = 0;
@@ -331,7 +334,7 @@ describe('Markdown Browser folding', () => {
                 return m ? m.index : undefined;
             };
         };
-        // Many short paragraphs and no heading: one lexed part, whatever its size.
+        // Many short paragraphs and no heading, lexed as one part (above).
         const shortParagraphs = (n: number): string => Array.from({ length: n }, (_, i) => `paragraph ${i}`).join('\n\n');
         // Measured as MF-9 measures (the least CPU time of each size over two rounds); the lower ratio would only help it pass.
         const u = await measureRatio(1500, { patch: unbounded, make: shortParagraphs, rounds: 2 });

@@ -322,7 +322,9 @@ describe('Markdown Browser source mapping', () => {
             '### D', 'text right after',          // 21-22
         ].join('\n');
         const parts = plain(api.mdbSplitForLexing(doc, 1));
-        assert.deepEqual(parts.map((p) => p.startLine), [0, 8, 16, 21], 'never inside the fence or the open <details>');
+        // Before a heading or at a safe blank line (para a, the <details> line); never inside the fence or the open
+        // <details>, never at a list item.
+        assert.deepEqual(parts.map((p) => p.startLine), [0, 2, 8, 10, 16, 21], 'never inside the fence or the open <details>');
         assert.equal(parts.map((p) => p.text).join('\n'), doc, 'the parts are the text');
         parts.forEach((p) => assert.equal(p.text.split('\n')[0], doc.split('\n')[p.startLine]));
         assert.deepEqual(plain(api.mdbSplitForLexing(doc, 1e9)).map((p) => p.startLine), [0], 'below the target: one part');

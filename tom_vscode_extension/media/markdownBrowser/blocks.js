@@ -384,14 +384,30 @@ function mdbIsMdLink(href) {
     return /\.md$/i.test(h.split('#')[0].split('?')[0]);
 }
 
-// ---- Lexing a large document in parts ----
+// ---- Lexing a document in parts ----
+// marked's block rules are `^`-anchored patterns with counted groups, which
+// JavaScriptCore (WebKit) runs at every position of the rest of the input: one
+// rule call costs time in proportion to the text left, so lexing a part is
+// O(n²) in its length there (a 150,000-character part about 2 s, Chrome 10 ms).
+// The page therefore lexes in small parts (main.js LEX_PART_CHARS).
+
+/** A list item's marker at column 0: a following item would continue (and loosen) the list before it. */
+var MDB_LIST_MARKER = /^(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/;
 
 /**
- * `text` cut into parts of at least `target` characters, each starting at an
- * ATX heading line outside fenced code and outside an open html element. An
- * ATX heading always starts a block of its own, so lexing the parts one by
- * one gives the tokens of lexing the whole (link definitions aside, which the
- * caller merges). The parts joined with `\n` are `text`.
+ * `text` cut into parts of at least `target` characters, so lexing the parts
+ * one by one gives the tokens of lexing the whole (link definitions aside,
+ * which the caller merges). A part starts
+ *
+ * - at an ATX heading line (a heading always starts a block of its own; a
+ *   reading-notation div never crosses one), or
+ * - at a safe block boundary: a line at column 0 after a blank line that is
+ *   no list item (it would continue the list before it) — so never an
+ *   indented or lazy continuation line, nor inside a list item —
+ *
+ * and never inside fenced code, an open html element or a reading-notation
+ * div (`:::`), which may hold blank lines. The parts joined with `\n` are
+ * `text`.
  *
  * @param {string} text
  * @param {number} target
@@ -404,18 +420,28 @@ function mdbSplitForLexing(text, target) {
     var size = 0;
     var fence = null;
     var htmlDepth = 0;
+    var divDepth = 0;
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
-        var f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-        if (f) {
-            if (fence === null) { fence = f[1][0]; } else if (fence === f[1][0]) { fence = null; }
-        } else if (fence === null) {
-            if (i > start && size >= target && htmlDepth === 0 && /^#{1,6}(\s|$)/.test(line)) {
+        var f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (fence !== null) {
+            // A closing fence: the same character, at least as long, nothing after it.
+            if (f && f[1].charAt(0) === fence.charAt(0) && f[1].length >= fence.length && /^ {0,3}[`~]+[ \t]*$/.test(line)) { fence = null; }
+        } else if (f) {
+            fence = f[1];
+        } else {
+            var heading = /^#{1,6}(\s|$)/.test(line);
+            if (heading) { divDepth = 0; }
+            var free = i > start && size >= target && htmlDepth === 0 && divDepth === 0;
+            var boundary = heading
+                || (/^\S/.test(line) && lines[i - 1] !== undefined && lines[i - 1].trim() === '' && !MDB_LIST_MARKER.test(line));
+            if (free && boundary) {
                 parts.push({ startLine: start, text: lines.slice(start, i).join('\n') });
                 start = i;
                 size = 0;
             }
-            if (/^\s{0,3}</.test(line)) { htmlDepth = Math.max(0, htmlDepth + mdbHtmlDepthChange(line)); }
+            if (/^ {0,3}</.test(line)) { htmlDepth = Math.max(0, htmlDepth + mdbHtmlDepthChange(line)); }
+            if (mdbReadingFence(line)) { divDepth++; } else if (divDepth > 0 && MDB_READING_CLOSE.test(line)) { divDepth--; }
         }
         size += line.length + 1;
     }
