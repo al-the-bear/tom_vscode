@@ -16,6 +16,10 @@
  *   AP-6 Finish review round tells one document from several: one is shown itself, its current version in
  *        front; several get the review document ${reviewFile}; a default still holding the earlier text is
  *        brought to the current one
+ *   AP-7 Promote memory: the prompt names the quest, its memory folder and this host's candidates file; it reads every
+ *        host's candidates, presents them as a list (tomAi_askInMdBrowser / tomAi_askUser), asks which to promote into
+ *        which curated file, writes them with the memory tools and removes them from the candidates files; the chat
+ *        panel queues it with the panel's target, staged or pending as the subpanel's queue mode says
  */
 
 import test, { describe } from 'node:test';
@@ -28,14 +32,15 @@ import {
     type AssistPromptsSection,
 } from '../assistPrompts';
 import { outOfBudgetPrompt, type OutOfBudgetMark } from '../outOfBudget';
+import { hostSlugOf } from '../hostSlug';
 
 const ROOT = join(__dirname, '..', '..', '..');
 
 describe('Assist prompts', () => {
     test('AP-1: each use resolves its chosen template', () => {
-        assert.deepEqual([...ASSIST_PROMPT_USES], ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget', 'backgroundWork']);
+        assert.deepEqual([...ASSIST_PROMPT_USES], ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget', 'backgroundWork', 'promoteMemory']);
         assert.deepEqual(ASSIST_PROMPT_USES.map((u) => ASSIST_PROMPT_INFO[u].label),
-            ['Grill me', 'Explain in detail', 'Explain a decision', 'Grill me at a decision', 'Finish review round', 'Gate decision', 'Out of budget', 'Background work reminder']);
+            ['Grill me', 'Explain in detail', 'Explain a decision', 'Grill me at a decision', 'Finish review round', 'Gate decision', 'Out of budget', 'Background work reminder', 'Promote memory']);
         const config: { assistPrompts?: AssistPromptsSection } = {};
         ensureDefaultAssistPrompts(config);
         const section = config.assistPrompts!;
@@ -77,7 +82,7 @@ describe('Assist prompts', () => {
     test('AP-3: seeding the defaults', () => {
         const config: { assistPrompts?: AssistPromptsSection } = { assistPrompts: { selected: { grillMe: 'mine' }, templates: [{ id: 'grill-me', name: 'Grill me', template: 'edited' }] } };
         assert.equal(ensureDefaultAssistPrompts(config), true);
-        assert.deepEqual(config.assistPrompts!.templates!.map((t) => t.id), ['grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'gate-decision', 'out-of-budget', 'background-work-reminder']);
+        assert.deepEqual(config.assistPrompts!.templates!.map((t) => t.id), ['grill-me', 'explain-in-detail', 'explain-decision', 'grill-me-decision', 'finish-review-round', 'gate-decision', 'out-of-budget', 'background-work-reminder', 'promote-memory']);
         assert.equal(config.assistPrompts!.templates![0].template, 'edited', 'an existing one is kept');
         assert.deepEqual(config.assistPrompts!.selected, { grillMe: 'mine' }, 'the choices stay');
         assert.equal(ensureDefaultAssistPrompts(config), false, 'once');
@@ -141,7 +146,7 @@ describe('Assist prompts', () => {
             'The prompt below was running on profile "Opus — Direct" (opus-direct, model claude-opus-5-5) in session "p2" and stopped at 2026-11-07T10:00:00.000Z: Your credit balance is too low.',
             'It is sent again on profile "Opus — SDK". It runs in session "default": session "p2" keeps its conversation where profile "Opus — SDK" cannot continue it.',
             '',
-            'What the stopped run had already done is in that session\'s live trail, `_ai/quests/q/history/sessions/p2/live-trail.md`; changes it made and did not commit are in the working trees (`git status`). Read them first and continue the work from where it stopped — do not start it over.',
+            'What the stopped run had already done is in that session\'s live trail, `_ai/quests/q/history/' + hostSlugOf() + '/sessions/p2/live-trail.md`; changes it made and did not commit are in the working trees (`git status`). Read them first and continue the work from where it stopped — do not start it over.',
             '',
             '---',
             '',
@@ -153,9 +158,30 @@ describe('Assist prompts', () => {
             templates: [{ id: 'short', name: 'Short', template: '${stoppedProfile}/${stoppedModel}/${stoppedSession}/${stoppedAt}/${budgetMessage}/${liveTrail} → ${toProfile}\n${originalPrompt}' }],
         };
         assert.equal(outOfBudgetPrompt(mark, opts, chosen),
-            'Opus — Direct/claude-opus-5-5/p2/2026-11-07T10:00:00.000Z/Your credit balance is too low./`_ai/quests/q/history/sessions/p2/live-trail.md` → Opus — SDK\nDo todo x');
+            'Opus — Direct/claude-opus-5-5/p2/2026-11-07T10:00:00.000Z/Your credit balance is too low./`_ai/quests/q/history/' + hostSlugOf() + '/sessions/p2/live-trail.md` → Opus — SDK\nDo todo x');
         assert.match(outOfBudgetPrompt({ ...mark, model: undefined }, opts), /\(opus-direct, model unknown\)/);
         assert.match(src('src', 'managers', 'promptQueueManager.ts'), /originalPrompt: resolveResendText\(last, item\.expandedText\),\n {8}\}, config\?\.assistPrompts\);/);
+    });
+});
+
+describe('Promote memory', () => {
+    test('AP-7: the prompt and how the panel queues it', () => {
+        const text = buildAssistPrompt(undefined, 'promoteMemory', { quest: 'q1', memoryFolder: '_ai/quests/q1/memory/', ownCandidatesFile: 'candidates.mbp.md' });
+        assert.match(text, /quest q1/);
+        assert.match(text, /`_ai\/quests\/q1\/memory\/`/);
+        assert.match(text, /this host's is `candidates\.mbp\.md`, the other hosts' are the other `candidates\.<host>\.md` files/);
+        const steps = ['tomAi_readMemory', 'tomAi_askInMdBrowser', 'tomAi_askUser', 'which to promote and into which curated file', 'tomAi_saveMemory', 'Remove the promoted and the dropped entries from the candidates files'];
+        const at = steps.map((s) => text.indexOf(s));
+        assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), text);
+        assert.doesNotMatch(text, /\$\{(quest|memoryFolder|ownCandidatesFile)\}/, 'every placeholder filled');
+        assert.deepEqual(Object.keys(ASSIST_PROMPT_INFO.promoteMemory.placeholders), ['quest', 'memoryFolder', 'ownCandidatesFile']);
+
+        const panel = src('src', 'handlers', 'chatPanel-handler.ts');
+        const promote = panel.slice(panel.indexOf("case 'promoteMemory':"), panel.indexOf('break;', panel.indexOf("case 'promoteMemory':")));
+        assert.match(promote, /this\._handleAddToQueue\(this\._promoteMemoryPrompt\(\), '', undefined, \{/);
+        assert.match(promote, /usePanelTarget: true/, 'the panel\'s run and session');
+        assert.match(promote, /staged: message\.initialStatus === 'staged'/, 'the subpanel\'s queue mode');
+        assert.match(panel, /buildAssistPrompt\(loadSendToChatConfig\(\)\?\.assistPrompts, 'promoteMemory', \{[\s\S]{0,200}ownCandidatesFile: TwoTierMemoryService\.instance\.candidatesFile\(\)/);
     });
 });
 

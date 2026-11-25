@@ -6,7 +6,7 @@
  *   RM-1 not running, or running without a live Agent SDK query in its session: no message (canMessageRunningItem
  *        false; messageRunningItem refused with the reason); an empty text is refused
  *   RM-2 running with a live query: the text goes into it as another user message (trimmed); the item keeps it
- *        (`into: running`), with the answer once the query answers it; the questions journal records it
+ *        (`into: running`), with the answer once the query answers it; the Q&A journal records it
  *   RM-3 the queue file keeps `into: running` (round trip)
  */
 
@@ -56,6 +56,7 @@ import { registerLiveQuery } from '../../services/agentSdkLiveInputs.js';
 import { waitMessagesFromYaml, waitMessagesToYaml } from '../../utils/itemWaitMessages.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
+import { qaJournalText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -152,7 +153,7 @@ describe('queue item: a message into its running prompt', () => {
         assert.equal(await r.answer, '  Changelog updated.  ');
         await wait(20);
         assert.equal(live(item.id).waitMessages[0].answer, 'Changelog updated.');
-        const journal = fs.readFileSync(path.join(QDIR, `questions.${QUEST}.md`), 'utf8');
+        const journal = qaJournalText(QDIR, QUEST);
         assert.match(journal, /message to a running prompt/);
         assert.match(journal, /Also update the changelog\./);
         endTurn();

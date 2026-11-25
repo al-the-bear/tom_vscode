@@ -6,12 +6,13 @@
  *        subsystem from the current session, no bare ANTHROPIC_SUBSYSTEM is written, and the trail service resolves
  *        a session-carrying subsystem under the session's storage (raw trail, categories, summary pair)
  *   SW-2 a send selects its session's everything: history scope,
- *        tool trail (one per session, keys past the stored results, results in the session's folder); the live trail
- *        and the current-prompt copy go to the session; compaction and memory extraction run for the session
- *   SW-3 snapshots are read back per session (from the scope's folder), and every session may rebuild from its own
- *        trail; recreate history / memory take the session (the panel passes each one chosen)
- *   SW-4 a based per-prompt session never clears its base's accumulator: the compaction clears the file only when the
- *        session writes its history (before the fix it cleared the scope folder — the base's — unconditionally)
+ *        tool trail (one per session, keys past the stored results, results in the session's folder); the live trail goes
+ *        to the session; compaction and memory extraction run for the session
+ *   SW-3 the compacted history is the quest's (read at every send; OLD PLACE: the session's own until the quest has
+ *        one); the session keeps its rolling tail and accumulator in its folder; Rebuild history and memory takes no
+ *        session; nothing writes a session's compacted history
+ *   SW-4 a based per-prompt session never clears its base's accumulator: only a session that writes its history
+ *        builds, and its accumulator is cleared only after a successful build
  *   SW-5 the quest memory has no session level (`_ai/quests/<quest>/memory/`) and there is no shared memory: the
  *        memory service keeps no active session, a send hands its session to the injection (`memorySession`) and to
  *        the extraction; the migration to per-session storage runs on first use of a quest's history
@@ -62,29 +63,31 @@ describe('per-session storage wiring', () => {
         assert.match(trails, /firstFreeKeyIndex: \(\) => nextFreeToolResultIndex\(store\.toolResultFolder\('anthropic', WsPaths\.getWorkspaceQuestId\(\), name\)\)/);
         assert.match(trails, /store\.writeToolResult\('anthropic', entry, WsPaths\.getWorkspaceQuestId\(\), name\)/);
         assert.match(handler, /new LiveTrailWriter\(quest, undefined, this\.currentSessionName\(\)\)/);
-        assert.match(handler, /session: options\.isolated \? undefined : this\.currentSessionName\(\),/, 'the current-prompt copy');
-        assert.ok((handler.match(/session: this\.currentSessionName\(\),/g) ?? []).length >= 4, 'compaction, memory extraction, rebuild, current prompt');
+        assert.ok((handler.match(/session: this\.currentSessionName\(\),/g) ?? []).length >= 2, 'the quest history build\'s compaction calls, the host trail\'s turn');
     });
 
-    test('SW-3: snapshots and rebuilds per session', () => {
+    test('SW-3: the history is the quest\'s; the session keeps its tail', () => {
         const seed = body(handler, 'private seedHistoryFromSnapshot(');
-        assert.match(seed, /loadLatestHistorySnapshotIn<unknown>\(historyFolder\)/);
-        assert.doesNotMatch(seed, /shared/, 'no session is excluded from its own snapshot or rebuild');
-        assert.match(body(handler, 'private async rebuildHistoryFromTrail('), /loadLastNTrailExchanges\(questId, limit, this\.currentSessionName\(\)\)/);
-        assert.match(body(handler, 'async recreateHistoryFromTrail('), /resolveHistoryScope\(quest, TwoTierMemoryService\.instance\.historyFolder\(quest\), sessionKey\)/);
-        assert.match(body(handler, 'async recreateMemoryFromTrail('), /loadLastNTrailExchanges\(quest, limit, sessionKey\)/);
+        assert.match(seed, /this\.loadQuestHistory\(questId\)/, 'the quest\'s history');
+        assert.match(seed, /loadLatestHistorySnapshotIn<unknown>\(historyFolder\)/, 'OLD PLACE: the session\'s history.json, read only');
+        assert.match(seed, /loadCompactionRoundsIn\(historyFolder\)/, 'the session\'s own accumulator');
+        assert.match(seed, /this\.runQuestHistoryBuild\(questId, \{ extract: false \}\)/, 'no history yet: the first build');
+        assert.doesNotMatch(seed, /shared/, 'no session is excluded');
+        assert.match(body(handler, 'private loadQuestHistory('), /loadQuestHistoryBlocks\(questFolder, this\.scopeFolder\(questId\)\)/);
+        assert.match(body(handler, 'async rebuildQuestHistoryAndMemory('), /this\.runQuestHistoryBuild\(quest, \{ extract: true \}\)/);
+        assert.doesNotMatch(handler, /recreateHistoryFromTrail|recreateMemoryFromTrail|rebuildHistoryFromTrail|saveBlocksToDisk|persistSessionHistory/, 'nothing writes a session\'s compacted history');
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
-        // The panel passes each session chosen in the session selection (sessionSelectionWiring SW-1).
-        assert.match(panel, /recreateHistoryFromTrail\(undefined, name\)/);
-        assert.match(panel, /recreateMemoryFromTrail\(undefined, name\)/);
+        assert.match(panel, /case 'rebuildHistoryAndMemory':[\s\S]{0,800}handler\.rebuildQuestHistoryAndMemory\(\)/);
+        assert.doesNotMatch(panel, /recreateHistoryFromTrail|recreateMemoryFromTrail/);
         const compaction = source('src', 'services', 'history-compaction.ts');
-        assert.match(body(compaction, 'export function loadLastNTrailExchanges('), /\.\.\.\(session \? \{ session \} : \{\}\)/);
+        assert.doesNotMatch(compaction, /loadLastNTrailExchanges|getSummaryFilePath/, 'no summary-pair reader');
     });
 
     test('SW-4: a based session never clears its base\'s accumulator', () => {
-        const at = handler.indexOf('// Compaction succeeded');
-        const block = handler.slice(at, handler.indexOf('this.persistSessionHistory(questId);', at));
-        assert.match(block, /if \(this\.persistsHistory\) \{\s*saveCompactionRoundsIn\(\[\], this\.scopeFolder\(questId\)\);\s*\}/);
+        const schedule = body(handler, 'private scheduleBackgroundCompactionAndExtraction(');
+        assert.match(schedule, /if \(!this\.persistsHistory\) \{ return; \}/, 'a per-prompt session (its base\'s folder) never builds or clears');
+        assert.match(schedule, /const folder = this\.scopeFolder\(questId\);/);
+        assert.match(schedule, /if \(!report \|\| report\.failed\) \{ return; \}\s*\/\/[^\n]*\n\s*this\.compactionRounds = \[\];\s*saveCompactionRoundsIn\(\[\], folder\);/, 'cleared only after a successful build');
     });
 
     test('SW-5: the quest memory has no session level', () => {

@@ -1,6 +1,7 @@
 /**
  * The compact trail's limit (src/utils/compactTrailTrim.ts): `trail.compact.maxEntries` (default 2000) turns per
- * summary trail file (`<quest>.<subsystem>.prompts.md` / `.answers.md`), applied by every writer.
+ * compact trail — the summary pair (`<quest>.<subsystem>.prompts.md` / `.answers.md`) of the subsystems that still
+ * write one, and the host trail (its trim: hostTrail.test.ts).
  *
  *   CTL-1 the trim counts turns (distinct request ids; a turn written twice counts once), keeps the newest and drops
  *         every older entry at once, however far the text is over the limit; a body line that is no full header is
@@ -11,8 +12,11 @@
  *         entries against 1,000) is back at the limit after one write, the new entry on top; without a setting the
  *         default 2000 holds
  *   CTL-4 the transports' writer paths: the local LLM / LM API logging (logPrompt, logResponse, writeTrailFile)
- *         keeps the limit; the other writer of the pair (the Anthropic handler) writes through TrailService, and no
- *         other source file writes a compact trail header or trims one its own way
+ *         keeps the limit; the Anthropic handler writes its sessions' turns to the host trail through TrailService
+ *         (beginHostTrailTurn / completeHostTrailTurn) and no summary pair; no other source file writes a compact
+ *         trail header or trims one its own way
+ *   CTL-5 the host trail's trim (hostTrailTurnsToKeep): over the limit the oldest turns go while each is covered; the
+ *         first turn not covered and every turn after it stay; within the limit nothing goes
  */
 
 import test, { describe } from 'node:test';
@@ -27,6 +31,7 @@ import {
     compactTrailMaxEntries,
     countCompactTrailTurns,
     trimCompactTrailContent,
+    hostTrailTurnsToKeep,
 } from '../../utils/compactTrailTrim.js';
 
 let trailConfig: unknown = {};
@@ -159,18 +164,32 @@ describe('the compact trail limit', () => {
             const calls = (text.match(/\.writeSummary(?:Prompt|Answer)\(/g) ?? []).length;
             if (calls > 0 && rel !== 'services/trailService.ts') { writers.set(rel, calls); }
             if (rel !== 'services/trailService.ts') {
-                assert.doesNotMatch(text, /=== (?:PROMPT|ANSWER) \$\{/, `${rel} writes no compact trail header of its own`);
+                // A reader matching an older build's header line (`startsWith(`=== ANSWER ${id} `)`) writes nothing.
+                const writing = text.split('\n').filter((line) => !/\.startsWith\(`=== (?:PROMPT|ANSWER) /.test(line)).join('\n');
+                assert.doesNotMatch(writing, /=== (?:PROMPT|ANSWER) \$\{/, `${rel} writes no compact trail header of its own`);
             }
             if (rel !== 'utils/compactTrailTrim.ts') {
                 assert.doesNotMatch(text, /function trim\w*TrailFile|trimTrailFile\(/, `${rel} has no trim of its own`);
             }
         }
-        for (const rel of ['handlers/anthropic-handler.ts', 'services/trailLogging.ts']) {
-            assert.ok(writers.has(rel), `${rel} writes through TrailService`);
-        }
+        assert.ok(writers.has('services/trailLogging.ts'), 'services/trailLogging.ts writes through TrailService');
+        assert.equal(writers.has('handlers/anthropic-handler.ts'), false, 'the Anthropic handler writes no summary pair');
+        const handler = fs.readFileSync(path.join(SRC, 'handlers', 'anthropic-handler.ts'), 'utf8');
+        assert.equal((handler.match(/TrailService\.instance\.beginHostTrailTurn\(/g) ?? []).length, 1, 'the prompt noted once, before the call');
+        assert.ok((handler.match(/TrailService\.instance\.completeHostTrailTurn\(requestId, /g) ?? []).length >= 6, 'every exit point writes the turn');
         const service = fs.readFileSync(path.join(SRC, 'services', 'trailService.ts'), 'utf8');
         assert.equal((service.match(/this\.prependEntry\(target, entry\);\n\s*trimCompactTrailFile\(target, this\.getMaxSummaryEntries\(\)\);/g) ?? []).length, 2,
             'both writes trim after prepending');
         assert.match(service, /compactTrailMaxEntries\(TomAiConfiguration\.instance\.getTrail\(\)\)/);
+        assert.match(service, /maxEntries: this\.getMaxSummaryEntries\(\),/, 'the host trail keeps the same limit');
+    });
+
+    test('CTL-5: the host trail keeps covered turns only', () => {
+        const turns = [1, 2, 3, 4, 5, 6];
+        assert.deepEqual(hostTrailTurnsToKeep(turns, 6, () => true), turns, 'within the limit');
+        assert.deepEqual(hostTrailTurnsToKeep(turns, 4, () => true), [3, 4, 5, 6], 'the oldest beyond the limit');
+        assert.deepEqual(hostTrailTurnsToKeep(turns, 4, (t) => t <= 1), [2, 3, 4, 5, 6], 'only covered turns go');
+        assert.deepEqual(hostTrailTurnsToKeep(turns, 2, () => false), turns, 'nothing covered: nothing goes');
+        assert.deepEqual(hostTrailTurnsToKeep(turns, 3, (t) => t !== 1), turns, 'an uncovered oldest turn keeps the newer ones');
     });
 });

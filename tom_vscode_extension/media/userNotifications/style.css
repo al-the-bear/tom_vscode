@@ -11,6 +11,8 @@ body {
 .bar { position: sticky; top: 0; z-index: 2; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); margin-top: -2px; padding-top: 4px; }
 .bar .grow { flex: 1 1 auto; }
 .bar .summary { font-size: 0.9em; }
+.bar .qa { font-size: 0.9em; display: inline-flex; gap: 6px; }
+.bar .qa-new { color: var(--vscode-textLink-foreground); }
 .icon {
     background: none;
     border: 1px solid transparent;

@@ -3,7 +3,7 @@
  *
  * The prompt queue keeps its SDK continuity in `default@default.session.json` (the default run's default session);
  * the Anthropic chat panel keeps its own in `chat.session.json`. Both
- * live in the quest's history folder. These tests pin the file naming
+ * live in this host's folder of the quest's history, `history/<host>/`. These tests pin the file naming
  * and, crucially, that the two keys are isolated so a chat send never
  * resumes (or clears) the queue's session and vice-versa.
  */
@@ -21,6 +21,7 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const stubHandle = installVscodeStub({});
 
 import { TwoTierMemoryService } from '../memory-service.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 
 const QUEST = 'session_test_quest';
 
@@ -31,7 +32,7 @@ function freshWorkspace(): string {
 }
 
 function sessionFile(root: string, key: string): string {
-    return path.join(root, '_ai', 'quests', QUEST, 'history', `${key}.session.json`);
+    return path.join(root, '_ai', 'quests', QUEST, 'history', hostSlugOf(), `${key}.session.json`);
 }
 
 describe('TwoTierMemoryService Agent SDK session keys', () => {

@@ -91,8 +91,8 @@ graph TD
     end
 
     subgraph TrailLayer["Trail Layer"]
-        RAWA["history/sessions/{session}/trail/\none file per exchange"]
-        COMPACT["history/sessions/{session}/\nquest.anthropic.prompts.md\nquest.anthropic.answers.md"]
+        RAWA["history/{host}/sessions/{session}/trail/\none file per exchange"]
+        COMPACT["history/trail.{host}.md\none block per turn"]
         RTV["Raw Trail Viewer\ntomAi.editor.rawTrailViewer"]
         STE["Summary Trail Editor\ntomAi.trailViewer"]
     end
@@ -127,7 +127,7 @@ The trail system has always had two distinct tiers that serve different purposes
 | Tier | Location | Format | Viewer | Purpose |
 | --- | --- | --- | --- | --- |
 | **Raw trail** | `_ai/trail/{subsystem}/{quest}/` | One file per prompt/response/tool call | Raw Trail Viewer (`trailViewer-handler.ts`) | Debugging, full fidelity |
-| **Compact trail** | `_ai/quests/{quest}/history/` | Accumulated `.prompts.md` / `.answers.md` | Summary Trail Editor (`trailEditor-handler.ts`) | History, searchable log |
+| **Compact trail** | `_ai/quests/{quest}/history/trail.{host}.md` (Anthropic sessions); `_ai/quests/{quest}/history/{quest}.{subsystem}.prompts.md` / `.answers.md` (the other subsystems) | One block per prompt/answer turn; accumulated summary pairs | a session's view as a document; Summary Trail Editor (`trailEditor-handler.ts`) for the pairs | History and memory source, searchable log |
 
 ### 4.2 Raw trail — existing structure and Anthropic addition
 
@@ -157,11 +157,34 @@ The path for Anthropic is configured via `tomAi.trail.raw.paths.anthropic` (defa
 
 **`.gitignore` coverage:** The existing root `.gitignore` has `_ai/**/trail/*` which covers only one level below a `trail/` segment. The actual raw file paths `_ai/trail/{subsystem}/{quest}/file` are two levels below `_ai/trail/` and are **not** matched. The gitignore must be updated to `_ai/trail/**` (recursive) to cover all raw trail files. ✨ Code change required.
 
-### 4.3 Compact trail — per quest, naming convention
+### 4.3 Compact trail — per quest and host
 
-The compact trail accumulates in the quest's `history/` subfolder, beside the
-other generated trail files and covered by the same gitignore rule. The file
-name encodes the provider:
+The Anthropic sessions' compact trail is the **host trail** `history/trail.<host>.md`
+(`src/services/hostTrail.ts`): one file per machine for the quest, tracked and
+written only by its machine. Each prompt/answer turn of a session whose
+`contributesToTrailAndMemory` is on is one block:
+
+```text
+<!--tom-trail-turn {"id":"<request id>","time":"<ISO>","host":"<host>","session":"<session>","profile":"<profile>","model":"<model>"}-->
+### <time> · <session> · <model>
+<!--tom-trail-prompt-->
+the prompt as sent
+<!--tom-trail-answer-->
+the turn's final answer
+<!--tom-trail-end-->
+```
+
+The marker lines are the structure; a text line starting with `<!--tom-trail-`
+is written with one more leading backslash, so no prompt or answer is taken for
+a marker. `TrailService.beginHostTrailTurn` notes the prompt when it is sent and
+`completeHostTrailTurn` writes the turn with its final answer at each exit of the
+send (an error or an interruption is the answer then); an isolated sub-agent run
+is an inner step and writes no turn. A session's trail is its turns in the file
+(`sessionView`); `tomAi_listPromptPairs`, the TODO LOG and the history and memory
+build read it.
+
+The other subsystems' compact trail accumulates in the quest's `history/`
+subfolder as summary pairs. The file name encodes the provider:
 
 ```text
 _ai/quests/vscode_extension/history/
@@ -254,9 +277,11 @@ Two kinds of file live there (`src/services/questMemoryFiles.ts`):
 | Kind | Files | Written by | Shared |
 | --- | --- | --- | --- |
 | **curated facts** | every file that is not a candidates file: `facts.md` (the default), a profile's bucket `facts-{suffix}.md`, any other name | deliberately: the memory tools, the user's remember / forget, the Memory panel | by every host (tracked, merged) |
-| **candidates** | `candidates.{host}.md`, one per host (the host name made safe for a file name) | the automatic memory extraction, on that host only | tracked, never merged: only its host writes it |
+| **candidates** | `candidates.{host}.md`, one per host (`{host}` the host slug, `hostSlugOf()`) | the automatic memory extraction, on that host only | tracked, never merged: only its host writes it |
 
-A candidate is a stamped bullet like every memory entry, `- <iso time> [<host>] <text>`, whose text starts with a fixed prefix: `{session=<session> file=<curated file>} <fact>`. It names the session the fact was extracted in (empty when the extraction ran in none) and the curated file it is meant for, the extraction template's `targetFile` (`formatCandidateText` / `parseCandidateText`; a line without the prefix is the fact alone, meant for `facts.md`). Both extraction passes (`runIncrementalMemoryExtraction`, the `llm_extract` mode) write candidates through `TwoTierMemoryService.addCandidates` and never a curated file; their `${existingMemory}` is the target curated file's content followed by this host's candidates meant for that file (`existingMemoryForExtraction`). A candidate becomes a fact by promotion: the fact is saved into its curated file and its line removed from the candidates file — by the user in the Memory panel or by a prompt with the memory tools, which address a candidates file by its name like any file.
+A candidate is a stamped bullet like every memory entry, `- <iso time> [<host>] <text>`, whose text starts with a fixed prefix: `{session=<session> file=<curated file>} <fact>`. It names the session the fact was extracted in (empty when the extraction ran in none) and the curated file it is meant for, the extraction template's `targetFile` (`formatCandidateText` / `parseCandidateText`; a line without the prefix is the fact alone, meant for `facts.md`). Both extraction passes (`runIncrementalMemoryExtraction`, the `llm_extract` mode) write candidates through `TwoTierMemoryService.addCandidates` and never a curated file; their `${existingMemory}` is the target curated file's content followed by this host's candidates meant for that file (`existingMemoryForExtraction`). A candidate becomes a fact by promotion: the fact is saved into its curated file and its line removed from the candidates file — by the user in the Memory panel, by a prompt with the memory tools, which address a candidates file by its name like any file, or by the prompt the chat panel's **Promote memory** button queues (the Assist prompt `promoteMemory`, shown with the setting `tomAi.memory.promoteMemoryButton`), which presents every host's candidates and promotes the chosen ones.
+
+This host's candidates file under the name before the host slug, `candidates.<hostname>.md` (`legacyCandidatesFile()`), is read with the slug-named one and merged into it on the next write, then deleted.
 
 The memory service has no session: `scopeFolder` is the quest's folder, and the session a send runs in is handed over where it matters — to the extraction (the candidate's session) and to the injection (below).
 
@@ -270,9 +295,9 @@ While the folder `_ai/memory/{quest}/` exists, the block additionally holds the 
 
 | | Raw trail | Compact trail | Compacted history | Memory |
 | --- | --- | --- | --- | --- |
-| Location | `_ai/trail/{subsystem}/{quest}/` | `_ai/quests/{quest}/` | `_ai/quests/{quest}/history/` | `_ai/quests/{quest}/memory/` |
-| Written by | Every exchange, automatically | Every exchange, automatically | Compaction pipeline | Model tools / LLM extraction / user keywords |
-| Format | One file per event | Accumulated `.md` log | Serialised message array JSON | Free-form markdown |
+| Location | the session's `trail/` | `_ai/quests/{quest}/history/trail.{host}.md` | `_ai/quests/{quest}/history/compacted_history.md` | `_ai/quests/{quest}/memory/` |
+| Written by | Every exchange, automatically | Every turn of a session whose trail setting is on | The build of the quest history (§6.6), from every host's compact trail and the todo archive | Model tools / LLM extraction (candidates) / user keywords / Promote memory |
+| Format | One file per event | One block per prompt/answer turn | Blocks (`<!-- tom:block -->`) | Free-form markdown |
 | Injected into prompts | No | No | Yes — messages array | Yes — system prompt |
 | Compacted/trimmed | No (max entries only) | No (max entries only) | Yes — this IS the compaction output | By model/LLM on update |
 | Purpose | Debugging | Searchable history | Multi-session continuity | Long-lived knowledge base |
@@ -294,7 +319,7 @@ flowchart LR
 
 **Explicit (model-driven):** The Anthropic model calls `tomAi_memory_save`, `tomAi_memory_forget`, `tomAi_memory_update` when it decides something is worth persisting. Enabled via `memoryToolsEnabled: true` in the configuration.
 
-**Implicit (background extraction):** When `historyMode` is `llm_extract`, after each exchange the local LLM runs an extraction prompt over the completed turn and appends key facts to `facts.md`. This is non-blocking and does not affect the response latency.
+**Implicit (background extraction):** every build of the quest history (§6.6) with `runMemoryExtractionOnCompaction` on, and every **Rebuild history and memory**, runs the extraction prompt over the consolidated trail's new turns, one call per session, and writes the key facts as candidates to this host's `candidates.{host}.md`, each naming the session of its turns. With `historyMode: llm_extract` the latest exchange is extracted the same way. This is non-blocking and does not affect the response latency.
 
 **Keyword triggers:** The handler scans the outgoing user message for `Remember: ...` and `Forget: ...` prefixes and writes/removes the fact directly without involving any model. Configurable on/off.
 
@@ -402,6 +427,23 @@ export async function compactHistory(
     options: CompactionOptions,
 ): Promise<ConversationMessage[]>
 ```
+
+### 6.6 The quest's history
+
+The compacted history every session's prompt gets is the quest's, not a session's: `_ai/quests/{quest}/history/compacted_history.md` (blocks, `src/services/compacted-history.ts`), with the snapshot `history.json` / `history.md` and the coverage `history.watermark.json` beside it — untracked: each host builds its own (`src/services/questHistory.ts`). A session keeps only its rolling tail (`rawTurns.json`) and its accumulator (`compaction_rounds.json`) in its storage folder; the history modes keep their meaning (`summary`, `trim_and_summary` and `full` send the quest's history as the *Additional context* pair; the Agent SDK's `${compactedSummary}` is it).
+
+**Inputs.** Two sources, merged into one time order (a turn before a todo of the same time):
+
+1. **The consolidated trail** — every host's compact trail `history/trail.{host}.md` (`readHostTrails`), each turn once by its id, sorted by time (`consolidatedTrail`); generated on the spot, never written. A session whose `contributesToTrailAndMemory` is off has no turns there.
+2. **The todo archive** `todos-archived.{quest}.todo.yaml` — each completed or cancelled todo as a record of exactly `id`, `title`, `status`, `completed_date`, `description`, `notes` (whole), `decisions` (summary, the decision and who decided — the user), `references`, `last_answer` (`ARCHIVED_TODO_HISTORY_FIELDS`, `archivedTodoRecord`), in completion order; a bare completion day sorts at the end of that day (UTC).
+
+**The watermark** `history.watermark.json`: `{hosts: {<host>: <ISO time of the newest turn covered>}, lastArchivedTodo: {id, completed} | null, builtAt, oldSessionHistoriesDeleted?}`. A turn is covered when its time is at or before its host's time; the archived todos after `lastArchivedTodo` are new. The host trail's trimming (`trail.compact.maxEntries`) removes only covered turns.
+
+**The build** (`buildQuestHistory`; the handler's `runQuestHistoryBuild`, one at a time): the new inputs — at most `rebuildFromLastNPrompts` of the newest, the older passed over — in chunks of `runEveryNRounds`, each one call of the compaction template (`${lastTurn}` the chunk: a turn as `[time · host · session]` prompt and answer, a todo as its record; `${existingBlocks}` / `${existingSummary}` the history so far). After each chunk the blocks, the snapshot and the advanced watermark are written; with extraction on, the chunk's turns are extracted per session (`runIncrementalMemoryExtraction` with the turn's session). A failing compaction call ends the build there. The first successful build on a host deletes the old per-session `history/sessions/*/compacted_history.md` files (and this host's `history/<host>/sessions/*/compacted_history.md`), logs them and records it in the watermark, once.
+
+**When it runs.** When a session's accumulator reaches `runEveryNRounds` rounds (the accumulator clears after a successful build); on the first send of a quest that has turns in its trail and no history yet (not while compaction is disabled); and with **Rebuild history and memory** — the ANTHROPIC/LLM status bar button, and the action of the notice after a reconcile — which builds and extracts even while background compaction is disabled. The notice (`src/services/historyRebuildNotice.ts`, wired in `src/handlers/historyRebuildNotice-handler.ts`): when another host's trail holds turns newer than its watermark time — checked when a `history/trail.*.md` file changes on disk and at window start — a non-modal information message names the hosts and offers the rebuild, once per change; this host's own trail never raises it.
+
+**Old place.** While the quest has no `history/compacted_history.md`, a session's own `compacted_history.md` in its storage folder is read (and, without one, its `history.json`'s `compactedSummary`); nothing writes either.
 
 ---
 
@@ -1173,7 +1215,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
 }
 ```
 
-`trail.compact.maxEntries` is the number of prompt / answer turns each summary trail file (`*.prompts.md` / `*.answers.md`) keeps; every write drops the oldest beyond it (`utils/compactTrailTrim.ts`). The raw trail is limited by `trail.raw.maxRawFiles`.
+`trail.compact.maxEntries` is the number of prompt / answer turns a compact trail keeps (`utils/compactTrailTrim.ts`): the host trail drops the oldest beyond it only when the quest's history covers them (`history/history.watermark.json`; without it nothing is dropped); a summary pair (`*.prompts.md` / `*.answers.md`) drops the oldest on every write. The raw trail is limited by `trail.raw.maxRawFiles`.
 
 ### `memory` section
 
@@ -1908,7 +1950,7 @@ Touched files: `services/agent-sdk-questions.ts` (new) + test, `handlers/agent-s
 
 ### 18.12 Named sessions: lifetimes, profile and model
 
-A conversation runs in a **named session**: `_ai/quests/<quest>/history/<name>.session.json` (`chat` and `default` gitignored, a named session's file tracked). The chat panel uses `chat`, the prompt queue `default`; any other name is a session someone created — in the session picker, with `tomAi_createSession`, from a queue item's session spec or from a process definition. The rules are pure functions in `src/utils/agentSdkSessions.ts`; the files are read and written by `src/services/agentSdkSessionStore.ts`.
+A conversation runs in a **named session**: `_ai/quests/<quest>/history/<host>/<name>.session.json` — sessions belong to the machine they run on; the file is tracked and written only by that machine (a file an older build wrote directly in `history/` is read and written there, a file at the new place wins, and the listing names both). The chat panel uses `chat`, the prompt queue `default`; any other name is a session someone created — in the session picker, with `tomAi_createSession`, from a queue item's session spec or from a process definition. The rules are pure functions in `src/utils/agentSdkSessions.ts`; the files are read and written by `src/services/agentSdkSessionStore.ts`.
 
 A session file holds:
 
@@ -1920,6 +1962,7 @@ A session file holds:
 | `model` | The profile's configured model, written at creation; the first send updates it from what the SDK reports. |
 | `sessionId` | The Agent SDK conversation it continues (`continue` sessions). |
 | `iteration` | `{key, sessionId}`: the conversation of the current queue iteration (`per-iteration` sessions on the Agent SDK). |
+| `contributesToTrailAndMemory` | Whether its turns go into the host trail and so into memory and the history; absent: true. A new session gets it from the user's required choice (the pickers), else from the caller (`tomAi_createSession`, a spec, `newSession`), else from its base, else true. |
 
 **Lifetimes**, each with or without a base:
 
@@ -1931,31 +1974,31 @@ A session file holds:
 
 A **queue iteration** is one round of an item's repeat count or one todo of a `<prefix>*` walk. The queue sends every prompt with an iteration key `<item id>/<run id>/<n>` (`src/utils/queueIterations.ts`): the main prompt starts iteration `n + 1`, a pre-prompt runs in the iteration it precedes, a follow-up in the one it follows, and a resend runs in the iteration of the prompt it replays. A run id changes when the item is started again from the beginning, so a second run never continues the first run's conversations. A prompt with no key (the chat panel, the Quest Refresh prompt) is its own iteration: a `per-iteration` session behaves as `per-prompt` there.
 
-**Both transports.** On the Agent SDK transport with history mode `sdk-managed`, `planSessionStart` decides what a prompt resumes (its own id, a fork of the base's, the current iteration's) and whether the id the SDK reports is saved — as the session's own or as the iteration's. On every other configuration (the direct API, and the Agent SDK with our own history) `src/services/directSessionHistory.ts` decides which history files a send reads and writes: every session has `history/sessions/<name>/`, `chat` and `default` included (§18.13). A `continue` session based on another is seeded once from the base's history; a `per-prompt` session reads its base's history (through bases that keep none of their own) or nothing, and saves nothing; a `per-iteration` session keeps its own folder for the current iteration — `iteration.json` names it — and empties it and seeds it from the base again when the key changes.
+**Both transports.** On the Agent SDK transport with history mode `sdk-managed`, `planSessionStart` decides what a prompt resumes (its own id, a fork of the base's, the current iteration's) and whether the id the SDK reports is saved — as the session's own or as the iteration's. On every other configuration (the direct API, and the Agent SDK with our own history) `src/services/directSessionHistory.ts` decides which history files a send reads and writes: every session has `history/<host>/sessions/<name>/`, `chat` and `default` included (§18.13). A `continue` session based on another is seeded once from the base's history; a `per-prompt` session reads its base's history (through bases that keep none of their own) or nothing, and saves nothing; a `per-iteration` session keeps its own folder for the current iteration — `iteration.json` names it — and empties it and seeds it from the base again when the key changes.
 
 **Profile and model.** Which profile a prompt runs with: the queue stage's or item's own, else the session's `profileId`, else the queue default. A conversation lives in one place — an Agent SDK session (`sdk-managed`) or our own history files — so a profile of the other kind cannot continue it: the queue refuses such an item when it is queued or its session changes (`sessionTransportMismatch`; `chat` and `default` hold both and are never refused, and a session without a conversation yet takes any profile). An unknown profile id is refused wherever a session is created with one. `describeSession`, `tomAi_listSessions` and `tomAi_createSession` show the profile and model.
 
-**Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?}`. When the item is dispatched and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.
+**Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?, contributesToTrailAndMemory?}`. When the item is dispatched and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.
 
 ### 18.13 Per-session storage
 
-Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder, its storage root (`src/services/sessionStorage.ts`):
+Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder of its machine, its storage root `history/<host>/sessions/<session>/` (`src/services/sessionStorage.ts`), machine-local as a whole; its prompt/answer turns go to the host trail `history/trail.<host>.md` (§4.3). A storage root an older build made at `history/sessions/<session>/` is read and written there until the `_ai` format migration moves it; a root at the new place wins; a new session's is made at the new place.
 
-| File | What | Git |
-| --- | --- | --- |
-| `history/sessions/<session>/compacted_history.md` | the compacted history blocks | tracked |
-| `history/sessions/<session>/history.json`, `history.md` | the snapshot, read back from the same folder | tracked |
-| `history/sessions/<session>/live-trail.md` | the live trail | tracked |
-| `history/sessions/<session>/rawTurns.json`, `compaction_rounds.json`, `iteration.json` | the rolling tail, the accumulator, a per-iteration session's iteration | ignored |
-| `history/sessions/<session>/<quest>.anthropic.prompts.md`, `.answers.md` | the summary trail pair; rebuild and recreate read it | ignored |
-| `history/sessions/<session>/trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json`, `current_prompt.*.md` | ignored |
+| File (in the storage root) | What |
+| --- | --- |
+| `compacted_history.md`, `history.json`, `history.md` | an older build's per-session compacted history and snapshot: read while the quest has no history of its own (§6.6), written by nothing |
+| `live-trail.md` | the live trail |
+| `rawTurns.json`, `compaction_rounds.json`, `iteration.json` | the rolling tail, the accumulator, a per-iteration session's iteration |
+| `session-todos.todo.yaml` | the session's todos |
+| `trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json` |
+| `<quest>.anthropic.prompts.md`, `.answers.md` | the summary trail pair of an older build (old place only): written by nothing; the prompt-pair tools and the TODO LOG read its turns older than the host trail's |
 | `_ai/memory/<quest>/<session>/` | a session's memory folder of the old place (§5.2): read by the memory injection for that session's sends, removed with the session, written by nothing | tracked |
 
-(`history/` is `_ai/quests/<quest>/history/`.) There is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`.
+(`history/` is `_ai/quests/<quest>/history/`; a session's memory folder of the old place, `_ai/memory/<quest>/<session>/`, is read by the memory injection for that session's sends and removed with the session.) There is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`: a host's `history/<host>/sessions/`, the quest's built history (`history/compacted_history.md`, `history.json`, `history.md`, `history.watermark.json`), `quest_refresh.<quest>.md` and every `live-trail.md` are ignored; the session files and the host trails are tracked.
 
-- **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories; a memory candidate names the session). Per send, `activateSession` sets the session's own tool trail; the quest memory has no session (§5.1).
+- **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root (its raw trail) and writes the session's turns to the host trail; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories; a memory candidate names the session). Per send, `activateSession` sets the session's own tool trail; the quest memory has no session (§5.1).
 - **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.
-- **Based sessions.** A based session reads its base's history (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never clears its base's accumulator after a compaction.
+- **Based sessions.** A based session reads its base's rolling tail and accumulator (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never builds the history or clears its base's accumulator. The compacted history is the quest's (§6.6) and is never copied.
 - **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and its memory folder `_ai/memory/<quest>/<session>/` removed with it (`removeSessionStorage`).
 - **Local LLM.** An Anthropic profile on a Local LLM configuration is stored like every Anthropic profile, in its session; only its `last_request.json` dump goes to `_ai/trail/localllm/<quest>/`.
 - **Moving to it.** On a quest's first use in a window (`TwoTierMemoryService.ensureSessionStorage`) the files of the per-quest layout — the history files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `current_prompt.*` and `last_request.json`, which the Logs tab reads there) and `_ai/memory/<quest>/*.md` — become the `default` session's. A machine-local marker, `history/sessions/.storage-version`, makes it run once per quest and machine; a file whose target already exists stays where it is, named in the *Tom AI Compaction and Memory Extraction* output channel.

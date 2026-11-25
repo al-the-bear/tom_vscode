@@ -113,7 +113,7 @@ Which tools a request carries — the core set, the `<!-- tools: … -->` line a
 
 ## 4. Enable memory tools
 
-The quest memory (`_ai/quests/<quest>/memory/`: the curated files such as `facts.md`, and one candidates file per host, `candidates.<host>.md`, which the automatic memory extraction writes) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
+The quest memory (`_ai/quests/<quest>/memory/`: the curated files such as `facts.md`, and one candidates file per host, `candidates.<host>.md` with the host slug, which the automatic memory extraction writes; the chat panel's **Promote memory** button, shown with `tomAi.memory.promoteMemoryButton`, queues a prompt that promotes the chosen candidates) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
 
 ```json
 "memoryToolsEnabled": true
@@ -142,8 +142,8 @@ The Anthropic flow uses the following template categories, all editable via the 
 | --- | --- | --- |
 | `anthropicProfiles` | System-prompt profiles | Sent as `system` on every request (both transports) |
 | `anthropicUserMessage` | User-input wrapping (e.g. add file context, role banner) | Wraps each user turn before sending (both transports) |
-| `compaction` | History-summary template | `history-compaction.ts` between turns (direct only — SDK compacts on `agentSdk`) |
-| `memoryExtraction` | Extract durable facts from a finished exchange | Background pass after each turn (direct only on `agentSdk`) |
+| `compaction` | History-summary template | The build of the quest's history (`src/services/questHistory.ts`): every `runEveryNRounds` rounds and with **Rebuild history and memory**, over the new turns of every host's trail and the newly archived todos; the result, `_ai/quests/<quest>/history/compacted_history.md`, is what every session's prompt gets (SDK-managed sessions keep their own conversation) |
+| `memoryExtraction` | Extract durable facts from the new turns | In the same build, one call per session of the new turns; the facts become this host's candidates |
 | `transportRetry` | The continuation prompt after an interrupted send (`maxAttempts`, default 3) | `agentSdk` when a turn is interrupted; `direct` after a dropped connection |
 | `interactiveQuestions` | Fallback text returned to the agent for an `AskUserQuestion` call | `agentSdk` transport when interactive questions are off / dismissed (see §6) |
 

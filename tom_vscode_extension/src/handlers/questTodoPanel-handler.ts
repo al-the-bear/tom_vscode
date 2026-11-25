@@ -55,6 +55,7 @@ import { questTrailFolder } from '../utils/questPaths.js';
 import { busySessionWarning } from './sendToChatState.js';
 import { planSessionSwitch, type SessionSwitchPlan } from '../utils/sessionSwitch';
 import { sessionTodoSourceFile } from '../services/sessionTodoFiles';
+import { questHistoryRoot } from '../services/trailService';
 import { computeMoveTargetFiles } from '../utils/questTodoMoveTargets';
 import { isArchivedOrDeletedTodoFile } from '../utils/todoArchiveNames';
 import { restoreTodos } from '../utils/todoArchive';
@@ -2532,7 +2533,7 @@ function _listSessionTodoFiles(questId: string): string[] {
     // The session the view shows: its own file in its storage root.
     let store: SessionTodoStore;
     try { store = SessionTodoStore.instance; } catch { return []; }
-    return fs.existsSync(store.filePathFor(store.shownSession)) ? [sessionTodoSourceFile(store.shownSession)] : [];
+    return fs.existsSync(store.filePathFor(store.shownSession)) ? [sessionTodoSourceFile(questHistoryRoot(questId), store.shownSession)] : [];
 }
 
 /**

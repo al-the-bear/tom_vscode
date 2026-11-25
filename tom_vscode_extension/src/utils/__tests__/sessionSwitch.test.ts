@@ -65,7 +65,7 @@ function readMedia(...parts: string[]): string {
 type Win = any;
 
 const VIEWERS = [
-    { id: 'logs', prefix: 'qlog', section: 'logs', tabIds: ['mdTrail', 'trail', 'prompts', 'answers', 'currentPrompt'], defaultTab: 'mdTrail', sessions: true },
+    { id: 'logs', prefix: 'qlog', section: 'logs', tabIds: ['turns', 'mdTrail', 'trail'], defaultTab: 'mdTrail', sessions: true },
     {
         id: 'docs', prefix: 'qdoc', section: 'documentation', tabIds: ['documents', 'progress', 'overview'],
         defaultTab: 'documents', paneTabs: { documents: 'qdoc-documents-pane' }, sessions: false,
@@ -75,7 +75,7 @@ const VIEWERS = [
 const HTML = `<body>
 <div id="qlog-sessions"></div>
 <div id="qlog-tabs"><button data-qlog-tab="mdTrail"></button><button data-qlog-tab="trail"></button></div>
-<select id="qlog-variant"></select><button id="qlog-refresh"></button><button id="qlog-open"></button>
+<button id="qlog-refresh"></button><button id="qlog-open"></button>
 <div id="qlog-body"></div><div id="qlog-status"></div>
 <div id="qdoc-tabs"><button data-qlog-tab="documents"></button><button data-qlog-tab="progress"></button></div>
 <button id="qdoc-refresh"></button><button id="qdoc-open"></button>
@@ -91,7 +91,7 @@ function setup(t: { after(fn: () => void): void }, state?: Record<string, unknow
     w.vscode = { postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))), getState: () => saved, setState: (s: Record<string, unknown>) => { saved = s; } };
     w.isExpanded = () => true;
     w.__saved = () => saved;
-    w.eval(`var qlogViewers = ${JSON.stringify(VIEWERS)}; var qlogVariantTabs = ['currentPrompt']; var qlogVariantIds = ['chatLiteral','queueUser']; var qlogDefaultVariant = 'chatLiteral';\n`
+    w.eval(`var qlogViewers = ${JSON.stringify(VIEWERS)};\n`
         + readMedia('questLogs', 'main.js'));
     return { w, posted };
 }
@@ -105,7 +105,7 @@ describe('session switch in the webview', () => {
         const { w, posted } = setup(t);
         await flush(w);
         const first = posted.find((m) => m.viewer === 'logs');
-        assert.deepEqual(first, { type: 'qlogRequest', viewer: 'logs', tab: 'mdTrail', variant: 'chatLiteral', session: '', force: true },
+        assert.deepEqual(first, { type: 'qlogRequest', viewer: 'logs', tab: 'mdTrail', session: '', force: true },
             'the first request lets the host choose the session');
         assert.equal(posted.some((m) => m.viewer === 'docs'), false, 'the Documents pane polls nothing');
 
@@ -121,7 +121,7 @@ describe('session switch in the webview', () => {
 
         posted.length = 0;
         box.querySelector('[data-qlog-session="chat"]').click();
-        assert.deepEqual(posted.pop(), { type: 'qlogRequest', viewer: 'logs', tab: 'mdTrail', variant: 'chatLiteral', session: 'chat', force: true });
+        assert.deepEqual(posted.pop(), { type: 'qlogRequest', viewer: 'logs', tab: 'mdTrail', session: 'chat', force: true });
         send(w, { type: 'qlogContent', viewer: 'logs', tab: 'mdTrail', session: 'default', exists: true, html: '<p>late reply</p>', newestAt: 'end', fileName: 'x', bytes: 1 });
         assert.doesNotMatch(w.document.getElementById('qlog-body').innerHTML, /late reply/, 'a reply for the previous session is dropped');
         send(w, { type: 'qlogContent', viewer: 'logs', tab: 'mdTrail', session: 'chat', exists: false, fileName: 'sessions/chat/live-trail.md', newestAt: 'end' });
@@ -147,11 +147,11 @@ describe('session switch in the webview', () => {
         w.document.querySelector('#qdoc-tabs [data-qlog-tab="progress"]').click();
         assert.equal(w.document.getElementById('qdoc-documents-pane').hidden, true);
         assert.equal(w.document.getElementById('qdoc-body').hidden, false);
-        assert.deepEqual(posted.pop(), { type: 'qlogRequest', viewer: 'docs', tab: 'progress', variant: 'chatLiteral', session: '', force: true });
+        assert.deepEqual(posted.pop(), { type: 'qlogRequest', viewer: 'docs', tab: 'progress', session: '', force: true });
     });
 
     test('SW-4: the single-viewer state is read', async (t) => {
-        const { w, posted } = setup(t, { qlogTab: 'trail', qlogVariant: 'queueUser' });
+        const { w, posted } = setup(t, { qlogTab: 'trail' });
         await flush(w);
         assert.equal(posted.find((m) => m.viewer === 'logs')?.tab, 'trail', 'the tab chosen before this build');
     });

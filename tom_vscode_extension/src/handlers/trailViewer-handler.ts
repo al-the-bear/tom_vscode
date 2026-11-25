@@ -887,7 +887,7 @@ async function handleMessage(
     }
 }
 
-export async function gotoWorkspaceTodo(todoRefRaw: string, _context: vscode.ExtensionContext): Promise<void> {
+export async function gotoWorkspaceTodo(todoRefRaw: string, _context?: vscode.ExtensionContext): Promise<void> {
     const todoRef = todoRefRaw.trim();
     if (!todoRef) {
         vscode.window.showWarningMessage('TODO not found');

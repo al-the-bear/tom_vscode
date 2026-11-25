@@ -99,12 +99,12 @@ export function processResetConfirmation(plan: ProcessResetPlan): { message: str
     const runName = plan.run === DEFAULT_RUN ? 'the run default' : `the run ${plan.run}`;
     return {
         message: `${what}: reset ${runName}?`,
-        detail: [...processResetLines(plan), '', 'This cannot be undone; it is written to the quest\'s decisions journal.'].join('\n'),
+        detail: [...processResetLines(plan), '', 'This cannot be undone; it is written to the quest\'s Q&A journal.'].join('\n'),
         confirm: what,
     };
 }
 
-/** The decisions journal entry of a reset. */
+/** The Q&A journal entry of a reset. */
 export function processResetJournalEntry(plan: ProcessResetPlan, at: Date = new Date()): string {
     return [
         `## ${at.toISOString()} — ${plan.mode === 'run' ? 'Reset Run' : 'Reset Process'}: run ${plan.run}`,

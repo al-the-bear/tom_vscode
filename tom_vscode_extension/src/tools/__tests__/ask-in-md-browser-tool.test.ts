@@ -31,7 +31,7 @@ import {
     ASK_IN_MD_BROWSER_TOOL, MdBrowserAskSlot, askInMdBrowserImpl,
     type AskInMdBrowserDeps, type AskMdBar,
 } from '../ask-in-md-browser-tool.js';
-import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../../utils/questionsLogFormat.js';
 import { runAsQueueItem } from '../../services/userWaits.js';
 
 const ROOT = '/ws';
@@ -43,6 +43,7 @@ function fake(over: Partial<AskInMdBrowserDeps> = {}) {
     const closed: string[] = [];
     const deleted: string[] = [];
     const logs: QuestionLogEntry[] = [];
+    const asked: QuestionAskedEntry[] = [];
     const timers: Array<{ ms: number; cb: () => void; cleared: boolean }> = [];
     const deps: AskInMdBrowserDeps = {
         workspaceRoot: ROOT,
@@ -52,13 +53,14 @@ function fake(over: Partial<AskInMdBrowserDeps> = {}) {
         closePanel: (panelId) => { closed.push(panelId); },
         deleteFile: (abs) => { files.delete(abs); deleted.push(abs); },
         log: (e) => logs.push(e),
+        logAsked: (e) => asked.push(e),
         now: () => 1000,
         genId: () => `req${bars.length + 1}`,
         setTimer: (ms, cb) => { const t = { ms, cb, cleared: false }; timers.push(t); return t as unknown as ReturnType<typeof setTimeout>; },
         clearTimer: (h) => { (h as unknown as { cleared: boolean }).cleared = true; },
         ...over,
     };
-    return { deps, files, bars, cleared, closed, deleted, logs, timers };
+    return { deps, files, bars, cleared, closed, deleted, logs, asked, timers };
 }
 
 const BUTTONS = [{ id: 'continue', label: 'Continue' }, { id: 'cancel', label: 'Cancel' }];
@@ -223,7 +225,10 @@ describe('tomAi_askInMdBrowser', () => {
         assert.equal(f.logs.length, 1);
         assert.equal(f.logs[0].tool, 'tomAi_askInMdBrowser');
         assert.equal(f.logs[0].title, 'Review');
-        assert.deepEqual(f.logs[0].questions, ['notes/ask.md — Continue / Cancel']);
+        assert.deepEqual(f.logs[0].questions, ['notes/ask.md']);
+        assert.deepEqual(f.logs[0].choices, ['Continue', 'Cancel']);
+        assert.equal(f.logs[0].requestId, 'req1', 'the answer names the question written when it was asked');
+        assert.deepEqual(f.asked.map((a) => [a.tool, a.requestId, a.questions, a.choices]), [['tomAi_askInMdBrowser', 'req1', ['notes/ask.md'], ['Continue', 'Cancel']]], 'the question is journalled as it is asked');
         assert.equal(f.logs[0].answer, 'Continue (file not kept)');
         assert.equal(f.logs[0].source, 'vscode');
 

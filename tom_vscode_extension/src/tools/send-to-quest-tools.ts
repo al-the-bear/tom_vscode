@@ -36,7 +36,7 @@ export interface SendItemToQuestInput {
     doneNotificationRun?: string;
     pauseAfter?: boolean;
     session?: string;
-    newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string };
+    newSession?: { basedOn: string; name?: string; lifetime?: string; profile?: string; contributesToTrailAndMemory?: boolean };
     /** The role the item runs as in the target quest (a folder of `_ai/roles/`). */
     role?: string;
     /** The item's guideline choices there: aspect → choice or `remove` (gsel4). */
@@ -145,6 +145,7 @@ export async function sendItemToQuestImpl(access: QuestSendAccess, input: SendIt
                 ...(n.name ? { name: n.name } : {}),
                 ...(lifetime ? { lifetime } : {}),
                 ...(n.profile ? { profile: n.profile } : {}),
+                ...(typeof n.contributesToTrailAndMemory === 'boolean' ? { contributesToTrailAndMemory: n.contributesToTrailAndMemory } : {}),
             };
         }
         const run = input.run?.trim() || undefined;
@@ -256,7 +257,7 @@ export function postInboxItem(access: Pick<QuestSendAccess, 'liveWindows' | 'del
 }
 
 export const SEND_ITEM_TO_QUEST_DESCRIPTION =
-    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`; a run the target lacks is refused, `unknownRun`). `repeatCount` / `todoIdPattern` make it a todo walk there, `todo` / `group` a TODO / GROUP item over the target quest\'s todo or group, e.g. `repeatCount: "tsm_a*"` walks the target quest\'s `tsm_a*` todos in that run. `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${itemAnswer}` — what the item answered —, `${itemTitle}`, `${itemTodos}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
+    'Put a prompt into the queue of ANOTHER quest\'s window on this machine (your own quest: tomAi_addQueueItem). The target queues it with ITS OWN defaults unless `anthropicProfileId`, `session` (an existing session of the target) or `newSession` (`{basedOn, name?, lifetime?, profile?, contributesToTrailAndMemory?}`; without a name temporary) override them. `run` queues it in that process run of the target (its lane; sessions `<session>@<run>`; a run the target lacks is refused, `unknownRun`). `repeatCount` / `todoIdPattern` make it a todo walk there, `todo` / `group` a TODO / GROUP item over the target quest\'s todo or group, e.g. `repeatCount: "tsm_a*"` walks the target quest\'s `tsm_a*` todos in that run. `doneNotificationPrompt` is queued after the item when it is done or fails for good (`${itemOutcome}`, `${itemAnswer}` — what the item answered —, `${itemTitle}`, `${itemTodos}`, `${senderQuest}`, `${senderRun}`): in the target quest, or with `doneNotificationQuest` in another (this one, to hear back directly), in `doneNotificationRun`. `pauseAfter` pauses the target queue. Look the quest, sessions and profiles up first with tomAi_getQuestWindowStatus. Answers `{delivered, targetRunning}`.';
 
 export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput> = {
     name: 'tomAi_sendItemToQuest',
@@ -291,6 +292,7 @@ export const SEND_ITEM_TO_QUEST_TOOL: SharedToolDefinition<SendItemToQuestInput>
                     name: { type: 'string', description: 'Omit for a temporary session.' },
                     lifetime: { type: 'string', enum: ['continue', 'per-prompt', 'per-iteration'] },
                     profile: { type: 'string' },
+                    contributesToTrailAndMemory: { type: 'boolean', description: 'Whether its turns go into the target host\'s trail and memory. Unset: the base\'s setting.' },
                 },
                 required: ['basedOn'],
                 additionalProperties: false,

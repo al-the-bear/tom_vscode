@@ -90,7 +90,7 @@ import { assistProgress } from '../services/assistProgress.js';
 import { onDocumentWritten } from '../services/documentWrites.js';
 import { liveMdAnswerWriter } from '../tools/md-question-tools.js';
 import { liveAssistDeps, liveAssistProgress } from '../services/assistLiveDeps.js';
-import { appendQuestionLogEntry } from '../services/questionsLog.js';
+import { appendQuestionAsked, appendQuestionLogEntry } from '../services/qaJournal.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { AGENTS_MD, AGENTS_MD_GROUP_PREFIX, agentsMdGroupDir, agentsMdGroups } from '../utils/agentInstructions.js';
@@ -1277,6 +1277,7 @@ export const mdBrowserAskDeps: AskInMdBrowserDeps = {
     deleteFile(absPath) { fs.unlinkSync(absPath); },
     ceilingMinutes: () => readChatQuestionsConfig().maxWaitMinutes,
     log: (entry) => appendQuestionLogEntry(entry),
+    logAsked: (entry) => appendQuestionAsked(entry),
     // Finish review round: the process service, loaded on first use (it pulls in the queue and the stores).
     finishReview: {
         unavailable: (run) => processActions().finishReviewUnavailableNow(run),

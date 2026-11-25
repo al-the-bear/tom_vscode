@@ -7,7 +7,7 @@
  *        Reset Process clears only the declared run parameters that are set; the confirmation names what is reset;
  *        the journal entry; Reset Process without a process, or of `default`, is refused
  *   PR-2 Reset Run of r2 (not the window's run): its stack goes (no process), its open process-move marker goes and
- *        its prompt stays, every custom variable of r2 is cleared, `default`'s are not; the decisions journal records it
+ *        its prompt stays, every custom variable of r2 is cleared, `default`'s are not; the Q&A journal records it
  *   PR-3 Reset Run of `default` (a process it holds from before): no process afterwards, its custom variables
  *        cleared; Reset Process of `default` is refused; starting a process on `default` through
  *        tomAi_setProcessState is refused
@@ -67,6 +67,7 @@ import { parseProcessYaml as parseProcessDefinition, stringifyProcessDefinition 
 import { AVAILABLE_LLM_TOOLS } from '../../utils/constants.js';
 import { CATEGORY_MAP } from '../../utils/toolCategories.js';
 import { withTiming } from './_timing.js';
+import { decisionEntriesText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -105,7 +106,8 @@ const chat = (): ChatVariablesStore => ChatVariablesStore.instance;
 const stateOf = (run: string) => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, run);
 const customOf = (run: string): Record<string, string> => ({ ...chat().withRun(run, () => chat().custom) });
 const setVars = (run: string, vars: Record<string, string>): void => chat().withRun(run, () => { for (const [k, v] of Object.entries(vars)) { chat().set(k, v, 'user'); } });
-const journal = (): string => { const f = path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; };
+// The process decisions of the quest's Q&A journal (decisions.<quest>.md is no file).
+const journal = (): string => { assert.equal(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`)), false); return decisionEntriesText(path.join(WS, '_ai', 'quests', QUEST), QUEST); };
 const EXT = (...p: string[]): string => fs.readFileSync(path.join(EXT_ROOT, ...p), 'utf8');
 
 describe('Reset Run and Reset Process', () => {
@@ -143,7 +145,7 @@ describe('Reset Run and Reset Process', () => {
         const dialog = processResetConfirmation(proc);
         assert.equal(dialog.message, 'Reset Process: reset the run r2?');
         assert.equal(dialog.confirm, 'Reset Process');
-        assert.match(dialog.detail, /The run goes back to the first position of des \(it stands at p1 › work\)\.[\s\S]*The run parameters the process declares are cleared: design = d1, design-mode = new\.[\s\S]*decisions journal/);
+        assert.match(dialog.detail, /The run goes back to the first position of des \(it stands at p1 › work\)\.[\s\S]*The run parameters the process declares are cleared: design = d1, design-mode = new\.[\s\S]*Q&A journal/);
         assert.match(processResetJournalEntry(run, new Date('2026-11-14T16:00:00Z')),
             /^## 2026-11-14T16:00:00\.000Z — Reset Run: run r2\n\n- \*\*Was:\*\* des › p1 › work\n- \*\*Now:\*\* no process\n- \*\*Cleared:\*\* `design` = d1, `design-mode` = new, `other` = x\n- \*\*Levels removed:\*\* 1\n- \*\*Markers removed:\*\* 2\n/);
         assert.match(processResetRefused('process', '', [])!, /follows no process/);

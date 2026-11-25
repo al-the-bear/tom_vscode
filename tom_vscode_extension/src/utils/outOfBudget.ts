@@ -13,6 +13,7 @@
  * vscode-free.
  */
 
+import { hostSlugOf } from './hostSlug';
 import { buildAssistPrompt, type AssistPromptsSection } from './assistPrompts';
 
 /** A profile's policy for running out of credit. */
@@ -112,7 +113,7 @@ export function outOfBudgetValues(
         stoppedAt: mark.at,
         budgetMessage: mark.message,
         liveTrail: opts.quest
-            ? `\`_ai/quests/${opts.quest}/history/sessions/${mark.session}/live-trail.md\``
+            ? `\`_ai/quests/${opts.quest}/history/${hostSlugOf()}/sessions/${mark.session}/live-trail.md\``
             : `the live trail of session "${mark.session}"`,
         toProfile: opts.toProfileName,
         runsInSession: opts.runsInSession,

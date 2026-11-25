@@ -12,6 +12,9 @@
  *   PP-6 the picker uses these plans
  *   PP-7 the process editor's picker returns the spec a definition stores, in its smallest form, and
  *        creates no file
+ *   PP-8 the required trail step: "Contributes to trail and memory?" with Yes / No, nothing preselected; the
+ *        answer is written into the new session (No: off, even when the base is on); dismissing the step
+ *        answers undefined and the creation stops before any file is written
  */
 
 import test, { describe } from 'node:test';
@@ -20,7 +23,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, sessionLabel } from '../sessionPickerPlan.js';
+import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, sessionLabel, TRAIL_CHOICE_TITLE, trailChoices } from '../sessionPickerPlan.js';
 import type { ProfileSection } from '../sessionSpecs.js';
 import { createSession, readSession } from '../../services/agentSdkSessionStore.js';
 
@@ -54,21 +57,24 @@ describe('session picker plans', () => {
 
     test('PP-3: what each path writes', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'picker-'));
-        const make = (name: string, basedOn: string | undefined, mode: 'continue' | 'per-prompt' | 'per-iteration', choice: Parameters<typeof newSessionOptions>[2]) => {
-            const r = createSession(dir, name, newSessionOptions(basedOn, mode, choice, SECTION));
+        const make = (name: string, basedOn: string | undefined, mode: 'continue' | 'per-prompt' | 'per-iteration', choice: Parameters<typeof newSessionOptions>[2], contributes = true) => {
+            const r = createSession(dir, name, newSessionOptions(basedOn, mode, choice, SECTION, contributes));
             assert.equal(r.ok, true, JSON.stringify(r));
             const { createdAt: _c, updatedAt: _u, ...rest } = readSession(dir, name)!;
             return rest;
         };
-        assert.deepEqual(make('plain', undefined, 'continue', { kind: 'none' }), { name: 'plain', mode: 'continue' });
+        const on = { contributesToTrailAndMemory: true };
+        assert.deepEqual(make('plain', undefined, 'continue', { kind: 'none' }), { name: 'plain', mode: 'continue', ...on });
         assert.deepEqual(make('opus', undefined, 'per-prompt', { kind: 'profile', id: 'opus' }),
-            { name: 'opus', mode: 'per-prompt', profileId: 'opus', model: 'claude-opus-5-5' });
+            { name: 'opus', mode: 'per-prompt', profileId: 'opus', model: 'claude-opus-5-5', ...on });
         assert.deepEqual(make('walk', 'opus', 'per-iteration', { kind: 'base' }),
-            { name: 'walk', mode: 'per-iteration', basedOn: 'opus', profileId: 'opus', model: 'claude-opus-5-5' }, 'the base\'s profile inherited');
+            { name: 'walk', mode: 'per-iteration', basedOn: 'opus', profileId: 'opus', model: 'claude-opus-5-5', ...on }, 'the base\'s profile inherited');
         assert.deepEqual(make('cheap', 'opus', 'continue', { kind: 'profile', id: 'haiku' }),
-            { name: 'cheap', mode: 'continue', basedOn: 'opus', profileId: 'haiku', model: 'claude-haiku-5-5' });
-        assert.deepEqual(make('bare', 'opus', 'per-prompt', { kind: 'none' }), { name: 'bare', mode: 'per-prompt', basedOn: 'opus' },
+            { name: 'cheap', mode: 'continue', basedOn: 'opus', profileId: 'haiku', model: 'claude-haiku-5-5', ...on });
+        assert.deepEqual(make('bare', 'opus', 'per-prompt', { kind: 'none' }), { name: 'bare', mode: 'per-prompt', basedOn: 'opus', ...on },
             '"No profile" on a based session: none, even though the base has one');
+        assert.deepEqual(make('quiet', 'opus', 'continue', { kind: 'none' }, false), { name: 'quiet', mode: 'continue', basedOn: 'opus', contributesToTrailAndMemory: false },
+            'the trail step\'s No, though the base is on');
     });
 
     test('PP-4: the label', () => {
@@ -100,7 +106,41 @@ describe('session picker plans', () => {
         const picker = source('src', 'handlers', 'sessionPicker.ts');
         assert.match(picker, /showQuickPick\(lifetimeChoices\(basedOn\)/);
         assert.match(picker, /profileChoices\(profileKeyStates\(section, process\.env\)/);
-        assert.match(picker, /createSession\(folder, name, newSessionOptions\(basedOn, how\.mode, profilePick\.choice/);
+        assert.match(picker, /createSession\(folder, name, newSessionOptions\(basedOn, how\.mode, profilePick\.choice, section as ProfileSection \| undefined, contributes\)\)/);
+    });
+
+    test('PP-8: the trail step', async () => {
+        assert.equal(TRAIL_CHOICE_TITLE, 'Contributes to trail and memory?');
+        const items = trailChoices();
+        assert.deepEqual(items.map((i) => [i.label, i.contributes]), [['Yes', true], ['No', false]]);
+        assert.ok(items.every((i) => !('picked' in i)), 'nothing preselected');
+        // Every path the user creates a session on asks it, and a dismissal stops the creation before the file.
+        const picker = source('src', 'handlers', 'sessionPicker.ts');
+        const create = picker.slice(picker.indexOf('async function createSessionInteractively('));
+        const asked = create.indexOf('const contributes = await askContributesToTrailAndMemory(');
+        assert.ok(asked > 0 && asked < create.indexOf('createSession(folder, name,'), 'asked before the file is written');
+        assert.match(create, /if \(contributes === undefined\) \{ return undefined; \}/, 'dismissed: cancelled');
+        assert.match(picker, /export async function newSessionViaPicker\([\s\S]*?return createSessionInteractively\(/, 'the SESSIONS view\'s New / Based on');
+        assert.match(picker, /export async function pickAgentSdkSession\([\s\S]*?return createSessionInteractively\(/, 'the pickers of @CHAT and the queue editor');
+        // The step itself, against the VS Code stub: a dismissed quick pick answers undefined, a pick its answer.
+        const { installVscodeStub } = await import('../../tools/__tests__/_vscode-stub.js');
+        const { stub } = installVscodeStub({});
+        const { askContributesToTrailAndMemory } = await import('../../handlers/sessionPicker.js');
+        const win = stub.window as { showQuickPick: (items: unknown, opts: unknown) => Promise<unknown> };
+        const original = win.showQuickPick;
+        try {
+            let shown: { items: Array<{ label: string }>; opts: { title: string } } | undefined;
+            win.showQuickPick = async (i, o) => { shown = { items: i as Array<{ label: string }>, opts: o as { title: string } }; return undefined; };
+            assert.equal(await askContributesToTrailAndMemory('New session'), undefined, 'dismissed');
+            assert.deepEqual(shown?.items.map((i) => i.label), ['Yes', 'No']);
+            assert.match(shown?.opts.title ?? '', /Contributes to trail and memory\?/);
+            win.showQuickPick = async (i) => (i as Array<{ contributes: boolean }>)[1];
+            assert.equal(await askContributesToTrailAndMemory('New session'), false, 'No');
+            win.showQuickPick = async (i) => (i as Array<{ contributes: boolean }>)[0];
+            assert.equal(await askContributesToTrailAndMemory('New session'), true, 'Yes');
+        } finally {
+            win.showQuickPick = original;
+        }
     });
 
     test('PP-7: the spec for a process definition', () => {

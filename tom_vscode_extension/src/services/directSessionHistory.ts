@@ -4,11 +4,12 @@
  *
  * The Agent SDK path keeps a session's conversation in the SDK and only its
  * id in `<name>.session.json`. The direct transport sends its own history —
- * the compacted blocks, the rolling tail of raw turns and the compaction
- * accumulator — so a named session needs a history of its own:
+ * the quest's compacted history (src/services/questHistory.ts, one for every
+ * session) and the session's rolling tail of raw turns, with the compaction
+ * accumulator — so a named session needs a tail of its own:
  *
  * - every session — `chat` (the panel) and `default` (the prompt queue)
- *   included — has its own folder, `history/sessions/<name>/`, its storage
+ *   included — has its own folder, `history/<host>/sessions/<name>/`, its storage
  *   root (src/services/sessionStorage.ts);
  * - `continue` with a base: the session's folder is seeded once from its
  *   base's history (on its first prompt), and continues on its own;
@@ -31,7 +32,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readSession } from './agentSdkSessionStore';
-import { COMPACTED_HISTORY_FILENAME } from './compacted-history';
 import { RAW_TURNS_FILENAME } from './raw-turns-store';
 import { sessionRoot } from './sessionStorage';
 import type { SessionRecord } from '../utils/agentSdkSessions';
@@ -49,8 +49,12 @@ export const BUILT_IN_SESSIONS: readonly string[] = ['chat', DEFAULT_RUN_SESSION
 /** The compaction accumulator's file (compaction-rounds.ts; named here to keep this module vscode-free). */
 const COMPACTION_ROUNDS_FILE = 'compaction_rounds.json';
 
-/** The files a direct-transport history consists of. */
-const HISTORY_FILES: readonly string[] = [COMPACTED_HISTORY_FILENAME, RAW_TURNS_FILENAME, COMPACTION_ROUNDS_FILE, 'history.json', 'history.md'];
+/**
+ * The files a session's own history consists of: its rolling tail and its
+ * accumulator. The compacted history is the quest's (src/services/questHistory.ts):
+ * nothing copies or writes a session's own `compacted_history.md`.
+ */
+const HISTORY_FILES: readonly string[] = [RAW_TURNS_FILENAME, COMPACTION_ROUNDS_FILE];
 
 /** Which history a send in session `own` uses. */
 export interface DirectHistoryPlan {

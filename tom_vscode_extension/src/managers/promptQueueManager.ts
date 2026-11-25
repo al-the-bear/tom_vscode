@@ -90,7 +90,7 @@ import { runStatusBarText } from '../utils/queueRunStatus';
 import { BACKGROUND_WORK_HOLD, heldForLine, heldResultResendLine, prefixHeldConversation, SoftInterruptRegistry, softInterruptFromYaml, softInterruptToYaml, type SoftInterruptState } from '../services/softInterrupt';
 import { WaitForRegistry } from '../services/waitForRegistry';
 import { keptAnswer, lastOpenWaitMessage, waitMessageProblem, waitMessagesFromYaml, waitMessagesToYaml, withWaitMessage, type ItemWaitMessage } from '../utils/itemWaitMessages';
-import { appendQuestionLogEntry } from '../services/questionsLog';
+import { appendQuestionLogEntry } from '../services/qaJournal';
 import { completionVerdict, continuationPrompt, needsAttentionReason, validContinuations, type WalkedTodo } from '../utils/walkCompletionCheck';
 import { recordRepetitionAnswer, repetitionAnswersFromYaml, type RepetitionAnswer } from '../utils/repetitionAnswers';
 import { todoIdPatternOf } from '../utils/todoQueueMarks';
@@ -5367,7 +5367,7 @@ export class PromptQueueManager {
      * The user writes `text` to the waiting turn of the sending item `id`, from the item itself: it goes to the
      * item's own turn (its session and run, no chat send) — a tomAi_waitFor call returns with it (`message`) and
      * the agent waits on; a turn waiting for its background work gets it as its next user message and waits on
-     * after its answer. The message is kept on the item, logged to the questions journal and to NOTIFICATIONS.
+     * after its answer. The message is kept on the item, logged to the Q&A journal and to NOTIFICATIONS.
      */
     messageWaitingItem(id: string, text: string): { ok: true; into: ItemWaitMessage['into'] } | { ok: false; reason: string } {
         const item = this._items.find(i => i.id === id);
@@ -5678,6 +5678,7 @@ export class PromptQueueManager {
                 basedOn: c.basedOn,
                 mode: c.mode,
                 ...(c.profile ? { profile: { id: c.profile, ...(model ? { model } : {}) } } : {}),
+                ...(c.contributesToTrailAndMemory !== undefined ? { contributesToTrailAndMemory: c.contributesToTrailAndMemory } : {}),
             });
             if (made.ok) { created = c.name; } else { error = made.error; }
         }

@@ -26,7 +26,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'session-refresh-'));
 installVscodeStub({ workspaceFolders: [tmpRoot] });
 
 import { LiveTrailWriter, type LiveTrailEvent } from '../live-trail.js';
-import { sessionLiveTrailsSince } from '../sessionStorage.js';
+import { sessionLiveTrailFile, sessionLiveTrailsSince } from '../sessionStorage.js';
 import { QuestRefreshService } from '../quest-refresh-service.js';
 import { QuestRefreshStore } from '../../managers/questRefreshStore.js';
 import { TwoTierMemoryService } from '../memory-service.js';
@@ -73,7 +73,7 @@ describe('session live trails', () => {
         for (const s of ['alpha', 'beta', 'gamma']) { prompts(new LiveTrailWriter(quest, undefined, s), 1); }
         const history = TwoTierMemoryService.instance.historyFolder(quest);
         fs.mkdirSync(path.join(history, 'sessions', 'empty'), { recursive: true });
-        const file = (s: string): string => path.join(history, 'sessions', s, 'live-trail.md');
+        const file = (s: string): string => sessionLiveTrailFile(history, s);
         setMtime(file('alpha'), new Date('2026-10-01T10:00:00Z'));
         setMtime(file('beta'), new Date('2026-10-03T10:00:00Z'));
         setMtime(file('gamma'), new Date('2026-10-02T10:00:00Z'));
@@ -105,7 +105,7 @@ describe('session live trails', () => {
         QuestRefreshStore.setInstanceForTest(new QuestRefreshStore(() => config));
         try {
             const history = TwoTierMemoryService.instance.historyFolder(quest);
-            const file = (s: string): string => path.join(history, 'sessions', s, 'live-trail.md');
+            const file = (s: string): string => sessionLiveTrailFile(history, s);
             for (const s of ['default@default', 'chat', 'review']) {
                 const w = new LiveTrailWriter(quest, undefined, s);
                 w.setExtraBlockAllowance(10);

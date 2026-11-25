@@ -6,6 +6,8 @@
  *   ST-S2 create: fresh, based on another (continue / per-prompt, the old fork-from-base name too), with a
  *         profile and its model; refusals (existing name, unknown lifetime, unknown profile) come back as errors
  *   ST-S3 registration: list reads only, create writes and needs no approval
+ *   ST-S4 the trail and memory setting: create takes the optional `contributesToTrailAndMemory` (unset: the
+ *         base's, without a base true), list answers it; both schemas name it
  */
 
 import test, { describe } from 'node:test';
@@ -58,5 +60,20 @@ describe('session tools', () => {
             ['tomAi_listSessions', true, false],
             ['tomAi_createSession', false, false],
         ]);
+    });
+    test('ST-S4: the trail and memory setting', async () => {
+        const off = JSON.parse(await createSessionImpl(deps, { name: 'quiet', contributesToTrailAndMemory: false }));
+        assert.equal(off.session.contributesToTrailAndMemory, false);
+        const child = JSON.parse(await createSessionImpl(deps, { name: 'quiet-child', basedOn: 'quiet' }));
+        assert.equal(child.session.contributesToTrailAndMemory, false, 'the base\'s');
+        const plain = JSON.parse(await createSessionImpl(deps, { name: 'plain-on' }));
+        assert.equal(plain.session.contributesToTrailAndMemory, true, 'without a base: on');
+        const list = JSON.parse(await listSessionsImpl(deps, {}));
+        const byName = Object.fromEntries(list.sessions.map((s: Json) => [s.name, s.contributesToTrailAndMemory]));
+        assert.deepEqual([byName.quiet, byName['quiet-child'], byName['plain-on']], [false, false, true]);
+        const create = SESSION_TOOLS.find((t) => t.name === 'tomAi_createSession')!;
+        assert.equal((create.inputSchema as Json).properties.contributesToTrailAndMemory.type, 'boolean');
+        assert.match(create.description, /contributesToTrailAndMemory/);
+        assert.match(SESSION_TOOLS[0].description, /contributesToTrailAndMemory/);
     });
 });

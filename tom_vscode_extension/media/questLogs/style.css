@@ -14,7 +14,7 @@
  */
 
 /* ── Tab strip ─────────────────────────────────────────── */
-/* Eleven tabs in a section that can be dragged down to 120px wide, so the strip
+/* Up to eight tabs in a section that can be dragged down to 120px wide, so the strip
    wraps rather than clipping. min-width:0 lets it shrink inside the toolbar. */
 .qlog-tabs { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; min-width: 0; }
 .qlog-tab { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; height: 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--vscode-foreground); opacity: 0.7; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; }
@@ -25,12 +25,6 @@
    and the tooltip still identify the tab. */
 .qlog-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .qlog-toolbar { align-items: flex-start; }
-
-/* ── Variant dropdown (Current Prompt) ─────────────────── */
-/* Hidden for every other tab. `[hidden]` needs the explicit rule because the
-   toolbar sets its children to display:flex, which overrides the UA default. */
-.qlog-variant { height: 20px; max-width: 150px; padding: 0 4px; font-size: 11px; font-family: inherit; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 2px; cursor: pointer; }
-.qlog-variant[hidden] { display: none; }
 
 /* ── Viewer body ───────────────────────────────────────── */
 .qlog-body { flex: 1; overflow: auto; padding: 6px 8px; background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-size: 12px; line-height: 1.45; }
@@ -52,7 +46,21 @@
 .mdh-bold { font-weight: 600; }
 .mdh-italic { font-style: italic; }
 
-/* ── Rendered view (MD Trail) ──────────────────────────── */
+/* ── Trail tab: the session's turns as pairs ───────────── */
+/* One block per turn, newest first: its header (time, profile, model, the
+   pair's buttons), the prompt, the answer, the todo links of the answer. */
+.qlog-turns-head { color: var(--vscode-descriptionForeground); font-size: 11px; padding: 2px 0 6px; }
+.qlog-turn { border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 4px 6px; margin: 0 0 8px; }
+.qlog-turn-header { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 3px; margin-bottom: 4px; }
+.qlog-turn-meta { flex: 1; min-width: 0; font-size: 11px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qlog-turn-time { color: var(--vscode-foreground); font-weight: 600; }
+.qlog-turn-tag { padding: 0 4px; border-radius: 2px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.qlog-turn-actions { display: inline-flex; gap: 1px; flex-shrink: 0; }
+.qlog-turn-label { font-size: 11px; font-weight: 600; opacity: 0.8; margin: 4px 0 2px; }
+.qlog-turn-todos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; }
+.qlog-turn-todo { display: inline-flex; align-items: center; gap: 3px; }
+
+/* ── Rendered view (Live Trail) ────────────────────────── */
 .qlog-body h1, .qlog-body h2, .qlog-body h3,
 .qlog-body h4, .qlog-body h5, .qlog-body h6 { margin: 10px 0 4px; line-height: 1.3; }
 .qlog-body h1 { font-size: 16px; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 2px; }

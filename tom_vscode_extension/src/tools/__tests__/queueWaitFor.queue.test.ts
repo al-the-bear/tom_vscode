@@ -13,7 +13,7 @@
  *        Keep waiting changes nothing, Interrupt interrupts
  *   QF-5 Stop on a waiting item cancels the wait: the tool answers `cancelled`, the state is cleared
  *   QF-6 a message from the item (vscimpb173): the tool answers `message` at once with the text, the wait's end and
- *        what is left of it; the item keeps the message (the queue file's `wait-messages`), the questions journal
+ *        what is left of it; the item keeps the message (the queue file's `wait-messages`), the Q&A journal
  *        and NOTIFICATIONS get it; the agent calling the tool again with the same `until` goes on waiting and the
  *        message shows as resumed; nothing to write to: refused; Continue offers Message…
  */
@@ -63,6 +63,7 @@ import { summarizeQueue } from '../../utils/windowActivity.js';
 import { WAIT_RESUME_NOTE } from '../../utils/waitFor.js';
 import { configureNotificationLog, readNotificationEvents } from '../../services/notificationLog.js';
 import { waitMessageViews } from '../../utils/itemWaitMessages.js';
+import { qaJournalText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -302,7 +303,7 @@ describe('a queue turn waiting in tomAi_waitFor', () => {
             assert.deepEqual(kept.map((m) => [m.into, m.text, m.resumed]), [['waitFor', 'Also bump the changelog.\nThen wait on.', undefined]]);
             assert.equal(waitMessageViews(kept)[0].state, 'the agent has it');
             assert.match(queueFileText(item.id), /wait-messages:\n\s+- at: /);
-            const journal = fs.readFileSync(path.join(QDIR, `questions.${QUEST}.md`), 'utf8');
+            const journal = qaJournalText(QDIR, QUEST);
             assert.match(journal, /message to a waiting turn \(tomAi_waitFor\)/);
             assert.match(journal, /Also bump the changelog\./);
             const events = readNotificationEvents(log).filter((e) => e.type === 'message');

@@ -17,7 +17,8 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { TwoTierMemoryService, MemoryScope, currentMemoryHost } from '../services/memory-service';
+import { TwoTierMemoryService, MemoryScope } from '../services/memory-service';
+import { hostSlugOf } from '../utils/hostSlug';
 import { memoryPanelRows } from '../services/questMemoryFiles';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
@@ -142,7 +143,7 @@ function _sendSnapshot(): void {
     const svc = TwoTierMemoryService.instance;
     const quest = svc.currentQuest();
     // The folder's files, curated first; a candidates file carries its host.
-    const questFiles = quest ? memoryPanelRows(svc.listWithMeta('quest'), currentMemoryHost()) : [];
+    const questFiles = quest ? memoryPanelRows(svc.listWithMeta('quest'), hostSlugOf()) : [];
     _panel?.webview.postMessage({
         type: 'snapshot',
         quest,

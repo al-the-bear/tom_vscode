@@ -8,7 +8,7 @@
  * in {@link USER_NOTIFICATION_TYPES}, shown again in USER NOTIFICATIONS):
  * something waits for the user (an ask, a picker, an MD Browser ask, a plan, a
  * tool approval) and its close, a tomAi_notifyUser message, an answer given
- * with tomAi_answerUser (vscimpb171, opened in the Answers page), suggested
+ * with tomAi_answerUser (vscimpb171, opened in the Q&A page), suggested
  * subprocesses, a process decision waiting, a todo filed for the user
  * (decision-needed or a user action), the queue holding for the user. `message`
  * (vscimpb173) is the other direction: the user wrote to a queue item's waiting

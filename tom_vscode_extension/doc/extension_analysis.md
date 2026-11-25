@@ -232,7 +232,7 @@ Handler: `wsPanel-handler.ts`
 |---------|------|---------|
 | Guidelines | `book` | Guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Project documentation browser |
-| Logs | `output` | Active quest's log files plus the running prompt — thirteen sub-tabs (MD Trail, Trail, Prompts, Answers, Progress, Overview, Notes, Refresh, DocUpdate, Deferred, Questions, Decisions, Current Prompt) via `questLogs-handler.ts` |
+| Logs | `output` | In @CHAT: one Anthropic session on this machine — three sub-tabs (Trail: its turns of this machine's trail as prompt/answer pairs; Live Trail; Live Source) via `questLogs-handler.ts`; the quest's documents are sub-tabs of Documentation |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | GitHub issue tracking |
 | Tests | `beaker` | Test results |
@@ -257,6 +257,7 @@ Handler: `wsPanel-handler.ts`
 | Markdown Browser | `tomAi.markdownBrowser` | `tomAi.openInMdBrowser` | `markdownBrowser-handler.ts` |
 | Prompt Trail Viewer | `tomAi.trailViewer` | `tomAi.editor.rawTrailViewer` | `trailViewer-handler.ts` |
 | Prompt Queue | `tomAi.queueEditor` | `tomAi.editor.promptQueue` | `queueEditor-handler.ts` |
+| Recent Prompts | `tomAi.recentPrompts` | `tomAi.editor.recentPrompts` | `recentPromptsPanel-handler.ts` |
 | Timed Requests | `tomAi.timedRequestsEditor` | `tomAi.editor.timedRequests` | `timedRequestsEditor-handler.ts` |
 | Prompt Template Editor | `tomAi.promptTemplateEditor` | `tomAi.editor.promptTemplates` | `promptTemplateEditor-handler.ts` |
 | Global Template Editor | `tomAi.globalTemplateEditor` | `tomAi.editor.globalTemplates` | `globalTemplateEditor-handler.ts` |
@@ -287,6 +288,7 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | `tomAi.wsPanel.focus` | Focus @WS panel |
 | `tomAi.statusPage` | Open status page |
 | `tomAi.editor.promptQueue` | Open prompt queue |
+| `tomAi.editor.recentPrompts` | Open the last prompts the queue sent |
 | `tomAi.editor.timedRequests` | Open timed requests |
 | `tomAi.editor.rawTrailViewer` | Open raw trail viewer |
 | `tomAi.openInMdBrowser` | Open in Markdown Browser |

@@ -3,7 +3,8 @@
  * `contributes.configuration`) that tune running parts, read through one
  * place so each has its default and its bounds: the Dart bridge's request
  * timeout, restart delay and restart limit, the timed-request engine's tick,
- * the Guidelines panel's project exclusions. Every contributed setting has a
+ * the Guidelines panel's project exclusions, the chat panel's Promote memory
+ * button. Every contributed setting has a
  * reader (the test SR-1 checks it).
  *
  * vscode-free: the caller passes the lookup, e.g.
@@ -43,6 +44,11 @@ export const TIMER_TICK_DEFAULT_MS = 30_000;
 /** `tomAi.timedRequests.tickInterval`: how often the engine looks for due entries, ms (at least one second). */
 export function timerTickIntervalMs(get: SettingLookup): number {
     return wholeNumber(get('timedRequests.tickInterval'), TIMER_TICK_DEFAULT_MS, 1000);
+}
+
+/** `tomAi.memory.promoteMemoryButton`: whether the chat panel shows the Promote memory button (default off). */
+export function promoteMemoryButtonSetting(get: SettingLookup): boolean {
+    return get('memory.promoteMemoryButton') === true;
 }
 
 /** The Guidelines panel's exclusions when `tomAi.guidelines.excludeGlobs` is unset. */

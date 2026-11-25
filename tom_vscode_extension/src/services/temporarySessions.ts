@@ -7,7 +7,7 @@
  *
  * Discarding removes everything the session left: its session file, the
  * conversation the Anthropic handler keeps in memory for it, and its storage
- * (`history/sessions/<name>/`: trail, live trail, history; its quest memory) —
+ * (`history/<host>/sessions/<name>/`: trail, live trail, history; its quest memory) —
  * so it never shows in the SESSIONS view or the Logs session switch.
  */
 

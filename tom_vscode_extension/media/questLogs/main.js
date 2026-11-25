@@ -1,11 +1,10 @@
 // @ts-nocheck
-/* global vscode, isExpanded, qlogViewers, qlogVariantTabs, qlogVariantIds, qlogDefaultVariant */
+/* global vscode, isExpanded, qlogViewers, tomMdOverlayShow */
 // Quest Logs client script — two read-only viewers: the Logs section of @CHAT
 // (one Anthropic session's files, with a session switch) and the quest-document
 // sub-tabs of the @WS Documentation section. A panel hosts the ones it lists.
-// Its config globals (`qlogViewers`, `qlogVariantTabs`, `qlogVariantIds`,
-// `qlogDefaultVariant`, getQuestLogsClientConfig() in
-// src/handlers/questLogs-handler.ts) come first: @WS inlines them ahead of this
+// Its config global (`qlogViewers`, getQuestLogsClientConfig() in
+// src/handlers/questLogs-handler.ts) comes first: @WS inlines them ahead of this
 // body (getQuestLogsScript()), @CHAT's main.js sets them from its init data and
 // loads this file after itself. Uses the host panel's `vscode` handle and
 // `isExpanded`, so it does NOT call acquireVsCodeApi() itself.
@@ -14,16 +13,21 @@
 // in. The host answers `qlogUnchanged` when the file has not moved, which is
 // what makes a 2.5 s poll of a half-megabyte trail cheap.
 //
-// Every message carries the viewer, the tab, the variant (Current Prompt has
-// six files behind one tab) and, on a Logs tab, the session — and every reply
-// is matched on all of them, so a switch mid-poll never paints the previous
-// selection's text under the new label.
+// Every message carries the viewer, the tab and, on a Logs tab, the session —
+// and every reply is matched on all of them, so a switch mid-poll never paints
+// the previous selection's text under the new label.
+//
+// The Trail tab shows the session's turns of this machine's trail as pairs
+// (prompt, then answer, newest first; src/utils/sessionTrailTurns.ts); each
+// pair's buttons post `qlogTurnAction` (copy the prompt / the answer, the
+// Markdown overlay — answered with `qlogMarkdown`, shown with the shared
+// tomMdOverlayShow — open in its trail file) and its todo links `qlogGotoTodo`.
 //
 // The session switch is drawn from the host's plan (src/utils/sessionSwitch.ts):
 // the sessions most recently used first, one button each for at most four, a
 // dropdown with every session before them when there are more. One choice for
 // the whole viewer: switching the session on any tab switches it on all of
-// them (MD Trail and Trail render the same live-trail.md).
+// them (Live Trail and Live Source render the same live-trail.md).
 
 /** Poll interval. The requirement is "at least every 3 seconds". */
 // Every 7 s while the tab is shown: a full re-render of a large trail every few seconds kept the window busy.
@@ -71,7 +75,6 @@ function qlogSavedSession(saved) {
 function qlogCreateViewer(cfg) {
     var v = {
         tab: cfg.defaultTab,
-        variant: qlogDefaultVariant,
         /** The chosen session, one for every tab ('' = the host's default). */
         session: '',
         /** The session plan the host sent last. */
@@ -83,14 +86,12 @@ function qlogCreateViewer(cfg) {
 
     function el(name) { return document.getElementById(cfg.prefix + '-' + name); }
     function isKnownTab(id) { return typeof id === 'string' && cfg.tabIds.indexOf(id) >= 0; }
-    function isKnownVariant(id) { return typeof id === 'string' && qlogVariantIds.indexOf(id) >= 0; }
     function isPaneTab() { return Object.prototype.hasOwnProperty.call(paneTabs, v.tab); }
-    function hasVariants() { return qlogVariantTabs.indexOf(v.tab) >= 0; }
     function session() { return cfg.sessions ? v.session : ''; }
 
     /** What is on screen — the identity the host keys its change-detection cache by. */
     function viewKey() {
-        return v.tab + (hasVariants() ? ':' + v.variant : '') + (cfg.sessions ? '@' + session() : '');
+        return v.tab + (cfg.sessions ? '@' + session() : '');
     }
 
     // State is merged into the shared object: `vscode.setState` replaces the
@@ -99,10 +100,9 @@ function qlogCreateViewer(cfg) {
         try {
             var all = vscode.getState() || {};
             // The Logs viewer reads the keys the single-viewer build wrote.
-            var s = all[stateKey] || (cfg.id === 'logs' ? { tab: all.qlogTab, variant: all.qlogVariant } : null);
+            var s = all[stateKey] || (cfg.id === 'logs' ? { tab: all.qlogTab } : null);
             if (!s) { return; }
             if (isKnownTab(s.tab)) { v.tab = s.tab; }
-            if (isKnownVariant(s.variant)) { v.variant = s.variant; }
             v.session = qlogSavedSession(s);
         } catch (e) { /* first run — keep the defaults */ }
     }
@@ -110,7 +110,7 @@ function qlogCreateViewer(cfg) {
     function saveState() {
         try {
             var all = vscode.getState() || {};
-            all[stateKey] = { tab: v.tab, variant: v.variant, session: v.session };
+            all[stateKey] = { tab: v.tab, session: v.session };
             vscode.setState(all);
         } catch (e) { /* state is a convenience, never a correctness requirement */ }
     }
@@ -135,14 +135,6 @@ function qlogCreateViewer(cfg) {
         }
     }
 
-    /** Show the variant dropdown only for a tab that has variants. */
-    function renderVariantPicker() {
-        var picker = el('variant');
-        if (!picker) { return; }
-        picker.hidden = !hasVariants();
-        if (picker.value !== v.variant) { picker.value = v.variant; }
-    }
-
     /** A pane tab shows its pane; every other tab the file viewer. */
     function renderPanes() {
         var pane = isPaneTab();
@@ -165,7 +157,7 @@ function qlogCreateViewer(cfg) {
      */
     var SESSION_ACTIONS = [
         ['rawTrail', 'codicon-history', 'Open the raw trail of session '],
-        ['trailSummary', 'codicon-list-flat', 'Open the trail summary of session '],
+        ['trailSummary', 'codicon-list-flat', 'Open as one document the trail on this machine of session '],
         ['history', 'codicon-file-text', 'Open the rolling history (history.md) of session '],
         ['liveTrail', 'codicon-pulse', 'Open the live trail of session '],
         ['memory', 'codicon-book', 'Open the memory panel: the quest memory (curated files and the candidates files of the hosts), shared by every session'],
@@ -212,7 +204,6 @@ function qlogCreateViewer(cfg) {
         v.loadedView = '';
         saveState();
         renderTabStrip();
-        renderVariantPicker();
         renderPanes();
         renderSessions();
         if (isPaneTab()) { return; }
@@ -224,12 +215,6 @@ function qlogCreateViewer(cfg) {
     function selectTab(id) {
         if (!isKnownTab(id) || id === v.tab) { return; }
         v.tab = id;
-        showSelection();
-    }
-
-    function selectVariant(id) {
-        if (!isKnownVariant(id) || id === v.variant) { return; }
-        v.variant = id;
         showSelection();
     }
 
@@ -254,7 +239,6 @@ function qlogCreateViewer(cfg) {
             type: 'qlogRequest',
             viewer: cfg.id,
             tab: v.tab,
-            variant: v.variant,
             session: session(),
             force: !!force || stale,
         });
@@ -289,7 +273,8 @@ function qlogCreateViewer(cfg) {
         v.loadedView = viewKey();
         var stamp = new Date().toLocaleTimeString();
         setStatus(
-            msg.fileName + ' · ' + qlogFormatBytes(msg.bytes)
+            (typeof msg.turns === 'number' ? msg.turns + (msg.turns === 1 ? ' turn · ' : ' turns · ') : '')
+            + msg.fileName + ' · ' + qlogFormatBytes(msg.bytes)
             + (msg.truncated ? (atStart ? ' (head)' : ' (tail)') : '') + ' · ' + stamp,
         );
     }
@@ -308,15 +293,17 @@ function qlogCreateViewer(cfg) {
             renderSessions();
             return;
         }
-        if (msg.type !== 'qlogContent') { return; }
-        if (hasVariants() && msg.variant !== v.variant) { return; }
         if (cfg.sessions && msg.session !== session()) { return; }
+        if (msg.type === 'qlogMarkdown') {
+            if (typeof tomMdOverlayShow === 'function') { tomMdOverlayShow(msg.title, msg.html); }
+            return;
+        }
+        if (msg.type !== 'qlogContent') { return; }
         applyContent(msg);
     }
 
     function start() {
         renderTabStrip();
-        renderVariantPicker();
         renderPanes();
         var strip = el('tabs');
         if (strip) {
@@ -325,14 +312,30 @@ function qlogCreateViewer(cfg) {
                 if (btn) { selectTab(btn.getAttribute('data-qlog-tab')); }
             });
         }
-        var picker = el('variant');
-        if (picker) { picker.addEventListener('change', function () { selectVariant(picker.value); }); }
+        var body = el('body');
+        if (body && cfg.sessions) {
+            // The Trail tab's pairs: their buttons and todo links.
+            body.addEventListener('click', function (ev) {
+                var target = ev.target && ev.target.closest ? ev.target : null;
+                if (!target) { return; }
+                var action = target.closest('[data-qlog-turn-action]');
+                if (action) {
+                    vscode.postMessage({ type: 'qlogTurnAction', viewer: cfg.id, tab: v.tab, session: session(), action: action.getAttribute('data-qlog-turn-action'), turn: action.getAttribute('data-qlog-turn') });
+                    return;
+                }
+                var todo = target.closest('[data-qlog-todo]');
+                if (todo) {
+                    ev.preventDefault();
+                    vscode.postMessage({ type: 'qlogGotoTodo', viewer: cfg.id, tab: v.tab, session: session(), todo: todo.getAttribute('data-qlog-todo') });
+                }
+            });
+        }
         var box = el('sessions');
         if (box) {
             box.addEventListener('click', function (ev) {
                 var action = ev.target && ev.target.closest ? ev.target.closest('[data-qlog-session-action]') : null;
                 if (action) {
-                    vscode.postMessage({ type: 'qlogSessionAction', viewer: cfg.id, tab: v.tab, variant: v.variant, action: action.getAttribute('data-qlog-session-action'), session: session() });
+                    vscode.postMessage({ type: 'qlogSessionAction', viewer: cfg.id, tab: v.tab, action: action.getAttribute('data-qlog-session-action'), session: session() });
                     return;
                 }
                 var btn = ev.target && ev.target.closest ? ev.target.closest('[data-qlog-session]') : null;
@@ -348,7 +351,7 @@ function qlogCreateViewer(cfg) {
         var openBtn = el('open');
         if (openBtn) {
             openBtn.addEventListener('click', function () {
-                vscode.postMessage({ type: 'qlogOpenInEditor', viewer: cfg.id, tab: v.tab, variant: v.variant, session: session() });
+                vscode.postMessage({ type: 'qlogOpenInEditor', viewer: cfg.id, tab: v.tab, session: session() });
             });
         }
         request(true);
@@ -357,7 +360,7 @@ function qlogCreateViewer(cfg) {
     }
 
     loadState();
-    return { start: start, onMessage: onMessage, state: v, select: { tab: selectTab, variant: selectVariant, session: selectSession } };
+    return { start: start, onMessage: onMessage, state: v, select: { tab: selectTab, session: selectSession } };
 }
 
 var qlogViewerList = (qlogViewers || []).map(qlogCreateViewer);

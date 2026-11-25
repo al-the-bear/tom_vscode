@@ -190,6 +190,8 @@ export interface QuestSessionEntry {
     updatedAt?: string;
     /** A temporary session of a sent item (`tmp-*`): deleted once its item is done. */
     temporary?: true;
+    /** Present (false) when the session's turns go neither into the host trail nor into memory. */
+    contributesToTrailAndMemory?: false;
     /** The profile an item without its own runs with here: the session's, else the queue default. */
     effectiveProfile?: ResolvedProfile;
 }
@@ -309,6 +311,7 @@ export function buildQuestWindowStatus(input: QuestWindowStatusInput): QuestWind
                 ...(r?.createdAt ? { createdAt: r.createdAt } : {}),
                 ...(r?.updatedAt ? { updatedAt: r.updatedAt } : {}),
                 ...(row.temporary ? { temporary: true as const } : {}),
+                ...(row.contributesToTrailAndMemory ? {} : { contributesToTrailAndMemory: false as const }),
                 ...((profileId ?? queueDefaultProfileId) ? { effectiveProfile: resolve(profileId ?? queueDefaultProfileId) } : {}),
             };
         });

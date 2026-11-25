@@ -2,9 +2,11 @@
  * Session specs and session profiles — pure rules, no IO.
  *
  * A queue item, a process definition, a tool call or the picker can name a
- * session by a bare name or by a spec `{name, basedOn?, mode?, profile?}`: the
- * spec says how to create the session when it does not exist yet (its base,
- * its lifetime, the Anthropic profile it is made for). {@link parseSessionSpec}
+ * session by a bare name or by a spec `{name, basedOn?, mode?, profile?,
+ * contributesToTrailAndMemory?}`: the spec says how to create the session when
+ * it does not exist yet (its base, its lifetime, the Anthropic profile it is
+ * made for, whether its turns go into the host trail and memory — unset, the
+ * base's setting, without a base on). {@link parseSessionSpec}
  * reads and checks one; the store's `ensureSession` creates it.
  *
  * A session's profile (`profileId` in its file) is the Anthropic profile its
@@ -27,14 +29,16 @@ export interface SessionSpec {
     mode?: SessionMode;
     /** Anthropic profile id the session is made for. */
     profile?: string;
+    /** Whether its turns go into the host trail and memory; unset: the base's setting, without a base true. */
+    contributesToTrailAndMemory?: boolean;
 }
 
 /** A session as written by a caller: a name or a spec. */
-export type SessionSpecInput = string | { name?: unknown; basedOn?: unknown; mode?: unknown; profile?: unknown };
+export type SessionSpecInput = string | { name?: unknown; basedOn?: unknown; mode?: unknown; profile?: unknown; contributesToTrailAndMemory?: unknown };
 
 export type SessionSpecResult = { ok: true; spec: SessionSpec } | { ok: false; error: string };
 
-const SPEC_KEYS = ['name', 'basedOn', 'mode', 'profile'];
+const SPEC_KEYS = ['name', 'basedOn', 'mode', 'profile', 'contributesToTrailAndMemory'];
 const NAME_RULE = 'letters, digits, "_" and "-", starting with a letter or digit';
 
 /**
@@ -49,7 +53,7 @@ export function parseSessionSpec(raw: unknown): SessionSpecResult {
         return isValidSessionName(name) ? { ok: true, spec: { name } } : { ok: false, error: `Session name "${raw}": ${NAME_RULE}.` };
     }
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        return { ok: false, error: 'A session is a name or {name, basedOn?, mode?, profile?}.' };
+        return { ok: false, error: 'A session is a name or {name, basedOn?, mode?, profile?, contributesToTrailAndMemory?}.' };
     }
     const r = raw as Record<string, unknown>;
     const unknown = Object.keys(r).filter((k) => !SPEC_KEYS.includes(k));
@@ -71,6 +75,10 @@ export function parseSessionSpec(raw: unknown): SessionSpecResult {
     if (r.profile !== undefined && r.profile !== '') {
         if (typeof r.profile !== 'string' || r.profile.trim() === '') { return { ok: false, error: `Session spec "${name}": profile must be a profile id.` }; }
         spec.profile = r.profile.trim();
+    }
+    if (r.contributesToTrailAndMemory !== undefined) {
+        if (typeof r.contributesToTrailAndMemory !== 'boolean') { return { ok: false, error: `Session spec "${name}": contributesToTrailAndMemory must be true or false.` }; }
+        spec.contributesToTrailAndMemory = r.contributesToTrailAndMemory;
     }
     return { ok: true, spec };
 }

@@ -57,7 +57,7 @@ function getRawBase(subsystem: ToolResultSubsystem): string {
 
 /**
  * The folder of the results. An Anthropic session's results are in its own
- * storage (`history/sessions/<session>/trail/tool_results/`), so two sessions
+ * storage (`history/<host>/sessions/<session>/trail/tool_results/`), so two sessions
  * never share keys; without a session, the subsystem's raw trail folder.
  */
 function resolveStoreDir(subsystem: ToolResultSubsystem, questId?: string, session?: string): string {

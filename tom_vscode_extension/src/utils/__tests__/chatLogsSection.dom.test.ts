@@ -3,12 +3,13 @@
  * viewer (media/questLogs/main.js) with the HTML and config the host hands over in its init data.
  *
  *   CL-1 the chat panel has a Logs section after Anthropic/LLM, holding the logs viewer's HTML; the viewer
- *        script, loaded after the panel's, finds its config and asks the host for the session's MD Trail once the
+ *        script, loaded after the panel's, finds its config and asks the host for the session's Trail once the
  *        section is open
  *   CL-2 opening and closing sections (the panel's saveState) keeps the viewer's saved state (`qlog_logs`): the
  *        webview state is merged, never replaced
  *   CL-3 the hosts: the chat panel passes the fragment and the `logs` viewer's config and routes `qlog*` messages to
- *        the viewer's handler; its page loads the viewer's style and script; @WS keeps only the Documentation viewer
+ *        the viewer's handler; its page loads the viewer's style and script and the shared Markdown overlay (the
+ *        Trail tab's pairs); @WS keeps only the Documentation viewer
  */
 
 import test, { afterEach, describe } from 'node:test';
@@ -67,7 +68,7 @@ describe('@CHAT Logs section', () => {
         await new Promise((r) => setTimeout(r, 10));
         const first = requests(posted)[0];
         assert.equal(first?.viewer, 'logs');
-        assert.equal(first?.tab, 'mdTrail');
+        assert.equal(first?.tab, 'turns');
     });
 
     test('CL-2: section toggles keep the viewer state', async () => {
@@ -88,6 +89,8 @@ describe('@CHAT Logs section', () => {
         const page = media('chatPanel', 'index.html');
         assert.ok(page.indexOf('/main.js') < page.indexOf('../questLogs/main.js'), 'the viewer script after the panel script');
         assert.match(page, /\.\.\/questLogs\/style\.css/);
+        assert.match(page, /\{\{sharedUri\}\}\/mdOverlay\.css/);
+        assert.ok(page.indexOf('/mdOverlay.js') >= 0 && page.indexOf('/mdOverlay.js') < page.indexOf('../questLogs/main.js'), 'the overlay before the viewer');
         const ws = src('handlers', 'wsPanel-handler.ts');
         assert.doesNotMatch(ws, /getQuestLogsHtmlFragment|id: 'logs'/, '@WS has no Logs section');
         assert.match(ws, /getQuestLogsScript\(\['docs'\]\)/);

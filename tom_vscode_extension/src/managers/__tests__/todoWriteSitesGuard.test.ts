@@ -74,7 +74,6 @@ const CENSUS = [
     'questTodoManager.ts: rewriteTodoReferences → saveDocument(file)',
     'questTodoManager.ts: updateTodo → saveDocument(filePath)',
     'questTodoManager.ts: updateTodoInFile → saveDocument(filePath)',
-    'todoArchive.ts: journalDecisions → fs.appendFileSync(file)',
     'todoArchive.ts: moveTodosOrThrow → writeTodoFileText(sourceFilePath)',
     'todoArchive.ts: moveTodosOrThrow → writeTodosIntoTarget(targetFile)',
     'todoArchive.ts: restoreTodosOrThrow → writeTodoFileText(siblingFilePath)',
@@ -87,11 +86,6 @@ const EXEMPT = new Map<string, string>([
         'questTodoManager.ts: ensureTodoFile → saveDocumentWithSchema(filePath)',
         'creates an empty todo file when none exists; there is no todo whose presence could be asserted, '
         + 'and the first todo written into it is verified by its own create',
-    ],
-    [
-        'todoArchive.ts: journalDecisions → fs.appendFileSync(file)',
-        'appends archived decisions to the decisions.<quest>.md journal, a markdown log rather than a todo '
-        + 'document; the todos themselves are verified by assertMovePersisted in the same move',
     ],
 ]);
 

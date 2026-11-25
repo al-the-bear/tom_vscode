@@ -1,16 +1,18 @@
 /**
- * The compact trail's limit: every writer of the summary pair
- * (`<quest>.<subsystem>.prompts.md` / `.answers.md`) trims through these
- * functions, so no file grows past `trail.compact.maxEntries`.
+ * The compact trail's limit, `trail.compact.maxEntries` (default 2000): the
+ * prompt/answer turns a compact trail keeps.
  *
- * A compact trail file holds one entry per prompt or answer turn, newest
- * first, each opening with a header line
- * `=== PROMPT|ANSWER <requestId> <timestamp> <sequence> ===`. The limit counts
- * turns: the distinct request ids, so a turn written twice (an answer after an
- * error, a resend) counts once. Inner steps (tool calls, rounds) are never
- * entries of this file. The trim keeps the newest turns and drops every older
- * entry at once, however far the file is over the limit (a file grown by an
- * older build, or merged from two copies, is brought back in one write).
+ * - The host trail `history/trail.<host>.md` (src/services/hostTrail.ts):
+ *   over the limit, its oldest turns are removed, but only those the quest's
+ *   history covers ({@link hostTrailTurnsToKeep}); a turn no history covers
+ *   yet stays however far the file is over the limit.
+ * - The summary pair of older builds (`<quest>.<subsystem>.prompts.md` /
+ *   `.answers.md`), which the `_ai` format migration still merges: one entry
+ *   per prompt or answer turn, newest first, each opening with a header line
+ *   `=== PROMPT|ANSWER <requestId> <timestamp> <sequence> ===`. The limit
+ *   counts turns: the distinct request ids, so a turn written twice (an answer
+ *   after an error, a resend) counts once. The trim keeps the newest turns and
+ *   drops every older entry at once.
  *
  * `trail.raw.maxEntries` is not read here: the raw trail is limited by
  * `trail.raw.maxRawFiles`.
@@ -69,4 +71,19 @@ export function trimCompactTrailFile(filePath: string, maxEntries: number): bool
     if (trimmed === undefined) { return false; }
     fs.writeFileSync(filePath, trimmed, 'utf-8');
     return true;
+}
+
+/**
+ * The turns of a host trail (oldest first) to keep under `maxEntries`: the
+ * oldest turns beyond the limit go, but only while each is covered (a history
+ * has taken it in); the first turn not covered, and every turn after it, stay.
+ * The turns are returned in their order; all of them when nothing may go.
+ */
+export function hostTrailTurnsToKeep<T>(turns: readonly T[], maxEntries: number, covered: (turn: T) => boolean): T[] {
+    const max = Math.max(1, Math.floor(maxEntries));
+    const excess = turns.length - max;
+    if (excess <= 0) { return [...turns]; }
+    let drop = 0;
+    while (drop < excess && covered(turns[drop])) { drop++; }
+    return turns.slice(drop);
 }

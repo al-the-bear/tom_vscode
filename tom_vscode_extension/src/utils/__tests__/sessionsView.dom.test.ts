@@ -11,6 +11,9 @@
  *        tagged temporary; a lasting session whose name merely starts with `tmp` is not
  *   SV-5 a process run's sessions (`<session>@<run>`, vscimpb44) come after the others, grouped under their run,
  *        shown by their session name with an `@<run>` tag; the row keeps the full name; a click posts it
+ *   SV-6 the trail and memory setting: the row says when it is off; its toggle posts the other value with the
+ *        row's name (disabled for a session without a file, which is on); the host writes it into the session
+ *        file and sends the rows again
  *   SV-3 the host: Reset clears the id, Delete asks first and goes through deleteSession; the add command
  *        is the picker's new-session path; the folder is watched with an error listener and the store's
  *        notifications refresh the view
@@ -32,7 +35,7 @@ const RECORDS: SessionRecord[] = [
     { name: 'walk', mode: 'per-iteration', basedOn: 'prep', profileId: 'opus', model: 'claude-opus-5-5', updatedAt: '2026-10-26T20:00:00Z' },
     { name: 'prep', mode: 'continue', sessionId: 'S-prep', createdAt: '2026-10-26T18:00:00Z' },
     { name: 'default', mode: 'continue', sessionId: 'S-q', updatedAt: '2026-10-26T19:00:00Z' },
-    { name: 'solo', mode: 'per-prompt', iteration: { key: 'k', sessionId: 'S-i' } },
+    { name: 'solo', mode: 'per-prompt', iteration: { key: 'k', sessionId: 'S-i' }, contributesToTrailAndMemory: false },
 ];
 
 function source(...parts: string[]): string {
@@ -49,8 +52,9 @@ describe('SESSIONS view', () => {
         const by = Object.fromEntries(rows.map((r) => [r.name, r]));
         assert.deepEqual(by.walk, {
             name: 'walk', hasFile: true, basedOn: 'prep', lifetime: 'per iteration', profileId: 'opus', model: 'claude-opus-5-5',
-            hasConversation: false, lastUse: '2026-10-26T20:00:00Z', dependents: [],
+            hasConversation: false, lastUse: '2026-10-26T20:00:00Z', dependents: [], contributesToTrailAndMemory: true,
         });
+        assert.deepEqual([by.solo.contributesToTrailAndMemory, by.chat.contributesToTrailAndMemory], [false, true], 'off as written; on without a file');
         assert.deepEqual([by.prep.hasConversation, by.prep.lastUse, by.prep.dependents, by.prep.lifetime], [true, '2026-10-26T18:00:00Z', ['walk'], undefined]);
         assert.deepEqual([by.solo.lifetime, by.solo.hasConversation], ['per prompt', true], 'an iteration\'s conversation counts');
         assert.deepEqual([by.chat.hasConversation, by.chat.dependents], [false, []]);
@@ -105,6 +109,31 @@ describe('SESSIONS view', () => {
         assert.deepEqual(posted, [{ type: 'delete', name: 'walk' }, { type: 'reset', name: 'prep' }], 'a disabled button posts nothing');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: '', rows: [] } }));
         assert.match(w.document.getElementById('root').textContent, /No active quest/);
+    });
+
+    test('SV-6: the trail and memory setting', (t) => {
+        const dom = new JSDOM(source('media', 'sessionsView', 'index.html').replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' });
+        const w = dom.window as Win;
+        t.after(() => w.close());
+        const posted: Array<Record<string, unknown>> = [];
+        w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))) });
+        w.__INIT__ = {};
+        w.eval(source('media', 'sessionsView', 'main.js'));
+        posted.length = 0;
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', quest: 'q', rows: sessionRows(RECORDS) } }));
+        const row = (name: string): Win => w.document.querySelector(`.session[data-name="${name}"]`);
+        const toggle = (name: string): Win => row(name).querySelector('button[data-op="trail"]');
+        assert.match(row('solo').querySelector('.meta').textContent, / — no trail or memory$/);
+        assert.doesNotMatch(row('prep').querySelector('.meta').textContent, /no trail or memory/);
+        assert.match(toggle('solo').title, /^Trail and memory: off/);
+        assert.match(toggle('prep').title, /^Trail and memory: on/);
+        assert.equal(toggle('chat').disabled, true, 'no file: on, nothing to change');
+        toggle('solo').click();
+        toggle('prep').click();
+        toggle('chat').click();
+        assert.deepEqual(posted, [{ type: 'trail', name: 'solo', value: true }, { type: 'trail', name: 'prep', value: false }]);
+        const handler = source('src', 'handlers', 'sessionsView-handler.ts');
+        assert.match(handler, /case 'trail':[\s\S]*?setContributesToTrailAndMemory\(folder, msg\.name, msg\.value\);\s*this\.send\(\);/);
     });
 
     test('SV-3: the host', () => {

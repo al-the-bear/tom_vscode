@@ -10,7 +10,7 @@
  *   waits, and the new level's first Proceed goes in the queue behind that
  *   step's unfinished items.
  * - **@T: Abort Subprocess or Branch** (`tomAi.process.abortNested`): with a
- *   confirmation, the running level goes (written to the decisions journal)
+ *   confirmation, the running level goes (written to the Q&A journal)
  *   and the step below goes on with its follow-up.
  */
 
@@ -167,7 +167,7 @@ export async function abortNestedProcess(store: ProcessStateStore, ui: Pick<Nest
     const top = topLevel(levels);
     const ok = await ui.confirm(
         `Abort ${levelName(top)}?`,
-        `It stands at ${top.phase} › ${top.step}. The level is removed (its position is written to the decisions journal) and the step below goes on: ${NESTED_FOLLOW_UP_LABELS[top.nested?.followUp ?? 'ask']}.`,
+        `It stands at ${top.phase} › ${top.step}. The level is removed (its position is written to the Q&A journal) and the step below goes on: ${NESTED_FOLLOW_UP_LABELS[top.nested?.followUp ?? 'ask']}.`,
         'Abort',
     );
     if (!ok) { return false; }

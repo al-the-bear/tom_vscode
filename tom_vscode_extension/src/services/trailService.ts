@@ -9,6 +9,10 @@ import { RAW_TRAIL_DEFAULT_MAX_FILES, rawTrailMaxFiles } from '../utils/rawTrail
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
 import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
+import { beginHostTrailTurn, completeHostTrailTurn } from './hostTrail';
+import { sessionContributesToTrailAndMemory } from './agentSdkSessionStore';
+import { hostSlugOf } from '../utils/hostSlug';
+import { canonicalSessionName } from '../utils/runSessions';
 
 /** The quest's `history/` folder, where every session's storage root is. */
 export function questHistoryRoot(quest: string): string {
@@ -25,10 +29,10 @@ export type TrailSubsystem =
      *   - (absent)      → _ai/trail/anthropic/{quest}/
      *   - 'compaction'  → _ai/trail/anthropic/{quest}/compaction/
      *   - 'memory'      → _ai/trail/anthropic/{quest}/memory/
-     * With a `session` every file goes to that session's storage
-     * (src/services/sessionStorage.ts): the raw trail to
-     * `_ai/quests/{quest}/history/sessions/{session}/trail[/{category}]/`,
-     * the summary pair to `…/sessions/{session}/{quest}.anthropic.{prompts,answers}.md`.
+     * With a `session` the raw trail goes to that session's storage
+     * (src/services/sessionStorage.ts), `…/history/<host>/sessions/{session}/trail[/{category}]/`;
+     * its prompt/answer turns go to the host trail (`beginHostTrailTurn` /
+     * `completeHostTrailTurn`, src/services/hostTrail.ts), not to a summary pair.
      */
     | { type: 'anthropic'; category?: 'compaction' | 'memory'; session?: string }
     /** MCP server subsystem — trails tool calls routed through the in-process MCP server. */
@@ -103,6 +107,39 @@ export class TrailService {
 
     writeRawToolAnswer(subsystem: TrailSubsystem, response: object, windowId: string, questId?: string): void {
         this.writeRaw(subsystem, 'tool_answer', JSON.stringify(response, null, 2), windowId, 'json', undefined, questId);
+    }
+
+    /**
+     * Note the prompt of a session's turn as it is sent; the turn is written to
+     * the host's compact trail `history/trail.<host>.md` with its final answer
+     * ({@link completeHostTrailTurn}). Nothing is noted while the compact trail
+     * is off (`trail.summary.enabled: false`).
+     */
+    beginHostTrailTurn(turn: { requestId: string; quest: string; session: string; profile?: string; model?: string; prompt: string }): void {
+        if (!this.getSummaryConfig().enabled) { return; }
+        beginHostTrailTurn({
+            id: turn.requestId,
+            time: new Date().toISOString(),
+            host: hostSlugOf(),
+            session: canonicalSessionName(turn.session),
+            profile: turn.profile ?? '',
+            model: turn.model ?? '',
+            prompt: turn.prompt,
+            questFolder: path.dirname(questHistoryRoot(turn.quest)),
+        });
+    }
+
+    /**
+     * Write the turn `requestId` with its final answer to the host trail — when
+     * its prompt was noted and its session's `contributesToTrailAndMemory` is
+     * on — and trim the file to `trail.compact.maxEntries` turns (only turns a
+     * history covers go). A turn is written once.
+     */
+    completeHostTrailTurn(requestId: string, answer: string): boolean {
+        return completeHostTrailTurn(requestId, answer, {
+            maxEntries: this.getMaxSummaryEntries(),
+            contributes: (questFolder, session) => sessionContributesToTrailAndMemory(path.join(questFolder, 'history'), session),
+        });
     }
 
     writeSummaryPrompt(subsystem: TrailSubsystem, corePrompt: string, questId?: string): void {
@@ -330,7 +367,11 @@ export class TrailService {
         return `${base}${suffix}`;
     }
 
-    /** Resolve the summary file path for external callers. */
+    /**
+     * Resolve the summary file path for external callers. For an Anthropic
+     * session: OLD PLACE, the pair an older build wrote in the session's
+     * storage (nothing writes it; the readers read it for older turns).
+     */
     getSummaryFilePath(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
         return this.resolveSummaryFile(kind, subsystem, questId);
     }
@@ -398,7 +439,7 @@ export class TrailService {
         }
     }
 
-    /** `trail.compact.maxEntries`: the turns a compact trail file keeps (utils/compactTrailTrim.ts). */
+    /** `trail.compact.maxEntries`: the turns a compact trail keeps (utils/compactTrailTrim.ts). */
     private getMaxSummaryEntries(): number {
         return compactTrailMaxEntries(TomAiConfiguration.instance.getTrail());
     }

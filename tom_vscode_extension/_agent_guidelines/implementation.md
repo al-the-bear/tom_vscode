@@ -32,7 +32,7 @@ Recommended pattern:
 
 - [anthropic-handler.ts](../src/handlers/anthropic-handler.ts) owns profiles, history, memory, trails, approval gate.
 - [agent-sdk-transport.ts](../src/handlers/agent-sdk-transport.ts) is a thin translator — SDK query, MCP tool adapter, `canUseTool` bridge. It does **not** persist anything itself; raw trails, tool trail, live trail are driven by the handler and through callbacks from the stream loop.
-- Session-id continuity (SDK-managed mode) uses a fixed-name file (`default.session.json`, per quest) with atomic writes. Early-save on init-message capture; safety-net save on stream completion. See [../doc/anthropic_handler.md](../doc/anthropic_handler.md).
+- Session-id continuity (SDK-managed mode) uses the session's file (`history/<host>/<name>.session.json`, per quest and machine) with atomic writes. Early-save on init-message capture; safety-net save on stream completion. See [../doc/anthropic_handler.md](../doc/anthropic_handler.md).
 
 ## Configuration model
 

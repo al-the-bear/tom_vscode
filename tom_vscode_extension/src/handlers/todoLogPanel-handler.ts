@@ -1,13 +1,16 @@
 /**
  * TODO Log Panel - Explorer sidebar panel showing trail exchanges that reference TODOs.
- * 
- * Displays a list of answer entries from the summary *.answers.md trail files
- * that contain TODO variable references: the quest's history folder and each
- * Anthropic session's folder under it (history/sessions/<session>/,
- * todoLogTrailSets.ts). Auto-refreshes when .answers.md files change there.
- * 
- * Uses the same *.prompts.md / *.answers.md files as the trail custom editor
- * (trailEditor-handler.ts).
+ *
+ * Displays the answers that carry TODO response values: the turns of this
+ * host's compact trail `history/trail.<host>.md` (src/services/hostTrail.ts),
+ * labelled with their session, and — OLD PLACE — the answers of the summary
+ * *.answers.md files of an older build (the quest's history folder and each
+ * session's folder `history/sessions/<session>/`) older than the trail's
+ * oldest turn (todoLogTrailSets.ts). Auto-refreshes when the host trail or an
+ * .answers.md file changes there.
+ *
+ * Opening an entry: a host trail turn opens the trail file at its block; an
+ * older pair's answer opens in the trail custom editor (trailEditor-handler.ts).
  */
 
 import * as vscode from 'vscode';
@@ -23,7 +26,9 @@ import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { parseTodoRef, dedupeTodoRefs, extractTodoRefsFromVariables } from '../utils/todoLogRefs.js';
-import { todoLogTrailSets } from '../utils/todoLogTrailSets.js';
+import { hostTrailTodoEntries, keepOlderPairAnswer, todoLogTrailSets } from '../utils/todoLogTrailSets.js';
+import { hostTrailFile, readHostTrail } from '../services/hostTrail.js';
+import { hostSlugOf } from '../utils/hostSlug.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 
 /**
@@ -118,8 +123,8 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         const folder = getTrailFolder();
         if (!folder || !fs.existsSync(folder)) { return; }
 
-        // Watch the summary *.answers.md files, the sessions' included
-        const pattern = new vscode.RelativePattern(folder, '**/*.answers.md');
+        // Watch the host trails and (OLD PLACE) the summary *.answers.md files, the sessions' included
+        const pattern = new vscode.RelativePattern(folder, '{trail.*.md,**/*.answers.md}');
         this._watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
         const scheduleRefresh = debounce(() => this.refresh(), 800);
@@ -162,7 +167,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Data — reads combined *.prompts.md / *.answers.md trail files
+    // Data — the host trail and (OLD PLACE) the summary *.answers.md files
     // ──────────────────────────────────────────────────────────────────────
 
     /**
@@ -173,6 +178,19 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         if (!trailFolder) {
             vscode.window.showWarningMessage('No trail folder found');
             return;
+        }
+
+        // A turn of this host's trail: the trail file at the turn's block.
+        const trailFile = hostTrailFile(path.dirname(trailFolder), hostSlugOf());
+        if (requestId && fs.existsSync(trailFile)) {
+            const lines = fs.readFileSync(trailFile, 'utf-8').split('\n');
+            const at = lines.findIndex((l) => l.startsWith('<!--tom-trail-turn ') && l.includes(`"id":${JSON.stringify(requestId)}`));
+            if (at >= 0) {
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(trailFile));
+                const position = new vscode.Position(at, 0);
+                await vscode.window.showTextDocument(doc, { selection: new vscode.Range(position, position) });
+                return;
+            }
         }
 
         const set = todoLogTrailSets(trailFolder, discoverTrailSets).get(session);
@@ -199,29 +217,36 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Load TODO-linked answer entries from combined *.answers.md files.
-     * Parses the `variables:` metadata block of each ANSWER entry,
-     * extracting keys that contain "TODO" (same logic as the trail editor).
+     * Load the TODO-linked answers: this host's trail turns whose answers carry
+     * `TODO*` response values, and (OLD PLACE) the `variables:` blocks of the
+     * older *.answers.md files' answers the trail does not have.
      *
      * Each ref is deduplicated (a single answer often carries the same TODO
-     * twice — the model's own `variables:` block plus the one the trail service
-     * appends from `responseValues`) and resolved to its todo title so the view
-     * can show what the TODO actually was, not just its id.
+     * twice) and resolved to its todo title so the view can show what the TODO
+     * actually was, not just its id.
      */
     private _loadTodoExchanges(): TodoLogEntry[] {
         const folder = getTrailFolder();
         if (!folder || !fs.existsSync(folder)) { return []; }
 
-        const trailSets = todoLogTrailSets(folder, discoverTrailSets);
-
-        // First pass: collect entries with their deduped refs.
         const staged: { entry: TodoLogEntry; refs: string[] }[] = [];
+        const turns = readHostTrail(path.dirname(folder), hostSlugOf());
+        for (const t of hostTrailTodoEntries(turns)) {
+            staged.push({
+                entry: { id: t.requestId, timestamp: t.timestamp, displayTime: t.timestamp, session: t.session, todoLinks: [] },
+                refs: dedupeTodoRefs(t.refs),
+            });
+        }
+
+        // OLD PLACE: the summary pairs of an older build, for the answers before the host trail's.
+        const trailSets = todoLogTrailSets(folder, discoverTrailSets);
         for (const [setName, _set] of trailSets) {
             const entries = loadTrailSet(setName, trailSets);
             for (const entry of entries) {
-                if (entry.type !== 'ANSWER') continue;
+                if (entry.type !== 'ANSWER') { continue; }
+                if (!keepOlderPairAnswer(entry.requestId, entry.timestamp, turns)) { continue; }
                 const refs = dedupeTodoRefs(extractTodoRefsFromVariables(entry.variables));
-                if (refs.length === 0) continue;
+                if (refs.length === 0) { continue; }
                 staged.push({
                     entry: {
                         id: entry.requestId,
@@ -300,7 +325,7 @@ interface TodoLogEntry {
     id: string;             // requestId
     timestamp: string;      // ISO or raw timestamp for sorting
     displayTime: string;    // formatted for display
-    session: string;        // trail set name (quest ID)
+    session: string;        // the host trail turn's session, or an older pair's trail set name
     todoLinks: TodoLogLink[]; // resolved TODO references (deduped)
 }
 

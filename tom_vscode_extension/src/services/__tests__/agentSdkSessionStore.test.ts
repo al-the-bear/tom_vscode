@@ -22,6 +22,12 @@
  *         direct-API history folder stays; every write and removal notifies the listeners
  *   SS-9  the transport check on files: an SDK conversation refuses a profile with our own history and
  *         the reverse; the shared sessions and sessions without a conversation take any profile
+ *   SS-12 sessions per host: a new session's file is `history/<host>/<name>.session.json`; a file at the old
+ *         place `history/<name>.session.json` is read and written there; a file at the new place wins; the
+ *         listing names both places' sessions once; deleting removes both
+ *   SS-13 the trail and memory setting: absent reads as on; a new session is on, or as its base is, unless
+ *         `contributesToTrailAndMemory` says otherwise; a spec carries it; it is changed in the file with the
+ *         other fields kept, and nothing is written for a session without a file
  */
 
 import test, { describe } from 'node:test';
@@ -41,8 +47,12 @@ import {
     planSessionStartIn,
     readSession,
     saveSessionId,
+    sessionContributesToTrailAndMemory,
+    sessionFilePath,
     sessionsBasedOn,
+    setContributesToTrailAndMemory,
 } from '../agentSdkSessionStore.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 import { sessionTransportMismatch } from '../directSessionHistory.js';
 import type { SessionProfile } from '../../utils/sessionSpecs.js';
 
@@ -234,5 +244,55 @@ describe('session files', () => {
         const before = seen.length;
         createSession(dir, 'quiet2', {});
         assert.equal(seen.length, before, 'unsubscribed');
+    });
+    test('SS-12: sessions per host', () => {
+        const dir = folder();
+        const host = path.join(dir, hostSlugOf());
+        const made = createSession(dir, 'fresh', {});
+        assert.equal(made.ok, true);
+        assert.equal(fs.existsSync(path.join(host, 'fresh.session.json')), true, 'a new session: the new place');
+        assert.equal(fs.existsSync(path.join(dir, 'fresh.session.json')), false);
+        // OLD PLACE: read and written there.
+        fs.writeFileSync(path.join(dir, 'old.session.json'), JSON.stringify({ mode: 'continue' }));
+        assert.equal(sessionFilePath(dir, 'old'), path.join(dir, 'old.session.json'));
+        saveSessionId(dir, 'old', 'S-old');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'old.session.json'), 'utf8')).sessionId, 'S-old', 'written at the old place');
+        assert.equal(fs.existsSync(path.join(host, 'old.session.json')), false);
+        // Both places: the new place wins.
+        fs.writeFileSync(path.join(host, 'old.session.json'), JSON.stringify({ mode: 'per-prompt' }));
+        assert.equal(readSession(dir, 'old')?.mode, 'per-prompt');
+        assert.deepEqual(listSessions(dir).map((r) => [r.name, r.mode]), [['fresh', 'continue'], ['old', 'per-prompt']], 'each name once');
+        // Deleting removes both places.
+        assert.deepEqual(deleteSession(dir, 'old'), { ok: true, deleted: true });
+        assert.equal(fs.existsSync(path.join(host, 'old.session.json')) || fs.existsSync(path.join(dir, 'old.session.json')), false);
+        assert.deepEqual(listSessions(dir).map((r) => r.name), ['fresh']);
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    test('SS-13: the trail and memory setting', () => {
+        const dir = folder();
+        // Absent (an existing session) reads as on; no file at all too.
+        fs.writeFileSync(path.join(dir, 'older.session.json'), JSON.stringify({ mode: 'continue' }));
+        assert.equal(readSession(dir, 'older')?.contributesToTrailAndMemory, undefined);
+        assert.equal(sessionContributesToTrailAndMemory(dir, 'older'), true);
+        assert.equal(sessionContributesToTrailAndMemory(dir, 'nothing'), true);
+        // A new session: on by default, the given value, else the base's.
+        createSession(dir, 'plain', {});
+        createSession(dir, 'quiet', { contributesToTrailAndMemory: false });
+        createSession(dir, 'child', { basedOn: 'quiet' });
+        createSession(dir, 'loud', { basedOn: 'quiet', contributesToTrailAndMemory: true });
+        assert.deepEqual(['plain', 'quiet', 'child', 'loud'].map((n) => readSession(dir, n)?.contributesToTrailAndMemory), [true, false, false, true]);
+        // A spec carries it; without it the base's setting.
+        const profileOf = (): SessionProfile | undefined => undefined;
+        ensureSession(dir, { name: 'spec-off', contributesToTrailAndMemory: false }, profileOf);
+        ensureSession(dir, { name: 'spec-base', basedOn: 'quiet' }, profileOf);
+        assert.deepEqual([sessionContributesToTrailAndMemory(dir, 'spec-off'), sessionContributesToTrailAndMemory(dir, 'spec-base')], [false, false]);
+        // Changed in the file, the rest kept.
+        saveSessionId(dir, 'plain', 'S-plain');
+        assert.equal(setContributesToTrailAndMemory(dir, 'plain', false), true);
+        assert.deepEqual([readSession(dir, 'plain')?.contributesToTrailAndMemory, readSession(dir, 'plain')?.sessionId], [false, 'S-plain']);
+        assert.equal(setContributesToTrailAndMemory(dir, 'nothing', false), false, 'no file: nothing written');
+        assert.equal(fs.existsSync(path.join(dir, hostSlugOf(), 'nothing.session.json')), false);
+        fs.rmSync(dir, { recursive: true, force: true });
     });
 });

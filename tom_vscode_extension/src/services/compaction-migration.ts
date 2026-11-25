@@ -66,7 +66,7 @@ export interface MigrationReport {
     memoryFilesMigrated: number;
     memoryFilesAlreadyCurrent: number;
     memoryFilesFailed: number;
-    /** Session histories (`history/sessions/<name>/`) looked at, and migrated. */
+    /** Session histories (`history/<host>/sessions/<name>/`) looked at, and migrated. */
     sessionHistoriesScanned: number;
     sessionHistoriesMigrated: number;
     progressLines: string[];
@@ -76,7 +76,7 @@ interface MigrationCallbacks {
     onProgress?: (msg: string) => void;
     /**
      * Which sessions' storage to migrate besides each quest's root history:
-     * their `history/sessions/<name>/` and quest memory
+     * their `history/<host>/sessions/<name>/` and quest memory
      * `_ai/memory/<quest>/<name>/`. Default `'all'`.
      */
     sessions?: readonly string[] | 'all';
@@ -140,7 +140,7 @@ export function migrateCompactionFormat(opts?: MigrationCallbacks): MigrationRep
                 report.questsFailed += 1;
                 emit(`quest: ${quest} — FAILED: ${e instanceof Error ? e.message : String(e)}`);
             }
-            // Every chosen session keeps its own history (history/sessions/<name>/).
+            // Every chosen session keeps its own history (history/<host>/sessions/<name>/).
             for (const session of sessionsWithStorage(historyFolder).filter(chosen)) {
                 report.sessionHistoriesScanned += 1;
                 try {

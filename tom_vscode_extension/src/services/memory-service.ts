@@ -16,12 +16,13 @@
  */
 
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
-import { clearSessionId, saveSessionId } from './agentSdkSessionStore';
+import { clearSessionId, saveSessionId, sessionFilePath } from './agentSdkSessionStore';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
+import { hostSlugOf } from '../utils/hostSlug';
 import { WsPaths } from '../utils/workspacePaths';
 import { toolLog } from '../utils/toolLog';
 import { logInfo as logStorageInfo } from './compaction-log';
@@ -515,8 +516,29 @@ export class TwoTierMemoryService {
     // Candidates (the automatic memory extraction)
     // ------------------------------------------------------------------------
 
-    /** This host's candidates file, `candidates.<host>.md`. */
-    candidatesFile(): string { return candidatesFileName(HOST_NAME); }
+    /** OLD PLACE: the host name the candidates file was named with before the host slug (the machine's host name). */
+    legacyCandidatesHost: string = HOST_NAME;
+
+    /** This host's candidates file, `candidates.<host>.md` (`<host>` the host slug, src/utils/hostSlug.ts). */
+    candidatesFile(): string { return candidatesFileName(hostSlugOf()); }
+
+    /**
+     * OLD PLACE: this host's candidates file under the name before the host
+     * slug, `candidates.<hostname>.md`; undefined when both names are the same.
+     * Read with the slug-named file, merged into it on the next write and then
+     * deleted.
+     */
+    legacyCandidatesFile(): string | undefined {
+        const old = candidatesFileName(this.legacyCandidatesHost);
+        return old === this.candidatesFile() ? undefined : old;
+    }
+
+    /** This host's candidate entries (OLD PLACE: with those of the old-named file), newest first. */
+    private ownCandidateEntries(questId?: string): MemoryEntry[] {
+        const old = this.legacyCandidatesFile();
+        const legacy = old ? parseMemoryEntries(this.read('quest', old, questId)) : [];
+        return dedupAndSortEntries([...parseMemoryEntries(this.read('quest', this.candidatesFile(), questId)), ...legacy]);
+    }
 
     /**
      * Add extracted facts (one bullet per line) to this host's candidates
@@ -535,15 +557,18 @@ export class TwoTierMemoryService {
                 : formatCandidateText({ session: origin.session, targetFile, text: e.text });
             return { ...e, text };
         });
-        const existing = parseMemoryEntries(this.read('quest', file, questId));
+        // OLD PLACE: the old-named file's entries are merged in, and the file goes.
+        const existing = this.ownCandidateEntries(questId);
         this.write('quest', file, serialiseMemoryEntries(dedupAndSortEntries([...fresh, ...existing])), questId);
+        const old = this.legacyCandidatesFile();
+        if (old && fs.existsSync(this.filePath('quest', old, questId))) { this.delete('quest', old, questId); }
         return file;
     }
 
     /** This host's candidates meant for the curated file `targetFile`, newest first. */
     candidatesFor(targetFile: string, questId?: string): MemoryEntry[] {
         const target = this.sanitizeFile((targetFile || '').trim() || DEFAULT_MEMORY_FILE);
-        return dedupAndSortEntries(parseMemoryEntries(this.read('quest', this.candidatesFile(), questId)))
+        return this.ownCandidateEntries(questId)
             .filter((e) => candidateTargetFile(e.text) === target);
     }
 
@@ -588,7 +613,7 @@ export class TwoTierMemoryService {
 
         const candidatesFile = this.candidatesFile();
         const candidatesMeta = this.listWithMeta('quest', questId).find((e) => e.file === candidatesFile);
-        const candidateEntries = dedupAndSortEntries(parseMemoryEntries(this.read('quest', candidatesFile, questId)))
+        const candidateEntries = this.ownCandidateEntries(questId)
             .filter((e) => suffixFile === undefined || candidateTargetFile(e.text) === suffixFile);
 
         const block = buildMemoryBlock({
@@ -853,20 +878,15 @@ export class TwoTierMemoryService {
     // ------------------------------------------------------------------------
 
     /**
-     * Filename inside the quest's history folder, keyed by `sessionKey`:
-     * `<sessionKey>.session.json` (e.g. `default.session.json` for the
-     * prompt queue, `chat.session.json` for the Anthropic chat panel).
-     * Keeping each entry point on its own key stops one surface from
-     * resuming (or clearing) another's SDK session.
-     *
-     * Gitignored because SDK sessions are tied to a single machine/install
-     * and can't move with git. A fixed path means the file is auto-recreated
-     * when missing and survives VS Code window restarts — earlier versions
-     * keyed on windowId, which defeated that goal (every reload produced an
-     * orphan file and lost continuity).
+     * The session file of `sessionKey`: `<sessionKey>.session.json` in this
+     * host's folder of the quest's history (`history/<host>/`), or at its old
+     * place directly in `history/` while it is there
+     * (agentSdkSessionStore.sessionFilePath). Keeping each entry point on its
+     * own key stops one surface from resuming (or clearing) another's SDK
+     * session.
      */
     private agentSdkSessionFile(questId?: string, sessionKey: string = DEFAULT_RUN_SESSION): string {
-        return path.join(this.historyFolder(questId), `${canonicalSessionName(sessionKey)}.session.json`);
+        return sessionFilePath(this.historyFolder(questId), canonicalSessionName(sessionKey));
     }
 
     /**
@@ -925,7 +945,7 @@ export class TwoTierMemoryService {
         }
     }
 
-    /** The folder holding the quest's `<name>.session.json` files. */
+    /** The quest's `history/` folder: the session store's folder (its sessions' files are under `<host>/`). */
     agentSdkSessionsFolder(questId?: string): string {
         return this.historyFolder(questId);
     }

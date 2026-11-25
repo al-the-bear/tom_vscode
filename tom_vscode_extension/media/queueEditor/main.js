@@ -1019,6 +1019,9 @@ function setDoneNotificationDisabled(id, disabled) { vscode.postMessage({ type: 
 function pickDoneNotificationTarget(id) { vscode.postMessage({ type: 'pickDoneNotificationTarget', id }); }
 function openTemplateEditor() { vscode.postMessage({ type: 'openTemplateEditor' }); }
 function openQueueTemplates() { vscode.postMessage({ type: 'openQueueTemplates' }); }
+/** The Recent Prompts panel (the last prompts the queue sent): opened by the host. */
+// eslint-disable-next-line no-unused-vars -- called by the context bar's button (index.html)
+function openRecentPrompts() { vscode.postMessage({ type: 'openRecentPrompts' }); }
 function addPrompt() {
   const ta = document.getElementById('addText');
   const text = ta.value.trim();

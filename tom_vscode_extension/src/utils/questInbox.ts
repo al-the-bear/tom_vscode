@@ -61,6 +61,8 @@ export interface InboxNewSession {
     lifetime?: SessionMode;
     /** Anthropic profile id the session is created with. */
     profile?: string;
+    /** Whether its turns go into the host trail and memory; unset: the base's setting, without a base true. */
+    contributesToTrailAndMemory?: boolean;
 }
 
 /** What the sender says about the item; everything else is the target queue's default. */
@@ -169,6 +171,7 @@ export function serializeInboxItem(item: InboxItem): string {
             ...(n.name ? { name: n.name } : {}),
             ...(n.lifetime ? { lifetime: n.lifetime } : {}),
             ...(n.profile ? { profile: n.profile } : {}),
+            ...(n.contributesToTrailAndMemory !== undefined ? { 'contributes-to-trail-and-memory': n.contributesToTrailAndMemory } : {}),
         };
     }
     return yaml().stringify(doc, { lineWidth: 120 });
@@ -235,6 +238,7 @@ export function parseInboxItem(content: string): ParsedInboxItem {
             ...(str(n.name) ? { name: str(n.name) } : {}),
             ...(lifetime ? { lifetime } : {}),
             ...(str(n.profile) ? { profile: str(n.profile) } : {}),
+            ...(typeof n['contributes-to-trail-and-memory'] === 'boolean' ? { contributesToTrailAndMemory: n['contributes-to-trail-and-memory'] as boolean } : {}),
         };
     }
     return { ok: true, item };
@@ -327,6 +331,8 @@ export interface InboxSessionToCreate {
     /** Unset: the base's (createSession inherits it). */
     profile?: string;
     temporary: boolean;
+    /** Unset: the base's setting, without a base true (createSession). */
+    contributesToTrailAndMemory?: boolean;
 }
 
 /** The queue item an inbox item becomes; `error` set when it is queued as failed. */
@@ -427,6 +433,9 @@ export function planInboxConversion(item: InboxItem, ctx: InboxConversionContext
     const profile = n.profile ?? (base?.profileId ? undefined : item.anthropicProfileId);
     return {
         enqueue: { ...enqueue, session: name, ...(temporary ? { temporarySession: true } : {}) },
-        createSession: { name, ...(n.basedOn ? { basedOn: n.basedOn } : {}), mode: n.lifetime ?? 'continue', ...(profile ? { profile } : {}), temporary },
+        createSession: {
+            name, ...(n.basedOn ? { basedOn: n.basedOn } : {}), mode: n.lifetime ?? 'continue', ...(profile ? { profile } : {}), temporary,
+            ...(n.contributesToTrailAndMemory !== undefined ? { contributesToTrailAndMemory: n.contributesToTrailAndMemory } : {}),
+        },
     };
 }

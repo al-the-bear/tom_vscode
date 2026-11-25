@@ -1,12 +1,13 @@
 /**
  * Quest Logs fragments — two read-only viewers sharing one engine (see {@link QUEST_LOG_TABS}):
  *
- *   - the **Logs** section of @CHAT: what one Anthropic session wrote — its live trail
- *     rendered and as source, its prompt/answer pair and the last prompt it
- *     sent — with a session switch (src/utils/sessionSwitch.ts) above the tabs;
+ *   - the **Logs** section of @CHAT: one Anthropic session on this machine — its
+ *     turns of this host's trail as prompt/answer pairs (the Trail tab,
+ *     src/utils/sessionTrailTurns.ts) and its live trail rendered and as
+ *     source — with a session switch (src/utils/sessionSwitch.ts) above the tabs;
  *   - the quest-document sub-tabs of the @WS **Documentation** section: progress /
- *     overview / notes / refresh / doc-update / deferred-steps / questions /
- *     decisions, beside its *Documents* editor.
+ *     overview / notes / refresh / doc-update / deferred-steps / Q&A (this host's
+ *     journal), beside its *Documents* editor.
  *
  * The view is
  * read-only; the toolbar's *Open in editor* button hands the file to a normal
@@ -16,8 +17,9 @@
  *
  *   - **The files are large and polled.** The trail alone routinely passes half
  *     a megabyte and the webview refreshes every few seconds, so each request
- *     first compares `size`/`mtime` against what the tab was last sent and
- *     answers `qlogUnchanged` when nothing moved. When it did move, only
+ *     first compares `size`/`mtime` (the Trail tab: of every file it reads)
+ *     against what the tab was last sent and answers `qlogUnchanged` when
+ *     nothing moved. When it did move, only
  *     `MAX_QUEST_LOG_BYTES` are read — from whichever end of the file its
  *     newest content is at.
  *   - **The content is untrusted.** It quotes user prompts and model answers
@@ -44,28 +46,36 @@ import { resolveDefaultQuestNotes } from '../utils/notesFiles.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown.js';
 import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
 import { listSessions } from '../services/agentSdkSessionStore.js';
-import { sessionLiveTrailFile, sessionsWithStorage } from '../services/sessionStorage.js';
+import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage } from '../services/sessionStorage.js';
+import { readHostTrail } from '../services/hostTrail.js';
+import { hostSlugOf } from '../utils/hostSlug.js';
+import {
+    olderSessionPairFiles,
+    readOlderSessionPairs,
+    renderSessionTrailHtml,
+    sessionTrailTurnMarkdown,
+    sessionTrailTurnTitle,
+    sessionTrailTurns,
+    type SessionTrailTurn,
+} from '../utils/sessionTrailTurns.js';
 import { planSessionSwitch, type SwitchSession } from '../utils/sessionSwitch.js';
 import { runQueueSession } from '../utils/runSessions.js';
 import {
     QUEST_LOG_TABS,
-    CURRENT_PROMPT_VARIANTS,
     DEFAULT_QUEST_LOG_TAB_ID,
-    DEFAULT_QUEST_LOG_VARIANT_ID,
     MAX_QUEST_LOG_BYTES,
     computeTailStart,
     DEFAULT_LOG_SESSION,
     isQuestLogTabId,
-    isQuestLogVariantId,
     isSessionTab,
     questLogTabsOf,
     questLogLocation,
+    questLogSession,
     questLogViewKey,
     trimToLineStart,
     trimToLineEnd,
     type QuestLogNewestAt,
     type QuestLogTabId,
-    type QuestLogVariantId,
 } from '../utils/questLogFiles.js';
 import { CHAT_SESSION_ACTIONS, runChatSessionAction, type ChatSessionAction } from './chatPanel-handler';
 
@@ -73,13 +83,7 @@ import { CHAT_SESSION_ACTIONS, runChatSessionAction, type ChatSessionAction } fr
 // Fragment assets
 // ---------------------------------------------------------------------------
 
-/**
- * HTML for the Logs accordion section: tab strip, toolbar, viewer, status.
- *
- * The variant selector is part of the toolbar but hidden until a tab that has
- * variants is active — only Current Prompt does, and a selector floating above
- * a fixed file would just be a lie.
- */
+/** The tab strip's buttons. */
 function tabButtonsHtml(tabs: ReadonlyArray<{ id: string; label: string; icon: string }>): string {
     return tabs.map(tab =>
         `<button class="qlog-tab" data-qlog-tab="${tab.id}" title="${tab.label}">`
@@ -90,10 +94,6 @@ function tabButtonsHtml(tabs: ReadonlyArray<{ id: string; label: string; icon: s
 
 /** The Logs section: the session switch, the per-session tabs, the viewer. */
 export function getQuestLogsHtmlFragment(): string {
-    const variants = CURRENT_PROMPT_VARIANTS.map(v =>
-        `<option value="${v.id}">${v.label}</option>`,
-    ).join('\n        ');
-
     return `
 <div class="toolbar qlog-toolbar qlog-session-bar">
     <span class="qlog-session-label">Session:</span>
@@ -103,9 +103,6 @@ export function getQuestLogsHtmlFragment(): string {
     <div class="qlog-tabs" id="qlog-tabs">
         ${tabButtonsHtml(questLogTabsOf('logs'))}
     </div>
-    <select class="qlog-variant" id="qlog-variant" title="Which prompt to show" hidden>
-        ${variants}
-    </select>
     <button class="icon-btn" id="qlog-refresh" title="Refresh from disk"><span class="codicon codicon-refresh"></span></button>
     <button class="icon-btn" id="qlog-open" title="Open in editor"><span class="codicon codicon-go-to-file"></span></button>
 </div>
@@ -143,13 +140,12 @@ export function getQuestLogsCss(): string {
 export type QuestLogViewerId = 'logs' | 'docs';
 
 /**
- * The client's configuration — the globals media/questLogs/main.js reads
- * (`qlogViewers`, `qlogVariantTabs`, `qlogVariantIds`, `qlogDefaultVariant`) —
- * for the viewers a panel hosts. The tab catalogue is the same array the HTML
- * was built from, so the client never re-derives the tab list.
+ * The client's configuration — the global media/questLogs/main.js reads
+ * (`qlogViewers`) — for the viewers a panel hosts. The tab catalogue is the
+ * same array the HTML was built from, so the client never re-derives the tab list.
  */
 export function getQuestLogsClientConfig(viewerIds: readonly QuestLogViewerId[] = ['logs', 'docs']): {
-    viewers: unknown[]; variantTabs: string[]; variantIds: string[]; defaultVariant: string;
+    viewers: unknown[];
 } {
     const all = {
         logs: {
@@ -166,12 +162,7 @@ export function getQuestLogsClientConfig(viewerIds: readonly QuestLogViewerId[] 
             sessions: false,
         },
     };
-    return {
-        viewers: viewerIds.map(id => all[id]),
-        variantTabs: QUEST_LOG_TABS.filter(t => t.variants).map(t => t.id),
-        variantIds: CURRENT_PROMPT_VARIANTS.map(v => v.id),
-        defaultVariant: DEFAULT_QUEST_LOG_VARIANT_ID,
-    };
+    return { viewers: viewerIds.map(id => all[id]) };
 }
 
 /**
@@ -183,9 +174,6 @@ export function getQuestLogsScript(viewerIds: readonly QuestLogViewerId[] = ['lo
     const cfg = getQuestLogsClientConfig(viewerIds);
     return `\n// ── Quest Logs variables ──\n`
         + `var qlogViewers = ${JSON.stringify(cfg.viewers)};\n`
-        + `var qlogVariantTabs = ${JSON.stringify(cfg.variantTabs)};\n`
-        + `var qlogVariantIds = ${JSON.stringify(cfg.variantIds)};\n`
-        + `var qlogDefaultVariant = ${JSON.stringify(cfg.defaultVariant)};\n`
         + readMediaText('questLogs', 'main.js');
 }
 
@@ -198,25 +186,27 @@ export function getQuestLogsScript(viewerIds: readonly QuestLogViewerId[] = ['lo
  *
  * The catalogue names the *area*; resolving it to a directory is this
  * function's only real job. `quest` is the quest folder and `questHistory` its
- * `history/` subfolder, which holds every session's storage (the current-prompt
- * files are in a session's `trail/`).
+ * `history/` subfolder, which holds this host's trail and every session's storage.
  */
 function resolveQuestLogPath(
     tab: QuestLogTabId,
-    variant?: QuestLogVariantId,
     session?: string,
 ): { questId: string; filePath: string; fileName: string } {
     const questId = activeQuestId();
-    const { area, fileName } = questLogLocation(tab, questId, variant, session);
+    const { area, fileName } = questLogLocation(tab, questId, session);
 
-    const wsRoot = layoutWorkspaceFolder() ?? '';
-    const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
-    const questFolder = path.join(questsRoot, sanitizeQuestSegment(questId));
+    const questFolder = activeQuestFolder(questId);
     const dir = area === 'questHistory' ? questTrailFolder(questFolder) : questFolder;
     if (tab === 'notes') {
         // The default notes file, through the one rule that also knows the old place.
         const notes = resolveDefaultQuestNotes(path.join(dir, ...fileName.split('/')), questFolder, sanitizeQuestSegment(questId));
         return { questId: questId || 'default', fileName: path.basename(notes.filePath), filePath: notes.filePath };
+    }
+    // A session's file is in its storage folder, which sessionRoot decides (this host's
+    // `history/<host>/sessions/<s>/`, or its old place `history/sessions/<s>/`).
+    const inSession = area === 'questHistory' ? /^sessions\/([^/]+)\/(.+)$/.exec(fileName) : null;
+    if (inSession) {
+        return { questId: questId || 'default', fileName, filePath: path.join(sessionRoot(dir, inSession[1]), ...inSession[2].split('/')) };
     }
     return {
         questId: questId || 'default',
@@ -259,18 +249,17 @@ function readQuestLogSlice(
 // Message handling
 // ---------------------------------------------------------------------------
 
-/** What a view was last sent, so an unchanged file costs one `stat` and no read. */
+/**
+ * What a view was last sent, so an unchanged file costs one `stat` and no
+ * read: the file and the `size:mtime` of every file the view reads (the Trail
+ * tab reads this host's trail and, OLD PLACE, the session's older pair).
+ */
 interface QuestLogSnapshot {
     filePath: string;
-    size: number;
-    mtimeMs: number;
+    signature: string;
 }
 
-/**
- * Keyed by {@link questLogViewKey}, not by tab: the Current Prompt dropdown
- * puts six files behind one tab, and a tab-keyed cache would answer "unchanged"
- * for the variant just selected because a different one had not moved.
- */
+/** Keyed by {@link questLogViewKey}: the tab, and on a Logs tab the session. */
 const lastSent = new Map<string, QuestLogSnapshot>();
 
 function activeQuestId(): string {
@@ -325,12 +314,40 @@ function windowRunLogSession(): string {
 /** The session plan each webview was last sent, so an unchanged list is not re-sent every poll. */
 const lastPlan = new WeakMap<vscode.Webview, string>();
 
+/** The quest folder `_ai/quests/<quest>/` of the window's quest. */
+function activeQuestFolder(questId: string): string {
+    const wsRoot = layoutWorkspaceFolder() ?? '';
+    const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
+    return path.join(questsRoot, sanitizeQuestSegment(questId));
+}
+
+/**
+ * The Trail tab's turns of `session` in the quest at `questFolder`: its view
+ * of this host's trail, plus (OLD PLACE) the older turns of its summary pair
+ * of an older build. Other hosts' trails are not read.
+ */
+export function sessionTrailTurnsOf(questFolder: string, questId: string, session: string): SessionTrailTurn[] {
+    const historyRoot = questTrailFolder(questFolder);
+    const olderPairs = readOlderSessionPairs(historyRoot, sanitizeQuestSegment(questId), session);
+    return sessionTrailTurns(readHostTrail(questFolder, hostSlugOf()), session, olderPairs);
+}
+
+/** The files the Trail tab of `session` reads: this host's trail, then (OLD PLACE) the session's older pair. */
+function sessionTrailFiles(questFolder: string, questId: string, session: string): string[] {
+    const older = olderSessionPairFiles(questTrailFolder(questFolder), sanitizeQuestSegment(questId), session);
+    return [path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName), older.prompts, older.answers];
+}
+
+/** `size:mtime` of each file, `-` for a missing one. */
+function filesSignature(files: readonly string[]): string {
+    return files.map((f) => {
+        try { const st = fs.statSync(f); return `${st.size}:${st.mtimeMs}`; } catch { return '-'; }
+    }).join('|');
+}
+
 /** Handle a `qlog*` message from the @WS webview. */
 export async function handleQuestLogsMessage(message: any, webview: vscode.Webview): Promise<void> {
     const tab: QuestLogTabId = isQuestLogTabId(message?.tab) ? message.tab : DEFAULT_QUEST_LOG_TAB_ID;
-    const variant: QuestLogVariantId = isQuestLogVariantId(message?.variant)
-        ? message.variant
-        : DEFAULT_QUEST_LOG_VARIANT_ID;
     const viewer = typeof message?.viewer === 'string' ? message.viewer : 'logs';
     // A Logs tab shows one session: the plan says which (and the webview draws it).
     let session: string | undefined;
@@ -340,15 +357,15 @@ export async function handleQuestLogsMessage(message: any, webview: vscode.Webvi
         const json = JSON.stringify(plan);
         if (message?.type === 'qlogRequest' && (message.force || lastPlan.get(webview) !== json)) {
             lastPlan.set(webview, json);
-            webview.postMessage({ type: 'qlogSessions', viewer, tab, variant, plan });
+            webview.postMessage({ type: 'qlogSessions', viewer, tab, plan });
         }
     }
     switch (message?.type) {
         case 'qlogRequest':
-            sendQuestLogContent(webview, viewer, tab, variant, session, !!message.force);
+            sendQuestLogContent(webview, viewer, tab, session, !!message.force);
             return;
         case 'qlogOpenInEditor':
-            await openQuestLogInEditor(tab, variant, session);
+            await openQuestLogInEditor(tab, session);
             return;
         case 'qlogSessionAction': {
             // The trail / history / memory buttons behind the session switch:
@@ -359,42 +376,131 @@ export async function handleQuestLogsMessage(message: any, webview: vscode.Webvi
             }
             return;
         }
+        case 'qlogTurnAction':
+            // A Trail tab pair's button: copy, Markdown overlay, open in its trail file.
+            if (session) { await runTurnAction(webview, viewer, tab, session, String(message?.action || ''), String(message?.turn || '')); }
+            return;
+        case 'qlogGotoTodo': {
+            // A todo reference of a Trail tab pair's answer.
+            const { gotoWorkspaceTodo } = await import('./trailViewer-handler.js');
+            await gotoWorkspaceTodo(String(message?.todo || ''));
+            return;
+        }
     }
+}
+
+/** Run a Trail tab pair's action on turn `turnId` of `session`. */
+async function runTurnAction(webview: vscode.Webview, viewer: string, tab: QuestLogTabId, session: string, action: string, turnId: string): Promise<void> {
+    const questId = activeQuestId();
+    const questFolder = activeQuestFolder(questId);
+    const turn = sessionTrailTurnsOf(questFolder, questId, questLogSession(session)).find((t) => t.id === turnId);
+    if (!turn) {
+        vscode.window.showInformationMessage(`The turn ${turnId} of session "${session}" is not in this machine's trail any more.`);
+        return;
+    }
+    switch (action) {
+        case 'copyPrompt':
+        case 'copyAnswer':
+            await vscode.env.clipboard.writeText(action === 'copyPrompt' ? turn.prompt : turn.answer);
+            vscode.window.setStatusBarMessage(action === 'copyPrompt' ? 'Prompt copied' : 'Answer copied', 2000);
+            return;
+        case 'markdown':
+            webview.postMessage({
+                type: 'qlogMarkdown', viewer, tab, session,
+                title: sessionTrailTurnTitle(turn), html: renderQuestLogMarkdown(sessionTrailTurnMarkdown(turn)),
+            });
+            return;
+        case 'open':
+            await openTurnInTrailFile(questFolder, questId, session, turn);
+            return;
+    }
+}
+
+/**
+ * Open the file a turn is in at its block: this host's trail at the turn's
+ * header line; OLD PLACE: an older build's turn in the session's answers file
+ * at its `=== ANSWER <id>` line (else its prompts file).
+ */
+async function openTurnInTrailFile(questFolder: string, questId: string, session: string, turn: SessionTrailTurn): Promise<void> {
+    const candidates: Array<{ file: string; match: (line: string) => boolean }> = [];
+    if (turn.olderBuild) {
+        const older = olderSessionPairFiles(questTrailFolder(questFolder), sanitizeQuestSegment(questId), questLogSession(session));
+        candidates.push(
+            { file: older.answers, match: (l) => l.startsWith(`=== ANSWER ${turn.id} `) },
+            { file: older.prompts, match: (l) => l.startsWith(`=== PROMPT ${turn.id} `) },
+        );
+    } else {
+        candidates.push({
+            file: path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName),
+            match: (l) => l.startsWith('<!--tom-trail-turn ') && l.includes(`"id":${JSON.stringify(turn.id)}`),
+        });
+    }
+    for (const c of candidates) {
+        let lines: string[];
+        try { lines = fs.readFileSync(c.file, 'utf-8').split('\n'); } catch { continue; }
+        const at = lines.findIndex(c.match);
+        if (at < 0) { continue; }
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(c.file));
+        const position = new vscode.Position(at, 0);
+        await vscode.window.showTextDocument(doc, { preview: false, selection: new vscode.Range(position, position) });
+        return;
+    }
+    vscode.window.showInformationMessage(`The turn ${turn.id} was not found in its trail file.`);
 }
 
 function sendQuestLogContent(
     webview: vscode.Webview,
     viewer: string,
     tab: QuestLogTabId,
-    variant: QuestLogVariantId,
     session: string | undefined,
     force: boolean,
 ): void {
     const entry = QUEST_LOG_TABS.find(t => t.id === tab);
     const view = entry?.view ?? 'source';
     const newestAt: QuestLogNewestAt = entry?.newestAt ?? 'end';
-    const { questId, filePath, fileName } = resolveQuestLogPath(tab, variant, session);
-    const key = questLogViewKey(tab, variant, session);
+    const { questId, filePath, fileName } = resolveQuestLogPath(tab, session);
+    const key = questLogViewKey(tab, session);
+    const post = (fields: Record<string, unknown>): void => {
+        webview.postMessage({ type: 'qlogContent', viewer, tab, session, questId, fileName, filePath, newestAt, ...fields });
+    };
+
+    if (view === 'turns') {
+        // The session's turns of this host's trail (and, OLD PLACE, its older pair): built, not read as one file.
+        const name = questLogSession(session);
+        const quest = activeQuestId();
+        const questFolder = activeQuestFolder(quest);
+        const signature = filesSignature(sessionTrailFiles(questFolder, quest, name));
+        const previous = lastSent.get(key);
+        if (!force && previous && previous.filePath === filePath && previous.signature === signature) {
+            webview.postMessage({ type: 'qlogUnchanged', viewer, tab, session });
+            return;
+        }
+        try {
+            const turns = sessionTrailTurnsOf(questFolder, quest, name);
+            lastSent.set(key, { filePath, signature });
+            let bytes = 0;
+            try { bytes = fs.statSync(filePath).size; } catch { /* no trail on this machine yet */ }
+            post({ exists: true, html: renderSessionTrailHtml(name, turns), truncated: false, bytes, turns: turns.length });
+        } catch (err) {
+            lastSent.delete(key);
+            post({ exists: false, html: '', truncated: false, bytes: 0, error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+    }
 
     let stat: fs.Stats;
     try {
         stat = fs.statSync(filePath);
     } catch {
         lastSent.delete(key);
-        webview.postMessage({
-            type: 'qlogContent', viewer, tab, variant, session, questId, fileName, filePath, newestAt,
-            exists: false, html: '', truncated: false, bytes: 0,
-        });
+        post({ exists: false, html: '', truncated: false, bytes: 0 });
         return;
     }
 
+    const signature = `${stat.size}:${stat.mtimeMs}`;
     const previous = lastSent.get(key);
-    const unchanged = previous
-        && previous.filePath === filePath
-        && previous.size === stat.size
-        && previous.mtimeMs === stat.mtimeMs;
-    if (unchanged && !force) {
-        webview.postMessage({ type: 'qlogUnchanged', viewer, tab, variant, session });
+    if (!force && previous && previous.filePath === filePath && previous.signature === signature) {
+        webview.postMessage({ type: 'qlogUnchanged', viewer, tab, session });
         return;
     }
 
@@ -403,32 +509,25 @@ function sendQuestLogContent(
         const html = view === 'rendered'
             ? renderQuestLogMarkdown(text)
             : `<pre class="qlog-source">${highlightMarkdownSource(text)}</pre>`;
-        lastSent.set(key, { filePath, size: stat.size, mtimeMs: stat.mtimeMs });
-        webview.postMessage({
-            type: 'qlogContent', viewer, tab, variant, session, questId, fileName, filePath, newestAt,
-            exists: true, html, truncated, bytes: stat.size,
-        });
+        lastSent.set(key, { filePath, signature });
+        post({ exists: true, html, truncated, bytes: stat.size });
     } catch (err) {
         // A read that fails after a successful stat means the file changed
         // under us (rotated, deleted). Drop the snapshot so the next poll
         // retries rather than reporting the stale content as current.
         lastSent.delete(key);
-        webview.postMessage({
-            type: 'qlogContent', viewer, tab, variant, session, questId, fileName, filePath, newestAt,
-            exists: false, html: '', truncated: false, bytes: 0,
-            error: err instanceof Error ? err.message : String(err),
-        });
+        post({ exists: false, html: '', truncated: false, bytes: 0, error: err instanceof Error ? err.message : String(err) });
     }
 }
 
 /**
- * Open the tab's file in a normal text editor. `openTextDocument` +
- * `showTextDocument` is deliberate: `vscode.open` would hand `.md` files to
- * whichever custom editor claims them, and the point of this button is to get
- * at the plain text.
+ * Open the tab's file in a normal text editor (the Trail tab: this host's
+ * trail). `openTextDocument` + `showTextDocument` is deliberate: `vscode.open`
+ * would hand `.md` files to whichever custom editor claims them, and the
+ * point of this button is to get at the plain text.
  */
-async function openQuestLogInEditor(tab: QuestLogTabId, variant?: QuestLogVariantId, session?: string): Promise<void> {
-    const { filePath, fileName, questId } = resolveQuestLogPath(tab, variant, session);
+async function openQuestLogInEditor(tab: QuestLogTabId, session?: string): Promise<void> {
+    const { filePath, fileName, questId } = resolveQuestLogPath(tab, session);
     if (!fs.existsSync(filePath)) {
         vscode.window.showInformationMessage(`Quest "${questId}" has no ${fileName} yet (${filePath}).`);
         return;

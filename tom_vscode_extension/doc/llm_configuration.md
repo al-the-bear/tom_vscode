@@ -156,7 +156,7 @@ an Anthropic session's in its own storage, the Local LLM's in its trail folder.
 Layout:
 
 ```text
-_ai/quests/<quest>/history/sessions/<session>/trail/tool_results/t14.json
+_ai/quests/<quest>/history/<host>/sessions/<session>/trail/tool_results/t14.json
 _ai/trail/localllm/<quest>/tool_results/t14.json
 ```
 
@@ -753,7 +753,7 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 
 | Field | Default | Where used |
 | --- | --- | --- |
-| `disabled` | `false` | Global kill switch for the post-turn compaction + memory-extraction pass. Also suppresses the **automatic** trail-based history rebuild on session seed (so a disabled compactor makes no LLM/Ollama calls on a fresh session); the explicit "Recreate History" button still forces a rebuild. Per-config `compactionOverride` wins. |
+| `disabled` | `false` | Global kill switch for the automatic builds of the quest history (every `runEveryNRounds` rounds, and the first build when a quest has a trail and no history yet) with their memory extraction, so a disabled compactor makes no LLM/Ollama calls; the **Rebuild history and memory** button still builds. Per-config `compactionOverride` wins. |
 | `compactionModel` | — | The model compaction runs on: `anthropic:<configuration id>` — any Anthropic configuration, on the direct API, the Agent SDK or VS Code LM, called through its own transport — or `localLlm:<configuration id>`. Unset: no compaction. Chosen in the Status Page's History Compaction section ("Compaction model") or above the prompt queue (`compactionPickerState` / `setCompactionModel` serve both). |
 | `memoryExtractionModel` | — | The model memory extraction runs on, written the same way ("Memory extraction model", on the Status Page and above the prompt queue). Unset: no memory extraction. |
 | `llmProvider`, `llmConfigId` | — | The older form: one model for both. Read only while the two keys above are unset; the Status Page writes the two keys and drops these on save. |
@@ -768,11 +768,31 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | **`toolTrailKeepRounds`** | `2` | Fallback in-message keep window for tool_result blocks. |
 | `fullTrailMaxTurns` | `200` | Safety cap on `historyMode: full`. |
 | `backgroundExtractionEnabled` | `true` | Anthropic background `llm_extract` pass on/off. |
-| `runMemoryExtractionOnCompaction` | `true` | Memory extraction runs after every compaction pass. |
-| `rebuildFromLastNPrompts` | `200` | Anthropic — number of trail-file entries used to seed history when no `history.json` exists. Only runs the LLM fold when compaction is enabled (`disabled: false`) or the rebuild was forced via "Recreate History". |
-| `archiveHistoryEveryTurn` | `false` | Debug toggle: write a timestamped `history.json` snapshot per turn. |
+| `runEveryNRounds` | `15` | A session's accumulator of rounds triggers a build of the quest history when it reaches this many; also the number of inputs (trail turns, archived todos) folded per compaction call of a build. |
+| `runMemoryExtractionOnCompaction` | `true` | The automatic builds of the quest history extract memory candidates from the new turns (Rebuild history and memory always does). |
+| `rebuildFromLastNPrompts` | `200` | At most this many of the newest inputs are folded by one build of the quest history; older ones are passed over (the watermark moves past them). |
+| `archiveHistoryEveryTurn` | `false` | Debug toggle: every compaction pass of the quest history also writes a timestamped `history.json` / `history.md` pair beside the quest's. |
 | `templates[]` | — | Compaction prompt templates (id, name, body, targetMode). |
-| `memoryExtractionTemplates[]` | — | Memory-extraction prompt templates. A template's `targetFile` is the curated file of the quest memory (`_ai/quests/<quest>/memory/`) its facts are meant for; the extraction writes them as candidates to this host's `candidates.<host>.md` in that folder, each line naming the session and the target file, and never writes the curated file. |
+| `memoryExtractionTemplates[]` | — | Memory-extraction prompt templates. A template's `targetFile` is the curated file of the quest memory (`_ai/quests/<quest>/memory/`) its facts are meant for; the extraction writes them as candidates to this host's `candidates.<host>.md` in that folder (`<host>` the host slug), each line naming the session of the turns it read and the target file, and never writes the curated file. |
+
+**The quest history.** Compaction builds one history per quest, the one every
+session's prompt gets: `_ai/quests/<quest>/history/compacted_history.md` with
+its snapshot `history.json` / `history.md` and its coverage
+`history.watermark.json`, untracked, each machine building its own. Its inputs
+are the consolidated trail — every host's `history/trail.<host>.md`, each turn
+once, sorted by time — and the todo archive `todos-archived.<quest>.todo.yaml`
+(id, title, status and completion date, description, notes, decisions with who
+decided, references, last answer of each completed or cancelled todo), in time
+order; the watermark keeps, per host, the time of the newest turn covered and
+the last archived todo covered, so a build takes only what is new. Each chunk
+of `runEveryNRounds` inputs is one compaction call with the template above
+(`${lastTurn}` the chunk, `${existingBlocks}` the history so far); after each
+the blocks, the snapshot and the watermark are written. Memory extraction in the
+same run reads the chunk's turns, one call per session, so a candidate names
+the session its turn came from. A failing compaction call ends the build; the
+next one goes on from the watermark. The first build on a machine deletes the
+old per-session `history/sessions/*/compacted_history.md` files once
+(`src/services/questHistory.ts`).
 
 ---
 
@@ -868,7 +888,7 @@ the Haiku 5.5 Agent SDK configuration, whatever the conversation runs on.
   one-line stub `[Past tool call t1 — tomAi_findTextInFiles(...) — 61823
   chars. Use tomAi_readPastToolResult({"key":"t1"})…]`.
 - Both full bodies were written to the session's
-  `history/sessions/<session>/trail/tool_results/t1.json` and `t2.json` on
+  `history/<host>/sessions/<session>/trail/tool_results/t1.json` and `t2.json` on
   tool execution.
 
 **Post-turn 1.** `rawTurns = [P1, A1]` (one pair). No compaction yet because
@@ -888,7 +908,7 @@ as in turn 1.
 ### Diagnostic
 
 Every round's payload is in the session's raw trail
-(`history/sessions/<session>/trail/*_payload_*.payload.md`), with the tool-trail
+(`history/<host>/sessions/<session>/trail/*_payload_*.payload.md`), with the tool-trail
 keys (`t12`, …) in its stub lines; the same keys name the files in
 `trail/tool_results/` and are what `tomAi_readPastToolResult({"key":"t12"})`
 takes. The Tom AI Local Log channel logs each request to the endpoint, with its
@@ -909,7 +929,7 @@ When a Local LLM call still hits the context limit:
 3. **Lower `toolTrailMaxResultChars`** to e.g. 500.
 4. **Lower `rawTurnsKept`** so older turns roll into the summary faster.
 5. **Inspect the disk store** at the session's
-   `history/sessions/<session>/trail/tool_results/` to
+   `history/<host>/sessions/<session>/trail/tool_results/` to
    confirm full bodies are being persisted. If they are missing,
    `tomAi_readPastToolResult` falls back to "no key" and the model loses
    recovery — but the in-message stub still contains enough context

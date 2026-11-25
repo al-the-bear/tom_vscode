@@ -92,7 +92,7 @@ _ai/quests/{quest-id}/
 ├── todos.{quest-id}.todo.yaml                     # Persistent quest todos (main file)
 ├── todos-archived.{quest-id}.todo.yaml            # Archived completed todos (terminal)
 ├── todos-deleted.{quest-id}.todo.yaml             # Soft-deleted todos (terminal)
-├── history/sessions/{session}/session-todos.todo.yaml   # One session's todos (unversioned)
+├── history/{host}/sessions/{session}/session-todos.todo.yaml   # One session's todos (unversioned)
 └── ...
 ```
 
@@ -101,7 +101,7 @@ source name with `-archived` / `-deleted` (TRA01). Archive accepts only
 completed todos; delete-to-file accepts only non-completed todos; sibling
 files are terminal (never a move source). This replaces the earlier
 `*.backup.todo.yaml` mechanism (removed in TRA03). Session todos are one file per
-session in its storage root, `history/sessions/<session>/session-todos.todo.yaml`
+session in its storage root, `history/<host>/sessions/<session>/session-todos.todo.yaml`
 (unversioned, deleted with the session). See
 `_agent_guidelines/todo_files_and_panel.md`.
 
@@ -133,7 +133,7 @@ session in its storage root, `history/sessions/<session>/session-todos.todo.yaml
 
 > **Current storage:** session todos belong to one session of the quest and
 > live in that session's storage root
-> (`_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml`,
+> (`_ai/quests/<quest>/history/<host>/sessions/<session>/session-todos.todo.yaml`,
 > unversioned, deleted with the session; `_agent_guidelines/todo_files_and_panel.md` § 3).
 > The original window-scoped design below is kept for historical context.
 

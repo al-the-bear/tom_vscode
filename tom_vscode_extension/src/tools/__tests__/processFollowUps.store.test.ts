@@ -5,7 +5,7 @@
  *        position (its own state file) to the target process, phase and step — the quest's own position stays —
  *        with the origin recorded (carried variables' values, the call context resolved against the run's chat
  *        variables); the run's chat variables stay; the follow-up's prompts see `${process-origin}` and
- *        `${origin.<name>}`; the decisions journal records the switch; the PROCESS view's state lists the origins
+ *        `${origin.<name>}`; the Q&A journal records the switch; the PROCESS view's state lists the origins
  *   FS-2 tomAi_validateProcess: a follow-up to a process, phase or step that does not exist is a finding; with
  *        existing targets the draft is valid
  */
@@ -61,6 +61,7 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { decisionOptionLabels, installProcessMoveMarkers, takeDecisionOption } from '../../services/processActionService.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
 import { DEFAULT_RUN } from '../../utils/processRuns.js';
+import { decisionEntriesText } from './_qaJournal.js';
 import { resolveVariables } from '../../utils/variableResolver.js';
 import { validateProcessImpl, type ProcessWriteDeps } from '../process-write-tools.js';
 
@@ -129,7 +130,7 @@ describe('follow-up processes: the store', () => {
         assert.deepEqual([vars['process-origin'], vars['origin.scope'], vars.process, vars.step], ['change/intent', 'CHG-7 (intent)', 'specs', 'draft']);
         assert.equal(resolveVariables('${process-origin}: ${origin.scope}'), 'change/intent: CHG-7 (intent)');
         // The journal.
-        const journal = fs.readFileSync(path.join(QDIR, `decisions.${QUEST}.md`), 'utf8');
+        const journal = decisionEntriesText(QDIR, QUEST);
         assert.match(journal, /— continued in the follow-up process specs\n\n- \*\*From:\*\* change › .*\(the phase's follow-up\)\n- \*\*To:\*\* specs › .*Draft\n- \*\*Run:\*\* chg7\n- \*\*Carried:\*\* `change` = CHG-7\n- \*\*Call context:\*\* `scope` = CHG-7 \(intent\)/);
         // The PROCESS view's state lists the origins.
         const panel = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'processPanel-handler.ts'), 'utf8');

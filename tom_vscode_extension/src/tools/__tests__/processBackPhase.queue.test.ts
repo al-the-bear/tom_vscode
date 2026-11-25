@@ -2,11 +2,11 @@
  * "Back to the start of the previous phase" (vscimpb93) through the real process store, chat variables and queue:
  * the PROCESS view's button (a move of kind `back-phase`), the choice of the decision after a failed gate (Decide…,
  * tomAi_askInMdBrowser's `reopenDecision` choices — both take the option by its label), the state file and the
- * decisions journal. The window works on `r1` (`default` runs no process); `r2` is another run.
+ * Q&A journal. The window works on `r1` (`default` runs no process); `r2` is another run.
  *
  *   BPQ-1 the decision after P2's gate offers "Gate failed — back to the start of the previous phase (P1)"; taking it moves `r1` to
  *         P1's first step with P1's iteration counted on (2), records P2's iteration, drops the run's open
- *         process-move marker and writes the decisions journal
+ *         process-move marker and writes the Q&A journal
  *   BPQ-2 the action-bar move in r2 (not the window's run): r2 goes back to P1 (iteration 2), `r1` stays
  *   BPQ-3 counted on again: back in P1 at iteration 2, on to P2 and back once more gives iteration 3
  *   BPQ-4 the PROCESS view shows the move with its own icon
@@ -59,6 +59,7 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { confirmProcessAction, decisionOptionLabels, installProcessMoveMarkers, takeDecisionOption } from '../../services/processActionService.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
+import { decisionEntriesText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -94,7 +95,8 @@ after(() => {
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const stateOf = (run: string) => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, run);
-const journal = (): string => { const f = path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; };
+// The process decisions of the quest's Q&A journal (decisions.<quest>.md is no file).
+const journal = (): string => { assert.equal(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`)), false); return decisionEntriesText(path.join(WS, '_ai', 'quests', QUEST), QUEST); };
 const where = (run: string): string => { const s = stateOf(run); return `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}`; };
 /** Move `run` to the decision after P2's gate, the way the view does: P2, its gate, Skip to the decision. */
 const toP2Gate = (run: string): void => {

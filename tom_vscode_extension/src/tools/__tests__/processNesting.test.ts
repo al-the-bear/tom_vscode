@@ -14,7 +14,7 @@
  *   NP-4 a level that finishes its process ends: go-on moves the step below where Proceed would have led,
  *        run-again leaves it at the step, ask leaves the decision Go on / Run the step again (decisionAt),
  *        whose choice clears it
- *   NP-5 Abort subprocess asks first; aborted, the level goes, the decisions journal records where it stood,
+ *   NP-5 Abort subprocess asks first; aborted, the level goes, the Q&A journal records where it stood,
  *        the step below goes on with its follow-up
  *   NP-6 the queue: a Proceed run carries its level; while the step below still has items queued the new
  *        level's Proceed is allowed and goes in behind them; the step below's marker moves nothing while a
@@ -134,6 +134,7 @@ import { showUserInteractions } from '../../handlers/userInteractionPanel.js';
 import { onSuggestionsDue } from '../../services/processActionService.js';
 import { actionSession } from '../../utils/processActionPrompt.js';
 import { JSDOM } from 'jsdom';
+import { decisionEntriesText, qaJournalText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 function start(): void {
@@ -334,8 +335,9 @@ describe('nested processes', () => {
         assert.equal(await abortNestedProcess(store(), yes.u), true);
         assert.equal(store().levels.length, 1);
         assert.deepEqual(store().state.nestedEnded, { process: 'side', kind: 'branch', outcome: 'aborted' });
-        const journal = fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`), 'utf8');
-        assert.match(journal, /^# Decisions — q1/);
+        assert.equal(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`)), false, 'no decisions file');
+        assert.match(qaJournalText(path.join(WS, '_ai', 'quests', QUEST), QUEST), /^# Q&A — q1 \(/);
+        const journal = decisionEntriesText(path.join(WS, '_ai', 'quests', QUEST), QUEST);
         assert.match(journal, /## \d{4}-[^\n]+ — aborted the branch side\n\n- \*\*Stood at:\*\* [^\n]+\n- \*\*Started from:\*\* main › [^\n]*Plan[^\n]*\n- \*\*Follow-up:\*\* Ask me at the end/);
         const none = ui(undefined);
         assert.equal(await abortNestedProcess(store(), none.u), false);

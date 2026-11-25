@@ -151,9 +151,10 @@ describe('chat sends and the queue buttons', () => {
         let state: Record<string, unknown> = {};
         win.vscode = { postMessage: (m: Record<string, unknown>) => posted.push(m), getState: () => state, setState: (s: Record<string, unknown>) => { state = s; } };
         win.isExpanded = () => true;
+        win.eval(media('shared', 'mdOverlay.js'));
         win.eval(getQuestLogsScript());
         const viewer = win.qlogViewerList[0];
-        viewer.onMessage({ type: 'qlogSessions', viewer: 'logs', tab: 'mdTrail', variant: 'chat-literal', plan: { sessions: ['default', 'chat'], buttons: ['default', 'chat'], showDropdown: false, selected: 'chat' } });
+        viewer.onMessage({ type: 'qlogSessions', viewer: 'logs', tab: 'turns', variant: 'chat-literal', plan: { sessions: ['default', 'chat'], buttons: ['default', 'chat'], showDropdown: false, selected: 'chat' } });
         viewer.start();
         win.document.querySelector('[data-qlog-session="chat"]').click();
         const actions = [...win.document.querySelectorAll('[data-qlog-session-action]')].map((b: Win) => b.getAttribute('data-qlog-session-action'));

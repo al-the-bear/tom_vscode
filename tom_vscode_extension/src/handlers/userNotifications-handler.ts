@@ -13,7 +13,8 @@
  * window; the log is not changed, so NOTIFICATIONS still shows them. A click on
  * an open ask of this window opens it: the MD Browser of an MD Browser ask,
  * else the user-input panel on its run. A click on an answer (tomAi_answerUser)
- * opens it in the Answers page. The view's badge counts the open asks.
+ * opens it in the Q&A page. The view's badge counts the open asks; its bar
+ * shows the Q&A page's new entries of the window's quest and opens the page.
  *
  * **Answer** (an open ask or a todo waiting for decisions, from any window):
  * an ask of this window opens where it is answered; an ask of another window
@@ -38,12 +39,24 @@ import { userInteractions } from '../services/userInteractions';
 import { SHOW_USER_INTERACTION_COMMAND } from './userInteractionPanel';
 import { openRemoteAsk, syncRemoteAsks } from '../services/remoteAsks';
 import { sendWindowRequest } from '../services/windowRequests';
+import { qaNewCounts } from '../services/qaPageData';
+import { WsPaths } from '../utils/workspacePaths';
 
 export const USER_NOTIFICATIONS_VIEW_ID = 'tomAi.userNotifications';
-/** The Answers page's command (handlers/answersPanel-handler.ts), by id: the two handlers do not import each other. */
+/** The Q&A page's command (handlers/qaPanel-handler.ts), by id: the two handlers do not import each other. */
 const SHOW_ANSWERS_COMMAND = 'tomAi.showAnswers';
 /** The dismissed set's file, beside the log. */
 export const USER_DISMISSED_FILE = 'user-dismissed.json';
+
+/** The Q&A page's new entries of the window's quest (its bar links them); none without a quest. */
+function windowQaCounts(): { questions: number; decisions: number } {
+    try {
+        const quest = WsPaths.getWorkspaceQuestId();
+        return quest && quest !== 'default' ? qaNewCounts([quest]) : { questions: 0, decisions: 0 };
+    } catch {
+        return { questions: 0, decisions: 0 };
+    }
+}
 
 function thisWindowId(): string {
     return `${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`;
@@ -155,7 +168,7 @@ class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
             this.view.badge = open ? { value: open, tooltip: `${open} waiting for your answer` } : undefined;
             if (!this.view.visible) { this.stale = true; return; }
             this.stale = false;
-            void this.view.webview.postMessage({ type: 'state', rows, open, thisWindow: thisWindowId() });
+            void this.view.webview.postMessage({ type: 'state', rows, open, thisWindow: thisWindowId(), qa: windowQaCounts() });
         } catch (error) {
             reportException('userNotifications.post', error);
         }
@@ -190,13 +203,14 @@ class UserNotificationsViewProvider implements vscode.WebviewViewProvider {
         this.post();
     }
 
-    private async onMessage(msg: { type?: string; id?: unknown }): Promise<void> {
+    private async onMessage(msg: { type?: string; id?: unknown; tab?: unknown }): Promise<void> {
         try {
             if (msg.type === 'ready') { this.post(); return; }
+            if (msg.type === 'openQa') { await vscode.commands.executeCommand(SHOW_ANSWERS_COMMAND, { tab: msg.tab === 'decisions' ? 'decisions' : 'questions' }); return; }
             if (msg.type === 'dismiss' && typeof msg.id === 'string') { this.dismiss([msg.id]); return; }
             if (msg.type === 'dismissAnswered') { this.dismiss(dismissibleAnsweredIds(currentUserRows())); return; }
             if (msg.type === 'openAnswer' && typeof msg.id === 'string') {
-                // An answer (tomAi_answerUser): shown in the Answers page; the store is the machine's, so any window's answer opens.
+                // An answer (tomAi_answerUser): shown in the Q&A page; the store is the machine's, so any window's answer opens.
                 const row = currentUserRows().find((r) => r.id === msg.id);
                 if (row?.key) { await vscode.commands.executeCommand(SHOW_ANSWERS_COMMAND, { id: row.key }); }
                 return;

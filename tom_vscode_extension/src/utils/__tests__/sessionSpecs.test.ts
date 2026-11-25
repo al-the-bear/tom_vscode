@@ -59,6 +59,8 @@ describe('session specs', () => {
         assert.deepEqual(parseSessionSpec({ name: 'solo', mode: 'per-prompt' }), { ok: true, spec: { name: 'solo', mode: 'per-prompt' } },
             'no base needed');
         assert.deepEqual(parseSessionSpec({ name: 'x', basedOn: '', mode: '', profile: '' }), { ok: true, spec: { name: 'x' } }, 'empty = unset');
+        assert.deepEqual(parseSessionSpec({ name: 'quiet', contributesToTrailAndMemory: false }), { ok: true, spec: { name: 'quiet', contributesToTrailAndMemory: false } },
+            'the trail and memory setting');
         const refused: Array<[unknown, RegExp]> = [
             ['bad name', /letters, digits/],
             [{ basedOn: 'prep' }, /name is required/],
@@ -67,6 +69,7 @@ describe('session specs', () => {
             [{ name: 'x', mode: 'sometimes' }, /not continue, per-prompt or per-iteration/],
             [{ name: 'x', profile: 3 }, /profile must be a profile id/],
             [{ name: 'x', model: 'y' }, /unknown key\(s\) model/],
+            [{ name: 'x', contributesToTrailAndMemory: 'no' }, /contributesToTrailAndMemory must be true or false/],
             [['x'], /a name or/],
             [42, /a name or/],
         ];

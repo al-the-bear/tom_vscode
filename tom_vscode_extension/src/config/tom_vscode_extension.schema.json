@@ -73,7 +73,7 @@
         },
         "assistPrompts": {
             "type": "object",
-            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Gate decision, Out of budget, Background work reminder. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, gate-decision, out-of-budget, background-work-reminder, seeded at activation), else the built-in text.",
+            "description": "The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in detail, Explain a decision, Grill me at a decision, Finish review round, Gate decision, Out of budget, Background work reminder, Promote memory. The templates are edited in the Global Template Editor (category Assist Prompts); the template each use runs is chosen on the Status Page (Assist prompts). A use without a choice runs its default template (ids grill-me, explain-in-detail, explain-decision, grill-me-decision, finish-review-round, gate-decision, out-of-budget, background-work-reminder, promote-memory, seeded at activation), else the built-in text.",
             "properties": {
                 "selected": {
                     "type": "object",
@@ -86,7 +86,8 @@
                         "finishReviewRound": { "type": "string" },
                         "gateDecision": { "type": "string" },
                         "outOfBudget": { "type": "string" },
-                        "backgroundWork": { "type": "string", "description": "The background-work reminder (a queue turn ended while its own background work runs). A template whose text is empty sends no reminder." }
+                        "backgroundWork": { "type": "string", "description": "The background-work reminder (a queue turn ended while its own background work runs). A template whose text is empty sends no reminder." },
+                        "promoteMemory": { "type": "string", "description": "The prompt the chat panel's Promote memory button queues (setting tomAi.memory.promoteMemoryButton): every host's memory candidates presented, the chosen ones promoted into the curated memory files." }
                     },
                     "additionalProperties": false
                 },
@@ -253,7 +254,7 @@
                 "disabled": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Global kill switch. When true, the background compaction + memory extraction pass after every Anthropic turn is skipped entirely (both direct and Agent SDK transports). Use when you want the SDK to own conversation state by itself, or when the extra API call per turn isn't worth it."
+                    "description": "Global kill switch. When true, the background build of the quest history (every runEveryNRounds rounds) and its memory extraction are skipped entirely (both direct and Agent SDK transports); Rebuild history and memory still runs on demand. Use when you want the SDK to own conversation state by itself, or when the extra API call per turn isn't worth it."
                 },
                 "compactionModel": {
                     "type": "string",
@@ -349,7 +350,7 @@
                     "type": "integer",
                     "minimum": 1,
                     "default": 15,
-                    "description": "Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. The uncompacted-rounds accumulator (compaction_rounds.json, sibling of history.json, NOT versioned) grows by one round per turn; when it reaches this threshold compaction fires, folds the oldest (length - rawTurnsKept) rounds into the running summary, and shrinks back to rawTurnsKept. Memory extraction runs in the same pass. Also the chunk size when rebuilding history from trail files. Single knob; both subsystems share the cadence so the prompt prefix stays cache-stable for runEveryNRounds−1 turns at a time."
+                    "description": "Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. A session's uncompacted-rounds accumulator (compaction_rounds.json in its storage folder, NOT versioned) grows by one round per turn; when it reaches this threshold the quest history is built — the new turns of every host's trail and the newly archived todos are folded into the quest's compacted history (history/compacted_history.md) — and the accumulator clears. Memory extraction runs in the same pass. Also the number of inputs folded per compaction call (Rebuild history and memory too). Single knob; both subsystems share the cadence so the prompt prefix stays cache-stable for runEveryNRounds−1 turns at a time."
                 },
                 "backgroundExtractionEnabled": {
                     "type": "boolean",
@@ -405,9 +406,9 @@
                 "raw": { "$ref": "#/properties/tomAi.trail.raw" },
                 "compact": {
                     "type": "object",
-                    "description": "The compact trail: the summary pair <quest>.<subsystem>.prompts.md / .answers.md, newest first.",
+                    "description": "The compact trail: this machine's trail of a quest, history/trail.<host>.md, one block per prompt/answer turn of every session that contributes to trail and memory, oldest first.",
                     "properties": {
-                        "maxEntries": { "type": "integer", "minimum": 1, "default": 2000, "description": "The prompt / answer turns a compact trail file keeps (distinct request ids; inner steps are not entries). Every writer drops the oldest beyond it on its next write." }
+                        "maxEntries": { "type": "integer", "minimum": 1, "default": 2000, "description": "The prompt / answer turns the host trail keeps (inner steps are not turns). Beyond it the oldest are dropped on the next write, but only those the quest's history covers (history/history.watermark.json); without a history nothing is dropped." }
                     },
                     "additionalProperties": false
                 }
@@ -421,7 +422,7 @@
                 "enabled": { "type": "boolean", "default": true },
                 "maxEntries": { "type": "integer", "minimum": 1, "default": 1000, "description": "Raw trail key kept for older configs; it does not limit the compact trail (trail.compact.maxEntries does). The raw trail's file limit is maxRawFiles." },
                 "maxRawFiles": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max total raw trail files (prompt, answer, payload, tool_request, tool_answer combined) per quest directory. Oldest files are deleted when the limit is exceeded." },
-                "toolResultsMaxAgeDays": { "type": "integer", "minimum": 0, "default": 30, "description": "The stored tool results of a session (history/sessions/<session>/trail/tool_results/t<n>.json, read back by tomAi_readPastToolResult) older than this many days are pruned after each send. 0: no age limit." },
+                "toolResultsMaxAgeDays": { "type": "integer", "minimum": 0, "default": 30, "description": "The stored tool results of a session (history/<host>/sessions/<session>/trail/tool_results/t<n>.json, read back by tomAi_readPastToolResult) older than this many days are pruned after each send. 0: no age limit." },
                 "toolResultsMaxPerSession": { "type": "integer", "minimum": 0, "default": 1000, "description": "At most this many stored tool results per session, the newest; the older ones are pruned after each send. 0: no count limit." },
                 "stripThinking": { "type": "boolean", "default": false },
                 "paths": {

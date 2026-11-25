@@ -3,9 +3,10 @@
  * panel, the prompt queue (queue default and per item) and the process action
  * page: pick an existing session of the quest, create a new one, or create one
  * based on an existing session, with a lifetime (continue, per prompt, per
- * queue iteration) and optionally the Anthropic profile it runs with. The sessions are the
- * `<name>.session.json` files in the quest's history folder
- * (src/services/agentSdkSessionStore.ts); the rules are in
+ * queue iteration), optionally the Anthropic profile it runs with, and — required, nothing
+ * preselected — whether it contributes to the trail and memory; dismissing any step cancels
+ * the creation. The sessions are this host's `<name>.session.json` files of the quest's
+ * history folder (src/services/agentSdkSessionStore.ts); the rules are in
  * src/utils/agentSdkSessions.ts.
  */
 
@@ -15,7 +16,7 @@ import { TwoTierMemoryService } from '../services/memory-service';
 import { createSession, listSessions } from '../services/agentSdkSessionStore';
 import { describeSession, isValidSessionName, type SessionRecord } from '../utils/agentSdkSessions';
 import type { ProfileSection } from '../utils/sessionSpecs';
-import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, type DefinitionSessionSpec } from '../utils/sessionPickerPlan';
+import { definitionSpecFromChoices, lifetimeChoices, newSessionOptions, profileChoices, TRAIL_CHOICE_TITLE, trailChoices, type DefinitionSessionSpec } from '../utils/sessionPickerPlan';
 import { profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { RUN_DEFAULT_CHOICE } from '../utils/runDefaultChoice';
@@ -174,6 +175,16 @@ export async function pickDefinitionSession(opts: { questId: string; current?: s
     return definitionSpecFromChoices(name, basedOn, how.mode, profilePick.choice);
 }
 
+/**
+ * The required trail step of every session the user creates: "Contributes to
+ * trail and memory?" with Yes / No, nothing preselected. Undefined when
+ * dismissed: the creation is cancelled.
+ */
+export async function askContributesToTrailAndMemory(title: string): Promise<boolean | undefined> {
+    const pick = await vscode.window.showQuickPick(trailChoices(), { title: `${title} — ${TRAIL_CHOICE_TITLE}`, placeHolder: TRAIL_CHOICE_TITLE, ignoreFocusOut: true });
+    return pick ? pick.contributes : undefined;
+}
+
 async function createSessionInteractively(folder: string, sessions: SessionRecord[], based: boolean, run?: string): Promise<string | undefined> {
     let basedOn: string | undefined;
     if (based) {
@@ -194,6 +205,8 @@ async function createSessionInteractively(folder: string, sessions: SessionRecor
         { title: 'The Anthropic profile the session runs with', placeHolder: 'A queue item naming its own profile still overrides it', matchOnDescription: true },
     );
     if (!profilePick) { return undefined; }
+    const contributes = await askContributesToTrailAndMemory(basedOn ? `New session based on "${basedOn}"` : 'New session');
+    if (contributes === undefined) { return undefined; }
     // In a run the session is named in it: `<name>@<run>` (utils/runSessions.ts).
     const inRun = (v: string): string => (run === undefined ? v : runSessionName(v, run));
     const typed = await vscode.window.showInputBox({
@@ -207,7 +220,7 @@ async function createSessionInteractively(folder: string, sessions: SessionRecor
     if (!typed) { return undefined; }
     const name = inRun(typed);
     // The file is written now, so the session shows everywhere at once; its conversation starts on first use.
-    const created = createSession(folder, name, newSessionOptions(basedOn, how.mode, profilePick.choice, section as ProfileSection | undefined));
+    const created = createSession(folder, name, newSessionOptions(basedOn, how.mode, profilePick.choice, section as ProfileSection | undefined, contributes));
     if (!created.ok) {
         void vscode.window.showErrorMessage(created.error);
         return undefined;

@@ -2,7 +2,7 @@
  * The list of session live trails a quest refresh reads.
  *
  * Every Anthropic session keeps its own live trail
- * (`history/sessions/<session>/live-trail.md`), so "read the live trail" no
+ * (`history/<host>/sessions/<session>/live-trail.md`), so "read the live trail" no
  * longer names one file. The refresh reads the trails of every session written
  * since the last refresh, newest first; the service lists them
  * (`sessionLiveTrailsSince`) and this module puts that list into the refresh

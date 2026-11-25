@@ -212,7 +212,7 @@ export interface EnqueueInput {
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
-    /** A session name or a spec `{name, basedOn?, mode?, profile?}`. */
+    /** A session name or a spec `{name, basedOn?, mode?, profile?, contributesToTrailAndMemory?}`. */
     session?: QueueSessionInput;
     /** The role the item runs as (a folder of `_ai/roles/`). */
     role?: string;
@@ -380,7 +380,7 @@ function queuedItemWarning(access: PromptQueueAccess, item: { id: string; status
 
 /** What a queue item's `session` is. */
 const SESSION_DOC =
-    'The named session the item runs in (tomAi_listSessions): a name, or `{name, basedOn?, mode?, profile?}` to create it on first dispatch if missing. Unset: the queue default. A malformed spec or a profile of the other conversation kind is refused (`invalidSession`).';
+    'The named session the item runs in (tomAi_listSessions): a name, or `{name, basedOn?, mode?, profile?, contributesToTrailAndMemory?}` to create it on first dispatch if missing (`contributesToTrailAndMemory`: whether its turns go into the host trail and memory; unset, the base\'s setting, without a base true). Unset: the queue default. A malformed spec or a profile of the other conversation kind is refused (`invalidSession`).';
 
 /** The JSON schema of a queue item's `session`. */
 const SESSION_SCHEMA = {
@@ -394,6 +394,7 @@ const SESSION_SCHEMA = {
                 basedOn: { type: 'string' },
                 mode: { type: 'string', enum: ['continue', 'per-prompt', 'per-iteration', 'fork-from-base'] },
                 profile: { type: 'string', description: 'Anthropic profile id the session is created with.' },
+                contributesToTrailAndMemory: { type: 'boolean', description: 'Whether its turns go into the host trail and memory. Unset: the base\'s setting, without a base true.' },
             },
             required: ['name'],
             additionalProperties: false,

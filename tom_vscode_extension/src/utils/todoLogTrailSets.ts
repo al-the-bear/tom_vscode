@@ -1,11 +1,16 @@
 /**
- * Where the TODO Log view (todoLogPanel-handler.ts) finds its trail pairs.
+ * Where the TODO Log view (todoLogPanel-handler.ts) finds its answers.
  *
- * The summary trail pairs (`*.prompts.md` / `*.answers.md`) are written per
- * Anthropic session, in `history/sessions/<session>/` of the quest; the
- * quest's `history/` folder itself holds the pairs of the other subsystems.
- * The view reads both: one set per pair, keyed `<session>/<name>`
- * for a session's pair and `<name>` for the folder's own.
+ * - This host's compact trail `history/trail.<host>.md` (src/services/hostTrail.ts):
+ *   every turn whose answer carries `TODO` response values
+ *   ({@link hostTrailTodoEntries}), labelled with its session.
+ * - OLD PLACE (until the `_ai` format migration): the summary trail pairs
+ *   (`*.prompts.md` / `*.answers.md`) an older build wrote per Anthropic
+ *   session, in `history/sessions/<session>/`, and the quest's `history/`
+ *   folder's own pairs of the other subsystems: one set per pair, keyed
+ *   `<session>/<name>` for a session's pair and `<name>` for the folder's own
+ *   ({@link todoLogTrailSets}). Their answers count only when they are older
+ *   than the host trail's oldest turn and not in it ({@link keepOlderPairAnswer}).
  *
  * vscode-free; `discover` is the trail editor's discoverTrailSets.
  */
@@ -14,6 +19,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { SESSIONS_FOLDER } from '../services/sessionStorage';
+import type { HostTrailTurn } from '../services/hostTrail';
+import { extractTodoResponseValues } from './responseValues';
 
 export interface TodoLogTrailSet {
     prompts?: string;
@@ -41,4 +48,34 @@ export function todoLogTrailSets(
         }
     }
     return out;
+}
+
+/** A host trail turn whose answer references todos. */
+export interface HostTrailTodoEntry {
+    requestId: string;
+    timestamp: string;
+    session: string;
+    /** The `TODO*` response values of its answer, in their order (not yet deduplicated). */
+    refs: string[];
+}
+
+/** The host trail's turns that reference todos (the `TODO*` response values of their answers), in file order. */
+export function hostTrailTodoEntries(turns: readonly HostTrailTurn[]): HostTrailTodoEntry[] {
+    const out: HostTrailTodoEntry[] = [];
+    for (const t of turns) {
+        const refs = Object.values(extractTodoResponseValues(t.answer));
+        if (refs.length > 0) { out.push({ requestId: t.id, timestamp: t.time, session: t.session, refs }); }
+    }
+    return out;
+}
+
+/**
+ * OLD PLACE: whether an answer of an older build's pair still counts beside
+ * the host trail: its request id is not in the trail and it is older than the
+ * trail's oldest turn (every answer counts while the trail is empty).
+ */
+export function keepOlderPairAnswer(requestId: string, timestamp: string, turns: readonly HostTrailTurn[]): boolean {
+    if (turns.some((t) => t.id === requestId)) { return false; }
+    const oldest = turns.reduce<string | undefined>((min, t) => (min === undefined || t.time < min ? t.time : min), undefined);
+    return oldest === undefined || timestamp < oldest;
 }

@@ -1,6 +1,6 @@
 /**
  * Tests for the markdown *source* highlighter used by the @CHAT panel's Logs
- * section. Every log sub-tab except MD Trail shows the raw markdown of a quest
+ * section. Every log sub-tab except Live Trail shows the raw markdown of a quest
  * file with syntax colouring — not rendered markdown — so this module turns a
  * markdown string into escaped HTML with `<span class="mdh-*">` markers.
  *

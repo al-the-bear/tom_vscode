@@ -8,7 +8,7 @@
  *        its definition and included prompts name) go to the run's set of every chat-variable file, the others
  *        stay; its named sessions become the run's (session file, storage, quest memory; a based-on session
  *        follows); its staged / pending queue items move to the run with their sessions, other items stay; the
- *        decisions journal records it
+ *        Q&A journal records it
  *   DM-3 idempotent: a second run moves nothing
  *   DM-4 the run name: the process id, `-2` when taken; a definition that is gone moves the state only (a problem)
  *   DM-5 through migrateAiFormats: the `default-run` step, from format version 9 on
@@ -26,6 +26,7 @@ import { migrateDefaultRunProcess, movedToRunOf, runNameForProcess, freeRunName,
 import { parseProcessStateStack, parseProcessYaml } from '../processDefinition';
 import { migrateAiFormats } from '../aiFormatMigration';
 import { AI_FORMAT_VERSION } from '../aiFormatVersion';
+import { decisionEntriesText } from '../../tools/__tests__/_qaJournal.js';
 
 const DES = [
     'id: des', 'name: Design', 'session: work', 'runParameters: [design]',
@@ -123,8 +124,9 @@ describe('the default run\'s process moves into a run', () => {
         assert.deepEqual(mainOf(ai, 'host_q_5-e_q.normal.entry.queue.yaml').session, { name: 'review@des', basedOn: 'work@des' });
         assert.equal(mainOf(ai, 'host_q_3-c_q.normal.entry.queue.yaml').run, undefined, 'a chat item stays');
         assert.equal(mainOf(ai, 'host_q_4-d_q.normal.entry.queue.yaml').run, undefined, 'a sent item stays');
-        // The journal.
-        assert.match(fs.readFileSync(path.join(q, 'decisions.q.md'), 'utf8'),
+        // The journal: this host's Q&A journal, no decisions file.
+        assert.equal(fs.existsSync(path.join(q, 'decisions.q.md')), false);
+        assert.match(decisionEntriesText(q, 'q'),
             /## 2026-11-16T12:00:00\.000Z — the default run's process moved into run des\n\n- \*\*Process:\*\* des [^\n]*\n- \*\*Run:\*\* des [^\n]*\n- \*\*Chat variables:\*\* `design`[^\n]*\n- \*\*Sessions:\*\* `review` → `review@des`, `work` → `work@des`\n- \*\*Queue items:\*\* 3\n/);
     });
 

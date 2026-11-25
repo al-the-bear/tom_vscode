@@ -12,15 +12,17 @@
  *        `chat` and `default` included, so the panel and the queue never share one
  *   DH-3 the scope: a session reads and writes only its own folder; a fork reads its base's folder
  *        and is marked not to persist; a based session is seeded from its base once — later
- *        changes to the base do not reach it, and the base is never changed
+ *        changes to the base do not reach it, and the base is never changed; what is seeded is the rolling
+ *        tail and the accumulator — the compacted history is the quest's and is never copied
  *   DH-4 the scope key changes with the quest, the folder, persisting and the iteration, so the handler
  *        knows when to load another history
  *   DH-6 per-iteration: a new iteration key empties the session's folder and seeds it from the base
  *        again; the same key keeps it; a per-prompt session without a base loads nothing
  *   DH-5 the wiring (the handler and the queue manager import vscode and cannot run under node:test, so
  *        their sources are read): sendMessage chooses the scope from options.sessionKey before seeding,
- *        never for an isolated send; every history read and write goes through the scope's folder and
- *        no quest-keyed accumulator call is left; a fork's exchange is not saved and not compacted;
+ *        never for an isolated send; the session's tail and accumulator go through the scope's folder,
+ *        no session writes a compacted history of its own, and no quest-keyed accumulator call is left;
+ *        a fork's exchange is not saved and not compacted;
  *        the queue item's session is `session`, read from either YAML key and written as `session` (a name,
  *        or the spec a missing session is created from)
  */
@@ -32,6 +34,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { SessionRecord } from '../../utils/agentSdkSessions.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
+
+const HOST = hostSlugOf();
 import {
     BUILT_IN_SESSIONS,
     hasSessionHistory,
@@ -73,10 +78,10 @@ describe('direct-transport session history', () => {
 
     test('DH-2: the folders', () => {
         const root = path.join('q', 'history');
-        assert.equal(sessionHistoryFolder(root, 'default'), path.join(root, 'sessions', 'default@default'), 'a bare default is default@default (vscimpb151)');
-        assert.equal(sessionHistoryFolder(root, 'chat'), path.join(root, 'sessions', 'chat'));
+        assert.equal(sessionHistoryFolder(root, 'default'), path.join(root, HOST, 'sessions', 'default@default'), 'a bare default is default@default (vscimpb151)');
+        assert.equal(sessionHistoryFolder(root, 'chat'), path.join(root, HOST, 'sessions', 'chat'));
         assert.notEqual(sessionHistoryFolder(root, 'chat'), sessionHistoryFolder(root, 'default'), 'the panel and the queue are split');
-        assert.equal(sessionHistoryFolder(root, 'p2s3r1'), path.join(root, 'sessions', 'p2s3r1'));
+        assert.equal(sessionHistoryFolder(root, 'p2s3r1'), path.join(root, HOST, 'sessions', 'p2s3r1'));
     });
 
     test('DH-3: the scope a send reads and writes', () => {
@@ -89,16 +94,17 @@ describe('direct-transport session history', () => {
         session('prep', { mode: 'continue' });
         session('work', { mode: 'continue', basedOn: 'prep' });
         session('todo', { mode: 'per-prompt', basedOn: 'prep' });
-        const prepFolder = path.join(root, 'sessions', 'prep');
-        write(prepFolder, 'compacted_history.md', 'prep blocks');
+        const prepFolder = path.join(root, HOST, 'sessions', 'prep');
+        write(prepFolder, 'compaction_rounds.json', 'prep accumulator');
+        write(prepFolder, 'compacted_history.md', 'OLD PLACE: a session\'s own compacted history');
         write(prepFolder, 'rawTurns.json', '{"rounds":[["prep"]]}');
-        const defaultFolder = path.join(root, 'sessions', 'default@default');
+        const defaultFolder = path.join(root, HOST, 'sessions', 'default@default');
         write(defaultFolder, 'rawTurns.json', '{"rounds":[["queue"]]}');
 
         const queue = resolveHistoryScope('q1', root, 'default');
         assert.deepEqual([queue.folder, queue.persist], [defaultFolder, true]);
         const chat = resolveHistoryScope('q1', root, 'chat');
-        assert.deepEqual([chat.folder, chat.persist], [path.join(root, 'sessions', 'chat'), true]);
+        assert.deepEqual([chat.folder, chat.persist], [path.join(root, HOST, 'sessions', 'chat'), true]);
         assert.equal(hasSessionHistory(chat.folder), false, 'the panel does not see the queue\'s history');
 
         const prep = resolveHistoryScope('q1', root, 'prep');
@@ -107,20 +113,21 @@ describe('direct-transport session history', () => {
         const todo = resolveHistoryScope('q1', root, 'todo');
         assert.deepEqual([todo.folder, todo.persist], [prepFolder, false], 'a fork reads its base and writes nothing');
 
-        const workFolder = path.join(root, 'sessions', 'work');
+        const workFolder = path.join(root, HOST, 'sessions', 'work');
         assert.equal(hasSessionHistory(workFolder), false);
         const work = resolveHistoryScope('q1', root, 'work');
         assert.deepEqual([work.folder, work.persist], [workFolder, true]);
-        assert.equal(fs.readFileSync(path.join(workFolder, 'compacted_history.md'), 'utf8'), 'prep blocks', 'seeded from its base');
+        assert.equal(fs.readFileSync(path.join(workFolder, 'compaction_rounds.json'), 'utf8'), 'prep accumulator', 'seeded from its base');
+        assert.equal(fs.existsSync(path.join(workFolder, 'compacted_history.md')), false, 'the compacted history is the quest\'s: never copied');
         assert.equal(fs.readFileSync(path.join(workFolder, 'rawTurns.json'), 'utf8'), '{"rounds":[["prep"]]}');
         assert.match(work.note ?? '', /started from "prep"/);
 
-        write(prepFolder, 'compacted_history.md', 'prep moved on');
+        write(prepFolder, 'compaction_rounds.json', 'prep moved on');
         write(workFolder, 'rawTurns.json', '{"rounds":[["work"]]}');
         resolveHistoryScope('q1', root, 'work');
-        assert.equal(fs.readFileSync(path.join(workFolder, 'compacted_history.md'), 'utf8'), 'prep blocks', 'seeded once: later base changes do not reach it');
+        assert.equal(fs.readFileSync(path.join(workFolder, 'compaction_rounds.json'), 'utf8'), 'prep accumulator', 'seeded once: later base changes do not reach it');
         assert.equal(fs.readFileSync(path.join(workFolder, 'rawTurns.json'), 'utf8'), '{"rounds":[["work"]]}', 'its own history is kept');
-        assert.equal(fs.readFileSync(path.join(prepFolder, 'compacted_history.md'), 'utf8'), 'prep moved on', 'the base is never written');
+        assert.equal(fs.readFileSync(path.join(prepFolder, 'compaction_rounds.json'), 'utf8'), 'prep moved on', 'the base is never written');
         assert.equal(fs.readFileSync(path.join(defaultFolder, 'rawTurns.json'), 'utf8'), '{"rounds":[["queue"]]}', 'the queue\'s history is untouched');
     });
 
@@ -146,8 +153,8 @@ describe('direct-transport session history', () => {
         write(root, 'prep.session.json', JSON.stringify({ mode: 'continue' }));
         write(root, 'walk.session.json', JSON.stringify({ mode: 'per-iteration', basedOn: 'prep' }));
         write(root, 'solo.session.json', JSON.stringify({ mode: 'per-prompt' }));
-        const prepFolder = path.join(root, 'sessions', 'prep');
-        const walkFolder = path.join(root, 'sessions', 'walk');
+        const prepFolder = path.join(root, HOST, 'sessions', 'prep');
+        const walkFolder = path.join(root, HOST, 'sessions', 'walk');
         write(prepFolder, 'rawTurns.json', 'prep');
 
         const first = resolveHistoryScope('q', root, 'walk', 'it/1');
@@ -156,10 +163,10 @@ describe('direct-transport session history', () => {
         write(walkFolder, 'rawTurns.json', 'iteration 1 went on');
         resolveHistoryScope('q', root, 'walk', 'it/1');
         assert.equal(fs.readFileSync(path.join(walkFolder, 'rawTurns.json'), 'utf8'), 'iteration 1 went on', 'the same iteration continues');
-        write(walkFolder, 'compacted_history.md', 'from iteration 1');
+        write(walkFolder, 'compaction_rounds.json', 'from iteration 1');
         resolveHistoryScope('q', root, 'walk', 'it/2');
         assert.equal(fs.readFileSync(path.join(walkFolder, 'rawTurns.json'), 'utf8'), 'prep', 'the next iteration starts from the base again');
-        assert.equal(fs.existsSync(path.join(walkFolder, 'compacted_history.md')), false, 'nothing of the last iteration is left');
+        assert.equal(fs.existsSync(path.join(walkFolder, 'compaction_rounds.json')), false, 'nothing of the last iteration is left');
 
         const solo = resolveHistoryScope('q', root, 'solo');
         assert.deepEqual([solo.persist, solo.fresh], [false, true], 'per prompt without a base: no history');
@@ -179,12 +186,11 @@ describe('direct-transport session history', () => {
             assert.ok(start > 0, `${name} not found`);
             return code.slice(start, code.indexOf('\n    }\n', start));
         };
-        for (const m of ['persistRoundAndReloadUnion', 'seedHistoryFromSnapshot', 'persistSessionHistory']) {
-            assert.match(body(m), /this\.scopeFolder\(questId\)/, `${m} uses the scope's folder`);
-            assert.doesNotMatch(body(m), /historyFolder\(questId\)/, `${m} does not take the quest's folder itself`);
-        }
+        assert.match(body('persistRoundAndReloadUnion'), /this\.scopeFolder\(questId\)/, 'the round goes to the scope\'s folder');
+        assert.doesNotMatch(body('persistRoundAndReloadUnion'), /historyFolder\(questId\)/, 'not to the quest\'s folder');
+        assert.match(body('seedHistoryFromSnapshot'), /const historyFolder = this\.scopeFolder\(questId\);/, 'the session\'s tail and accumulator from the scope\'s folder');
         assert.match(body('persistRoundAndReloadUnion'), /if \(!this\.persistsHistory\)/, 'a fork saves no round');
-        assert.match(body('persistSessionHistory'), /if \(!this\.persistsHistory\) \{ return; \}/, 'a fork saves no history');
+        assert.doesNotMatch(code, /persistSessionHistory/, 'a session writes no compacted history of its own');
         assert.match(body('scheduleBackgroundCompactionAndExtraction'), /if \(!this\.persistsHistory\) \{ return; \}/, 'a fork is not compacted');
 
         const queue = src('managers', 'promptQueueManager.ts');

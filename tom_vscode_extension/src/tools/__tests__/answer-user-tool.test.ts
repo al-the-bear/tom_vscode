@@ -1,9 +1,9 @@
 /**
  * `tomAi_answerUser` (vscimpb171): the tool (src/tools/answer-user-tool.ts), the machine's answer store
- * (src/utils/userAnswers.ts) and the Answers page's webview (media/answersPanel/).
+ * (src/utils/userAnswers.ts); the Q&A page's webview is tested in src/handlers/__tests__/qaPanel.dom.test.ts.
  *
  *   AU-1 the call stores the answer and returns at once: title, answer, the question, where it ran (window, quest,
- *        run, session, queue item) and the caller's filed_by; unread; the listener is told; a failing listener does
+ *        run, session, queue item) and the caller's filed_by; unread; the Q&A journal gets it; the listener is told; a failing listener does
  *        not fail the call
  *   AU-2 title and answer are required; a suggested prompt needs its text (its label defaults to the first line)
  *   AU-3 a suggested todo is checked as tomAi_createQuestTodo checks it: an incomplete one (no id, no description,
@@ -13,9 +13,6 @@
  *        and file, marks it added, and does not add it twice; a refusal by the create leaves it unadded
  *   AU-5 the store: one file per answer under a folder per real `_ai` path; newest first; read / unread; delete,
  *        delete read; the cleanups (the 100 / 200 oldest, older than 7 / 30 days); an id is never a path
- *   AU-6 the Answers page: the list (unread bold, the run), the selected answer with its question and rendered
- *        answer, a suggested todo's record on demand, Add todo and Copy post, an added todo shows its id, the
- *        delete buttons post
  *   AU-7 the tool: named, in the lists (always on, core, plan mode), described within the limit, not read-only
  */
 
@@ -23,7 +20,6 @@ import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { JSDOM } from 'jsdom';
 
 import { withTiming } from './_timing.js';
 import { ANSWER_USER_DESCRIPTION, ANSWER_USER_TOOL, addSuggestedTodo, answerUserImpl, type AnswerUserDeps } from '../answer-user-tool.js';
@@ -39,7 +35,6 @@ import { DEFAULT_CORE_TOOLS } from '../../utils/toolSelection.js';
 const EXT = path.resolve(__dirname, '..', '..', '..');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(EXT, '..', '..', '..', 'ztmp', 'vscode_extension_261119_vscimpb171_au-')));
 after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-const src = (...p: string[]): string => fs.readFileSync(path.join(EXT, ...p), 'utf8');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
@@ -68,24 +63,26 @@ function todoDeps(filedBy?: Record<string, string>): QuestTodoToolsDeps & { todo
 }
 
 let dirs = 0;
-function setup(ctx: Partial<ReturnType<AnswerUserDeps['context']>> = {}): { deps: AnswerUserDeps; dir: string; todos: ReturnType<typeof todoDeps>; told: UserAnswer[] } {
+function setup(ctx: Partial<ReturnType<AnswerUserDeps['context']>> = {}): { deps: AnswerUserDeps; dir: string; todos: ReturnType<typeof todoDeps>; told: UserAnswer[]; journalled: UserAnswer[] } {
     const dir = path.join(SANDBOX, `store-${++dirs}`);
     const todos = todoDeps();
     const told: UserAnswer[] = [];
+    const journalled: UserAnswer[] = [];
     const deps: AnswerUserDeps = {
         context: () => ({ windowId: 'w1', quest: 'q1', run: 'default', ...ctx }),
         todoProblem: (quest, todo, file) => createQuestTodoProblem(todos, { questId: quest, todo, ...(file ? { file } : {}) } as CreateQuestTodoInput),
         store: (a) => writeAnswer(dir, a),
+        journal: (a) => { journalled.push(a); },
         onStored: (a) => { told.push(a); },
         now: () => new Date('2026-11-19T10:00:00Z'),
     };
-    return { deps, dir, todos, told };
+    return { deps, dir, todos, told, journalled };
 }
 const TODO = { id: 'x1_akss-follow-up', title: 'Follow up', description: 'Do the follow-up.\n\nDONE WHEN: done.', status: 'not-started', priority: 'medium', tags: ['a'], references: [{ path: 'doc/x.md' }] };
 
 describe('tomAi_answerUser', () => {
     test('AU-1: the call stores the answer and returns at once', async () => {
-        const { deps, dir, told } = setup({ run: 'r2', session: 'default@r2', queueItemId: 'item-7', filedBy: { tool: 'agent', session: 'default@r2' } });
+        const { deps, dir, told, journalled } = setup({ run: 'r2', session: 'default@r2', queueItemId: 'item-7', filedBy: { tool: 'agent', session: 'default@r2' } });
         const raw = await withTiming('tomAi_answerUser:typical', () => answerUserImpl(deps, { title: '  Why is it slow?  ', answer: 'Because of **x**.', question: 'Why is the build slow?' }));
         const r = JSON.parse(raw);
         assert.equal(r.ok, true);
@@ -99,6 +96,12 @@ describe('tomAi_answerUser', () => {
             filedBy: { tool: 'agent', session: 'default@r2' },
         });
         assert.deepEqual(told.map((a) => a.id), [r.id], 'the listener is told once');
+        assert.deepEqual(journalled, [stored[0]], 'the answer goes to the Q&A journal');
+        // A journal that throws does not fail the call.
+        const noJournal = setup();
+        noJournal.deps.journal = () => { throw new Error('no journal'); };
+        assert.equal(JSON.parse(await answerUserImpl(noJournal.deps, { title: 't', answer: 'a' })).ok, true);
+        assert.equal(noJournal.told.length, 1);
         // A listener that throws does not fail the call.
         const failing = setup();
         failing.deps.onStored = () => { throw new Error('page broke'); };
@@ -247,75 +250,6 @@ describe('tomAi_answerUser', () => {
         assert.equal(ANSWERS_WARN_LIMIT, 500);
         assert.equal(deleteAnswers(dir, [a3.id, 'agone']), 1);
         assert.deepEqual(readAnswers(dir).map((a) => a.title), ['d0', 'd10', 'd40']);
-    });
-
-    test('AU-6: the Answers page', (t) => {
-        const dom = new JSDOM(src('media', 'answersPanel', 'index.html').replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' });
-        const w = dom.window as Json;
-        t.after(() => w.close());
-        const posted: Json[] = [];
-        w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => posted.push(JSON.parse(JSON.stringify(m))) });
-        w.__INIT__ = {};
-        w.eval(src('media', 'answersPanel', 'main.js'));
-        assert.deepEqual(posted.shift(), { type: 'ready' });
-        const doc = w.document;
-        const send = (state: Json): void => { w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', limit: 500, ...state } })); };
-        send({ answers: [], selected: null, total: 0, unread: 0 });
-        assert.match(doc.querySelector('#list').textContent, /No answers yet/);
-        assert.match(doc.querySelector('#detail').textContent, /Select an answer/);
-        const answers = [
-            { id: 'a2', title: 'Why <slow>?', at: '2026-11-19T10:00:00Z', quest: 'q1', run: 'r2', read: false, todos: 2, prompts: 1 },
-            { id: 'a1', title: 'Older', at: '2026-11-18T10:00:00Z', quest: 'q1', run: 'default', read: true, todos: 0, prompts: 0 },
-        ];
-        const selected = {
-            id: 'a2', title: 'Why <slow>?', at: '2026-11-19T10:00:00Z', quest: 'q1', run: 'r2', session: 'default@r2', queueItemId: 'item-7', question: 'Why is it slow?',
-            answerHtml: '<p>Because of <strong>x</strong>.</p>',
-            prompts: [{ label: 'Next', text: 'Do the <next> step' }],
-            todos: [{ quest: 'q1', id: 'x1', title: 'Follow up', record: 'id: x1\ndescription: Do <it>\n' }, { quest: 'q2', file: 'side.q2.todo.yaml', id: 'x2', title: '', record: 'id: x2\n', addedId: 'x2' }],
-        };
-        send({ answers, selected, total: 2, unread: 1 });
-        assert.match(doc.querySelector('#bar').textContent, /1 unread of 2 answers/);
-        const items = [...doc.querySelectorAll('#list .item')] as Json[];
-        assert.deepEqual(items.map((i) => i.querySelector('.title').textContent), ['Why <slow>?', 'Older'], 'titles escaped, newest first');
-        assert.ok(items[0].classList.contains('unread') && items[0].classList.contains('selected'));
-        assert.ok(!items[1].classList.contains('unread'));
-        assert.match(items[0].querySelector('.meta').textContent, /q1.*run r2/);
-        assert.match(src('media', 'answersPanel', 'style.css'), /\.item\.unread \.title\s*\{[^}]*font-weight:\s*(bold|600|700)/, 'unread is bold');
-        items[1].click();
-        assert.deepEqual(posted.pop(), { type: 'select', id: 'a1' });
-        const detail = doc.querySelector('#detail');
-        assert.equal(detail.querySelector('h1').textContent, 'Why <slow>?');
-        assert.match(detail.querySelector('.meta').textContent, /quest q1.*run r2.*session default@r2.*queue item item-7/);
-        assert.equal(detail.querySelector('.question').textContent, 'Why is it slow?');
-        assert.equal(detail.querySelector('.answer strong').textContent, 'x', 'the rendered answer');
-        // Suggested todos: the record on demand, Add todo posts, an added one shows its id.
-        const cards = (): Json[] => [...detail.querySelectorAll('[data-todo]')];
-        assert.equal(cards().length, 2);
-        assert.equal(cards()[0].querySelector('pre'), null, 'the record is hidden until asked for');
-        cards()[0].querySelector('[data-action="toggleRecord"]').click();
-        assert.equal(cards()[0].querySelector('pre').textContent, 'id: x1\ndescription: Do <it>\n');
-        assert.equal(cards()[0].querySelector('[data-action="toggleRecord"]').textContent, 'Hide record');
-        send({ answers, selected, total: 2, unread: 1 });
-        assert.ok(cards()[0].querySelector('pre'), 'the open record survives a refresh');
-        cards()[0].querySelector('[data-action="addTodo"]').click();
-        assert.deepEqual(posted.pop(), { type: 'addTodo', id: 'a2', index: 0 });
-        assert.equal(cards()[1].querySelector('[data-action="addTodo"]'), null, 'an added todo has no Add button');
-        assert.match(cards()[1].querySelector('.added').textContent, /added as x2/);
-        assert.match(cards()[1].textContent, /q2 \/ side\.q2\.todo\.yaml/);
-        // Suggested prompts: shown, Copy posts.
-        const prompt = detail.querySelector('[data-prompt]');
-        assert.equal(prompt.querySelector('pre').textContent, 'Do the <next> step');
-        prompt.querySelector('[data-action="copyPrompt"]').click();
-        assert.deepEqual(posted.pop(), { type: 'copyPrompt', id: 'a2', index: 0 });
-        // The answer's own buttons and the bar's.
-        detail.querySelector('[data-action="markUnread"]').click();
-        assert.deepEqual(posted.pop(), { type: 'markUnread', id: 'a2' });
-        detail.querySelector('[data-action="delete"]').click();
-        assert.deepEqual(posted.pop(), { type: 'delete', id: 'a2' });
-        doc.querySelector('#bar [data-action="deleteRead"]').click();
-        assert.deepEqual(posted.pop(), { type: 'deleteRead' });
-        doc.querySelector('#bar [data-action="deleteAll"]').click();
-        assert.deepEqual(posted.pop(), { type: 'deleteAll' });
     });
 
     test('AU-7: the tool', () => {

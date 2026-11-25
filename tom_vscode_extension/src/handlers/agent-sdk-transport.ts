@@ -317,7 +317,7 @@ import {
 import type { AskChoice } from '../utils/askChoices';
 import type { AskUserQuestionOutcome } from '../services/agent-sdk-questions';
 import { liveUserPrompter } from '../tools/user-interaction-tools';
-import { appendQuestionLogEntry } from '../services/questionsLog';
+import { appendQuestionLogEntry } from '../services/qaJournal';
 import {
     QueryInputChannel,
     isChannelDeadToolResult,

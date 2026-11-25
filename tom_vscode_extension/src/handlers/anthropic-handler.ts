@@ -53,7 +53,6 @@ import { ANTHROPIC_SUBSYSTEM } from '../services/trailSubsystems';
 import { ToolTrail, setActiveToolTrail, type ToolTrailEntry } from '../services/tool-trail';
 import { LiveTrailWriter, type PromptSource } from '../services/live-trail';
 import { livePromptRole } from '../services/queueRoleContext';
-import { beginCurrentPrompt, writeCurrentPrompt } from '../services/current-prompt-dump';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import { QuestRefreshService } from '../services/quest-refresh-service';
 import { shouldRunInteractiveRefreshHook, runInteractiveRefreshHook } from '../utils/questRefreshDispatch';
@@ -86,16 +85,10 @@ import {
     saveCompactionRoundsIn,
 } from '../services/compaction-rounds';
 import { resolveHistoryScope, sessionHistoryFolder, type HistoryScope } from '../services/directSessionHistory';
-import {
-    type Block,
-    concatenateBodies,
-    dedupAndSort,
-    diffAndStamp,
-    loadFromDisk as loadBlocksFromDisk,
-    parseBlocks,
-    renderBlocksForLlm,
-    saveToDisk as saveBlocksToDisk,
-} from '../services/compacted-history';
+import * as path from 'path';
+import { type Block, concatenateBodies } from '../services/compacted-history';
+import { buildQuestHistory, consolidatedTrail, hasQuestHistory, loadQuestHistoryBlocks, type QuestHistoryBuildReport } from '../services/questHistory';
+import { hostSlugOf } from '../utils/hostSlug';
 import {
     load as loadRawTurns,
     save as saveRawTurns,
@@ -108,7 +101,6 @@ import { WsPaths } from '../utils/workspacePaths';
 import { roleScopedTools } from '../services/roleTools';
 import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver';
 import { debugLog } from '../utils/debugLogger';
-import { extractTodoResponseValues } from '../utils/responseValues';
 import { logInfo as logHistoryInfo, logError as logHistoryError } from '../services/compaction-log';
 
 // ============================================================================
@@ -676,13 +668,11 @@ export class AnthropicHandler {
     /**
      * Session history is split into three parallel stores:
      *
-     *   - `compactedHistoryBlocks` — block-formatted distilled state
-     *     persisted at `_ai/quests/<quest>/history/compacted_history.md`.
-     *     Each block carries a `created` stamp (identity) and a
-     *     `modified` stamp (freshness for merge). Replaces the old
-     *     single-string `compactedSummary` so two machines can compact
-     *     concurrently and the union-by-created merge keeps the freshest
-     *     version of each block.
+     *   - `compactedHistoryBlocks` — the quest's history, the
+     *     block-formatted compacted history every session's prompt gets
+     *     (`_ai/quests/<quest>/history/compacted_history.md`, built by this
+     *     host from the consolidated trail and the todo archive:
+     *     src/services/questHistory.ts). Read from disk at every send.
      *   - `compactionRounds` — the per-machine accumulator. Holds
      *     rounds that have happened since the last successful
      *     compaction; CLEARS entirely when compaction succeeds. Stored
@@ -746,7 +736,7 @@ export class AnthropicHandler {
     /**
      * The history the in-memory state above belongs to: the quest's own
      * (the chat panel's and the queue's sessions) or a named session's
-     * (`history/sessions/<name>/`), and whether this send writes it back
+     * (`history/<host>/sessions/<name>/`), and whether this send writes it back
      * (not for a per-prompt session). Chosen per send from the session
      * name (`options.sessionKey`); null until the first send. See
      * src/services/directSessionHistory.ts.
@@ -768,7 +758,7 @@ export class AnthropicHandler {
     /**
      * The tool trail of session `name`, created on first use. Its results are
      * persisted under the session's own storage
-     * (`history/sessions/<name>/trail/tool_results/`), and its keys continue
+     * (`history/<host>/sessions/<name>/trail/tool_results/`), and its keys continue
      * past the results already stored there, so neither another session nor a
      * new trail (a reload, a clear) overwrites one.
      */
@@ -842,12 +832,12 @@ export class AnthropicHandler {
      * `sendMessage()` awaits these so the user's next prompt goes out with
      * the freshest compaction/memory state — and emits a status update so
      * the chat panel can show "waiting for history compaction…" /
-     * "waiting for memory extraction…" / "Rebuild history from last N
-     * prompts…" instead of a bare "Sending…".
+     * "waiting for the quest history build…" instead of a bare "Sending…".
      */
     private compactionInFlight: Promise<void> | null = null;
-    private memoryExtractionInFlight: Promise<void> | null = null;
     private historyRebuildInFlight: Promise<void> | null = null;
+    /** The quest history build running now; the next one waits for it (one build at a time). */
+    private questHistoryBuild: Promise<unknown> | null = null;
 
     private readonly _onApprovalNeeded = new vscode.EventEmitter<AnthropicToolApprovalRequest>();
     /**
@@ -965,7 +955,6 @@ export class AnthropicHandler {
         if (this.hookSessionsStarted.delete(sessionKey)) { this.hookSessionsCleared.add(sessionKey); }
         this.roundCounter = 0;
         this.compactionInFlight = null;
-        this.memoryExtractionInFlight = null;
         this.historyRebuildInFlight = null;
         // Drop the Agent SDK session-id file so the next sdk-managed
         // send starts a brand-new conversation rather than resuming the
@@ -980,9 +969,8 @@ export class AnthropicHandler {
             const historyFolder = clearedFolder;
             saveCompactionRoundsIn([], historyFolder);
             saveRawTurns(historyFolder, []);
-            // Also wipe the compacted blocks on disk so a fresh session
-            // doesn't inherit yesterday's distilled state.
-            saveBlocksToDisk(historyFolder, []);
+            // The compacted history is the quest's, not the session's: a
+            // clear leaves it (the next send reads it again).
         } catch { /* best-effort */ }
     }
 
@@ -1084,27 +1072,22 @@ export class AnthropicHandler {
     }
 
     /**
-     * Seed the split state from disk on the first `sendMessage()`.
+     * Seed the session's state from disk on the first `sendMessage()` of a
+     * scope:
      *
-     * Three-step fallback (most preferred first):
+     *   1. **The quest's history** — {@link loadQuestHistory} (read again at
+     *      every send, since any session of the quest may build it).
+     *   2. **OLD PLACE: the session's `history.json`** — while neither the
+     *      quest nor the session has a compacted history, its
+     *      `compactedSummary` is read as one block; its `rawTurns` seed the
+     *      rolling tail when no `rawTurns.json` exists. Nothing writes it.
+     *   3. **The first build** — when the quest has no history yet and its
+     *      consolidated trail holds turns, a build of the quest history
+     *      runs in the background (not while compaction is off); the next
+     *      send waits for it.
      *
-     *   1. **`compacted_history.md`** — the new block-format file
-     *      committed to git. When present, parses into
-     *      `this.compactedHistoryBlocks` and the rolling tail / accumulator
-     *      come from the per-machine files alongside.
-     *   2. **`history.json` one-shot migration** — the legacy file. Its
-     *      `compactedSummary` string is wrapped in a single synthetic
-     *      block (`created = modified = savedAt`); its `rawTurns` seed
-     *      the rolling tail when no separate `rawTurns.json` exists.
-     *      The legacy file is left in place — the formal migration
-     *      command (`tomAi.migrate.compactionFormat`) does the cleanup.
-     *   3. **Trail rebuild** — fire-and-forget walk of the quest's
-     *      `.anthropic.prompts.md` / `.answers.md` files into chunked
-     *      compaction passes. Same path as before; just writes blocks
-     *      instead of a summary string.
-     *
-     * The per-machine files (`rawTurns.json`, `compaction_rounds.json`)
-     * are loaded regardless of which fallback wins.
+     * The per-machine files (`rawTurns.json`, `compaction_rounds.json`) of
+     * the session are loaded in every case.
      */
     private seedHistoryFromSnapshot(questId: string): void {
         if (this.historySeeded) {
@@ -1116,21 +1099,14 @@ export class AnthropicHandler {
             return;
         }
         try {
-            // Every session's history is its own folder: its blocks, its
-            // snapshot, its rolling tail and accumulator, and its own trail
-            // to rebuild from.
+            // The session's own folder: its rolling tail and accumulator.
             const historyFolder = this.scopeFolder(questId);
 
-            // (1) Try the new block-format file first.
-            const blocks = loadBlocksFromDisk(historyFolder);
-            let seededFromDisk = false;
-            if (blocks.length > 0) {
-                this.compactedHistoryBlocks = dedupAndSort(blocks);
-                seededFromDisk = true;
-            } else {
-                // (2) Fall back to the session's history.json with one-shot
-                //     in-memory migration. The legacy file stays on disk;
-                //     the formal migration command rewrites it.
+            // (1) The quest's history (OLD PLACE: the session's own compacted history while the quest has none).
+            this.loadQuestHistory(questId);
+            let seededFromDisk = this.compactedHistoryBlocks.length > 0;
+            if (!seededFromDisk) {
+                // (2) OLD PLACE: the session's history.json, read in memory only.
                 const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshotIn<unknown>(historyFolder);
                 if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
                     const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown; savedAt?: unknown };
@@ -1158,8 +1134,7 @@ export class AnthropicHandler {
                 }
             }
 
-            // Per-machine state — always load (independent of which
-            // compaction source seeded the blocks).
+            // Per-machine state — always load.
             if (this.rawTurnsRolling.length === 0) {
                 const rolling = loadRawTurns(historyFolder);
                 if (rolling) { this.rawTurnsRolling = rolling.rounds; }
@@ -1173,31 +1148,38 @@ export class AnthropicHandler {
                 return;
             }
 
-            if (!this.persistsHistory) {
-                // A per-prompt session reads its base's history and writes none:
-                // nothing to rebuild into.
-                logHistoryInfo(`history seed: session "${this.historyScope?.session}" has no history yet — starts fresh (quest=${questId})`);
-                return;
-            }
-
-            // When compaction is disabled, the automatic trail rebuild is off
-            // entirely: skip it so no "Rebuild history…" status fires and no
-            // LLM/Ollama calls happen on a fresh session. Raw turns still
-            // accumulate normally on subsequent sends (the live path keeps
-            // writing them), so context is not lost — it just isn't folded.
+            // (3) No history yet: build the quest's from its trail, unless compaction is off.
+            const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId));
             if (this.getCompactionConfig().disabled) {
-                logHistoryInfo(`history seed: no disk state and compaction disabled — automatic trail rebuild skipped (quest=${questId})`);
+                logHistoryInfo(`history seed: no history and compaction disabled — the first build is skipped (quest=${questId})`);
                 return;
             }
-
-            // (3) No disk state at all — kick off the trail rebuild as
-            //     fire-and-forget. Subsequent sends await
-            //     historyRebuildInFlight with a status update.
-            logHistoryInfo(`history seed: no disk state — kicking off trail rebuild (quest=${questId})`);
-            this.historyRebuildInFlight = this.rebuildHistoryFromTrail(questId)
+            if (hasQuestHistory(questFolder) || consolidatedTrail(questFolder).length === 0) {
+                logHistoryInfo(`history seed: nothing to build yet (quest=${questId})`);
+                return;
+            }
+            logHistoryInfo(`history seed: no history yet — building the quest history from the trail (quest=${questId})`);
+            this.historyRebuildInFlight = this.runQuestHistoryBuild(questId, { extract: false })
+                .then(() => undefined)
                 .finally(() => { this.historyRebuildInFlight = null; });
         } catch {
             // ignore — fresh session is a safe fallback
+        }
+    }
+
+    /**
+     * Read the quest's history into `compactedHistoryBlocks`: the quest's
+     * `history/compacted_history.md` (OLD PLACE: while it does not exist, the
+     * session's own `compacted_history.md`). A fresh scope (a per-prompt
+     * session without a base) reads none.
+     */
+    private loadQuestHistory(questId: string): void {
+        if (this.historyScope?.fresh) { this.compactedHistoryBlocks = []; return; }
+        try {
+            const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId));
+            this.compactedHistoryBlocks = loadQuestHistoryBlocks(questFolder, this.scopeFolder(questId));
+        } catch {
+            // keep what is loaded
         }
     }
 
@@ -1223,58 +1205,19 @@ export class AnthropicHandler {
     }
 
     /**
-     * Await any in-flight compaction / memory extraction / history
-     * rebuild before sending the next message, emitting status updates
+     * Await any in-flight history build (with its memory extraction)
+     * before sending the next message, emitting status updates
      * so the chat panel can show what the delay is. Called at the top of
      * every sendMessage().
      */
     private async awaitInFlightBackgroundWork(): Promise<void> {
         if (this.historyRebuildInFlight) {
-            this._onStatusUpdate.fire('Rebuild history from last N prompts…');
+            this._onStatusUpdate.fire('waiting for the quest history build…');
             try { await this.historyRebuildInFlight; } catch { /* swallowed */ }
         }
         if (this.compactionInFlight) {
             this._onStatusUpdate.fire('waiting for history compaction…');
             try { await this.compactionInFlight; } catch { /* swallowed */ }
-        }
-        if (this.memoryExtractionInFlight) {
-            this._onStatusUpdate.fire('waiting for memory extraction…');
-            try { await this.memoryExtractionInFlight; } catch { /* swallowed */ }
-        }
-    }
-
-    /**
-     * Persist the compacted blocks to `compacted_history.md`. Each
-     * compaction success writes here so the on-disk view matches the
-     * in-memory `compactedHistoryBlocks`.
-     *
-     * `rawTurns.json` and `compaction_rounds.json` are written
-     * independently by `persistRoundAndReloadUnion` / the compaction
-     * pass; this method only owns the block-format file.
-     *
-     * The legacy `history.json` / `history.md` pair is also rewritten
-     * (via `persistHistorySnapshot`) so the chat panel's "Open session
-     * history" button still works without a custom block-format
-     * renderer — and so a pre-migration machine can read what a
-     * migrated machine produced. The migration command deletes the
-     * legacy files; until then both formats live side-by-side.
-     */
-    private persistSessionHistory(questId: string | undefined): void {
-        if (!this.persistsHistory) { return; }
-        try {
-            const archive = this.getCompactionConfig().archiveHistoryEveryTurn;
-            const historyFolder = this.scopeFolder(questId);
-            saveBlocksToDisk(historyFolder, this.compactedHistoryBlocks);
-            // Keep the legacy file populated for the readability/MD-Browser path.
-            // The migration command removes it; pre-migration installs still need it.
-            TwoTierMemoryService.instance.persistHistorySnapshotIn(
-                historyFolder,
-                { compactedSummary: this.compactedSummaryText, rawTurns: this.rawTurns },
-                questId,
-                archive,
-            );
-        } catch {
-            // best-effort — a failed save must never affect the turn result
         }
     }
 
@@ -1443,419 +1386,116 @@ export class AnthropicHandler {
     }
 
     /**
-     * Update `this.compactedHistoryBlocks` from an LLM output string.
-     *
-     * Preferred path: the LLM emits the full updated block set in the
-     * canonical `<!-- tom:block -->` format. We parse those, apply
-     * `diffAndStamp` against the prior blocks (so unchanged blocks
-     * keep their `modified` stamps and edited/new blocks get fresh
-     * stamps), then `dedupAndSort`. Result is what we keep in memory
-     * and persist.
-     *
-     * Fallback: the LLM is using a legacy template that emits prose
-     * instead of blocks. We wrap the entire trimmed output as a single
-     * brand-new block (created = modified = now). Over a few compaction
-     * passes this produces a growing list of one-block-per-pass; the
-     * model is expected to consolidate them when running with the new
-     * template.
+     * Build the quest's history (src/services/questHistory.ts): fold what it
+     * does not cover yet — the consolidated trail's new turns and the newly
+     * archived todos — chunk by chunk (`runEveryNRounds` inputs per
+     * compaction call, at most `rebuildFromLastNPrompts` of the newest), and,
+     * with `extract`, extract memory candidates from the new turns (each
+     * candidate names its turn's session). One build at a time: a second
+     * waits for the first. Progress goes to the panel's status line. Answers
+     * the build's report, or undefined when no compaction model is configured
+     * or the build failed.
      */
-    private applyCompactionOutput(rawLlmOutput: string): void {
-        const trimmed = rawLlmOutput.trim();
-        if (!trimmed) { return; }
-        const parsed = parseBlocks(trimmed);
-        if (parsed.length > 0) {
-            const stamped = diffAndStamp(
-                this.compactedHistoryBlocks,
-                parsed.map((b) => ({ created: b.created, body: b.body })),
-            );
-            this.compactedHistoryBlocks = dedupAndSort(stamped);
-            return;
-        }
-        // Legacy / malformed output — wrap as one fresh block so the
-        // session keeps making forward progress. Repeated compactions
-        // with a legacy template will pile up; the new template merges.
-        const now = new Date().toISOString();
-        this.compactedHistoryBlocks = dedupAndSort([
-            ...this.compactedHistoryBlocks,
-            { created: now, modified: now, body: trimmed },
-        ]);
-    }
-
-    /**
-     * Run one compaction pass in the background, integrating the just-
-     * completed exchange into the existing compacted blocks. Updates
-     * `this.compactedHistoryBlocks`, clears the accumulator file, and
-     * persists the blocks file on success.
-     *
-     * The rolling-tail file (`rawTurns.json`) is untouched here — its
-     * lifecycle is the rolling N-round window, independent of compaction
-     * firings.
-     *
-     * Compaction is expected to be faster than the Anthropic round-trip
-     * in the common case (small local LLM summarising a single exchange),
-     * but may be slower on bigger models — which is why sendMessage
-     * awaits `compactionInFlight` before sending the next turn.
-     */
-    private runCompactionInBackground(
-        lastExchange: ConversationMessage[],
-        questId: string | undefined,
-        configuration?: AnthropicConfiguration,
-    ): Promise<void> {
-        const cfg = this.getCompactionConfig();
-        if (!cfg.compactionTarget.configId) {
-            return Promise.resolve();
-        }
-        // Per-configuration override wins for char/turn caps so a 200k
-        // Opus profile can use bigger budgets than a 128k local backend
-        // without having to fork the global compaction block.
-        const caps = configuration
-            ? this.resolveEffectiveCaps(configuration)
-            : { maxHistoryTokens: cfg.maxHistoryTokens, historyMaxChars: cfg.historyMaxChars, memoryMaxChars: cfg.memoryMaxChars, rawTurnsKept: cfg.rawTurnsKept, toolTrailMaxResultChars: cfg.toolTrailMaxResultChars, toolTrailKeepRounds: cfg.toolTrailKeepRounds };
-        return (async () => {
-            try {
-                const existingSummaryText = this.compactedSummaryText;
-                const existingBlocksRendered = renderBlocksForLlm(this.compactedHistoryBlocks);
-                const { runIncrementalCompaction } = await import('../services/history-compaction.js');
-                const llmOutput = await runIncrementalCompaction({
-                    existingSummary: existingSummaryText,
-                    existingBlocks: existingBlocksRendered,
-                    lastTurn: lastExchange,
-                    llmProvider: cfg.compactionTarget.kind,
-                    llmConfigId: cfg.compactionTarget.configId,
-                    compactionTemplateId: cfg.compactionTemplateId,
-                    maxHistoryTokens: caps.maxHistoryTokens,
-                    historyMaxChars: caps.historyMaxChars,
-                    questId,
-                    session: this.currentSessionName(),
-                    // Surface retry countdowns ("compaction: HTTP 503
-                    // — retry 3/9 in 30s…") to the Anthropic panel's
-                    // status line via the existing emitter.
-                    onProgress: (msg) => this._onStatusUpdate.fire(msg),
-                });
-                if (typeof llmOutput === 'string' && llmOutput.trim().length > 0) {
-                    this.applyCompactionOutput(llmOutput);
-                }
-                // Compaction succeeded — the overflow batch is now
-                // baked into `compactedHistoryBlocks`, so the accumulator
-                // CLEARS entirely. The rolling tail (`rawTurnsRolling`)
-                // is untouched so the very next outgoing prompt still
-                // has fresh complete-fidelity context.
-                this.compactionRounds = [];
-                // Only a session that writes its history clears the file: a
-                // per-prompt session reads its BASE's folder, whose
-                // accumulator is not this session's to clear.
-                if (this.persistsHistory) {
-                    saveCompactionRoundsIn([], this.scopeFolder(questId));
-                }
-                this.rawTurns = this.computeDedupedUnion();
-                this.persistSessionHistory(questId);
-            } catch {
-                // best-effort; a failed compaction is recoverable on the next turn
-            }
-        })();
-    }
-
-    /**
-     * Run memory extraction in the background. Input: last exchange +
-     * current compacted summary + existing memory file content. Output
-     * is applied via the memory tools (or appended directly to the
-     * target file) inside the compaction service.
-     */
-    private runMemoryExtractionInBackground(
-        lastExchange: ConversationMessage[],
-        questId: string | undefined,
-        configuration?: AnthropicConfiguration,
-    ): Promise<void> {
-        const cfg = this.getCompactionConfig();
-        if (!cfg.runMemoryExtractionOnCompaction || !cfg.memoryTarget.configId) {
-            return Promise.resolve();
-        }
-        const caps = configuration
-            ? this.resolveEffectiveCaps(configuration)
-            : { historyMaxChars: cfg.historyMaxChars, memoryMaxChars: cfg.memoryMaxChars };
-        return (async () => {
-            try {
-                const { runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
-                await runIncrementalMemoryExtraction({
-                    lastTurn: lastExchange,
-                    compactedSummary: this.compactedSummaryText,
-                    llmProvider: cfg.memoryTarget.kind,
-                    llmConfigId: cfg.memoryTarget.configId,
-                    memoryTemplateId: cfg.memoryExtractionTemplateId,
-                    historyMaxChars: caps.historyMaxChars,
-                    memoryMaxChars: caps.memoryMaxChars,
-                    questId,
-                    session: this.currentSessionName(),
-                    // Same retry-status surface as compaction (above).
-                    onProgress: (msg) => this._onStatusUpdate.fire(msg),
-                });
-            } catch {
-                // best-effort
-            }
-        })();
-    }
-
-    /**
-     * Fallback history seed when no `{ts}.history.json` snapshot exists.
-     * Parses the last N entries from the quest's compact trail files
-     * (`<quest>.anthropic.prompts.md` + `.answers.md`), reconstructs a
-     * rawTurns array, and runs one compaction pass over older entries so
-     * the compactedSummary starts non-empty.
-     */
-    /**
-     * Recreate `history.json` (and the per-machine
-     * `compaction_rounds.json` accumulator) from the quest's trail
-     * files. Public entry point for the "Recreate History" button on
-     * the Anthropic chat panel; forces the chunked trail-rebuild path
-     * regardless of whether a snapshot already exists.
-     *
-     * The user-facing semantics: replay the conversation history into
-     * compactedSummary + accumulator-tail as if compaction had been
-     * running every `runEveryNRounds` rounds all along. Existing
-     * snapshot is overwritten on completion.
-     *
-     * Sharing with the auto-seed path: both eventually run
-     * `rebuildHistoryFromTrail()`. The button just clears the
-     * `historySeeded` latch first so the rebuild fires even when a
-     * snapshot is already in memory.
-     */
-    async recreateHistoryFromTrail(questId?: string, sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): Promise<void> {
-        const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
-        // The rebuild is of that session's history, from that session's own trail.
-        await this.awaitInFlightBackgroundWork();
-        this.historyScope = resolveHistoryScope(quest, TwoTierMemoryService.instance.historyFolder(quest), sessionKey);
-        this.activateSession(sessionKey);
-        // Drop the in-memory latch so the next sendMessage doesn't
-        // skip rebuild ("already seeded"). Also drop the in-memory
-        // state itself so a partial rebuild can't end up in a hybrid
-        // state mixing fresh trail data with stale snapshot data.
-        this.historySeeded = false;
-        this.compactedHistoryBlocks = [];
-        this.compactionRounds = [];
-        this.rawTurnsRolling = [];
-        this.rawTurns = [];
-        // Explicit user action: force the LLM fold even if compaction is
-        // globally disabled (the button exists precisely to rebuild on demand).
-        await this.rebuildHistoryFromTrail(quest, { force: true });
-        this.historySeeded = true;
-    }
-
-    /**
-     * Recreate memory candidates from a session's trail (this host's
-     * `candidates.<host>.md` in the quest's memory folder; the curated
-     * files are not written). Public entry
-     * point for the "Recreate Memory" button. Walks the trail in
-     * chunks of `runEveryNRounds − rawTurnsKept` rounds — the same
-     * chunk size used by live compaction — and runs memory extraction
-     * on each chunk, letting the extractor see the rolling
-     * `compactedSummary` so per-chunk decisions are informed by the
-     * accumulated session state.
-     *
-     * Existing memory is NOT cleared first. The memory-extraction
-     * template is required to read `${existingMemory}` and skip
-     * already-recorded facts, so a rebuild against current memory is
-     * idempotent (new facts become candidates; duplicates are suppressed
-     * by the model).
-     */
-    async recreateMemoryFromTrail(questId?: string, sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): Promise<void> {
-        const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
-        const cfg = this.getCompactionConfig();
-        // Memory candidates from the session's own trail; each names the session.
-        await this.awaitInFlightBackgroundWork();
-        this.activateSession(sessionKey);
-        if (!cfg.memoryTarget.configId && !cfg.compactionTarget.configId) {
-            this._onStatusUpdate.fire('Memory rebuild skipped — no compaction LLM configured');
-            return;
-        }
-        try {
-            const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
-            const { loadLastNTrailExchanges, runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
-            const exchanges = loadLastNTrailExchanges(quest, limit, sessionKey);
-            if (exchanges.length === 0) {
-                this._onStatusUpdate.fire('Memory rebuild: no trail entries to fold');
-                return;
-            }
-            const rawTail = Math.max(0, cfg.rawTurnsKept);
-            const chunkSize = Math.max(1, cfg.runEveryNRounds - rawTail);
-            // Walk all exchanges including the tail — for memory
-            // extraction the "tail" distinction doesn't apply (live
-            // operation only spares the tail from compaction, not
-            // from extraction). Drop only those exchanges that fall
-            // inside the very last partial chunk if they're smaller
-            // than `rawTurnsKept`; otherwise extract on them too.
-            const totalChunks = Math.ceil(exchanges.length / chunkSize);
-            for (let i = 0, c = 1; i < exchanges.length; i += chunkSize, c++) {
-                const chunk = exchanges.slice(i, i + chunkSize);
-                const chunkMessages: ConversationMessage[] = [];
-                for (const pair of chunk) {
-                    if (pair.user) { chunkMessages.push({ role: 'user', content: pair.user }); }
-                    if (pair.assistant) { chunkMessages.push({ role: 'assistant', content: pair.assistant }); }
-                }
-                if (chunkMessages.length === 0) { continue; }
-                this._onStatusUpdate.fire(
-                    `Rebuild memory: extracting chunk ${c}/${totalChunks} (${chunk.length} round${chunk.length === 1 ? '' : 's'})…`,
-                );
-                try {
-                    await runIncrementalMemoryExtraction({
-                        lastTurn: chunkMessages,
-                        compactedSummary: this.compactedSummaryText,
-                        llmProvider: cfg.memoryTarget.kind,
-                        llmConfigId: cfg.memoryTarget.configId,
-                        memoryTemplateId: cfg.memoryExtractionTemplateId,
-                        historyMaxChars: cfg.historyMaxChars,
-                        memoryMaxChars: cfg.memoryMaxChars,
-                        questId: quest,
-                        session: sessionKey,
-                        onProgress: (msg) => this._onStatusUpdate.fire(msg),
-                    });
-                } catch {
-                    // Per-chunk failure: continue with the next chunk
-                    // — the rebuild is incremental, so a partial result
-                    // is still better than abort.
-                }
-            }
-            this._onStatusUpdate.fire('Memory rebuild complete');
-        } catch {
-            this._onStatusUpdate.fire('Memory rebuild failed');
-        }
-    }
-
-    /**
-     * @param opts.force  Run the LLM-driven chunked fold even when compaction
-     *   is globally disabled. Only the explicit "Recreate History" button sets
-     *   this; the automatic seed path leaves it false so a disabled compaction
-     *   setting is honored (no Ollama/LLM calls, no "folding chunk…" status).
-     */
-    private async rebuildHistoryFromTrail(
+    private runQuestHistoryBuild(
         questId: string,
-        opts: { force?: boolean } = {},
-    ): Promise<void> {
-        const rebuildStartedAt = Date.now();
-        try {
+        opts: { extract: boolean; configuration?: AnthropicConfiguration },
+    ): Promise<QuestHistoryBuildReport | undefined> {
+        const run = async (): Promise<QuestHistoryBuildReport | undefined> => {
             const cfg = this.getCompactionConfig();
-            const limit = Math.max(1, cfg.rebuildFromLastNPrompts);
-            const { loadLastNTrailExchanges } = await import('../services/history-compaction.js');
-            const exchanges = loadLastNTrailExchanges(questId, limit, this.currentSessionName());
-            if (exchanges.length === 0) {
-                logHistoryInfo(`history rebuild: no trail exchanges found (quest=${questId}, limit=${limit})${opts.force ? ' [forced]' : ''}`);
-                return;
+            if (!cfg.compactionTarget.configId) {
+                this._onStatusUpdate.fire('History rebuild skipped — no compaction model configured');
+                return undefined;
             }
-            logHistoryInfo(
-                `history rebuild start: quest=${questId} exchanges=${exchanges.length} ` +
-                `limit=${limit}${opts.force ? ' [forced]' : ''} ` +
-                `compaction=${cfg.compactionTarget.kind}:${cfg.compactionTarget.configId || '<none>'} memory=${cfg.memoryTarget.kind}:${cfg.memoryTarget.configId || '<none>'} disabled=${cfg.disabled}`,
-            );
-
-            // Chunked rebuild — mirror live operation's every-N-rounds
-            // cadence so the seeded summary is the same shape it would
-            // have been if compaction had run incrementally. Reserve the
-            // last `rawTurnsKept` exchanges as the accumulator tail;
-            // everything before that is the prefix to fold. Chunk size
-            // is `runEveryNRounds − rawTurnsKept` — the same number of
-            // rounds that get folded per live compaction pass.
-            const rawTail = Math.max(0, cfg.rawTurnsKept);
-            const chunkSize = Math.max(1, cfg.runEveryNRounds - rawTail);
-            const prefixEnd = Math.max(0, exchanges.length - rawTail);
-            const prefix = exchanges.slice(0, prefixEnd);
-            const tail = exchanges.slice(prefixEnd);
-
-            const pairToMessages = (pair: { user?: string; assistant?: string }): ConversationMessage[] => {
-                const out: ConversationMessage[] = [];
-                if (pair.user) { out.push({ role: 'user', content: pair.user }); }
-                if (pair.assistant) { out.push({ role: 'assistant', content: pair.assistant }); }
-                return out;
-            };
-
-            // Build the accumulator tail (the last rawTurnsKept rounds).
-            const tailFlat: ConversationMessage[] = [];
-            for (const pair of tail) { tailFlat.push(...pairToMessages(pair)); }
-
-            // Fold the prefix in chunks, oldest → newest, into a rolling
-            // block set. Each chunk's LLM call is given the running
-            // `existingBlocks` so per-chunk decisions are informed by the
-            // accumulated session state — the same way live compaction
-            // sees the prior blocks. If no compactor is configured, fall
-            // back to the pre-round-based behaviour: take the last
-            // runEveryNRounds exchanges as raw + drop the rest.
-            //
-            // When compaction is globally disabled we never run the LLM fold
-            // (the same rule the live sendMessage path applies): no Ollama /
-            // Anthropic calls, no "folding chunk…" status — the raw-flatten
-            // branch below still restores the most recent exchanges. The
-            // explicit "Recreate History" button overrides this via `force`.
-            const compactionAllowed = opts.force || !cfg.disabled;
-            const canCompact = compactionAllowed && prefix.length > 0 && cfg.compactionTarget.configId.length > 0;
-            if (canCompact) {
-                const { runIncrementalCompaction } = await import('../services/history-compaction.js');
-                const totalChunks = Math.ceil(prefix.length / chunkSize);
-                this.compactedHistoryBlocks = [];
-                for (let i = 0, c = 1; i < prefix.length; i += chunkSize, c++) {
-                    const chunk = prefix.slice(i, i + chunkSize);
-                    const chunkMessages: ConversationMessage[] = [];
-                    for (const pair of chunk) { chunkMessages.push(...pairToMessages(pair)); }
-                    if (chunkMessages.length === 0) { continue; }
-                    this._onStatusUpdate.fire(
-                        `Rebuild history: folding chunk ${c}/${totalChunks} (${chunk.length} round${chunk.length === 1 ? '' : 's'})…`,
-                    );
-                    try {
-                        const llmOutput = await runIncrementalCompaction({
-                            existingSummary: this.compactedSummaryText,
-                            existingBlocks: renderBlocksForLlm(this.compactedHistoryBlocks),
-                            lastTurn: chunkMessages,
+            const caps = opts.configuration
+                ? this.resolveEffectiveCaps(opts.configuration)
+                : { maxHistoryTokens: cfg.maxHistoryTokens, historyMaxChars: cfg.historyMaxChars, memoryMaxChars: cfg.memoryMaxChars };
+            const startedAt = Date.now();
+            try {
+                const { runIncrementalCompaction, runIncrementalMemoryExtraction } = await import('../services/history-compaction.js');
+                const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId));
+                const onProgress = (msg: string): void => this._onStatusUpdate.fire(msg);
+                const extract = opts.extract && cfg.memoryTarget.configId
+                    ? async (input: { messages: ConversationMessage[]; session: string; compactedSummary: string }): Promise<void> => {
+                        await runIncrementalMemoryExtraction({
+                            lastTurn: input.messages,
+                            compactedSummary: input.compactedSummary,
+                            llmProvider: cfg.memoryTarget.kind,
+                            llmConfigId: cfg.memoryTarget.configId,
+                            memoryTemplateId: cfg.memoryExtractionTemplateId,
+                            historyMaxChars: caps.historyMaxChars,
+                            memoryMaxChars: caps.memoryMaxChars,
+                            questId,
+                            session: input.session,
+                            onProgress,
+                        });
+                    }
+                    : undefined;
+                const report = await buildQuestHistory({
+                    questFolder,
+                    quest: questId,
+                    host: hostSlugOf(),
+                    chunkSize: cfg.runEveryNRounds,
+                    maxInputs: Math.max(1, cfg.rebuildFromLastNPrompts),
+                    archive: cfg.archiveHistoryEveryTurn,
+                    compact: async (input) => {
+                        const out = await runIncrementalCompaction({
+                            existingSummary: input.existingSummary,
+                            existingBlocks: input.existingBlocks,
+                            lastTurn: input.messages,
                             llmProvider: cfg.compactionTarget.kind,
                             llmConfigId: cfg.compactionTarget.configId,
                             compactionTemplateId: cfg.compactionTemplateId,
-                            maxHistoryTokens: cfg.maxHistoryTokens,
-                            historyMaxChars: cfg.historyMaxChars,
+                            maxHistoryTokens: caps.maxHistoryTokens,
+                            historyMaxChars: caps.historyMaxChars,
                             questId,
                             session: this.currentSessionName(),
-                            onProgress: (msg) => this._onStatusUpdate.fire(msg),
+                            onProgress,
                         });
-                        if (typeof llmOutput === 'string' && llmOutput.trim().length > 0) {
-                            this.applyCompactionOutput(llmOutput);
-                        }
-                    } catch {
-                        // Per-chunk failure: keep whatever blocks we have
-                        // so far and continue with the next chunk. A run
-                        // of failures yields a partial summary; the next
-                        // live compaction pass will pick up where this
-                        // left off.
-                    }
-                }
-                this.rawTurnsRolling = rawTurnsToRounds(tailFlat);
-                this.compactionRounds = [];
-            } else {
-                // No compactor configured — flatten the prefix's tail
-                // into the rolling tail so at least the most recent
-                // exchanges are restored verbatim, then leave the blocks
-                // empty.
-                const allFlat: ConversationMessage[] = [];
-                for (const pair of [...prefix, ...tail]) { allFlat.push(...pairToMessages(pair)); }
-                const cap = cfg.runEveryNRounds * 2;
-                const flatCapped = allFlat.length > cap ? allFlat.slice(-cap) : allFlat;
-                this.rawTurnsRolling = rawTurnsToRounds(flatCapped);
-                this.compactionRounds = [];
-                this.compactedHistoryBlocks = [];
+                        // Without a compaction template the call answers the summary unchanged: nothing to fold in.
+                        return out === input.existingSummary ? '' : out;
+                    },
+                    extract,
+                    onProgress,
+                    log: (msg) => logHistoryInfo(msg),
+                });
+                // The sessions of this quest read the new history from the next send on; the loaded one now.
+                if (this.historyScope?.questId === questId) { this.loadQuestHistory(questId); }
+                logHistoryInfo(
+                    `quest history build: quest=${questId} folded=${report.folded} (turns=${report.turns}, todos=${report.todos}) ` +
+                    `skipped=${report.skipped} chunks=${report.chunks} extractions=${report.extractions} blocks=${report.blocks}` +
+                    `${report.failed ? ` failed: ${report.failed}` : ''} ${Date.now() - startedAt}ms`,
+                );
+                return report;
+            } catch (e) {
+                logHistoryError(`quest history build failed (quest=${questId})`, e);
+                return undefined;
             }
+        };
+        const previous = this.questHistoryBuild ?? Promise.resolve();
+        const next = previous.catch(() => undefined).then(run);
+        const settled = next.finally(() => { if (this.questHistoryBuild === settled) { this.questHistoryBuild = null; } });
+        this.questHistoryBuild = settled;
+        return next;
+    }
 
-            // Persist the rebuilt state to all three files (blocks file,
-            // legacy history.json, rolling tail). The accumulator is
-            // empty by construction here.
-            const historyFolder = this.scopeFolder(questId);
-            saveRawTurns(historyFolder, this.rawTurnsRolling);
-            saveCompactionRoundsIn([], historyFolder);
-            this.rawTurns = this.computeDedupedUnion();
-            this.persistSessionHistory(questId);
-            logHistoryInfo(
-                `history rebuild end: quest=${questId} ` +
-                `compacted=${canCompact ? 'yes' : 'raw-only'} ` +
-                `blocks=${this.compactedHistoryBlocks.length} rawRounds=${this.rawTurnsRolling.length} ` +
-                `${Date.now() - rebuildStartedAt}ms`,
-            );
-        } catch (e) {
-            // best-effort — empty history is a safe fallback
-            logHistoryError(`history rebuild failed (quest=${questId})`, e);
+    /**
+     * "Rebuild history and memory" (the chat panel's button, and the notice
+     * after a reconcile brought another host's newer turns): builds the
+     * quest's history from what it does not cover yet and extracts memory
+     * candidates from the new turns, in one run — even while background
+     * compaction is off. Progress and the result go to the panel's status
+     * line. Answers the build's report (undefined without a compaction model).
+     */
+    async rebuildQuestHistoryAndMemory(questId?: string): Promise<QuestHistoryBuildReport | undefined> {
+        const quest = questId || TwoTierMemoryService.instance.currentQuest();
+        await this.awaitInFlightBackgroundWork();
+        const report = await this.runQuestHistoryBuild(quest, { extract: true });
+        if (report) {
+            this._onStatusUpdate.fire(report.failed
+                ? `History rebuild stopped: ${report.failed} — ${report.folded} input(s) folded; the rest follows next time`
+                : `History and memory rebuilt — ${report.turns} turn${report.turns === 1 ? '' : 's'} and ${report.todos} archived todo${report.todos === 1 ? '' : 's'} folded, ${report.extractions} memory extraction${report.extractions === 1 ? '' : 's'}`);
         }
+        return report;
     }
 
     /**
@@ -2270,26 +1910,6 @@ export class AnthropicHandler {
             });
         }
 
-        // Claim the @CHAT → Logs → Current Prompt files for *this* send before
-        // anything slow runs. Everything below — the background-work wait, the
-        // history seed, the system-prompt assembly — sits between the user
-        // pressing send and the point where all three texts exist, and that gap
-        // is measured in minutes when the previous turn left a compaction pass
-        // behind (which is exactly what cancelling a turn does). Until this
-        // call existed, the tab spent that whole gap showing the *previous*
-        // prompt, so a cancelled-then-edited-then-resent queue item looked like
-        // it had never been resent at all.
-        //
-        // Placed after the refresh hook because the refresh is its own send and
-        // claims the files for itself while it runs; taking them back here is
-        // what makes the handover truthful in both directions.
-        beginCurrentPrompt({
-            source: options.source ?? 'chat',
-            literal: options.userText,
-            questId: quest,
-            session: options.isolated ? undefined : (options.sessionKey || DEFAULT_AGENT_SDK_SESSION_KEY),
-        });
-
         const windowId = vscode.env.sessionId;
         const requestId = this.generateRequestId();
         this.roundCounter += 1;
@@ -2301,6 +1921,8 @@ export class AnthropicHandler {
             await this.selectHistoryScope(quest, options.sessionKey, options.iterationKey);
         }
         this.seedHistoryFromSnapshot(quest);
+        // The quest's history, as any session of the quest last built it.
+        if (!options.isolated) { this.loadQuestHistory(quest); }
         // Under the new dual-file model the rolling tail's cap lives in
         // `rawTurns.json` (size = `rawTurnsKept`), and the accumulator
         // (`compaction_rounds.json`) is unbounded by design — it drives
@@ -2459,29 +2081,22 @@ export class AnthropicHandler {
             quest,
         );
 
-        // Replace the @CHAT → Logs → Current Prompt files for this origin. Here,
-        // rather than in a transport branch, because every transport is
-        // dispatched from below this point — and because these three texts are
-        // only all in scope once, right here.
-        //
-        // `literal` is `options.userText`, not `effectiveUserText`: the point of
-        // showing the literal next to the sent user message is to expose what
-        // the keyword triggers and the template did to it.
-        writeCurrentPrompt({
-            source: options.source ?? 'chat',
-            literal: options.userText,
-            user: userContent,
-            system: systemPrompt,
-            questId: quest,
-            session: options.isolated ? undefined : this.currentSessionName(),
-        });
-
-        // Write the summary-prompt entry here — before any API call —
-        // so the trail has a paired prompt even when the turn is
-        // interrupted via the Stop button or errors out mid-stream.
-        // The summary-answer counterpart is written at each exit point
-        // (finalize / agentSdk success / catch blocks).
-        TrailService.instance.writeSummaryPrompt(this.trailSubsystem(), effectiveUserText, quest);
+        // Note the turn's prompt here — before any API call — so the host
+        // trail gets the turn even when it is interrupted via the Stop button
+        // or errors out mid-stream: the answer is written at each exit point
+        // (finalize / agentSdk success / catch blocks) through
+        // completeHostTrailTurn. An isolated sub-agent run is an inner step of
+        // its parent's turn, not a turn of the session.
+        if (!options.isolated) {
+            TrailService.instance.beginHostTrailTurn({
+                requestId,
+                quest,
+                session: this.currentSessionName(),
+                profile: profile.id,
+                model: configuration.model,
+                prompt: effectiveUserText,
+            });
+        }
 
         // Full-payload log: the `.userprompt.md` only has system + user;
         // this captures tools, rolling history, caching/thinking flags, and
@@ -2701,12 +2316,7 @@ export class AnthropicHandler {
             } catch (err) {
                 const errMsg = err instanceof Error ? (err.stack || err.message) : String(err);
                 const wasInterrupted = options.cancellationToken?.isCancellationRequested === true;
-                TrailService.instance.writeSummaryAnswer(
-                    this.trailSubsystem(),
-                    wasInterrupted ? '(interrupted)' : `(error: ${err instanceof Error ? err.message : String(err)})`,
-                    { requestId, model: configuration.model },
-                    quest,
-                );
+                TrailService.instance.completeHostTrailTurn(requestId, wasInterrupted ? '(interrupted)' : `(error: ${err instanceof Error ? err.message : String(err)})`);
                 closeLiveTrailForThrown(liveTrail, err, errMsg);
                 throw err;
             }
@@ -2724,25 +2334,14 @@ export class AnthropicHandler {
                 );
             }
 
-            // Summary answer: the prompt was already written at the top of
+            // The host trail's turn: its prompt was noted at the top of
             // sendMessage() before the API call, so only the answer is
             // needed here. The SDK branch returns early (doesn't go through
-            // finalize()), so we write the answer explicitly.
+            // finalize()), so it writes the turn explicitly. The `#TODO=`
+            // references the answer text carries are read from it by the
+            // TODO LOG (todoLogRefs.ts).
             this.rememberAssistantText(result.text);
-            // Parse `#TODO=` / responseValues the agent emitted in its answer
-            // text so the referenced todos are marked done — the SDK branch
-            // returns early (skips finalize()), so it must do this itself (Bug 1).
-            const sdkResponseValues = extractTodoResponseValues(result.text);
-            TrailService.instance.writeSummaryAnswer(
-                this.trailSubsystem(),
-                result.text,
-                {
-                    requestId,
-                    model: configuration.model,
-                    ...(Object.keys(sdkResponseValues).length > 0 ? { responseValues: sdkResponseValues } : {}),
-                },
-                quest,
-            );
+            TrailService.instance.completeHostTrailTurn(requestId, result.text);
 
             // The Agent SDK runs its own context compaction, but we still
             // append to rawTurns so continuity carries across
@@ -2763,7 +2362,6 @@ export class AnthropicHandler {
                 // at `rawTurnsKept`. Both files plus the in-memory
                 // union are updated in one call.
                 this.persistRoundAndReloadUnion([userMsg, assistantMsg], questId, caps.rawTurnsKept);
-                this.persistSessionHistory(questId);
                 this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
             }
             // Close the live-trail block for this turn.
@@ -3168,7 +2766,7 @@ export class AnthropicHandler {
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.completeHostTrailTurn(requestId, summaryAnswer);
             // What the rounds before the error used (the ledger has them already).
             finishUsage();
             closeLiveTrailForThrown(liveTrail, err, errMsg);
@@ -3489,7 +3087,7 @@ export class AnthropicHandler {
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.completeHostTrailTurn(requestId, summaryAnswer);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -3842,7 +3440,7 @@ export class AnthropicHandler {
             const summaryAnswer = wasInterrupted
                 ? (lastText ? `${lastText}\n\n(interrupted)` : '(interrupted)')
                 : (lastText ? `${lastText}\n\n(error: ${err instanceof Error ? err.message : String(err)})` : `(error: ${err instanceof Error ? err.message : String(err)})`);
-            TrailService.instance.writeSummaryAnswer(this.trailSubsystem(), summaryAnswer, { requestId, model: configuration.model }, quest);
+            TrailService.instance.completeHostTrailTurn(requestId, summaryAnswer);
             closeLiveTrailForThrown(liveTrail, err, errMsg);
             throw err;
         }
@@ -3907,25 +3505,11 @@ export class AnthropicHandler {
             stopReason,
         });
 
-        // Write the summary answer. The matching prompt entry was already
-        // written at the top of sendMessage() before the API call, so only
-        // the answer half is needed here.
-        //
-        // Parse any `#TODO=` / responseValues references the model emitted in
-        // its answer text and pass them through as metadata, so the trail loader
-        // and todo-log panel can mark the referenced `*.todo.yaml` entries done
-        // (Bug 1).
-        const responseValues = extractTodoResponseValues(text);
-        TrailService.instance.writeSummaryAnswer(
-            this.trailSubsystem(),
-            text,
-            {
-                requestId,
-                model: configuration.model,
-                ...(Object.keys(responseValues).length > 0 ? { responseValues } : {}),
-            },
-            quest,
-        );
+        // The host trail's turn: its prompt was noted at the top of
+        // sendMessage() before the API call, so only the answer is needed
+        // here. The `#TODO=` references the answer text carries are read from
+        // it by the TODO LOG (todoLogRefs.ts).
+        TrailService.instance.completeHostTrailTurn(requestId, text);
 
         // Accumulate this exchange into rawTurns, then schedule the
         // background compaction + memory extraction passes for the next
@@ -3942,7 +3526,6 @@ export class AnthropicHandler {
             // at `rawTurnsKept`. Both files plus the in-memory union
             // are updated in one call.
             this.persistRoundAndReloadUnion([userMsg, assistantMsg], questId, caps.rawTurnsKept);
-            this.persistSessionHistory(questId);
             this.scheduleBackgroundCompactionAndExtraction([userMsg, assistantMsg], false, configuration);
         }
 
@@ -3955,18 +3538,15 @@ export class AnthropicHandler {
     }
 
     /**
-     * Fire-and-forget background work after a completed exchange:
-     *   1. Run an incremental compaction pass so the compacted summary
-     *      absorbs the just-completed turn. Trims rawTurns to the last
-     *      `maxRounds * 2`.
-     *   2. If `runMemoryExtractionOnCompaction` is enabled, run a memory
-     *      extraction pass over the last turn + current summary +
-     *      existing memory so durable facts become memory candidates
-     *      (this host's `candidates.<host>.md` in the quest's memory folder).
+     * Fire-and-forget background work after a completed exchange: once the
+     * session's accumulator holds `runEveryNRounds` rounds, a build of the
+     * quest's history folds the consolidated trail's new turns and the newly
+     * archived todos into it and — with `runMemoryExtractionOnCompaction` —
+     * extracts memory candidates from those turns (this host's
+     * `candidates.<host>.md` in the quest's memory folder).
      *
-     * Both promises are stored on the handler so the next sendMessage
-     * can await them and show "waiting for history compaction…" /
-     * "waiting for memory extraction…" in the UI.
+     * The promise is stored on the handler so the next sendMessage can
+     * await it and show "waiting for history compaction…" in the UI.
      *
      * Sub-agent (isolated) runs skip this entirely — their ephemeral
      * conversation must not leak into the parent session's state.
@@ -3987,8 +3567,8 @@ export class AnthropicHandler {
         //   2. Otherwise (undefined / 'default') fall back to the global
         //      `compaction.disabled` checkbox on the status page.
         // In both cases, disabling only suppresses the extra compaction
-        // + memory-extraction API call; rawTurns and history.json still
-        // get written.
+        // + memory-extraction API calls; the rolling tail and the
+        // accumulator still get written.
         const override = configuration?.compactionOverride;
         if (override === 'off') { return; }
         const cfg = this.getCompactionConfig();
@@ -4006,34 +3586,27 @@ export class AnthropicHandler {
             // when the next firing comes around.
             return;
         }
-        // Fold the entire accumulator. Under the new model there's no
-        // "tail to spare" — the rolling tail file already keeps the
-        // most recent rounds; the accumulator goes to zero on success.
-        const batch = roundsToRawTurns(this.compactionRounds);
+        if (!cfg.compactionTarget.configId) { return; }
+        // The accumulator's rounds are in the host trail (when the session
+        // contributes): the quest history build folds what it does not cover
+        // yet — this session's rounds and every other session's — and, with
+        // `runMemoryExtractionOnCompaction`, extracts memory candidates from
+        // those turns. On success the accumulator CLEARS; the rolling tail
+        // (`rawTurnsRolling`) stays, so the next outgoing prompt still has
+        // fresh complete-fidelity context.
         const questId = TwoTierMemoryService.instance.currentQuest();
-        // Compaction runs first; memory extraction reads `compactedSummaryText`
-        // so it benefits from any just-written blocks. Each pass is a
-        // separate promise so sendMessage can await them independently
-        // and emit precise status updates.
-        this.compactionInFlight = this.runCompactionInBackground(batch, questId, configuration)
+        const folder = this.scopeFolder(questId);
+        this.compactionInFlight = this.runQuestHistoryBuild(questId, { extract: cfg.runMemoryExtractionOnCompaction, configuration })
+            .then((report) => {
+                if (!report || report.failed) { return; }
+                // Compaction succeeded — the accumulator's rounds are covered.
+                this.compactionRounds = [];
+                saveCompactionRoundsIn([], folder);
+                this.rawTurns = this.computeDedupedUnion();
+            })
             .finally(() => { this.compactionInFlight = null; });
-        this.memoryExtractionInFlight = (async () => {
-            try {
-                // Chain so memory extraction sees the freshly updated
-                // blocks. If compaction failed we still run extraction
-                // against whatever blocks we had before.
-                if (this.compactionInFlight) {
-                    try { await this.compactionInFlight; } catch { /* already handled */ }
-                }
-                await this.runMemoryExtractionInBackground(batch, questId, configuration);
-            } catch {
-                // swallowed
-            }
-        })().finally(() => { this.memoryExtractionInFlight = null; });
-        // Silence the unused-param warning — `lastExchange` is preserved
-        // in the signature for callers that still pass the just-completed
-        // round (useful for future per-exchange instrumentation), but
-        // the scheduler now derives the batch from the accumulator.
+        // `lastExchange` stays in the signature for callers that pass the just-completed round;
+        // the build reads the trail, the trigger the accumulator.
         void lastExchange;
     }
 

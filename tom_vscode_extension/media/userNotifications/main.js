@@ -53,7 +53,14 @@
 
     function renderBar() {
         var answered = state.rows.filter(function (r) { return r.state !== 'open'; }).length;
+        // The Q&A page's new entries of the window's quest: a link that opens the page on that tab.
+        var qa = state.qa || {};
+        var qaLink = function (tab, n, label) {
+            return n ? '<a href="#" class="qa-new" data-qa="' + tab + '" title="Open the Q&A page">' + n + ' new ' + label + (n === 1 ? '' : 's') + '</a>' : '';
+        };
+        var qaLinks = qaLink('questions', qa.questions, 'question') + qaLink('decisions', qa.decisions, 'decision');
         bar.innerHTML = '<span class="summary">' + (state.open ? '<b>' + state.open + ' waiting for you</b>' : '<span class="muted">Nothing waits for you</span>') + '</span>'
+            + (qaLinks ? '<span class="qa">Q&amp;A: ' + qaLinks + '</span>' : '')
             + '<span class="grow"></span>'
             + (answered ? '<button class="icon" data-action="dismissAnswered" title="Dismiss every answered ask and every notice (they stay in NOTIFICATIONS)"><span class="codicon codicon-clear-all"></span></button>' : '');
     }
@@ -100,6 +107,8 @@
     }
 
     bar.addEventListener('click', function (ev) {
+        var qaLink = ev.target.closest('[data-qa]');
+        if (qaLink) { ev.preventDefault(); vscode.postMessage({ type: 'openQa', tab: qaLink.getAttribute('data-qa') }); return; }
         var btn = ev.target.closest('button');
         if (btn && btn.getAttribute('data-action') === 'dismissAnswered') { vscode.postMessage({ type: 'dismissAnswered' }); }
     });
@@ -119,7 +128,7 @@
         // An open ask of this window opens where it is answered (the user-input panel, the MD Browser).
         var r = state.rows.filter(function (x) { return x.id === id; })[0];
         if (r && expanded[id] && r.state === 'open' && r.key && r.windowId === state.thisWindow) { vscode.postMessage({ type: 'openAsk', id: id }); }
-        // An answer opens in the Answers page.
+        // An answer opens in the Q&A page.
         if (r && expanded[id] && r.type === 'answer' && r.key) { vscode.postMessage({ type: 'openAnswer', id: id }); }
     });
 

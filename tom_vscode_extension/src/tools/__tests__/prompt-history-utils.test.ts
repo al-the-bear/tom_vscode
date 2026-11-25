@@ -424,3 +424,67 @@ describe('getPromptPairs', () => {
         assert.equal(r.pairs.length, 5);
     });
 });
+
+// ---------------------------------------------------------------------------
+// The host trail: a session's pairs are its turns; OLD PLACE: an older build's session pair adds the older turns
+// ---------------------------------------------------------------------------
+
+describe('pairs from the host trail', () => {
+    let root: string;
+    let quest: string;
+
+    before(async () => {
+        const { appendHostTrailTurn } = await import('../../services/hostTrail.js');
+        const { hostSlugOf } = await import('../../utils/hostSlug.js');
+        root = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-history-host-'));
+        fs.mkdirSync(path.join(root, '.tom'), { recursive: true });
+        fs.writeFileSync(path.join(root, '.tom', 'tom_root.yaml'), 'name: sandbox\n');
+        quest = path.join(root, '_ai', 'quests', 'hq');
+        const turn = (id: string, time: string, session: string, prompt: string, answer: string) => ({
+            id, time, host: hostSlugOf(), session, profile: 'opus', model: 'm', prompt, answer,
+        });
+        appendHostTrailTurn(quest, turn('h1', '2026-02-01T10:00:00.000Z', 'default@default', 'host prompt 1', 'host answer 1'), 2000);
+        appendHostTrailTurn(quest, turn('h2', '2026-02-01T11:00:00.000Z', 'review', 'host prompt 2', 'host answer 2'), 2000);
+        appendHostTrailTurn(quest, turn('h3', '2026-02-01T12:00:00.000Z', 'default@default', '## a heading\n\nbody', 'host answer 3'), 2000);
+        // Another host's trail is not this host's pairs.
+        appendHostTrailTurn(quest, { ...turn('x1', '2026-02-01T13:00:00.000Z', 'default@default', 'elsewhere', 'elsewhere'), host: 'some-other-host' }, 2000);
+        // OLD PLACE: default@default's pair of an older build: one turn before the host trail, one the trail has,
+        // one after the trail's oldest turn (not taken: the trail is the source from its first turn on).
+        const old = path.join(quest, 'history', 'sessions', 'default@default');
+        fs.mkdirSync(old, { recursive: true });
+        makeSummaryFile(path.join(old, 'hq.anthropic.prompts.md'), 'PROMPT', [
+            { id: 'o1', ts: '2026-01-31T09:00:00.000Z', seq: 1, body: 'old prompt' },
+            { id: 'h1', ts: '2026-02-01T10:00:00.000Z', seq: 2, body: 'duplicate of h1' },
+            { id: 'o2', ts: '2026-02-01T10:30:00.000Z', seq: 3, body: 'after the trail began' },
+        ]);
+        makeSummaryFile(path.join(old, 'hq.anthropic.answers.md'), 'ANSWER', [
+            { id: 'o1', ts: '2026-01-31T09:00:05.000Z', seq: 1, body: 'old answer' },
+        ]);
+    });
+
+    after(() => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ } });
+
+    test('list: this host\'s turns per session and the older pair turns, newest first, each once', () => {
+        const r = listPromptPairs(quest, 'hq', { previewChars: 40 });
+        assert.deepEqual(r.pairs.map((p) => [p.requestId, p.subsystem]), [
+            ['h3', 'anthropic:default@default'], ['h2', 'anthropic:review'], ['h1', 'anthropic:default@default'], ['o1', 'anthropic:default@default'],
+        ]);
+        assert.deepEqual(r.subsystemsScanned, ['anthropic:default@default', 'anthropic:review']);
+        const h3 = r.pairs[0];
+        assert.deepEqual([h3.hasAnswer, h3.promptPreview, h3.answerChars], [true, '## a heading body', 'host answer 3'.length]);
+    });
+
+    test('sessions narrow it; "all" of this host is every session', () => {
+        assert.deepEqual(listPromptPairs(quest, 'hq', { sessions: ['review'] }).pairs.map((p) => p.requestId), ['h2']);
+        assert.deepEqual(listPromptPairs(quest, 'hq', { sessions: ['default@default', 'review'] }).pairs.map((p) => p.requestId), ['h3', 'h2', 'h1', 'o1']);
+    });
+
+    test('get: full bodies from the trail and the older pair', () => {
+        const r = getPromptPairs(quest, 'hq', { requestIds: ['h3', 'o1', 'x1'] });
+        assert.deepEqual(r.pairs.map((p) => [p.requestId, p.promptBody, p.answerBody]), [
+            ['h3', '## a heading\n\nbody', 'host answer 3'], ['o1', 'old prompt', 'old answer'],
+        ]);
+        assert.deepEqual(r.notFoundRequestIds, ['x1'], 'another host\'s turn');
+        assert.equal(getPromptPairs(quest, 'hq', { index: 0 }).pairs[0].requestId, 'h3');
+    });
+});

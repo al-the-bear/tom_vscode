@@ -1,33 +1,47 @@
 /**
- * Where a session's conversation artefacts live — one folder per session.
+ * Where a session's conversation artefacts live — one folder per session,
+ * per host: sessions belong to the machine they run on.
  *
  * Every named session of a quest, `chat` (the ANTHROPIC panel's) and
  * `default@default` (the default run's default session, the prompt queue's)
- * included, has its own storage root:
+ * included, has its definition and state in
+ * `_ai/quests/<quest>/history/<host>/<name>.session.json` (tracked, written
+ * only by its host; src/services/agentSdkSessionStore.ts) and its working
+ * storage, untracked, in
  *
- *     _ai/quests/<quest>/history/sessions/<name>/
- *         compacted_history.md, history.json, history.md   the compacted history and its snapshot (tracked)
- *         rawTurns.json, compaction_rounds.json            the rolling tail and the accumulator (ignored)
- *         iteration.json                                   a per-iteration session's iteration (ignored)
- *         <quest>.anthropic.prompts.md / .answers.md       its summary trail pair (ignored)
- *         live-trail.md                                     its live trail (tracked)
- *         trail/                                            its raw per-call trail (ignored), with
+ *     _ai/quests/<quest>/history/<host>/sessions/<name>/
+ *         compacted_history.md, history.json, history.md   the compacted history and its snapshot
+ *         rawTurns.json, compaction_rounds.json            the rolling tail and the accumulator
+ *         iteration.json                                   a per-iteration session's iteration
+ *         live-trail.md                                     its live trail
+ *         session-todos.todo.yaml                           its session todos
+ *         trail/                                            its raw per-call trail, with
  *             compaction/, memory/                          the compaction and memory categories,
  *             tool_results/t<n>.json                        its tool results,
  *             current_prompt.<source>.<variant>.md          and the last prompt it sent
  *
+ * `<host>` is {@link hostSlugOf}. The prompt/answer turns of all the host's
+ * sessions go to the host's compact trail `history/trail.<host>.md`
+ * (src/services/hostTrail.ts).
+ *
+ * OLD PLACE (until the `_ai` format migration moves them): a session folder
+ * `history/sessions/<name>/` that exists is read and written there; a folder
+ * at the new place wins; a folder that exists at neither is made at the new
+ * place ({@link sessionRoot}). The listing ({@link sessionsWithStorage}) names
+ * the sessions of both places.
+ *
  * The quest memory has no session level (`_ai/quests/<quest>/memory/`,
  * src/services/questMemoryFiles.ts). OLD PLACE: a session's memory folder
  * `_ai/memory/<quest>/<name>/` is still removed with the session, and the
- * moves below still carry it. The session's
- * `<name>.session.json` stays beside the `sessions/` folder.
+ * moves below still carry it.
  *
  * {@link migrateQuestToSessionStorage} moves a quest's files from the layout
  * before (one set per quest, chat and queue together) into the
- * `default@default` session, once per quest; {@link migrateDefaultSessionName}
- * moves what an older build kept under the bare name `default` there
- * (vscimpb151). The path functions read a bare `default` as `default@default`,
- * so a name an older entry still carries reaches the same files.
+ * `default@default` session's folder of the old place, once per quest;
+ * {@link migrateDefaultSessionName} moves what an older build kept under the
+ * bare name `default` there (vscimpb151). The path functions read a bare
+ * `default` as `default@default`, so a name an older entry still carries
+ * reaches the same files.
  *
  * vscode-free.
  */
@@ -35,6 +49,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { hostSlugOf } from '../utils/hostSlug';
 import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION, canonicalSessionName } from '../utils/runSessions';
 
 export const SESSIONS_FOLDER = 'sessions';
@@ -47,9 +62,32 @@ export const MIGRATION_TARGET_SESSION = DEFAULT_RUN_SESSION;
 export const MIGRATION_MARKER_FILE = '.storage-version';
 export const STORAGE_VERSION = '2';
 
-/** The storage root of session `name`; `historyRoot` is the quest's `history/` folder. */
-export function sessionRoot(historyRoot: string, name: string): string {
+/** This host's folder of the quest's `history/`: its session files and its sessions' storage. */
+export function hostHistoryFolder(historyRoot: string, host: string = hostSlugOf()): string {
+    return path.join(historyRoot, host);
+}
+
+/** The storage root of session `name` at the new place, `history/<host>/sessions/<name>/`. */
+export function hostSessionRoot(historyRoot: string, name: string, host: string = hostSlugOf()): string {
+    return path.join(hostHistoryFolder(historyRoot, host), SESSIONS_FOLDER, canonicalSessionName(name));
+}
+
+/** OLD PLACE: the storage root of session `name` before sessions were per host, `history/sessions/<name>/`. */
+export function legacySessionRoot(historyRoot: string, name: string): string {
     return path.join(historyRoot, SESSIONS_FOLDER, canonicalSessionName(name));
+}
+
+/**
+ * The storage root of session `name`; `historyRoot` is the quest's `history/`
+ * folder. The new place when its folder exists, else the old place when its
+ * folder exists (OLD PLACE: read and written there until the migration moves
+ * it), else the new place.
+ */
+export function sessionRoot(historyRoot: string, name: string): string {
+    const fresh = hostSessionRoot(historyRoot, name);
+    if (fs.existsSync(fresh)) { return fresh; }
+    const old = legacySessionRoot(historyRoot, name);
+    return fs.existsSync(old) ? old : fresh;
 }
 
 /** The raw per-call trail of session `name`, or of one of its categories. */
@@ -63,9 +101,14 @@ export function sessionToolResultsFolder(historyRoot: string, name: string): str
     return path.join(sessionTrailFolder(historyRoot, name), TOOL_RESULTS_FOLDER);
 }
 
-/** The summary trail file of session `name`: `<quest>.<subsystem>.<kind>.md`. */
+/**
+ * OLD PLACE: the summary trail pair file of session `name`,
+ * `history/sessions/<name>/<quest>.<subsystem>.<kind>.md`. Nothing writes it
+ * (the turns go to the host trail, src/services/hostTrail.ts); the readers of
+ * prompt/answer pairs read it for the turns older than the host trail's oldest.
+ */
 export function sessionSummaryFile(historyRoot: string, name: string, quest: string, subsystem: string, kind: 'prompts' | 'answers'): string {
-    return path.join(sessionRoot(historyRoot, name), `${quest}.${subsystem}.${kind}.md`);
+    return path.join(legacySessionRoot(historyRoot, name), `${quest}.${subsystem}.${kind}.md`);
 }
 
 /** The live trail of session `name`. */
@@ -78,16 +121,20 @@ export function sessionMemoryFolder(memoryRoot: string, quest: string, name: str
     return path.join(memoryRoot, quest, canonicalSessionName(name));
 }
 
-/** The sessions that have a storage root (a folder under `history/sessions/`). */
+/**
+ * The sessions that have a storage root: a folder under this host's
+ * `history/<host>/sessions/` or (OLD PLACE) under `history/sessions/`.
+ */
 export function sessionsWithStorage(historyRoot: string): string[] {
-    try {
-        return fs.readdirSync(path.join(historyRoot, SESSIONS_FOLDER), { withFileTypes: true })
-            .filter((e) => e.isDirectory())
-            .map((e) => e.name)
-            .sort();
-    } catch {
-        return [];
+    const names = new Set<string>();
+    for (const folder of [path.join(hostHistoryFolder(historyRoot), SESSIONS_FOLDER), path.join(historyRoot, SESSIONS_FOLDER)]) {
+        try {
+            for (const e of fs.readdirSync(folder, { withFileTypes: true })) {
+                if (e.isDirectory()) { names.add(e.name); }
+            }
+        } catch { /* no folder there */ }
     }
+    return [...names].sort();
 }
 
 /** One session's live trail, with when it was last written. */
@@ -114,9 +161,11 @@ export function sessionLiveTrailsSince(historyRoot: string, since?: Date): Sessi
     return trails.sort((a, b) => b.modified.getTime() - a.modified.getTime() || a.session.localeCompare(b.session));
 }
 
-/** Remove everything session `name` stored: its storage root and its memory folder of the old place. */
+/** Remove everything session `name` stored: its storage root (at both places) and its memory folder of the old place. */
 export function removeSessionStorage(historyRoot: string, memoryRoot: string, quest: string, name: string): void {
-    fs.rmSync(sessionRoot(historyRoot, name), { recursive: true, force: true });
+    fs.rmSync(hostSessionRoot(historyRoot, name), { recursive: true, force: true });
+    // OLD PLACE: `history/sessions/<name>/`.
+    fs.rmSync(legacySessionRoot(historyRoot, name), { recursive: true, force: true });
     // OLD PLACE: `_ai/memory/<quest>/<name>/`.
     fs.rmSync(sessionMemoryFolder(memoryRoot, quest, name), { recursive: true, force: true });
 }
@@ -222,7 +271,8 @@ export function migrateQuestToSessionStorage(layout: LegacyQuestLayout): Migrati
     const sessions = path.join(layout.historyRoot, SESSIONS_FOLDER);
     const marker = path.join(sessions, MIGRATION_MARKER_FILE);
     if (fs.existsSync(marker)) { return report; }
-    const target = sessionRoot(layout.historyRoot, MIGRATION_TARGET_SESSION);
+    // OLD PLACE: this migration of an older layout fills the old place; the `_ai` format migration moves it on.
+    const target = legacySessionRoot(layout.historyRoot, MIGRATION_TARGET_SESSION);
 
     const list = (folder: string): fs.Dirent[] => {
         try { return fs.readdirSync(folder, { withFileTypes: true }); } catch { return []; }
@@ -319,12 +369,18 @@ export function migrateDefaultSessionName(layout: { quest: string; historyRoot: 
 }
 
 /**
- * The rules `_ai/.gitignore` carries for per-session storage (relative to the
- * `_ai` root): tracked per session are the compacted history, its snapshot and
- * the live trail; machine-local are the rolling tail and accumulator, a
+ * The rules `_ai/.gitignore` carries for session storage and the quest's
+ * derived files (relative to the `_ai` root). Untracked: a host's session
+ * storage `history/<host>/sessions/` (class D), the derived history of the
+ * quest (`history/compacted_history.md`, `history.json`, `history.md`,
+ * `history.watermark.json`; class C), the refresh notes and every live trail.
+ * OLD PLACE: in `history/sessions/<name>/` the rolling tail and accumulator, a
  * per-iteration session's marker, the summary trail pair, the raw trail and
  * the migration marker (a machine pulling another's marker would never move
- * its own untracked files).
+ * its own untracked files). Tracked: the session files
+ * `history/<host>/<name>.session.json` and the host trails
+ * `history/trail.<host>.md`. A file git already tracks stays tracked until
+ * the `_ai` format migration removes it from the index.
  */
 export const SESSION_STORAGE_GITIGNORE_RULES: readonly string[] = [
     'quests/*/history/sessions/*/rawTurns.json',
@@ -336,4 +392,11 @@ export const SESSION_STORAGE_GITIGNORE_RULES: readonly string[] = [
     'quests/*/history/sessions/*/*.answers.md',
     'quests/*/history/sessions/*/trail/',
     'quests/*/history/sessions/.storage-version',
+    'quests/*/history/*/sessions/',
+    'quests/*/history/compacted_history.md',
+    'quests/*/history/history.json',
+    'quests/*/history/history.md',
+    'quests/*/history/history.watermark.json',
+    'quests/*/quest_refresh.*.md',
+    'quests/*/history/**/live-trail.md',
 ];

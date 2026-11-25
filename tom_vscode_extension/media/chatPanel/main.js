@@ -37,9 +37,6 @@ var sectionsConfig = [
 // The host hands over its HTML and the viewer's config; these globals are what that script reads.
 var questLogsInit = (window.__INIT__ && window.__INIT__.questLogs) || {};
 var qlogViewers = (questLogsInit.config && questLogsInit.config.viewers) || [];
-var qlogVariantTabs = (questLogsInit.config && questLogsInit.config.variantTabs) || [];
-var qlogVariantIds = (questLogsInit.config && questLogsInit.config.variantIds) || [];
-var qlogDefaultVariant = (questLogsInit.config && questLogsInit.config.defaultVariant) || '';
 var state = { expanded: ['anthropic'], pinned: [] };
 var profiles = { anthropic: [] };
 var anthropicConfigurations = [];
@@ -615,8 +612,9 @@ function getSectionContent(id) {
                 // The role editor (gsel6), the panel's role selected.
                 '<button class="icon-btn" data-action="openRoleEditor" id="anthropic-role-editor-btn" title="Role Editor — the roles a prompt can run as (_ai/roles)"><span class="codicon codicon-person"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
-                '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate the history of the chosen sessions, each from its own prompt/answer trail. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate memory candidates from the chosen sessions, each from its own prompt/answer trail: the extracted facts go to the candidates file of this host in the quest memory folder (_ai/quests/QUEST/memory/), not to the curated files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
+                '<button class="icon-btn" data-action="rebuildHistoryAndMemory" data-id="anthropic" title="Rebuild history and memory: fold what the quest history does not cover yet — the new turns of every host\'s trail and the newly archived todos — into the quest\'s compacted history (_ai/quests/QUEST/history/), and extract memory candidates from the new turns into this host\'s candidates file of the quest memory folder. One run, in chunks of &quot;Run every N rounds&quot;."><span class="codicon codicon-history"></span></button>' +
+                // Promote memory: shown only with the setting tomAi.memory.promoteMemoryButton (see applyPromoteMemoryButton).
+                '<button class="icon-btn" data-action="promoteMemory" data-id="anthropic" id="anthropic-promote-memory-btn" style="display:none" title="Promote memory: queue a prompt (in this panel\'s run and session, staged or pending as the queue mode says) that presents the memory candidates of every host and promotes the ones you choose into the curated memory files"><span class="codicon codicon-arrow-up"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open the quest memory in the MD Browser: facts.md of _ai/quests/QUEST/memory/, or the candidates file of this host while there is no facts.md"><span class="codicon codicon-notebook"></span></button>' +
@@ -743,6 +741,7 @@ function render() {
         html += extensionToolsOverlayHtml();
         container.innerHTML = html;
         _rendered = true;
+        applyPromoteMemoryButton(!!(window.__INIT__ && window.__INIT__.promoteMemoryButton));
         attachEventListeners();
         linkChatSelects();
         updateResizeHandles();
@@ -994,8 +993,12 @@ function handleAction(action, id, slot) {
         case 'openRoleEditor': vscode.postMessage({ type: 'openRoleEditor' }); break;
         case 'openChatAspects': openChatAspectPicker(id); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
-        case 'recreateHistoryFromTrail': vscode.postMessage({ type: 'recreateHistoryFromTrail' }); break;
-        case 'recreateMemoryFromTrail': vscode.postMessage({ type: 'recreateMemoryFromTrail' }); break;
+        case 'rebuildHistoryAndMemory': historyRebuildRunning = true; vscode.postMessage({ type: 'rebuildHistoryAndMemory' }); break;
+        case 'promoteMemory': {
+            var pmProfile = document.getElementById('anthropic-profile');
+            vscode.postMessage({ type: 'promoteMemory', anthropicProfileId: pmProfile ? pmProfile.value : '', initialStatus: queueInitialStatus('anthropic') });
+            break;
+        }
         case 'runQuestRefresh': { var qrProfile = document.getElementById(id + '-profile'); qrProfile = qrProfile ? qrProfile.value : ''; vscode.postMessage({ type: 'runQuestRefresh', section: id || '', profile: qrProfile }); break; }
         case 'openQuestHistoryInMdBrowser': vscode.postMessage({ type: 'openQuestHistoryInMdBrowser' }); break;
         case 'openQuestMemoryInMdBrowser': vscode.postMessage({ type: 'openQuestMemoryInMdBrowser' }); break;
@@ -1448,11 +1451,11 @@ window.addEventListener('message', function(e) {
         setAnthropicStatus('History cleared: ' + (Array.isArray(msg.sessions) ? msg.sessions.join(', ') : ''));
     } else if (msg.type === 'anthropicStatus') {
         // Handler-driven status text (e.g. "waiting for history
-        // compaction…", "Rebuild history from last N prompts…").
-        // Only apply while we're actively sending — after a result
-        // we want the result's own status line (tool-call summary /
-        // session turn count), not a stale "waiting…" entry.
-        if (anthropicSending && typeof msg.text === 'string' && msg.text.length > 0) {
+        // compaction…", "Rebuild history: folding chunk 2/5…").
+        // Only apply while we're actively sending or a Rebuild history and
+        // memory runs — after a result we want the result's own status line
+        // (tool-call summary / session turn count), not a stale "waiting…" entry.
+        if ((anthropicSending || historyRebuildRunning) && typeof msg.text === 'string' && msg.text.length > 0) {
             setAnthropicStatus(msg.text);
         }
     } else if (msg.type === 'anthropicResult') {
@@ -1513,6 +1516,10 @@ window.addEventListener('message', function(e) {
                 saveDrafts();
             }
         }
+    } else if (msg.type === 'historyRebuildDone') {
+        historyRebuildRunning = false;
+    } else if (msg.type === 'promoteMemoryButton') {
+        applyPromoteMemoryButton(msg.visible === true);
     } else if (msg.type === 'queueAdded' && msg.section === 'anthropic') {
         // The ANTHROPIC slot the prompt was queued from: cleared unless it keeps its text.
         var queuedSlot = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
@@ -1565,6 +1572,16 @@ function normalizeRepeatField(raw) {
     if (v === '') { return 1; }
     if (/^[0-9]+$/.test(v)) { return Math.max(1, parseInt(v, 10)); }
     return v;
+}
+
+/* Whether a Rebuild history and memory runs: its progress shows on the status line until the host says it is done. */
+var historyRebuildRunning = false;
+
+/* The Promote memory button shows only with the setting tomAi.memory.promoteMemoryButton
+ * (__INIT__.promoteMemoryButton at first paint, `promoteMemoryButton` messages after). */
+function applyPromoteMemoryButton(visible) {
+    var btn = document.getElementById('anthropic-promote-memory-btn');
+    if (btn) { btn.style.display = visible ? '' : 'none'; }
 }
 
 function addAnthropicToQueue(usePanelTarget, next) {

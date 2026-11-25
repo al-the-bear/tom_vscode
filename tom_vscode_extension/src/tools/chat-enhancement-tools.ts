@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { ANSWER_USER_TOOL as ANSWER_USER_DEF, answerUserImpl, type AnswerUserDeps, type AnswerUserInput } from './answer-user-tool';
+import { appendAnswerGiven } from '../services/qaJournal';
 import { answersDir, fireAnswerStored } from '../services/userAnswersStore';
 import { writeAnswer } from '../utils/userAnswers';
 import { SessionTodoStore } from '../managers/sessionTodoStore';
@@ -144,6 +145,7 @@ export const liveAnswerUserDeps: AnswerUserDeps = {
         if (!dir) { throw new Error('no answer store: the window has no _ai folder'); }
         writeAnswer(dir, answer);
     },
+    journal: (answer) => appendAnswerGiven(answer),
     onStored: (answer) => fireAnswerStored(answer),
 };
 

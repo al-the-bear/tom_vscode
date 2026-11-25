@@ -418,7 +418,7 @@ export class LiveTrailWriter {
      *                   write parallel trails in the same folder without
      *                   stomping on each other.
      * @param session    An Anthropic session: its own live trail,
-     *                   `history/sessions/<session>/live-trail.md`
+     *                   `history/<host>/sessions/<session>/live-trail.md`
      *                   (src/services/sessionStorage.ts); `fileName` is then
      *                   not used.
      */

@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { applyBudgetFallback, decideOutOfBudget, isOutOfBudgetFailure, outOfBudgetPrompt, type OutOfBudgetMark } from '../outOfBudget';
+import { hostSlugOf } from '../hostSlug.js';
 
 const root = join(__dirname, '..', '..', '..');
 const src = (...p: string[]): string => readFileSync(join(root, ...p), 'utf-8');
@@ -69,7 +70,7 @@ describe('out of budget', () => {
         assert.match(text, /^\*\*Out of budget/);
         assert.match(text, /profile "Opus 5\.5 — Direct" \(opus-5-5-direct, model claude-opus-5-5\) in session "default"/);
         assert.match(text, /credit balance is too low/);
-        assert.match(text, /`_ai\/quests\/vscode_extension\/history\/sessions\/default\/live-trail\.md`/);
+        assert.ok(text.includes(`\`_ai/quests/vscode_extension/history/${hostSlugOf()}/sessions/default/live-trail.md\``), 'this host\'s session storage');
         assert.match(text, /do not start it over/);
         assert.ok(text.trimEnd().endsWith('Do quest todo finishvsf6'));
         assert.doesNotMatch(text, /runs in session/);

@@ -8,6 +8,8 @@
  * - {@link profileChoices}: the Anthropic profiles as the ANTHROPIC panel lists
  *   them (`(no API key)` marks included), plus "No profile" and, for a based
  *   session, "As the base".
+ * - {@link trailChoices}: the required "Contributes to trail and memory?"
+ *   step (Yes / No, nothing preselected; dismissing it cancels the creation).
  * - {@link newSessionOptions}: the `createSession` options for the choices
  *   made; the file is written at once, the conversation starts on first use.
  * - {@link sessionLabel}: how a session reads where it is shown (the ANTHROPIC
@@ -99,6 +101,8 @@ export interface NewSessionOptions {
     mode: SessionMode;
     /** Unset: the base's (createSession inherits it); null: none. */
     profile?: { id: string; model?: string } | null;
+    /** The trail step's answer; unset: the base's setting, without a base true. */
+    contributesToTrailAndMemory?: boolean;
 }
 
 /**
@@ -106,13 +110,39 @@ export interface NewSessionOptions {
  * createSession takes the base's; "No profile" writes none even when the base
  * has one; a chosen profile is stored with its model.
  */
+export interface TrailChoiceItem {
+    label: string;
+    description: string;
+    contributes: boolean;
+}
+
+/** The trail step's question, shown as the quick pick's title. */
+export const TRAIL_CHOICE_TITLE = 'Contributes to trail and memory?';
+
+/**
+ * The trail step: Yes / No, in that order, neither preselected. Yes: the
+ * session's turns go into the host trail and so into memory and the history;
+ * No: they go into neither.
+ */
+export function trailChoices(): TrailChoiceItem[] {
+    return [
+        { label: 'Yes', description: 'its prompts and answers go into this machine\'s trail, memory and the quest history', contributes: true },
+        { label: 'No', description: 'its prompts and answers go into neither the trail nor memory nor the history', contributes: false },
+    ];
+}
+
 export function newSessionOptions(
     basedOn: string | undefined,
     mode: SessionMode,
     choice: ProfileChoice,
     section: ProfileSection | undefined,
+    contributesToTrailAndMemory?: boolean,
 ): NewSessionOptions {
-    const out: NewSessionOptions = { ...(basedOn ? { basedOn } : {}), mode };
+    const out: NewSessionOptions = {
+        ...(basedOn ? { basedOn } : {}),
+        mode,
+        ...(contributesToTrailAndMemory !== undefined ? { contributesToTrailAndMemory } : {}),
+    };
     if (choice.kind === 'profile') {
         const p = lookupProfile(section, choice.id);
         out.profile = { id: choice.id, ...(p?.model ? { model: p.model } : {}) };

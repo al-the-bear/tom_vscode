@@ -232,17 +232,13 @@ in the todo file's git history.
 
 Two behaviours hang off the status:
 
-- **Archiving a completed todo journals its decisions.** `todoArchive.ts` copies
-  the `decisions[]` of each archived todo into `decisions.<quest>.md` (the
-  @WS → Documentation → Decisions tab) with the todo id and the archive timestamp, so the
-  reasoning outlives the todo. It is a **copy** — the archived todo keeps its
-  block — and two things narrow what gets written. Only *archiving* journals:
-  deleting a todo throws it away, and recording its open questions as decisions
-  the project made would be a lie. And only todos whose status is `completed`
-  are journalled: the panel's Archive button archives the selection whatever its
-  status, and a todo archived half-done was abandoned rather than concluded. An
-  unanswered decision on a completed todo is written as `_(not decided)_` rather
-  than dropped.
+- **The Q&A page renders the decisions.** Its Decisions tab
+  (`handlers/qaPanel-handler.ts`, `utils/qaView.ts`) lists the `decisions[]` of
+  the quest's todos, the archived ones included: the open ones first, answered
+  in place — Save writes the decision through `questTodoManager.updateTodo`
+  and, with the todo's last open decision, sets a `decision-needed` todo
+  `not-started` (`answerTodoDecision` in `utils/todoDecisions.ts`). No decisions
+  file is written: an archived todo keeps its decisions.
 - **Queue iteration holds at it.** A `prefix*` walk never runs a
   `decision-needed` todo; when it is the todo the walk would take next it pauses
   the queue and marks the item `decision-needed` (the todos before it run first)
@@ -381,7 +377,7 @@ that outlives the session, or belongs to the quest, is a quest todo. Each
 session keeps its todos in its own storage root:
 
 ```
-_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
+_ai/quests/<quest>/history/<host>/sessions/<session>/session-todos.todo.yaml
 ```
 
 - `services/sessionTodoFiles.ts` names the file and counts its todos
@@ -391,9 +387,9 @@ _ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
   SESSION TODOS view shows (`shownSession`, set by its session switch), else
   `default`. The panel passes `shownSession` explicitly, so a click never lands
   in the session of an agent that happens to be running.
-- The file is **machine-local** like the session itself (`<name>.session.json`
-  is not versioned either): the `_ai` `.gitignore` excludes
-  `quests/*/history/sessions/*/session-todos*.todo.yaml`. It goes when the
+- The file is **machine-local** like the session's whole storage: the `_ai`
+  `.gitignore` excludes a host's `quests/*/history/*/sessions/` (and, at the old
+  place, `quests/*/history/sessions/*/session-todos*.todo.yaml`). It goes when the
   session is deleted (`removeSessionStorage` removes the storage root); the
   SESSIONS view's confirmation names the open todos that go with it.
 - The SESSION TODOS view's **session switch** is `planSessionSwitch`

@@ -581,6 +581,15 @@ The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts the chat subpanel and the *
 | --- | --- |
 | ANTHROPIC/LLM | Per profile: direct Anthropic SDK, Agent SDK, VS Code LM, or a Local LLM configuration (`anthropic-handler`, `agent-sdk-transport`, `localLlm-handler`). |
 
+Every session's prompt gets the quest's compacted history
+(`_ai/quests/<quest>/history/compacted_history.md`), which each machine builds
+for itself from every machine's prompt/answer trail and the quest's archived
+todos. **Rebuild history and memory** under the chat input builds it and
+extracts memory candidates in one run; after a reconcile brought another
+machine's newer turns, a notice offers it. **Promote memory** (setting
+`tomAi.memory.promoteMemoryButton`) queues a prompt that promotes the memory
+candidates you choose into the curated memory files.
+
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos),
 the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
@@ -594,7 +603,7 @@ its subject, position and state (running, paused, idle, or waiting for you, an
 event or a task, with what it waits for), **USER NOTIFICATIONS**
 (`tomAi.userNotifications`): every ask, message, suggestion, decision, todo
 and queue hold directed at you, open asks shown until answered (an answer an
-agent gave with `tomAi_answerUser` opens in the **Answers** page, `@T: Answers`,
+agent gave with `tomAi_answerUser` opens in the **Q&A** page, `@T: Q&A`,
 where its suggested todos are added with a click), and
 **NOTIFICATIONS**
 (`tomAi.notifications`): what agents and you did to queues and todos in every
@@ -617,12 +626,12 @@ the process to the first step of the phase before, that phase's iteration
 counted on, so the round folders continue either way. Both are choices of
 the decision too: the current phase's at every decision inside the phase,
 and after a gate both (*Gate failed — back to the start of …*), which suits a
-gate that is a phase of its own. The moves go to the decisions journal.
+gate that is a phase of its own. The moves go to the quest's Q&A journal.
 A step may be a **decision step** (`decision:`): when the step before it has
 finished it chooses where the process goes next, any step or phase —
 automatically from the chat variables, by you at Decide…, or judged by the
 agent (`tomAi_setProcessState {decide}`). Jumps count the iterations on and
-are listed in the PROCESS view, the state file and the decisions journal.
+are listed in the PROCESS view, the state file and the quest's Q&A journal.
 A process need not be a straight line: a phase may name the phases that
 follow it (`next:`, with conditions; `[]` ends the process), so branches may
 meet again or end on their own, and a **goto** step (`goto:`) passes the
@@ -689,7 +698,7 @@ Open the command palette and type `@T:` to discover commands.
 | Group | Commands |
 | --- | --- |
 | Core AI | Send to Anthropic/LLM · Send to Anthropic/LLM (Default Template) · Send to Anthropic/LLM (Pick Template) |
-| Queue & timer | Open Prompt Queue · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
+| Queue & timer | Open Prompt Queue · Recent Prompts · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
 | Workspace & runtime | Open in Markdown Browser · Extension Status Page · Restart Bridge · Start / Stop Tom CLI Integration Server · Start Process Monitor |
 
 ### Keybindings

@@ -12,7 +12,7 @@
  *   - the verbatim answer round-trip (vscode + timeout),
  *   - the deadline: none by default, the configured `maxWaitMinutes` as a
  *     ceiling, and the model's per-call `timeoutMinutes` as a request,
- *   - the questions journal written on every resolution,
+ *   - the Q&A journal: the question when it is asked, the answer on every resolution,
  *   - title trimming, and
  *   - the already-pending error (the singleton guard surfaced as a string).
  *
@@ -35,7 +35,7 @@ import {
 } from '../ask-user-tool.js';
 import { AskUserRegistry, type PendingAsk, type AskAnswerSource } from '../../services/askUserRegistry.js';
 import type { ChatQuestionsConfig } from '../../handlers/chatQuestions-config.js';
-import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../../utils/questionsLogFormat.js';
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -252,7 +252,27 @@ describe('askUserImpl', () => {
     });
 });
 
-describe('askUserImpl — questions journal', () => {
+describe('askUserImpl — Q&A journal', () => {
+
+    test('the question is journalled as it is asked, the answer names it', async () => {
+        const h = makeHarness();
+        const asked: QuestionAskedEntry[] = [];
+        h.deps.logAsked = (e) => asked.push(e);
+        const call = askUserImpl(h.deps, {
+            questions: ['Which way? {{choice:l}} {{choice:r}}', 'Why?'], title: 'Route',
+            choices: [{ id: 'l', label: 'Left', kind: 'answer' }, { id: 'r', label: 'Right', kind: 'answer' }],
+        });
+        assert.equal(asked.length, 1, 'written when it is asked');
+        assert.equal(h.logged.length, 0, 'no answer yet');
+        assert.equal(asked[0].requestId, 'req-1');
+        assert.deepEqual([...asked[0].questions], ['Which way? [Left] [Right]', 'Why?']);
+        assert.deepEqual([...asked[0].choices!], ['Left', 'Right']);
+        assert.equal(asked[0].run, 'default');
+        h.submitLatest('Left, shorter', 'vscode');
+        await call;
+        assert.equal(h.logged[0].requestId, 'req-1');
+        assert.deepEqual([...h.logged[0].choices!], ['Left', 'Right']);
+    });
 
     test('an answered ask is journalled with questions, answer, source and timings', async () => {
         const h = makeHarness();

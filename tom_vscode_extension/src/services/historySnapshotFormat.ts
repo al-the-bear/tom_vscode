@@ -43,6 +43,8 @@ export interface HistoryMarkdownInput {
     messages: unknown;
     savedAt: string;
     questId: string;
+    /** The heading; default `Session history — \`<quest>\``. */
+    title?: string;
 }
 
 /** Identity key for matching a turn across rewrites: role + content. */
@@ -163,7 +165,7 @@ export function stampRawTurns(
 export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
     const { messages, savedAt, questId } = input;
     const lines: string[] = [];
-    lines.push(`# Session history — \`${questId}\``);
+    lines.push(input.title ?? `# Session history — \`${questId}\``);
     lines.push('');
     lines.push(`_Saved at ${savedAt}._`);
     lines.push('');
@@ -182,6 +184,10 @@ export function formatHistoryAsMarkdown(input: HistoryMarkdownInput): string {
             lines.push(summary);
         }
         lines.push('');
+        // A payload without raw turns (the quest's history) has no raw-turn section.
+        if (!Array.isArray((messages as { rawTurns?: unknown }).rawTurns)) {
+            return lines.join('\n');
+        }
         lines.push(`## Raw turns — ${rawTurns.length} messages`);
         lines.push('');
         if (rawTurns.length === 0) {

@@ -57,8 +57,8 @@ import { pickedOf, registerLivePicker, type PickerResponse } from '../services/l
 import * as vscode from 'vscode';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
-import { QuestionLogEntry } from '../utils/questionsLogFormat';
-import { appendQuestionLogEntry } from '../services/questionsLog';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../utils/questionsLogFormat';
+import { appendQuestionAsked, appendQuestionLogEntry } from '../services/qaJournal';
 import { readChatQuestionsConfig } from '../handlers/chatQuestions-config';
 import { pickWithFreeTextOption, OTHER_OPTION_LABEL } from '../services/free-text-picker';
 import { recordingAsk } from '../services/openAskRecord';
@@ -167,12 +167,14 @@ export interface AskUserPickerInput {
     timeoutMinutes?: number;
 }
 
-/** Optional collaborators — the deadline ceiling and the questions journal. */
+/** Optional collaborators — the deadline ceiling and the Q&A journal. */
 export interface AskUserPickerDeps {
     /** The user's standing `maxWaitMinutes` ceiling (0 / absent = no ceiling). */
     ceilingMinutes?: number;
-    /** Append the resolved exchange to the quest's questions journal. */
+    /** Append the resolved exchange to the quest's Q&A journal (the answer of the question {@link logAsked} wrote). */
     log?(entry: QuestionLogEntry): void;
+    /** Append the question to the quest's Q&A journal as it is asked. */
+    logAsked?(entry: QuestionAskedEntry): void;
     /** Clock seam for the journal timings. Defaults to `Date.now`. */
     now?(): number;
 }
@@ -202,18 +204,19 @@ export async function askUserPickerImpl(
     // placeholder line. An items-only picker asks nothing in words, so the
     // journal entry carries no question list at all.
     const question = input.prompt?.trim() || '';
+    const asked = {
+        tool: 'tomAi_askUserPicker',
+        requestId: `picker-${askedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        title: input.title?.trim() || input.prompt?.trim() || undefined,
+        questions: question ? [question] : [],
+        choices: items.map((i) => i.label),
+        askedAt,
+    };
+    try { deps.logAsked?.(asked); } catch { /* Diagnostics only — never cost the user the ask. */ }
     const journal = (source: string, answer: string) => {
         if (!deps.log) { return; }
         try {
-            deps.log({
-                tool: 'tomAi_askUserPicker',
-                title: input.title?.trim() || input.prompt?.trim() || undefined,
-                questions: question ? [question] : [],
-                answer,
-                source,
-                askedAt,
-                answeredAt: now(),
-            });
+            deps.log({ ...asked, answer, source, answeredAt: now() });
         } catch {
             // Diagnostics only — never cost the user their pick.
         }
@@ -267,7 +270,7 @@ export async function askUserPickerImpl(
 export const ASK_USER_PICKER_DESCRIPTION =
     'Show a QuickPick and let the user choose one or more `items` (strings or `{label, description?, detail?, value?}`). '
     + `An "${OTHER_OPTION_LABEL}" entry is added automatically`
-    + ' (do not add one): `selected.value` may be free text that is none of your items. BLOCKING, by default without a deadline (`timeoutMinutes` to give up, only with a sensible default). Answers `{dismissed, timedOut, selected}`: `{label, value}`, or an array with `canPickMany`; dismissed (the user declined) and timed out (nobody there) are different. One picker per process run at a time; while another run\'s picker is on screen it is answered in the user-input panel. Logged to the quest questions journal.';
+    + ' (do not add one): `selected.value` may be free text that is none of your items. BLOCKING, by default without a deadline (`timeoutMinutes` to give up, only with a sensible default). Answers `{dismissed, timedOut, selected}`: `{label, value}`, or an array with `canPickMany`; dismissed (the user declined) and timed out (nobody there) are different. One picker per process run at a time; while another run\'s picker is on screen it is answered in the user-input panel. The question and the pick are logged to the quest\'s Q&A journal.';
 
 // (Picker tool def lives at the bottom, after the live bridge.)
 
@@ -529,6 +532,7 @@ function livePickerDeps(): AskUserPickerDeps {
     return {
         ceilingMinutes: readChatQuestionsConfig().maxWaitMinutes,
         log: (entry) => appendQuestionLogEntry(entry),
+        logAsked: (entry) => appendQuestionAsked(entry),
     };
 }
 

@@ -2306,7 +2306,7 @@ export function followUpJournalEntry(from: ProcessState, fromPosition: string, t
     ].join('\n');
 }
 
-/** The decisions journal entry of a move back to the start of the previous phase (vscimpb93) or of the current one (vscimpb94). */
+/** The Q&A journal entry of a move back to the start of the previous phase (vscimpb93) or of the current one (vscimpb94). */
 export function backPhaseJournalEntry(label: string, from: ProcessState, fromPosition: string, to: ProcessState, toPosition: string, run: string, at: Date = new Date()): string {
     return [
         `## ${at.toISOString()} — ${label}`,
@@ -2766,7 +2766,7 @@ export function jumpRecordText(r: ProcessJumpRecord): string {
     return `${end(r.from)} → ${end(r.to)}: ${r.label} (${who}${r.reason ? `, ${r.reason}` : ''})`;
 }
 
-/** The decisions journal entry of a jump a decision step made (vscimpb95). */
+/** The Q&A journal entry of a jump a decision step made (vscimpb95). */
 export function jumpJournalEntry(r: ProcessJumpRecord, process: string, run: string): string {
     const end = (e: ProcessJumpEnd): string => `${process} › ${e.phase} #${e.phaseIteration} › ${e.step} #${e.stepIteration}`;
     return [

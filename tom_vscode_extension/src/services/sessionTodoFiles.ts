@@ -2,9 +2,11 @@
  * Session todos are todos of ONE session of a quest: the small steps an agent
  * notes for itself while it carries out a quest todo, in the flow of that
  * session. Each session keeps them in its own file inside its storage root,
- * `_ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml`
- * (with its `-archived` / `-deleted` siblings), which is not versioned (the
- * `_ai` .gitignore) and goes when the session is deleted (removeSessionStorage).
+ * `_ai/quests/<quest>/history/<host>/sessions/<session>/session-todos.todo.yaml`
+ * (OLD PLACE: `history/sessions/<session>/` while the session's storage is
+ * there; src/services/sessionStorage.ts), with its `-archived` / `-deleted`
+ * siblings, which is not versioned (the `_ai` .gitignore) and goes when the
+ * session is deleted (removeSessionStorage).
  *
  * vscode-free.
  */
@@ -12,7 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { SESSIONS_FOLDER, sessionRoot } from './sessionStorage';
+import { sessionRoot, sessionsWithStorage } from './sessionStorage';
 
 /** The session todo file's name in a session's storage root. */
 export const SESSION_TODOS_FILE = 'session-todos.todo.yaml';
@@ -22,14 +24,18 @@ export function sessionTodoFile(historyRoot: string, session: string): string {
     return path.join(sessionRoot(historyRoot, session), SESSION_TODOS_FILE);
 }
 
-/** The session todo file relative to the quest folder (`history/sessions/<session>/session-todos.todo.yaml`). */
-export function sessionTodoSourceFile(session: string): string {
-    return ['history', SESSIONS_FOLDER, session, SESSION_TODOS_FILE].join('/');
+/**
+ * The session todo file relative to the quest folder:
+ * `history/<host>/sessions/<session>/session-todos.todo.yaml`, or the old place's
+ * `history/sessions/<session>/…` while the session's storage is there.
+ */
+export function sessionTodoSourceFile(historyRoot: string, session: string): string {
+    return ['history', ...path.relative(historyRoot, sessionTodoFile(historyRoot, session)).split(path.sep)].join('/');
 }
 
-/** The session a quest-folder-relative session todo file belongs to; undefined for any other path. */
+/** The session a quest-folder-relative session todo file belongs to (either place); undefined for any other path. */
 export function sessionOfTodoSourceFile(sourceFile: string): string | undefined {
-    const m = /^history\/sessions\/([^/]+)\/session-todos\.todo\.yaml$/.exec(sourceFile.replace(/\\/g, '/'));
+    const m = /^history\/(?:[^/]+\/)?sessions\/([^/]+)\/session-todos\.todo\.yaml$/.exec(sourceFile.replace(/\\/g, '/'));
     return m ? m[1] : undefined;
 }
 
@@ -60,10 +66,8 @@ export function countSessionTodos(file: string, readStatuses: (file: string) => 
 
 /** The counts of every session of the quest that has a session todo file, most recently written first. */
 export function sessionTodoCounts(historyRoot: string, readStatuses: (file: string) => string[]): SessionTodoCount[] {
-    let names: string[] = [];
-    try { names = fs.readdirSync(path.join(historyRoot, SESSIONS_FOLDER)); } catch { return []; }
     const out: SessionTodoCount[] = [];
-    for (const session of names) {
+    for (const session of sessionsWithStorage(historyRoot)) {
         const counts = countSessionTodos(sessionTodoFile(historyRoot, session), readStatuses);
         if (counts) { out.push({ session, ...counts }); }
     }

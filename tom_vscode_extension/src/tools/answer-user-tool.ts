@@ -6,8 +6,9 @@
  * With this tool the agent hands each answer to the extension — a title, the
  * Markdown answer, optionally the question quoted, prompts to continue with
  * and complete todos to add — and goes on with its turn: the call returns at
- * once. The answers are stored for the machine (utils/userAnswers.ts) and
- * shown in the Answers page, where a suggested todo is added on a click
+ * once. The answers are stored for the machine (utils/userAnswers.ts), written
+ * to the quest's Q&A journal (services/qaJournal.ts) and shown in the Q&A
+ * page's Questions tab, where a suggested todo is added on a click
  * (exactly the record given, checked here as tomAi_createQuestTodo checks it)
  * and a suggested prompt is copied to the clipboard.
  *
@@ -45,7 +46,9 @@ export interface AnswerUserDeps {
     todoProblem(quest: string, todo: Record<string, unknown>, file?: string): string | undefined;
     /** Store the answer (throws when it cannot). */
     store(answer: UserAnswer): void;
-    /** After it is stored: the notification, the Answers page, the over-limit notice. Never fails the call. */
+    /** Write it to the quest's Q&A journal (best effort; never fails the call). */
+    journal?(answer: UserAnswer): void;
+    /** After it is stored: the notification, the Q&A page, the over-limit notice. Never fails the call. */
     onStored?(answer: UserAnswer): void;
     now?(): Date;
 }
@@ -115,6 +118,7 @@ export async function answerUserImpl(deps: AnswerUserDeps, input: AnswerUserInpu
             ...(ctx.filedBy && Object.keys(ctx.filedBy).length ? { filedBy: ctx.filedBy } : {}),
         };
         deps.store(stored);
+        try { deps.journal?.(stored); } catch { /* the journal is a record, not a participant */ }
         try { deps.onStored?.(stored); } catch { /* showing it never fails the call */ }
         return JSON.stringify({
             ok: true,
@@ -122,7 +126,7 @@ export async function answerUserImpl(deps: AnswerUserDeps, input: AnswerUserInpu
             stored: true,
             suggestedPrompts: stored.suggestedPrompts.length,
             suggestedTodos: stored.suggestedTodos.length,
-            note: 'The user finds the answer in the Answers page (@T: Answers) and in USER NOTIFICATIONS. Nothing waits for it: go on with your work. Suggested todos are not created until the user adds them.',
+            note: 'The user finds the answer in the Q&A page (@T: Q&A) and in USER NOTIFICATIONS. Nothing waits for it: go on with your work. Suggested todos are not created until the user adds them.',
         });
     } catch (e) {
         return err(`The answer was not stored: ${(e as Error).message}`);
@@ -135,7 +139,7 @@ export type AddSuggestedTodoResult =
     | { ok: false; error: string; alreadyAdded?: string };
 
 /**
- * Add suggested todo `index` of answer `id` (the Answers page's **Add todo**):
+ * Add suggested todo `index` of answer `id` (the Q&A page's **Add todo**):
  * exactly the record the answer holds, created through `create` — the todo
  * tool's own create (tomAi_createQuestTodo), given the answering agent's
  * `filed_by` — and marked added in the answer. One that was added already is
@@ -166,8 +170,8 @@ export async function addSuggestedTodo(
 export const ANSWER_USER_DESCRIPTION =
     'Give the user an answer WITHOUT waiting: for a question he asked in a prompt that also asks for work. `title`: the question in a few ' +
     'words; `answer`: Markdown; `question`: his question quoted (optional). The call returns at once and the turn goes on; call it once ' +
-    'per question, as soon as you have the answer. The answer is kept out of the trail: stored and shown in the Answers page (list on ' +
-    'the left, the answer on the right) and listed in USER NOTIFICATIONS. `suggestedPrompts` `[{label, text}]`: prompts to continue ' +
+    'per question, as soon as you have the answer. The answer is kept out of the trail: logged to the quest\'s Q&A journal, shown in ' +
+    'the Q&A page\'s Questions tab (list on the left, the answer on the right) and listed in USER NOTIFICATIONS. `suggestedPrompts` `[{label, text}]`: prompts to continue ' +
     'with; the user copies one and queues it himself. `suggestedTodos` `[{quest?, todo, file?}]`: todos he may add with one click, ' +
     'so `todo` must be the COMPLETE record as tomAi_createQuestTodo takes it (id from tomAi_generateIdPrefix, description, decisions ' +
     '…); `quest` defaults to this window\'s. Each is checked as tomAi_createQuestTodo checks it; one that is not complete refuses the ' +

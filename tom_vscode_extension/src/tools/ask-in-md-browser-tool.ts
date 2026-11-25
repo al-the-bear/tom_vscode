@@ -23,7 +23,7 @@ import * as path from 'path';
 import { SharedToolDefinition } from './shared-tool-registry';
 import { isInsideWorkspace, resolveAgainstWsRoot } from './file-primitives';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
-import { QuestionLogEntry } from '../utils/questionsLogFormat';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../utils/questionsLogFormat';
 import { finishReviewSummary, type FinishReviewOutcome } from '../services/finishReviewRound';
 import { markDecisionReopened } from '../services/decisionHelpers';
 import { gateDecisionSummary, type GateDecisionOutcome } from '../services/gateDecision';
@@ -73,7 +73,10 @@ export interface AskInMdBrowserDeps {
     deleteFile(absPath: string): void;
     /** The user's standing ceiling for asks, in minutes (0 / absent: none). */
     ceilingMinutes?(): number | undefined;
+    /** The resolved exchange, for the quest's Q&A journal (the answer of the question {@link logAsked} wrote). */
     log?(entry: QuestionLogEntry): void;
+    /** The question as it is asked, for the quest's Q&A journal. */
+    logAsked?(entry: QuestionAskedEntry): void;
     now?(): number;
     setTimer?(ms: number, cb: () => void): TimerHandle;
     clearTimer?(handle: TimerHandle): void;
@@ -329,6 +332,27 @@ function barNote(source: AskMdSource, button?: AskMdButton): string {
     }
 }
 
+/** The question of an ask as the Q&A journal records it. */
+function askedEntry(ask: OpenAsk): QuestionAskedEntry {
+    const queueItemId = currentQueueItemId();
+    return {
+        tool: 'tomAi_askInMdBrowser',
+        requestId: ask.bar.requestId,
+        title: ask.bar.title,
+        questions: [ask.file],
+        choices: ask.bar.buttons.map((b) => b.label),
+        askedAt: ask.askedAt,
+        run: ask.run ?? 'default',
+        ...(queueItemId ? { queueItemId } : {}),
+    };
+}
+
+/** The question goes to the Q&A journal as the panel opens (best effort). */
+function journalAsked(ask: OpenAsk): void {
+    if (!ask.deps.logAsked) { return; }
+    try { ask.deps.logAsked(askedEntry(ask)); } catch { /* Diagnostics only — never cost the user the ask. */ }
+}
+
 function journal(ask: OpenAsk, source: AskMdSource, button?: AskMdButton): void {
     if (!ask.deps.log) { return; }
     const answers: Record<AskMdSource, string> = {
@@ -339,14 +363,10 @@ function journal(ask: OpenAsk, source: AskMdSource, button?: AskMdButton): void 
     };
     try {
         ask.deps.log({
-            tool: 'tomAi_askInMdBrowser',
-            title: ask.bar.title,
-            questions: [`${ask.file} — ${ask.bar.buttons.map((b) => b.label).join(' / ')}`],
+            ...askedEntry(ask),
             answer: answers[source] + (ask.keepFile ? '' : ' (file not kept)'),
             source: source === 'click' ? 'vscode' : source === 'closed' ? 'cancel' : source,
-            askedAt: ask.askedAt,
             answeredAt: (ask.deps.now ?? Date.now)(),
-            run: ask.run ?? 'default',
         });
     } catch {
         // Diagnostics only — never cost the user their answer.
@@ -476,6 +496,7 @@ export async function askInMdBrowserImpl(
             return;
         }
         ask.panelId = panelId;
+        journalAsked(ask);
         // Listed in the user-input panel on its run's tab, with a button that brings its MD Browser forward.
         const queueItemId = currentQueueItemId();
         ask.removeInteraction = userInteractions.add({
@@ -513,8 +534,8 @@ export const ASK_IN_MD_BROWSER_DESCRIPTION =
     'its choices (`decide-<n>`, `decisionTaken`) and Back to the decision (`decide`); `gateDecision: true` (in a ' +
     'gate\'s prompt) adds the choices of the decision after the gate (`decide-<n>`: a click ends the gate\'s step ' +
     'and takes it as Decide… does; `decisionTaken`, `gate`, `summary`). An unchecked file is deleted, and its ' +
-    'panel closed, as the flow goes on; else the panel stays with the answer in place of the bar. Logged to the ' +
-    'quest questions journal.';
+    'panel closed, as the flow goes on; else the panel stays with the answer in place of the bar. The question ' +
+    'and its answer are logged to the quest\'s Q&A journal.';
 
 export const ASK_IN_MD_BROWSER_TOOL: SharedToolDefinition<AskInMdBrowserInput> = {
     name: 'tomAi_askInMdBrowser',

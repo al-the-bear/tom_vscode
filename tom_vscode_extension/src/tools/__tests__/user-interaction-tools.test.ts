@@ -45,7 +45,7 @@ import {
     type AskUserPickerInput,
 } from '../user-interaction-tools.js';
 import { OTHER_OPTION_LABEL } from '../../services/free-text-picker.js';
-import type { QuestionLogEntry } from '../../utils/questionsLogFormat.js';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../../utils/questionsLogFormat.js';
 
 // ===========================================================================
 // Stubbed prompter
@@ -317,7 +317,7 @@ describe('askUserPickerImpl — free-text answers', () => {
         assert.equal(r.selected, null);
     });
 
-    test('the typed answer is what lands in the questions journal', async () => {
+    test('the typed answer is what lands in the Q&A journal', async () => {
         const p = makePrompter();
         p.nextPick = OTHER;
         p.nextInput = 'DuckDB';
@@ -391,7 +391,24 @@ describe('askUserPickerImpl — deadline', () => {
 // Questions journal
 // ===========================================================================
 
-describe('askUserPickerImpl — questions journal', () => {
+describe('askUserPickerImpl — Q&A journal', () => {
+
+    test('the question is journalled as it is asked, its items the choices; the answer names it', async () => {
+        const p = makePrompter();
+        p.nextPick = { label: 'MySQL', value: 'my' };
+        const asked: QuestionAskedEntry[] = [];
+        const logged: QuestionLogEntry[] = [];
+        p.showQuickPick = async (items, opts) => {
+            p.pickerCalls.push({ items, opts });
+            assert.equal(asked.length, 1, 'written before the pick');
+            return p.nextPick;
+        };
+        await askUserPickerImpl(p, { items: ['Postgres', 'MySQL'], prompt: 'Which database?', title: 'DB' }, { log: (e) => logged.push(e), logAsked: (e) => asked.push(e) });
+        assert.equal(asked[0].tool, 'tomAi_askUserPicker');
+        assert.deepEqual([...asked[0].choices!], ['Postgres', 'MySQL']);
+        assert.equal(logged[0].requestId, asked[0].requestId);
+        assert.equal(logged[0].answer, 'MySQL');
+    });
 
     function makeLogger() {
         const logged: QuestionLogEntry[] = [];

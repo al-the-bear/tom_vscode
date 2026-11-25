@@ -111,9 +111,9 @@ export interface SendToChatConfig {
         };
         /** The file limit as older configs wrote it; read only when `raw.maxRawFiles` is unset, dropped on save. */
         maxRawFiles?: number;
-        /** The compact trail (the summary pair `<quest>.<subsystem>.prompts.md` / `.answers.md`). */
+        /** The compact trail: the host trail `history/trail.<host>.md` (services/hostTrail.ts). */
         compact?: {
-            /** The prompt / answer turns a compact trail file keeps (default 2000; utils/compactTrailTrim.ts). */
+            /** The prompt / answer turns the host trail keeps (default 2000; only turns a history covers are dropped; utils/compactTrailTrim.ts). */
             maxEntries?: number;
         };
         /** Stored tool results older than this many days are pruned after each send (default 30; 0: no age limit). */
@@ -341,9 +341,9 @@ export interface SendToChatConfig {
      */
     compaction?: {
         /**
-         * Global kill-switch. When true, suppresses the extra compaction +
-         * memory-extraction API call after every Anthropic turn. rawTurns
-         * and history.json are still written. Per-configuration
+         * Global kill-switch. When true, suppresses the background build of
+         * the quest history and its memory extraction. The rolling tail and
+         * the accumulator are still written. Per-configuration
          * `compactionOverride` can force on/off regardless of this flag.
          */
         disabled?: boolean;
@@ -378,35 +378,34 @@ export interface SendToChatConfig {
         rawTurnsKept?: number;
         /**
          * Round-based trigger for compaction + memory extraction. A "round"
-         * is one completed user→assistant exchange. The uncompacted accumulator
-         * (`compaction_rounds.json`, sibling of `history.json`) grows by one
-         * round per turn; when it reaches this threshold compaction fires,
-         * folds the oldest `length - rawTurnsKept` rounds into the running
-         * summary, and shrinks back to `rawTurnsKept`. Memory extraction runs
-         * in the same pass (controlled by `runMemoryExtractionOnCompaction`).
+         * is one completed user→assistant exchange. A session's uncompacted
+         * accumulator (`compaction_rounds.json` in its storage folder) grows by
+         * one round per turn; when it reaches this threshold the quest history
+         * is built (src/services/questHistory.ts) and the accumulator clears.
+         * Memory extraction runs in the same pass (controlled by
+         * `runMemoryExtractionOnCompaction`).
          *
          * Default 15. Used for both history compaction and memory extraction
          * so they share a single cadence — the prompt prefix (system +
          * compactedSummary) stays cache-stable for N-1 turns at a time.
          *
-         * Also used as the chunk size when rebuilding history from trail
-         * files: the trail is processed in groups of this many rounds so the
-         * rebuilt summary mirrors what live operation would have produced.
+         * Also the number of inputs (trail turns, archived todos) folded per
+         * compaction call of a build.
          */
         runEveryNRounds?: number;
         backgroundExtractionEnabled?: boolean;
-        /** Whether memory extraction runs after every compaction pass. */
+        /** Whether the automatic builds of the quest history extract memory candidates. */
         runMemoryExtractionOnCompaction?: boolean;
         /**
-         * Fallback seed size when the handler finds no history file but
-         * compact trail files (prompts.md / answers.md) do exist in the
-         * quest folder. Default 200.
+         * At most this many of the newest inputs (trail turns, archived todos)
+         * are folded by one build of the quest history; older ones are passed
+         * over. Default 200.
          */
         rebuildFromLastNPrompts?: number;
         /**
-         * When true, each compaction pass writes a timestamped archive
-         * file (`YYYYMMDD_HHMMSS.history.json`) in addition to overwriting
-         * the canonical `history.json`. Off by default; useful for
+         * When true, each compaction pass of the quest history writes a
+         * timestamped archive pair (`YYYYMMDD_HHMMSS.history.json` / `.md`)
+         * in addition to overwriting the quest's `history.json`. Off by default; useful for
          * debugging turn-by-turn changes. Produces one new file per turn
          * so leave it off for normal operation.
          */
@@ -539,7 +538,8 @@ export interface SendToChatConfig {
      * The Assist prompts (src/utils/assistPrompts.ts): Grill me, Explain in
      * detail, Explain a decision, Grill me at a decision, Finish review round,
      * Gate decision, Out of budget, Background work reminder (a queue turn that
-     * ended while its own background work runs; an empty template: none).
+     * ended while its own background work runs; an empty template: none),
+     * Promote memory (the chat panel's Promote memory button).
      * `templates` are edited in the Global Template Editor (category Assist
      * Prompts); `selected.<use>` is the template the Status Page chose for
      * that use — empty: the use's default template, else its built-in text.

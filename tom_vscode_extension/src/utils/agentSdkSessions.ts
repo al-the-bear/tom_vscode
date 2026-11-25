@@ -1,10 +1,11 @@
 /**
  * Named sessions — pure rules, no IO.
  *
- * A session is a file `<name>.session.json` in the quest's history folder
- * (`_ai/quests/<quest>/history/`): the Agent SDK session id it continues,
- * optionally the session it is based on, its lifetime, and the Anthropic
- * profile (and so the model) it runs with. The chat panel uses `chat`, the
+ * A session is a file `<name>.session.json` in the host's folder of the
+ * quest's history (`_ai/quests/<quest>/history/<host>/`): the Agent SDK
+ * session id it continues, optionally the session it is based on, its
+ * lifetime, the Anthropic profile (and so the model) it runs with, and
+ * whether its turns contribute to the host trail and memory. The chat panel uses `chat`, the
  * prompt queue `default` unless another session is chosen; any other name is
  * a session the user (or an agent) created.
  *
@@ -24,6 +25,10 @@
  *   prompt and follow-ups continue it. The queue names the iteration with an
  *   iteration key; a prompt sent without one (the chat panel) is its own
  *   iteration, i.e. per prompt.
+ *
+ * Trail and memory: `contributesToTrailAndMemory` (absent = on). Off, the
+ * session's turns go neither into the host's compact trail
+ * (src/services/hostTrail.ts) nor into memory or the quest's history.
  *
  * Profile: `profileId` is the Anthropic profile the session was made for and
  * `model` its model (the configured one at creation, then the one the first
@@ -65,6 +70,13 @@ export interface SessionRecord {
     model?: string;
     /** Per-iteration sessions: the current iteration's conversation. */
     iteration?: SessionIteration;
+    /** Whether the session's turns go into the host trail, memory and the history; absent = true. */
+    contributesToTrailAndMemory?: boolean;
+}
+
+/** Whether session record `r` contributes to the host trail and memory: absent (or no record) = on. */
+export function contributesToTrailAndMemory(r: Pick<SessionRecord, 'contributesToTrailAndMemory'> | undefined): boolean {
+    return r?.contributesToTrailAndMemory !== false;
 }
 
 /** How a prompt starts in a session. */
@@ -110,6 +122,7 @@ export function parseSessionRecord(name: string, raw: unknown): SessionRecord | 
         const i = it as Record<string, unknown>;
         out.iteration = { key: str(i.key)!, ...(str(i.sessionId) ? { sessionId: str(i.sessionId) } : {}) };
     }
+    if (typeof r.contributesToTrailAndMemory === 'boolean') { out.contributesToTrailAndMemory = r.contributesToTrailAndMemory; }
     return out as SessionRecord;
 }
 
@@ -191,5 +204,6 @@ export function describeSession(r: SessionRecord): string {
     let text = describeSessionMode(r.mode, r.basedOn);
     if (r.mode === 'continue' && !r.basedOn && !r.sessionId) { text = 'continues (not started yet)'; }
     const runsWith = r.model ?? r.profileId;
-    return runsWith ? `${text} · ${runsWith}` : text;
+    if (runsWith) { text = `${text} · ${runsWith}`; }
+    return contributesToTrailAndMemory(r) ? text : `${text} · no trail or memory`;
 }

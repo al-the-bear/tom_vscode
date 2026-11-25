@@ -8,12 +8,15 @@
  *
  * - Add (title-bar icon, `tomAi.sessions.add`): the session picker's
  *   new-session path; the file is written at once.
+ * - Trail and memory (row, a toggle): whether the session's turns go into the
+ *   host trail `history/trail.<host>.md` and so into memory and the history
+ *   (`contributesToTrailAndMemory` of its file; a session without a file is on).
  * - Reset (row): forget the conversation — its history (compacted blocks,
  *   rolling tail, accumulator) and its SDK session id — and keep base,
  *   lifetime, profile and its trails.
  * - Delete (row, confirmed, naming what goes): remove the session with its
- *   whole storage — `history/sessions/<name>/` (history, trail pair,
- *   live trail, raw trail, tool results) and its memory folder of the old
+ *   whole storage — `history/<host>/sessions/<name>/` (or its old place
+ *   `history/sessions/<name>/`: history, live trail, raw trail, tool results) and its memory folder of the old
  *   place (`_ai/memory/<quest>/<name>/`; the quest memory,
  *   `_ai/quests/<quest>/memory/`, stays); refused while another session is based on
  *   it. `default` and `chat` have no file: Delete removes their storage only.
@@ -36,9 +39,9 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
-import { clearSessionId, deleteSession, listSessions, onSessionsChanged } from '../services/agentSdkSessionStore';
+import { clearSessionId, deleteSession, listSessions, onSessionsChanged, setContributesToTrailAndMemory } from '../services/agentSdkSessionStore';
 import { TwoTierMemoryService } from '../services/memory-service';
-import { removeSessionStorage } from '../services/sessionStorage';
+import { hostHistoryFolder, removeSessionStorage } from '../services/sessionStorage';
 import { sessionTodoCounts } from '../services/sessionTodoFiles';
 import { readTodoFile } from '../managers/questTodoManager';
 import { deleteSessionDetail } from '../utils/sessionSelection';
@@ -67,7 +70,7 @@ function todoCountsBySession(historyRoot: string): Record<string, { open: number
 
 class SessionsViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
-    private watcher?: fs.FSWatcher;
+    private watchers: fs.FSWatcher[] = [];
     private watchedFolder?: string;
 
     constructor(private readonly context: vscode.ExtensionContext) {
@@ -116,36 +119,48 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
         void this.view.webview.postMessage({ type: 'state', quest, rows: rows.map((r) => ({ ...r, todos: todos[r.name] })) });
     }
 
-    /** Session files written by another window: watch the folder (its files are `<name>.session.json`). */
-    private watch(folder: string): void {
-        if (this.watchedFolder === folder && this.watcher) { return; }
+    /**
+     * Session files written by another window: watch this host's folder `history/<host>/` and (OLD PLACE)
+     * `history/` itself — their files are `<name>.session.json`.
+     */
+    private watch(historyRoot: string): void {
+        if (this.watchedFolder === historyRoot && this.watchers.length > 0) { return; }
         this.unwatch();
-        if (!fs.existsSync(folder)) { return; }
-        try {
-            const watcher = fs.watch(folder, (_event, file) => {
-                if (!file || String(file).endsWith('.session.json')) { this.send(); }
-            });
-            // A watcher can fail after it started (EMFILE): log it and live on the store's notifications.
-            watcher.on('error', () => { this.unwatch(); });
-            this.watcher = watcher;
-            this.watchedFolder = folder;
-        } catch {
-            /* the store's notifications and visibility still refresh the view */
+        for (const folder of [hostHistoryFolder(historyRoot), historyRoot]) {
+            if (!fs.existsSync(folder)) { continue; }
+            try {
+                const watcher = fs.watch(folder, (_event, file) => {
+                    if (!file || String(file).endsWith('.session.json')) { this.send(); }
+                });
+                // A watcher can fail after it started (EMFILE): log it and live on the store's notifications.
+                watcher.on('error', () => { this.unwatch(); });
+                this.watchers.push(watcher);
+                this.watchedFolder = historyRoot;
+            } catch {
+                /* the store's notifications and visibility still refresh the view */
+            }
         }
     }
 
     private unwatch(): void {
-        try { this.watcher?.close(); } catch { /* already closed */ }
-        this.watcher = undefined;
+        for (const w of this.watchers) { try { w.close(); } catch { /* already closed */ } }
+        this.watchers = [];
         this.watchedFolder = undefined;
     }
 
-    private async handle(msg: { type: string; name?: string }): Promise<void> {
+    private async handle(msg: { type: string; name?: string; value?: boolean }): Promise<void> {
         const quest = WsPaths.getWorkspaceQuestId();
         const folder = quest ? sessionsFolder(quest) : '';
         switch (msg.type) {
             case 'ready':
                 this.send();
+                break;
+            case 'trail':
+                // The session's trail and memory contribution, on or off (its file; a session without one stays on).
+                if (folder && msg.name && typeof msg.value === 'boolean') {
+                    setContributesToTrailAndMemory(folder, msg.name, msg.value);
+                    this.send();
+                }
                 break;
             case 'reset':
                 if (folder && msg.name) {

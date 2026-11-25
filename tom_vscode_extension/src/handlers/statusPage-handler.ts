@@ -803,7 +803,7 @@ async function runCompactionDryRun(settings: {
         { placeHolder: 'History mode for the dry run', ignoreFocusOut: true },
     );
     if (!mode) { return; }
-    // Whose history: every session keeps its own (history/sessions/<name>/).
+    // Whose history: every session keeps its own (history/<host>/sessions/<name>/).
     const quest = WsPaths.getWorkspaceQuestId() ?? '';
     const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
     const sessions = await pickSessions(quest, {
@@ -879,7 +879,7 @@ async function runCompactionDryRunFor(
             onProgress: (m) => logRunBanner('progress', [m]),
         });
         vscode.window.showInformationMessage(
-            `Compaction dry run for "${session}" complete — see the "Tom AI Compaction and Memory Extraction" output channel and history/sessions/${session}/trail/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory candidates were added (this host\'s candidates file in the quest memory folder) if extraction produced output.' : ''}`,
+            `Compaction dry run for "${session}" complete — see the "Tom AI Compaction and Memory Extraction" output channel and the session's trail/compaction/ folder (history/<host>/sessions/${session}/) for details.${mode.value === 'llm_extract' ? ' Memory candidates were added (this host\'s candidates file in the quest memory folder) if extraction produced output.' : ''}`,
         );
     } catch (e) {
         logCompactionError('dry run failed', e);
@@ -1155,7 +1155,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             await vscode.commands.executeCommand('tomAi.editor.chatVariables');
             break;
         case 'openTrailViewer': {
-            // The Anthropic raw trail is per session (history/sessions/<name>/trail/): open the chosen ones.
+            // The Anthropic raw trail is per session (history/<host>/sessions/<name>/trail/): open the chosen ones.
             const quest = WsPaths.getWorkspaceQuestId() ?? '';
             const historyRoot = TwoTierMemoryService.instance.historyFolder(quest || undefined);
             const names = await pickSessions(quest, { title: 'Open the raw trail', current: DEFAULT_RUN_SESSION, extra: sessionsWithStorage(historyRoot) });
@@ -2498,11 +2498,11 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         <div class="sp-settings-row">
             <label>Max raw files per folder:</label>
             <input type="number" id="sp-trailMaxRawFiles" value="${status.trail.maxRawFiles}" min="10" max="100000">
-            <label title="The prompt / answer turns each compact trail file (&lt;quest&gt;.&lt;subsystem&gt;.prompts.md / .answers.md) keeps; the oldest beyond it are dropped on the next write.">Compact trail — turns per file:</label>
+            <label title="The prompt / answer turns this machine's compact trail of a quest (history/trail.&lt;host&gt;.md) keeps; beyond it the oldest are dropped on the next write, but only those the quest's history covers already.">Compact trail — turns per file:</label>
             <input type="number" id="sp-trailCompactMaxEntries" value="${status.trail.compactMaxEntries}" min="10" max="100000">
             <button class="sp-btn" data-status-action="updateTrailSettings">Save</button>
         </div>
-        <div class="sp-settings-row" title="Every tool call of a session is stored (history/sessions/&lt;session&gt;/trail/tool_results/t&lt;n&gt;.json) so tomAi_readPastToolResult can read it later. After each send the oldest are pruned: those older than the days given and those beyond the newest per session. 0 switches a limit off.">
+        <div class="sp-settings-row" title="Every tool call of a session is stored (history/&lt;host&gt;/sessions/&lt;session&gt;/trail/tool_results/t&lt;n&gt;.json) so tomAi_readPastToolResult can read it later. After each send the oldest are pruned: those older than the days given and those beyond the newest per session. 0 switches a limit off.">
             <label>Stored tool results — keep days:</label>
             <input type="number" id="sp-trailToolResultsMaxAgeDays" value="${status.trail.toolResultsMaxAgeDays}" min="0" max="3650">
             <label>at most per session:</label>
@@ -2737,9 +2737,12 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 8px">
                 Settings for the LLM that compacts conversation history when it overflows the context window.
                 Used by both Local LLM and Anthropic chat panels.
+                The compacted history every session's prompt gets is the quest's: <code>_ai/quests/QUEST/history/compacted_history.md</code>
+                (snapshot <code>history.md</code>, coverage <code>history.watermark.json</code>), built by this host from every host's trail
+                (<code>history/trail.HOST.md</code>) and the todo archive; memory candidates go to <code>_ai/quests/QUEST/memory/candidates.HOST.md</code>.
             </p>
             <div class="sp-settings-row">
-                <label title="Global kill switch. When checked, the background compaction + memory-extraction pass that normally runs after every Anthropic turn is skipped entirely (both direct and Agent SDK transports). rawTurns and history.json are still written; only the extra API call and memory-file updates are suppressed. Useful for SDK-managed profiles where the SDK owns conversation state on its own.">
+                <label title="Global kill switch. When checked, the background build of the quest history and its memory extraction, which runs every N rounds, is skipped entirely (both direct and Agent SDK transports). The rolling tail and the accumulator are still written; only the extra API calls and the memory candidates are suppressed (Rebuild history and memory still runs on demand). Useful for SDK-managed profiles where the SDK owns conversation state on its own.">
                     <input type="checkbox" id="sp-comp-disabled" ${status.compaction.disabled ? 'checked' : ''}>
                     Disable compaction &amp; memory extraction
                 </label>
@@ -2784,7 +2787,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <div class="sp-settings-row">
                 <label title="Raw user+assistant turn PAIRS kept verbatim alongside the compacted summary. Overflow gets folded into the running summary via the configured compaction template every turn the budget is exceeded. Per-LLM-configuration override available on each LLM configuration card.">Raw turn pairs kept:</label>
                 <input type="number" id="sp-comp-rawTurnsKept" value="${status.compaction.rawTurnsKept}" min="0" max="500" style="width:80px">
-                <label title="Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. The uncompacted-rounds accumulator (compaction_rounds.json, sibling of history.json, NOT versioned) grows by one round per turn; on hitting this threshold compaction fires, folds the oldest (length − rawTurnsKept) rounds into the running summary, then shrinks back to rawTurnsKept. Memory extraction runs in the same pass. Same value is the chunk size when rebuilding history/memory from the trail. Single knob — both subsystems share it so the prompt prefix (system + compactedSummary) stays cache-stable between compactions.">Run every N rounds:</label>
+                <label title="Round-based trigger for compaction + memory extraction. A round = one completed user→assistant exchange. A session's uncompacted-rounds accumulator (compaction_rounds.json in its storage folder, NOT versioned) grows by one round per turn; on hitting this threshold the quest history is built: the new turns of every host's trail and the newly archived todos are folded into the quest's compacted history, and the accumulator clears. Memory extraction runs in the same pass. Same value is the number of inputs folded per compaction call (also by Rebuild history and memory). Single knob — both subsystems share it so the prompt prefix (system + compactedSummary) stays cache-stable between compactions.">Run every N rounds:</label>
                 <input type="number" id="sp-comp-runEveryNRounds" value="${status.compaction.runEveryNRounds}" min="1" max="500" style="width:60px">
                 <label title="Target size of the compacted-history summary in tokens. Summaries aim for roughly this size; the compaction template should reference \${maxHistoryTokens} / \${maxHistorySize}.">Compacted history max tokens:</label>
                 <input type="number" id="sp-comp-maxHistoryTokens" value="${status.compaction.maxHistoryTokens}" min="1000" style="width:90px">
@@ -2810,16 +2813,16 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             <div class="sp-settings-row">
                 <label title="Hard cap on the number of turns returned in 'full' history mode, so a runaway session cannot blow the context window when the user has chosen not to compact.">Full trail mode max turns:</label>
                 <input type="number" id="sp-comp-fullTrailMaxTurns" value="${status.compaction.fullTrailMaxTurns}" min="2" max="1000" style="width:70px">
-                <label title="Run memory extraction on every completed turn. Input is the last turn + the current compacted summary + existing memory. Uncheck to skip extraction entirely.">Run memory extraction:</label>
+                <label title="Run memory extraction with every build of the quest history: the new turns of the consolidated trail, per session, + the compacted history + existing memory; the candidates go to this host's candidates file. Uncheck to skip extraction in the automatic builds (Rebuild history and memory always extracts).">Run memory extraction:</label>
                 <select id="sp-comp-runMemoryExtractionOnCompaction">
                     <option value="true" ${status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Enabled</option>
                     <option value="false" ${!status.compaction.runMemoryExtractionOnCompaction ? 'selected' : ''}>Disabled</option>
                 </select>
             </div>
             <div class="sp-settings-row">
-                <label title="Exceptional/error case: when the handler finds no history snapshot on session start, it rebuilds history from the last N prompt/answer pairs in the quest's compact trail files (.prompts.md / .answers.md). While the rebuild runs, sending a new prompt shows 'Rebuild history from last N prompts…'">Rebuild from last N prompts:</label>
+                <label title="At most this many of the newest inputs (trail turns and archived todos) are folded by one build of the quest history; older ones are passed over. Matters for the first build of a quest and after a long time without one. While a build runs, sending a new prompt shows 'waiting for the quest history build…'">Rebuild from last N prompts:</label>
                 <input type="number" id="sp-comp-rebuildFromLastNPrompts" value="${status.compaction.rebuildFromLastNPrompts}" min="1" max="1000" style="width:70px">
-                <label title="Debug only. When on, every compaction pass ALSO writes a timestamped YYYYMMDD_HHMMSS.history.json alongside the rolling history.json — one extra file per turn. Off by default; turn on to compare turn-by-turn state, then back off for normal operation.">Archive every turn:</label>
+                <label title="Debug only. When on, every compaction pass of the quest history ALSO writes a timestamped YYYYMMDD_HHMMSS.history.json / .md beside the quest's history.json — one extra pair per pass. Off by default; turn on to compare turn-by-turn state, then back off for normal operation.">Archive every turn:</label>
                 <select id="sp-comp-archiveHistoryEveryTurn">
                     <option value="true" ${status.compaction.archiveHistoryEveryTurn ? 'selected' : ''}>Enabled (debug)</option>
                     <option value="false" ${!status.compaction.archiveHistoryEveryTurn ? 'selected' : ''}>Disabled</option>

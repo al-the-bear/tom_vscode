@@ -2,7 +2,7 @@
  * Decision steps (vscimpb95) through the real process store, chat variables and queue: a step with `decision:`
  * chooses where the process goes when the step before it has finished — automatically from chat variables (`auto`),
  * by the user in the Decide… dialog (`user`) or by the agent (`judge`, tomAi_setProcessState `decide`). The jumps
- * go across phases with the iterations counted on, into the state file and the decisions journal.
+ * go across phases with the iterations counted on, into the state file and the Q&A journal.
  *
  *   DSQ-1 auto: with `fast` = no the step after Draft's decision is passed straight to P2 (recorded, journalled);
  *         Proceed at the decision step itself queues nothing; with `fast` unset it stops at the decision
@@ -73,6 +73,7 @@ import { confirmProcessAction, decisionOptionLabels, installProcessMoveMarkers, 
 import { SET_PROCESS_STATE_TOOL } from '../quest-process-tools.js';
 import { checkProcessDraft } from '../process-write-tools.js';
 import { ProcessRepository } from '../../utils/processRepository.js';
+import { decisionEntriesText } from './_qaJournal.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -109,7 +110,8 @@ const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const chat = (): ChatVariablesStore => ChatVariablesStore.instance;
 const stateOf = () => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, TEST_RUN);
-const journal = (): string => { const f = path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; };
+// The process decisions of the quest's Q&A journal (decisions.<quest>.md is no file).
+const journal = (): string => { assert.equal(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `decisions.${QUEST}.md`)), false); return decisionEntriesText(path.join(WS, '_ai', 'quests', QUEST), QUEST); };
 const where = (): string => { const s = stateOf(); return `${s.phase}#${s.phaseIteration}/${s.step}#${s.stepIteration}${s.decision ? ' (decision)' : ''}`; };
 const setVar = (name: string, value: string): void => { chat().set(name, value, 'user'); };
 const ok = (r: { ok: boolean }): void => { assert.equal(r.ok, true, JSON.stringify(r)); };

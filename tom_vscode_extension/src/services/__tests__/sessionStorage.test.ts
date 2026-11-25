@@ -1,8 +1,12 @@
 /**
  * Per-session storage (src/services/sessionStorage.ts).
  *
- *   SS-1 every artefact of a session is under its own root: history files, trail pair, live trail, raw trail with
- *        its categories, tool results, quest memory; two sessions (and `chat` / `default`) never share a path
+ *   SS-1 every artefact of a session is under its own root, this host's `history/<host>/sessions/<name>/`: history
+ *        files, live trail, raw trail with its categories, tool results; the summary pair of an older build and the
+ *        memory folder are at their old places; two sessions (and `chat` / `default`) never share a path
+ *   SS-7 the old place `history/sessions/<name>/`: a session folder there is read and written there; a folder at the
+ *        new place wins; a session at neither is made at the new place; the listing names both places' sessions;
+ *        removing a session removes it at both places
  *   SS-2 tool-result keys continue past what a session stored: a second ToolTrail (a reload, a clear) and another
  *        session never overwrite a stored result
  *   SS-3 removing a session removes its whole storage and its memory, nothing of another session
@@ -13,8 +17,9 @@
  *   SS-6 the bare `default` session becomes `default@default` (vscimpb151): its session file, storage root and
  *        quest memory move (into what is there entry by entry, an existing file kept and named), the sessions
  *        based on it are rebased, the path helpers read `default` as `default@default`; a second run does nothing
- *   SS-5 the .gitignore rules: per session the compacted history, its snapshot and the live trail are tracked,
- *        the rest is ignored (checked with git itself)
+ *   SS-5 the .gitignore rules: a host's session storage, the quest's derived history, the refresh notes and every
+ *        live trail are ignored, as the old place's machine-local files; the session files of a host, the host
+ *        trails and the old place's compacted history are not (checked with git itself)
  */
 
 import test, { describe } from 'node:test';
@@ -39,6 +44,9 @@ import {
     sessionsWithStorage,
 } from '../sessionStorage.js';
 import { ToolTrail } from '../tool-trail.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
+
+const HOST = hostSlugOf();
 
 function tmp(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'session-storage-'));
@@ -67,15 +75,16 @@ describe('per-session storage', () => {
     test('SS-1: one root per session', () => {
         const root = path.join('ai', 'quests', 'q', 'history');
         const mem = path.join('ai', 'memory');
+        const at = path.join(root, HOST, 'sessions', 'walk');
         assert.deepEqual(pathsOf(root, mem, 'walk'), [
-            path.join(root, 'sessions', 'walk'),
+            at,
             path.join(root, 'sessions', 'walk', 'q.anthropic.prompts.md'),
             path.join(root, 'sessions', 'walk', 'q.anthropic.answers.md'),
-            path.join(root, 'sessions', 'walk', 'live-trail.md'),
-            path.join(root, 'sessions', 'walk', 'trail'),
-            path.join(root, 'sessions', 'walk', 'trail', 'compaction'),
-            path.join(root, 'sessions', 'walk', 'trail', 'memory'),
-            path.join(root, 'sessions', 'walk', 'trail', 'tool_results'),
+            path.join(at, 'live-trail.md'),
+            path.join(at, 'trail'),
+            path.join(at, 'trail', 'compaction'),
+            path.join(at, 'trail', 'memory'),
+            path.join(at, 'trail', 'tool_results'),
             path.join(mem, 'q', 'walk'),
         ]);
         const sessions = ['chat', 'default', 'walk', 'prep'];
@@ -92,6 +101,33 @@ describe('per-session storage', () => {
         put(path.join(real, 'sessions', '.storage-version'), '2');
         assert.deepEqual(sessionsWithStorage(real), ['chat', 'walk'], 'folders only');
         assert.deepEqual(sessionsWithStorage(path.join(real, 'none')), []);
+    });
+
+    test('SS-7: the old place', () => {
+        const root = tmp();
+        // A session whose folder is at the old place: read and written there.
+        const old = path.join(root, 'sessions', 'walk');
+        put(path.join(old, 'live-trail.md'), 'old');
+        assert.equal(sessionRoot(root, 'walk'), old);
+        assert.equal(sessionLiveTrailFile(root, 'walk'), path.join(old, 'live-trail.md'));
+        assert.equal(sessionTrailFolder(root, 'walk'), path.join(old, 'trail'));
+        // A new session: the new place.
+        assert.equal(sessionRoot(root, 'fresh'), path.join(root, HOST, 'sessions', 'fresh'));
+        fs.mkdirSync(sessionRoot(root, 'fresh'), { recursive: true });
+        // Both places: the new place wins.
+        fs.mkdirSync(path.join(root, 'sessions', 'fresh'), { recursive: true });
+        assert.equal(sessionRoot(root, 'fresh'), path.join(root, HOST, 'sessions', 'fresh'));
+        fs.mkdirSync(path.join(root, HOST, 'sessions', 'walk'), { recursive: true });
+        assert.equal(sessionRoot(root, 'walk'), path.join(root, HOST, 'sessions', 'walk'), 'once the new place has it');
+        // The listing names both places' sessions, each once.
+        put(path.join(root, 'sessions', 'only-old', 'live-trail.md'));
+        assert.deepEqual(sessionsWithStorage(root), ['fresh', 'only-old', 'walk']);
+        // Removing removes both places.
+        removeSessionStorage(root, tmp(), 'q', 'walk');
+        assert.equal(fs.existsSync(old), false);
+        assert.equal(fs.existsSync(path.join(root, HOST, 'sessions', 'walk')), false);
+        assert.deepEqual(sessionsWithStorage(root), ['fresh', 'only-old']);
+        fs.rmSync(root, { recursive: true, force: true });
     });
 
     test('SS-2: tool-result keys are never reused', () => {
@@ -246,11 +282,16 @@ describe('per-session storage', () => {
             try { execFileSync('git', ['check-ignore', '-q', rel], { cwd: repo }); return true; } catch { return false; }
         };
         const s = 'quests/q/history/sessions/walk';
-        for (const rel of [`${s}/compacted_history.md`, `${s}/history.json`, `${s}/history.md`, `${s}/live-trail.md`, 'memory/q/walk/facts.md']) {
+        const h = 'quests/q/history/mbp';
+        for (const rel of [`${s}/compacted_history.md`, `${s}/history.json`, `${s}/history.md`, 'memory/q/walk/facts.md',
+            `${h}/walk.session.json`, 'quests/q/history/trail.mbp.md', 'quests/q/qa.mbp.q.md', 'quests/q/overview.q.md']) {
             assert.equal(ignored(rel), false, `tracked: ${rel}`);
         }
         for (const rel of [`${s}/rawTurns.json`, `${s}/compaction_rounds.json`, `${s}/iteration.json`, `${s}/q.anthropic.prompts.md`,
-            `${s}/q.anthropic.answers.md`, `${s}/trail/x.userprompt.md`, `${s}/trail/tool_results/t1.json`, 'quests/q/history/sessions/.storage-version']) {
+            `${s}/q.anthropic.answers.md`, `${s}/trail/x.userprompt.md`, `${s}/trail/tool_results/t1.json`, 'quests/q/history/sessions/.storage-version',
+            `${s}/live-trail.md`, `${h}/sessions/walk/live-trail.md`, `${h}/sessions/walk/rawTurns.json`, `${h}/sessions/walk/session-todos.todo.yaml`,
+            'quests/q/history/compacted_history.md', 'quests/q/history/history.json', 'quests/q/history/history.md',
+            'quests/q/history/history.watermark.json', 'quests/q/quest_refresh.q.md']) {
             assert.equal(ignored(rel), true, `ignored: ${rel}`);
         }
     });

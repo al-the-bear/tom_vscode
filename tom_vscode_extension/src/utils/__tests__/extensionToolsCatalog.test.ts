@@ -58,7 +58,7 @@ describe('the overview of editors and pages', () => {
         for (const g of TOOL_GROUPS) { assert.ok(toolsOfGroup(g.id).length > 0, `${g.label} has entries`); }
         assert.deepEqual(toolsOfGroup('prompts').map((t) => t.id),
             ['promptTemplates', 'queueTemplates', 'reusablePrompts', 'groupPrompts', 'processTemplates', 'assistPrompts', 'aspectSections']);
-        assert.deepEqual(toolsOfGroup('queue').map((t) => t.id), ['promptQueue', 'timedRequests', 'providerSdks', 'telegram', 'mcpServer']);
+        assert.deepEqual(toolsOfGroup('queue').map((t) => t.id), ['promptQueue', 'recentPrompts', 'timedRequests', 'providerSdks', 'telegram', 'mcpServer']);
         assert.ok(['process', 'processBranching', 'chatVariables', 'memory', 'createQuest', 'setupWorkspaceFolder']
             .every((id) => toolById(id)?.group === 'quest'));
         assert.ok(['rawTrailViewer', 'summaryTrailViewer', 'mdBrowser', 'openConfig', 'openSettings', 'quickReference', 'help', 'dartBinariesHelp', 'statusPage']

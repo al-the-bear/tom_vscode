@@ -1,29 +1,47 @@
 /**
- * Markdown shapes for the **Questions** journal — `questions.<quest>.md`, one
- * entry per resolved ask-the-user call, shown in the @WS panel's Documentation section.
+ * What the ask paths hand the Q&A journal (utils/qaJournal.ts,
+ * services/qaJournal.ts): a question when it is asked
+ * ({@link QuestionAskedEntry}) and the exchange when it resolves
+ * ({@link QuestionLogEntry}), and the reader of the old questions journal.
  *
- * The ask tools block a running prompt until the user answers, and until now
- * that exchange left no trace: the question was in the model's tool call and
- * the answer in the tool result, both buried in the per-call trail. The journal
- * makes "what was I asked, and what did I say" a file you can read.
+ * Old place: `questions.<quest>.md`, the single questions journal every host
+ * appended to before the per-host Q&A journal. It is no longer written; the
+ * Q&A page still reads an existing one ({@link parseLegacyQuestionsJournal}),
+ * its entries of unknown host. The format migration removes it.
  *
- * Kept free of `vscode` and `fs` so the shape is pinned down by unit tests; the
- * appender (`services/questionsLog.ts`) supplies the paths and the I/O.
- *
- * Timestamps are ISO/UTC, matching `trailService`. The alternative — local time
- * — reads better but the `_ai` folder is shared across a four-machine fleet in
- * different zones, and a journal whose entries are only ordered per-host is not
- * a journal.
+ * vscode-free and pure.
  */
 
-/** One resolved ask, as it will be written to the journal. */
-export interface QuestionLogEntry {
-    /** Tool that asked — `tomAi_askUser`, `tomAi_askUserPicker`, or the intercepted Agent SDK `AskUserQuestion`. */
+import type { QaItem } from './qaJournal';
+
+/** A question as it is put to the user (written when it is asked). */
+export interface QuestionAskedEntry {
+    /** Tool that asks — `tomAi_askUser`, `tomAi_askUserPicker`, `tomAi_askInMdBrowser`, … */
     readonly tool: string;
-    /** Context line shown above the questions, used as the entry heading. */
+    /** The ask's own id; the answer names the same id. */
+    readonly requestId: string;
     readonly title?: string;
     /** The questions put to the user, in order. May be empty for the picker. */
     readonly questions: readonly string[];
+    /** The choices offered (button / item labels). */
+    readonly choices?: readonly string[];
+    /** Epoch ms the ask opened. */
+    readonly askedAt: number;
+    readonly run?: string;
+    readonly session?: string;
+    readonly queueItemId?: string;
+}
+
+/** One resolved ask, as the Q&A journal records it. */
+export interface QuestionLogEntry {
+    /** Tool that asked — `tomAi_askUser`, `tomAi_askUserPicker`, or the intercepted Agent SDK `AskUserQuestion`. */
+    readonly tool: string;
+    /** Context line shown above the questions. */
+    readonly title?: string;
+    /** The questions put to the user, in order. May be empty for the picker. */
+    readonly questions: readonly string[];
+    /** The choices offered (button / item labels). */
+    readonly choices?: readonly string[];
     /** What came back, verbatim — including a timeout's fallback prompt. */
     readonly answer: string;
     /** What resolved the ask: `vscode`, `telegram`, `timeout`, `cancel`, … */
@@ -34,74 +52,76 @@ export interface QuestionLogEntry {
     readonly answeredAt: number;
     /** The process run the asking turn worked in (vscimpb81); `default` when absent. */
     readonly run?: string;
+    /** The id of the {@link QuestionAskedEntry} written when it was asked, when one was. */
+    readonly requestId?: string;
+    readonly session?: string;
+    readonly queueItemId?: string;
 }
 
-/** `2m 24s` — how long the prompt sat blocked. Clamped at zero. */
-export function formatWaited(ms: number): string {
-    const total = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
-    const seconds = total % 60;
-    const minutes = Math.floor(total / 60) % 60;
-    const hours = Math.floor(total / 3600);
-    if (hours > 0) { return `${hours}h ${minutes}m ${seconds}s`; }
-    if (minutes > 0) { return `${minutes}m ${seconds}s`; }
-    return `${seconds}s`;
-}
-
-/** ISO stamp, or the epoch for a value that is not a usable time. */
-function stamp(ms: number): string {
-    return new Date(Number.isFinite(ms) ? ms : 0).toISOString();
-}
+const ENTRY = /^## (\S+) — (.*)$/;
 
 /**
- * Block-quote the answer. It is verbatim user text and may carry its own `##`
- * headings; inlined, one of those would be indistinguishable from the heading
- * of the next journal entry.
+ * The entries of an old `questions.<quest>.md` (old place, read-only), as
+ * questions with their answers, of unknown host. An entry is a `## <ISO> —
+ * <title>` heading, the `Tool` / `Run` / `Answered` bullets, a numbered
+ * `### Questions` list and the quoted `### Answer`.
  */
-function quote(answer: string): string {
-    if (!answer.trim()) { return '> _(no answer text)_'; }
-    return answer
-        .replace(/\r\n/g, '\n')
-        .replace(/\s+$/, '')
-        .split('\n')
-        .map(line => (line.length > 0 ? `> ${line}` : '>'))
-        .join('\n');
-}
-
-/**
- * One appendable journal entry, ending in a single trailing newline.
- *
- * Every resolution is recorded, not just the answered ones — a timeout or a
- * cancel is exactly the exchange worth reviewing later, and the fallback prompt
- * a timeout produced *is* what the model received.
- */
-export function formatQuestionLogEntry(e: QuestionLogEntry): string {
-    const heading = e.title?.trim() ? e.title.trim() : e.tool;
-    const lines = [
-        `## ${stamp(e.askedAt)} — ${heading}`,
-        '',
-        `- **Tool:** \`${e.tool}\``,
-        `- **Run:** ${e.run ?? 'default'}`,
-        `- **Answered:** ${stamp(e.answeredAt)} via ${e.source}, after ${formatWaited(e.answeredAt - e.askedAt)}`,
-        '',
-    ];
-    if (e.questions.length > 0) {
-        lines.push('### Questions', '');
-        e.questions.forEach((q, i) => lines.push(`${i + 1}. ${q}`));
-        lines.push('');
+export function parseLegacyQuestionsJournal(text: string): QaItem[] {
+    const items: QaItem[] = [];
+    let current: QaItem | undefined;
+    let part: 'head' | 'questions' | 'answer' = 'head';
+    let answer: string[] = [];
+    const finish = (): void => {
+        if (current?.reply) { current.reply.text = answer.join('\n').replace(/\n+$/, ''); }
+        answer = [];
+    };
+    text.replace(/\r\n/g, '\n').split('\n').forEach((line, index) => {
+        const head = ENTRY.exec(line);
+        if (head && Number.isFinite(Date.parse(head[1]))) {
+            finish();
+            current = {
+                id: `legacy-${index + 1}`,
+                kind: 'question',
+                time: new Date(Date.parse(head[1])).toISOString(),
+                host: '',
+                legacy: true,
+                title: head[2].trim(),
+                questions: [],
+            };
+            items.push(current);
+            part = 'head';
+            return;
+        }
+        if (!current) { return; }
+        if (line === '### Questions') { part = 'questions'; return; }
+        if (line === '### Answer') {
+            part = 'answer';
+            current.reply = current.reply ?? { id: `${current.id}-a`, time: current.time, host: '', text: '' };
+            return;
+        }
+        if (part === 'head') {
+            const tool = /^- \*\*Tool:\*\* `([^`]*)`/.exec(line);
+            if (tool) { current.tool = tool[1]; return; }
+            const run = /^- \*\*Run:\*\* (.+)$/.exec(line);
+            if (run) { current.run = run[1].trim(); return; }
+            const answered = /^- \*\*Answered:\*\* (\S+) via ([^,]+)/.exec(line);
+            if (answered) {
+                const t = Date.parse(answered[1]);
+                current.reply = { id: `${current.id}-a`, time: Number.isFinite(t) ? new Date(t).toISOString() : current.time, host: '', text: '', source: answered[2].trim() };
+            }
+            return;
+        }
+        if (part === 'questions') {
+            const q = /^\d+\. (.*)$/.exec(line);
+            if (q) { current.questions!.push(q[1]); }
+            else if (line.trim() && current.questions!.length) { current.questions![current.questions!.length - 1] += `\n${line}`; }
+            return;
+        }
+        if (line.startsWith('>')) { answer.push(line === '>' ? '' : line.replace(/^> ?/, '')); }
+    });
+    finish();
+    for (const item of items) {
+        if (item.reply && item.reply.text === '_(no answer text)_') { item.reply.text = ''; }
     }
-    lines.push('### Answer', '', quote(e.answer), '');
-    return lines.join('\n');
-}
-
-/** Preamble written once, when the journal file is first created. */
-export function questionsLogHeader(questId: string): string {
-    return [
-        `# Questions — ${questId}`,
-        '',
-        'Every question the ask-the-user tools put to you, with the answer that',
-        'came back — including the ones resolved by a timeout or a cancel.',
-        'Appended to: the newest entry is at the bottom.',
-        '',
-        '',
-    ].join('\n');
+    return items;
 }

@@ -17,6 +17,8 @@
  *   QM-6 remember / forget (the Anthropic handler's keyword triggers) write `facts.md` of the quest folder; forget
  *        also takes the fact out of this host's candidates and leaves another host's candidates file alone
  *   QM-7 the memory placeholder hands the send's session to the injection (`memorySession`)
+ *   QM-8 the candidates file is named by the host slug; this host's file under the old name (the host name) is read
+ *        with it, merged into it on the next write and then deleted
  */
 
 import test, { beforeEach, describe } from 'node:test';
@@ -33,11 +35,12 @@ import { candidatesFileName, candidatesHeading, parseCandidateText } from '../qu
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 import { resolveVariables } from '../../utils/variableResolver.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 
 TomAiConfiguration.init({} as never);
 
 const QUEST = 'memory_test_quest';
-const OWN = candidatesFileName(currentMemoryHost());
+const OWN = candidatesFileName(hostSlugOf());
 const OTHER = 'candidates.some-other-host.md';
 
 let root: string;
@@ -264,5 +267,29 @@ describe('quest memory in the quest folder', () => {
         assert.equal(walk, '## Memory\n\n### quest/facts.md\nnew place fact\n\n### quest/facts.md (session walk)\nold walk fact\n');
         const none = resolveVariables('${memory-quest}', { values: { quest: QUEST }, includeEditor: false });
         assert.match(none, /### quest\/facts\.md\nnew place fact\n\n### quest\/facts\.md \(session default@default\)\nold default fact\n$/);
+    });
+
+    test('QM-8: the candidates file under the host slug, the old name merged', () => {
+        const before = svc.legacyCandidatesHost;
+        try {
+            svc.legacyCandidatesHost = 'Old-Host.example.org';
+            const old = 'candidates.Old-Host.example.org.md';
+            assert.equal(svc.candidatesFile(), `candidates.${hostSlugOf()}.md`);
+            assert.equal(svc.legacyCandidatesFile(), old);
+            put(path.join(memoryDir(), old), '- 2026-01-01T00:00:00.000Z [Old-Host] {session=chat file=facts.md} An old candidate.\n');
+            // Read with the slug-named file before any write.
+            assert.deepEqual(svc.candidatesFor('facts.md', QUEST).map((e) => parseCandidateText(e.text).text), ['An old candidate.']);
+            assert.match(svc.existingMemoryForExtraction('facts.md', QUEST), /An old candidate\./);
+            // The next write merges it and deletes the old file.
+            svc.addCandidates('- A new candidate.', { session: 'work', targetFile: 'facts.md' }, QUEST);
+            assert.equal(fs.existsSync(path.join(memoryDir(), old)), false);
+            const merged = parseMemoryEntries(fs.readFileSync(path.join(memoryDir(), OWN), 'utf-8')).map((e) => parseCandidateText(e.text).text);
+            assert.deepEqual(merged, ['A new candidate.', 'An old candidate.']);
+            // The same name as the slug: no old file.
+            svc.legacyCandidatesHost = hostSlugOf();
+            assert.equal(svc.legacyCandidatesFile(), undefined);
+        } finally {
+            svc.legacyCandidatesHost = before;
+        }
     });
 });

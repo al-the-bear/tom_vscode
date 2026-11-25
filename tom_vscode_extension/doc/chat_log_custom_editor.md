@@ -6,13 +6,13 @@ This document supersedes the earlier "full custom editor" design. That spec was 
 
 ## 1. User experience
 
-- **Open Live Trail** icon button in the Anthropic chat panel action bar, next to "Open session history". Click to open the panel's session's live trail, `_ai/quests/<quest>/history/sessions/<session>/live-trail.md`, in the MD Browser.
+- **Open Live Trail** icon button in the Anthropic chat panel action bar, next to "Open session history". Click to open the panel's session's live trail, `_ai/quests/<quest>/history/<host>/sessions/<session>/live-trail.md`, in the MD Browser.
 - The MD Browser re-renders every time the file changes on disk (new feature). Output appears progressively as the turn runs: user prompt → thinking → tool_use → tool_result → assistant text → done.
 - The file holds the **last 5 prompt blocks**. When a new prompt starts, the oldest block is removed from the top. File never grows unbounded.
 
 ## 2. File layout — `live-trail.md`
 
-Stored at `_ai/quests/<quest>/history/sessions/<session>/live-trail.md` (src/services/sessionStorage.ts; tracked in git). One block per user prompt, newest at the bottom. Example end-state (outer fence uses tildes to avoid collision with the inner backtick fences the example contains):
+Stored at `_ai/quests/<quest>/history/<host>/sessions/<session>/live-trail.md` (src/services/sessionStorage.ts; machine-local). One block per user prompt, newest at the bottom. Example end-state (outer fence uses tildes to avoid collision with the inner backtick fences the example contains):
 
 ~~~markdown
 <!-- tom-ai live-trail -->
@@ -197,12 +197,12 @@ New icon button in the Anthropic chat-panel action bar:
 </button>
 ~~~
 
-Placed between "Open session history" and "Memory Panel". Action routes to a new `_openLiveTrailMarkdown()` method on the chat-panel handler that opens the panel's session's `_ai/quests/<quest>/history/sessions/<session>/live-trail.md` via `tomAi.openInMdBrowser`.
+Placed between "Open session history" and "Memory Panel". Action routes to a new `_openLiveTrailMarkdown()` method on the chat-panel handler that opens the panel's session's `_ai/quests/<quest>/history/<host>/sessions/<session>/live-trail.md` via `tomAi.openInMdBrowser`.
 
 ## 8. What this ships and what it doesn't
 
 **Ships (this change):**
-- Anthropic paths (direct + Agent SDK) emit events to the live trail of the session the prompt runs in, `_ai/quests/<quest>/history/sessions/<session>/live-trail.md`.
+- Anthropic paths (direct + Agent SDK) emit events to the live trail of the session the prompt runs in, `_ai/quests/<quest>/history/<host>/sessions/<session>/live-trail.md`.
 - Rolling 5-block window.
 - MD Browser auto-reloads the currently-open file on disk change (benefits every MD the browser displays, not just the live trail).
 - Chat-panel "Open Live Trail" button.

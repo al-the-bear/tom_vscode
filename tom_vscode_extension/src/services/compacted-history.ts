@@ -232,6 +232,22 @@ function normaliseBody(s: string): string {
     );
 }
 
+/**
+ * The blocks after a compaction pass answered `rawLlmOutput`. Output in the
+ * block format replaces the set (stamped against `prior` by
+ * {@link diffAndStamp}); any other non-empty output (a template that writes
+ * prose) is added as one new block. Empty output leaves `prior` as it is.
+ */
+export function applyCompactionOutput(prior: Block[], rawLlmOutput: string, nowIso: string = new Date().toISOString()): Block[] {
+    const trimmed = rawLlmOutput.trim();
+    if (!trimmed) { return prior; }
+    const parsed = parseBlocks(trimmed);
+    if (parsed.length > 0) {
+        return dedupAndSort(diffAndStamp(prior, parsed.map((b) => ({ created: b.created, body: b.body })), nowIso));
+    }
+    return dedupAndSort([...prior, { created: nowIso, modified: nowIso, body: trimmed }]);
+}
+
 // ---------------------------------------------------------------------------
 // Concat bodies (for outgoing-message `${compactedSummary}` placeholder)
 // ---------------------------------------------------------------------------

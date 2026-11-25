@@ -645,7 +645,7 @@
     },
     "followUps": {
       "type": "array",
-      "description": "Follow-up processes (vscimpb47): where the quest may continue when this level ends — another process (or this one) at a named phase and step, the first ones by default. Offered as an option of the decision at the end of the level (a step with follow-ups ends at a decision; the process's at the end of its last phase); the user picks it, the position switches there in the same run, its chat variables kept, and the switch is recorded (state `origins`, the decisions journal). The validator checks that the process, phase and step exist.",
+      "description": "Follow-up processes (vscimpb47): where the quest may continue when this level ends — another process (or this one) at a named phase and step, the first ones by default. Offered as an option of the decision at the end of the level (a step with follow-ups ends at a decision; the process's at the end of its last phase); the user picks it, the position switches there in the same run, its chat variables kept, and the switch is recorded (state `origins`, the Q&A journal). The validator checks that the process, phase and step exist.",
       "items": {
         "type": "object",
         "additionalProperties": false,

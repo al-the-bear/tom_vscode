@@ -4,8 +4,8 @@
  * A session todo belongs to ONE session: the small steps an agent notes for
  * itself while carrying out a quest todo, in the flow of that session (a
  * quest todo is a quest todo; this is not where they go). Each session keeps
- * its own file, `history/sessions/<session>/session-todos.todo.yaml`
- * (services/sessionTodoFiles.ts), unversioned and deleted with the session.
+ * its own file, `history/<host>/sessions/<session>/session-todos.todo.yaml`
+ * (or its old place `history/sessions/<session>/`; services/sessionTodoFiles.ts), unversioned and deleted with the session.
  *
  * Every method takes the session it works on; without one it is the session
  * the current tool call runs in (the active tool trail's), else the session

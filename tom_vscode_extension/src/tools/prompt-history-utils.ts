@@ -1,10 +1,15 @@
 /**
  * Pure helpers for the prompt-history tools.
  *
- * Reads the summary trail files (`<quest>.<subsystem>.prompts.md` and
- * `<quest>.<subsystem>.answers.md`) under `_ai/quests/<quest>/history/` — the
- * same files `loadLastNTrailExchanges` uses to rebuild history when
- * the snapshot is missing. Pairs prompt + answer by `requestId`.
+ * The Anthropic sessions' prompt/answer pairs are this host's compact trail
+ * `_ai/quests/<quest>/history/trail.<host>.md` (src/services/hostTrail.ts),
+ * one turn per pair, listed per session as subsystem `anthropic:<session>`.
+ * OLD PLACE (until the `_ai` format migration): a session's summary trail pair
+ * of an older build (`history/sessions/<session>/<quest>.anthropic.{prompts,answers}.md`)
+ * adds its turns older than the host trail's oldest turn, merged by request
+ * id without duplicates. The other subsystems keep their summary pairs
+ * (`<quest>.<subsystem>.prompts.md` / `.answers.md` in `history/`), paired
+ * prompt + answer by `requestId`.
  *
  * No vscode dependency — every function takes the workspace root (or
  * the quest folder) explicitly so it can be unit-tested against a
@@ -12,6 +17,8 @@
  */
 
 import { sessionSummaryFile, sessionsWithStorage } from '../services/sessionStorage';
+import { readHostTrail, type HostTrailTurn } from '../services/hostTrail';
+import { hostSlugOf } from '../utils/hostSlug';
 import { subsystemInSessions } from '../utils/sessionSelection';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -219,9 +226,10 @@ function previewSlice(body: string, max: number): string {
  *   - `localllm-<configName>`
  *   - `lm-api-<modelName>`
  *
- * Anthropic pairs are per session (src/services/sessionStorage.ts):
+ * OLD PLACE: an Anthropic session's pair of an older build,
  * `history/sessions/<session>/${quest}.anthropic.{prompts,answers}.md`, listed
  * as subsystem `anthropic:<session>`; the filter `anthropic` matches them all.
+ * The host trail's turns are added by {@link collectPairs}.
  *
  * `findSubsystemFiles` looks for every matching pair belonging to a quest.
  * Filters by subsystem prefix if provided (so callers can ask for just
@@ -262,7 +270,7 @@ export function findSubsystemFiles(
             if (subsystem) { answersBySubsystem.set(subsystem, path.join(trailFolder, name)); }
         }
     }
-    // Every session's own pair.
+    // OLD PLACE: every session's own pair of an older build.
     for (const session of sessionsWithStorage(trailFolder)) {
         for (const [kind, map] of [['prompts', promptsBySubsystem], ['answers', answersBySubsystem]] as const) {
             const file = sessionSummaryFile(trailFolder, session, questId, 'anthropic', kind);
@@ -302,6 +310,80 @@ export function matchesSubsystemFilter(subsystem: string, filter: string): boole
 // Full-pair listing/fetching helpers (call sites use these directly)
 // ---------------------------------------------------------------------------
 
+/** A pair with its bodies, as both tools collect them. */
+type CollectedPair = PromptPairFull;
+
+/** One host trail turn as a pair of subsystem `anthropic:<session>`. */
+function pairOfTurn(turn: HostTrailTurn, sequence: number, questId: string, previewChars: number): CollectedPair {
+    return {
+        index: 0,
+        requestId: turn.id,
+        timestamp: turn.time,
+        sequence,
+        subsystem: `anthropic:${turn.session}`,
+        questId,
+        promptChars: turn.prompt.length,
+        answerChars: turn.answer.length,
+        hasAnswer: true,
+        promptPreview: previewSlice(turn.prompt, previewChars),
+        answerPreview: previewSlice(turn.answer, previewChars),
+        promptBody: turn.prompt,
+        answerBody: turn.answer,
+    };
+}
+
+/**
+ * Every pair of the quest the filters let through, newest first (by
+ * timestamp, then sequence), indexed in that order: this host's trail turns
+ * and the summary pairs of the files. OLD PLACE: a session's pair file adds
+ * only its turns older than the host trail's oldest turn whose request id the
+ * host trail does not have.
+ */
+function collectPairs(
+    questFolder: string,
+    questId: string,
+    options: { subsystem?: string; sessions?: readonly string[]; previewChars?: number },
+): { subsystems: string[]; pairs: CollectedPair[] } {
+    const previewChars = Math.max(0, options.previewChars ?? 120);
+    const keep = (subsystem: string): boolean =>
+        (!options.subsystem || matchesSubsystemFilter(subsystem, options.subsystem)) && subsystemInSessions(subsystem, options.sessions);
+    const turns = readHostTrail(questFolder, hostSlugOf());
+    const hostIds = new Set(turns.map((t) => t.id));
+    const oldest = turns.reduce<string | undefined>((min, t) => (min === undefined || t.time < min ? t.time : min), undefined);
+    const pairs: CollectedPair[] = [];
+    const subsystems = new Set<string>();
+    turns.forEach((t, i) => {
+        const p = pairOfTurn(t, i + 1, questId, previewChars);
+        if (!keep(p.subsystem)) { return; }
+        subsystems.add(p.subsystem);
+        pairs.push(p);
+    });
+    const files = findSubsystemFiles(questFolder, questId, options.subsystem).filter((f) => subsystemInSessions(f.subsystem, options.sessions));
+    for (const f of files) {
+        const prompts = readTrailFile(f.promptsFile);
+        const answers = readTrailFile(f.answersFile);
+        // OLD PLACE: a session pair only adds the turns before the host trail's.
+        const oldPlace = f.subsystem.startsWith('anthropic:');
+        for (const summary of pairPromptsAndAnswers(prompts, answers, f.subsystem, questId, previewChars)) {
+            if (oldPlace && (hostIds.has(summary.requestId) || (oldest !== undefined && summary.timestamp >= oldest))) { continue; }
+            pairs.push(buildFullPair(summary, prompts, answers));
+            subsystems.add(f.subsystem);
+        }
+    }
+    pairs.sort((a, b) => {
+        if (a.timestamp !== b.timestamp) { return b.timestamp.localeCompare(a.timestamp); }
+        return b.sequence - a.sequence;
+    });
+    pairs.forEach((p, i) => { p.index = i; });
+    return { subsystems: [...subsystems].sort(), pairs };
+}
+
+/** A pair without its bodies. */
+function summaryOf(p: CollectedPair): PromptPair {
+    const { promptBody: _p, answerBody: _a, ...summary } = p;
+    return summary;
+}
+
 export interface ListResult {
     questId: string;
     subsystemsScanned: string[];
@@ -330,28 +412,12 @@ export function listPromptPairs(
 ): ListResult {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 500));
     const offset = Math.max(0, options.offset ?? 0);
-    const previewChars = Math.max(0, options.previewChars ?? 120);
-    const files = findSubsystemFiles(questFolder, questId, options.subsystem).filter((f) => subsystemInSessions(f.subsystem, options.sessions));
-    // Build pairs per subsystem so the index/sequence per file is meaningful.
-    const all: PromptPair[] = [];
-    for (const f of files) {
-        const promptEntries = readTrailFile(f.promptsFile);
-        const answerEntries = readTrailFile(f.answersFile);
-        all.push(...pairPromptsAndAnswers(promptEntries, answerEntries, f.subsystem, questId, previewChars));
-    }
-    // Sort newest-first by timestamp (string compare on ISO-8601 = chronological);
-    // tiebreak by sequence within the same subsystem.
-    all.sort((a, b) => {
-        if (a.timestamp !== b.timestamp) { return b.timestamp.localeCompare(a.timestamp); }
-        return b.sequence - a.sequence;
-    });
-    // Re-stamp index after merging so callers can refer back by position.
-    all.forEach((p, i) => { p.index = i; });
-    const slice = all.slice(offset, offset + limit);
+    const { subsystems, pairs } = collectPairs(questFolder, questId, options);
+    const slice = pairs.slice(offset, offset + limit).map(summaryOf);
     return {
         questId,
-        subsystemsScanned: files.map((f) => f.subsystem),
-        totalAvailable: all.length,
+        subsystemsScanned: subsystems,
+        totalAvailable: pairs.length,
         returned: slice.length,
         offset,
         limit,
@@ -387,62 +453,25 @@ export function getPromptPairs(
         count?: number;
     } = {},
 ): GetResult {
-    const files = findSubsystemFiles(questFolder, questId, options.subsystem).filter((f) => subsystemInSessions(f.subsystem, options.sessions));
-    // Parse everything up front so we can resolve both id-based and
-    // index-based lookups from the same canonical ordering.
-    const perSubsystem: Array<{ subsystem: string; prompts: TrailEntry[]; answers: TrailEntry[]; summary: PromptPair[] }> = [];
-    for (const f of files) {
-        const prompts = readTrailFile(f.promptsFile);
-        const answers = readTrailFile(f.answersFile);
-        const summary = pairPromptsAndAnswers(prompts, answers, f.subsystem, questId);
-        perSubsystem.push({ subsystem: f.subsystem, prompts, answers, summary });
-    }
-    // Merged + sorted newest-first by timestamp (same ordering as listPromptPairs).
-    const allSummaries: Array<PromptPair & { _subsystem: string }> = [];
-    for (const s of perSubsystem) {
-        for (const summary of s.summary) {
-            allSummaries.push({ ...summary, _subsystem: s.subsystem });
-        }
-    }
-    allSummaries.sort((a, b) => {
-        if (a.timestamp !== b.timestamp) { return b.timestamp.localeCompare(a.timestamp); }
-        return b.sequence - a.sequence;
-    });
-    allSummaries.forEach((p, i) => { p.index = i; });
-
-    const requested: Array<PromptPair & { _subsystem: string }> = [];
+    const { subsystems, pairs } = collectPairs(questFolder, questId, options);
+    const requested: PromptPairFull[] = [];
     const notFound: string[] = [];
-
     if (options.requestIds && options.requestIds.length > 0) {
-        const wanted = new Set(options.requestIds);
-        const byId = new Map<string, PromptPair & { _subsystem: string }>();
-        for (const s of allSummaries) {
-            if (wanted.has(s.requestId) && !byId.has(s.requestId)) {
-                byId.set(s.requestId, s);
-            }
-        }
+        const byId = new Map<string, CollectedPair>();
+        for (const p of pairs) { if (!byId.has(p.requestId)) { byId.set(p.requestId, p); } }
         for (const id of options.requestIds) {
             const hit = byId.get(id);
-            if (hit) { requested.push(hit); }
-            else { notFound.push(id); }
+            if (hit) { requested.push(hit); } else { notFound.push(id); }
         }
     } else {
         const start = Math.max(0, options.index ?? 0);
         const count = Math.max(1, Math.min(options.count ?? 1, 50));
-        requested.push(...allSummaries.slice(start, start + count));
+        requested.push(...pairs.slice(start, start + count));
     }
-
-    const fulls: PromptPairFull[] = [];
-    for (const r of requested) {
-        const bucket = perSubsystem.find((s) => s.subsystem === r._subsystem);
-        if (!bucket) { continue; }
-        fulls.push(buildFullPair(r, bucket.prompts, bucket.answers));
-    }
-
     return {
         questId,
-        subsystemsScanned: files.map((f) => f.subsystem),
+        subsystemsScanned: subsystems,
         notFoundRequestIds: notFound,
-        pairs: fulls,
+        pairs: requested,
     };
 }

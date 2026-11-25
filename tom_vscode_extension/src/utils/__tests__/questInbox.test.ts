@@ -12,7 +12,8 @@
  *   QB-6 conversion: the target's defaults for what the sender left unset; a given profile means transport
  *        anthropic; ${senderQuest} filled in; an unknown profile or a missing session makes the item an error
  *   QB-7 a new session: refused without its base, or when the name is taken; named or temporary; its profile is
- *        the one given, else the base's (inherited), else the item's
+ *        the one given, else the base's (inherited), else the item's; its trail and memory setting round-trips and
+ *        reaches the session to create (unset: createSession takes the base's)
  *   QB-8 a file written while no window ran is found by the listing a starting window makes
  *   QB-9 runs (vscimpb71): the item's run, the sender's run, its notification's quest and run and the item it reports
  *        on round-trip; the conversion queues it in its run, fills ${senderRun}; a run the quest does not have makes
@@ -70,10 +71,11 @@ describe('queue inbox', () => {
             anthropicProfileId: 'opus-5-5-direct',
             doneNotificationPrompt: 'Tell ${senderQuest}: ${itemOutcome}',
             pauseAfter: true,
-            newSession: { basedOn: 'prep', name: 'walk', lifetime: 'per-prompt', profile: 'opus-5-5-agent-sdk-mm' },
+            newSession: { basedOn: 'prep', name: 'walk', lifetime: 'per-prompt', profile: 'opus-5-5-agent-sdk-mm', contributesToTrailAndMemory: false },
             from: FROM,
         };
         assert.deepEqual(parseInboxItem(serializeInboxItem(full)), { ok: true, item: full });
+        assert.match(serializeInboxItem(full), /contributes-to-trail-and-memory: false/);
         const minimal: InboxItem = { text: 'Hello', from: FROM };
         const yaml = serializeInboxItem(minimal);
         assert.deepEqual(parseInboxItem(yaml), { ok: true, item: minimal });
@@ -192,6 +194,10 @@ describe('queue inbox', () => {
 
         const fromItem = planInboxConversion({ text: 'x', anthropicProfileId: 'p-item', newSession: { basedOn: 'prep', name: 'walk' }, from: FROM }, ctx(base()));
         assert.equal(fromItem.createSession?.profile, 'p-item', "a base without one: the item's");
+
+        const quiet = planInboxConversion({ text: 'x', newSession: { basedOn: 'prep', name: 'quiet', contributesToTrailAndMemory: false }, from: FROM }, ctx(base()));
+        assert.equal(quiet.createSession?.contributesToTrailAndMemory, false, 'the setting given');
+        assert.equal(named.createSession?.contributesToTrailAndMemory, undefined, 'unset: the base\'s (createSession)');
 
         const temporary = planInboxConversion({ text: 'x', newSession: { basedOn: 'prep' }, from: FROM }, ctx(base()));
         assert.equal(temporary.createSession?.name, 'tmp-261027-123456-t1');

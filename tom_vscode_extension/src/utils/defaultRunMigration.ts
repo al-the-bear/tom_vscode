@@ -22,7 +22,7 @@
  *   - the default run's staged / pending queue items of the process (a Proceed's
  *     prompt and marker, a process item, an item in one of its sessions) move
  *     to the new run, their sessions renamed;
- *   - the quest's decisions journal records the move.
+ *   - the quest's Q&A journal records the move.
  *
  * Idempotent: a `default` without a process is left alone. vscode-free.
  */
@@ -34,7 +34,8 @@ import { parse as parseYaml, parseDocument, stringify } from 'yaml';
 import { EMPTY_PROCESS_STATE, PROCESS_SUBJECT_VARIABLE, parseProcessStateStack, parseProcessYaml, type ProcessDefinition, type ProcessSessionSpec } from './processDefinition';
 import { runStateFileName } from './processRuns';
 import { runSessionName } from './runSessions';
-import { decisionsJournalHeader } from './decisionsJournalFormat';
+import { appendQaBlocks, processDecisionBlock } from './qaJournal';
+import { hostSlugOf } from './hostSlug';
 
 /** What one quest's move did (for the migration's listing and the tests). */
 export interface DefaultRunMove {
@@ -254,10 +255,8 @@ export function migrateDefaultRunProcess(ctx: DefaultRunMigrationContext): Defau
         }
     }
 
-    // 5. The decisions journal.
+    // 5. The Q&A journal (this host's).
     if (apply) {
-        const journal = path.join(questFolder, `decisions.${quest}.md`);
-        const head = fs.existsSync(journal) ? '' : decisionsJournalHeader(quest);
         const lines = [
             `## ${now.toISOString()} — the default run's process moved into run ${run}`,
             '',
@@ -268,8 +267,8 @@ export function migrateDefaultRunProcess(ctx: DefaultRunMigrationContext): Defau
             ...(move.queueItems.length ? [`- **Queue items:** ${move.queueItems.length}`] : []),
             '',
         ];
-        fs.mkdirSync(questFolder, { recursive: true });
-        fs.appendFileSync(journal, `${head}${lines.join('\n')}\n`, 'utf8');
+        const host = hostSlugOf();
+        appendQaBlocks(questFolder, quest, host, [processDecisionBlock(lines.join('\n'), { host, run, now })]);
     }
     return move;
 }

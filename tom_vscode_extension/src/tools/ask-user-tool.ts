@@ -35,7 +35,7 @@ import { SharedToolDefinition } from './shared-tool-registry';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
 import { ChatQuestionsConfig } from '../handlers/chatQuestions-config';
 import { resolveAskTimeoutMs } from '../utils/askTimeout';
-import { QuestionLogEntry } from '../utils/questionsLogFormat';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../utils/questionsLogFormat';
 import {
     ASK_CHOICE_KINDS, MAX_ASK_CHOICES, choiceAnswer, questionText, resolveMoveTarget, validateChoices,
     type AskChoice, type ChoiceContext, type StartOutcome, type MoveOutcome,
@@ -60,11 +60,14 @@ export interface AskUserDeps {
     /** Dismiss the ask UI once any channel (or the timeout) resolves it. */
     onResolve(pending: PendingAsk, source: AskAnswerSource, answer: string): void;
     /**
-     * Append the resolved exchange to the quest's questions journal. Optional
-     * so tests and any non-journalling caller can leave it off; failures are
-     * swallowed — the log is diagnostics, never a reason to lose an answer.
+     * Append the resolved exchange to the quest's Q&A journal (the answer of
+     * the question {@link logAsked} wrote). Optional so tests and any
+     * non-journalling caller can leave it off; failures are swallowed — the
+     * journal is a record, never a reason to lose an answer.
      */
     log?(entry: QuestionLogEntry): void;
+    /** Append the question to the quest's Q&A journal as it is asked. */
+    logAsked?(entry: QuestionAskedEntry): void;
     /** Clock seam for the journal's `answeredAt`. Defaults to `Date.now`. */
     now?(): number;
     /** The quest's process and where it is — what move, branch and subprocess choices are checked against. */
@@ -130,7 +133,10 @@ export async function askUserImpl(deps: AskUserDeps, input: AskUserInput): Promi
             choices: checked.choices,
             timeoutMs,
             fallbackPrompt: cfg.fallbackPrompt,
-            onOpen: deps.onOpen,
+            onOpen: (pending) => {
+                journalAsked(deps, 'tomAi_askUser', pending);
+                deps.onOpen(pending);
+            },
             onResolve: (pending, source, answer) => {
                 journal(deps, now, 'tomAi_askUser', pending, source, answer);
                 deps.onResolve(pending, source, answer);
@@ -180,8 +186,36 @@ export async function choiceClickAnswerAsync(
     return choiceAnswer(choice, undefined, await deps.startNested(choice.kind, choice.target ?? ''));
 }
 
+/** The questions of `pending` as the journal records them, choices at their markers; and every choice offered. */
+function journalQuestions(pending: PendingAsk): { questions: string[]; choices: string[] } {
+    const choices = pending.choices ?? [];
+    return {
+        questions: pending.questions.map((q) => questionText(q, choices)),
+        choices: choices.map((c) => c.label),
+    };
+}
+
+/** Append the question of `pending` to the Q&A journal as it is asked, best-effort. */
+export function journalAsked(deps: Pick<AskUserDeps, 'logAsked'>, tool: string, pending: PendingAsk): void {
+    if (!deps.logAsked) { return; }
+    try {
+        deps.logAsked({
+            tool,
+            requestId: pending.requestId,
+            title: pending.title,
+            ...journalQuestions(pending),
+            askedAt: pending.createdAt,
+            run: pending.run,
+            ...(pending.queueItemId ? { queueItemId: pending.queueItemId } : {}),
+        });
+    } catch {
+        // Diagnostics only — never cost the user the ask.
+    }
+}
+
 /**
- * Append one resolved exchange to the questions journal, best-effort.
+ * Append one resolved exchange to the Q&A journal, best-effort: the answer of
+ * the question {@link journalAsked} wrote (same `requestId`).
  *
  * Shared by both ask tools. It runs *before* the UI callback so a journal that
  * throws cannot be mistaken for a UI failure, and it swallows everything: the
@@ -200,11 +234,14 @@ export function journal(
         deps.log({
             tool,
             title: pending.title,
-            questions: pending.questions.map((q) => questionText(q, pending.choices ?? [])),
+            ...journalQuestions(pending),
             answer,
             source,
             askedAt: pending.createdAt,
             answeredAt: now(),
+            requestId: pending.requestId,
+            run: pending.run,
+            ...(pending.queueItemId ? { queueItemId: pending.queueItemId } : {}),
         });
     } catch {
         // Diagnostics only — never cost the user their answer.
@@ -216,7 +253,7 @@ export function journal(
 // ===========================================================================
 
 export const ASK_USER_DESCRIPTION =
-    'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One open ask per process run; logged to the quest questions journal. ' +
+    'THE way to ask the user something and get an answer — a question written in your reply reaches nobody and stalls the run. `questions`: 1–15 strings, shown numbered; the user\'s one free-form reply comes back verbatim. BLOCKING, from the VS Code panel or Telegram, and by default it waits indefinitely: set `timeoutMinutes` only when you have a sensible default (a timeout answers the configured fallback). One open ask per process run; logged to the quest\'s Q&A journal. ' +
     '`choices` adds buttons `{id, label, kind, target?, question?, selected?, edit?}` at a `{{choice:<id>}}` marker in a question, else under question `question` (default the last). `answer`: selected, one per question (`selected: true` preselects it; `edit` is text put into its question\'s field to edit in place); Send answers answers once, each question numbered with its choice and words. `move`: moves the quest\'s current process to `target` (`step`, `phase/step` or `phase/step/substep`) on the click and the answer says so; do not move it yourself. `branch` / `subprocess`: an entry of the current step\'s `branches:` / `subprocesses:`, started on the click (the user picks the follow-up); the answer says what started. Anything else is refused before anything is shown.';
 
 export const ASK_USER_TOOL: SharedToolDefinition<AskUserInput> = {

@@ -5,11 +5,12 @@
  * sessions that exist without a file: `default` (the prompt queue's) and
  * `chat` (the ANTHROPIC/LLM panel's), marked as such and listed first. Per row:
  * base, lifetime (when not `continue`), profile and model, whether it has a
- * conversation yet, when it was last used, and the sessions based on it
- * (which is why it cannot be deleted).
+ * conversation yet, when it was last used, whether its turns contribute to
+ * the host trail and memory, and the sessions based on it (which is why it
+ * cannot be deleted).
  */
 
-import type { SessionRecord } from './agentSdkSessions';
+import { contributesToTrailAndMemory, type SessionRecord } from './agentSdkSessions';
 import { isTemporarySessionName } from './questInbox';
 import { DEFAULT_RUN_SESSION, canonicalSessionName } from './runSessions';
 
@@ -37,6 +38,8 @@ export interface SessionRow {
     dependents: string[];
     /** A temporary session of an item another quest sent: deleted once the item is done. */
     temporary?: boolean;
+    /** Its turns go into the host trail and memory (the session's setting; on without a file). */
+    contributesToTrailAndMemory: boolean;
 }
 
 export function sessionRows(input: readonly SessionRecord[]): SessionRow[] {
@@ -58,6 +61,7 @@ export function sessionRows(input: readonly SessionRecord[]): SessionRow[] {
             ...(r?.updatedAt ?? r?.createdAt ? { lastUse: r?.updatedAt ?? r?.createdAt } : {}),
             dependents: records.filter((x) => x.basedOn === name).map((x) => x.name).sort(),
             ...(isTemporarySessionName(name) ? { temporary: true } : {}),
+            contributesToTrailAndMemory: contributesToTrailAndMemory(r),
         };
     };
     const implicit = IMPLICIT_SESSIONS.map((s) => row(s.name, s.usedBy));

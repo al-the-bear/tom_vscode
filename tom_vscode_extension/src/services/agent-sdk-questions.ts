@@ -232,7 +232,7 @@ export async function collectInteractiveAnswers(
 }
 
 // ---------------------------------------------------------------------------
-// Questions journal
+// The Q&A journal
 // ---------------------------------------------------------------------------
 
 /** How an intercepted `AskUserQuestion` was resolved. */
@@ -242,12 +242,11 @@ export type AskUserQuestionOutcome =
     | { kind: 'autonomous' };
 
 /**
- * The questions-journal entry for an intercepted `AskUserQuestion`.
- *
- * The ask tools journal every exchange; the interceptor is the third way a
- * question reaches the user and was the one path that left no trace — a
- * picker the user hit could not be found afterwards. Pure, so the shape is
- * tested here and the transport only appends it.
+ * The Q&A-journal entry for an intercepted `AskUserQuestion`: written when it
+ * resolves, the question and its answer together (services/qaJournal.ts).
+ * The ask tools journal every exchange, and so does the interceptor, the
+ * third way a question reaches the user. Pure, so the shape is tested here and
+ * the transport only appends it.
  */
 export function buildAskUserQuestionLogEntry(
     parsed: ParsedAskUserQuestion,

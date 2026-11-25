@@ -196,19 +196,19 @@ The compaction and memory extraction templates (Global Template Editor → **Com
 
 ### Compaction template
 
-Runs every turn on the configured local LLM. Produces a new running summary that the Anthropic handler injects into the wire payload between the raw turns and the current user prompt.
+Runs with every build of the quest history (every `runEveryNRounds` rounds, and with **Rebuild history and memory**), once per chunk of new inputs. Produces the quest's compacted history (`_ai/quests/<quest>/history/compacted_history.md`), which the Anthropic handler injects into the wire payload between the raw turns and the current user prompt of every session.
 
 | Placeholder | Meaning |
 | --- | --- |
-| `${existingSummary}` | The compacted summary as it stood at the end of the previous turn. Empty (`"(empty — …)"`) on the first turn or when the Compaction dry-run is invoked in a batch mode. |
-| `${lastTurn}` | The new content to integrate. In the normal every-turn flow this is one user/assistant pair; when the dry-run button runs a batch mode (`summary` / `trim_and_summary`) it's the whole history / overflow slice instead. |
+| `${existingSummary}` | The quest's compacted history as it stood before this chunk. Empty (`"(empty — …)"`) on the first build or when the Compaction dry-run is invoked in a batch mode. |
+| `${lastTurn}` | The new content to integrate: the chunk's inputs — each trail turn as `[user] [<time> · host <host> · session <session>]` with its prompt and `[assistant]` its answer, each archived todo as `[system] Archived todo …` with its record; when the dry-run button runs a batch mode (`summary` / `trim_and_summary`) it's the whole history / overflow slice instead. |
 | `${lastTurnCharCount}` | Character count of `${lastTurn}` — useful when the template wants to tell the model roughly how much new material it's integrating. |
 | `${maxHistoryTokens}` | Target token budget for the summary. Sourced from the Status Page → History Compaction → **Compacted history max tokens** field. |
 | `${maxHistorySize}` | The same budget expressed in characters (`maxHistoryTokens × 4`). Use this to steer verbosity — writing "produce a summary of approximately `${maxHistorySize}` characters" gives the model a concrete target. |
 
 ### Memory extraction template
 
-Runs every turn on the configured local LLM (controlled by the History Compaction section's **Run memory extraction** toggle). Can call the memory tools to write/update the target file.
+Runs with every build of the quest history, over the new turns of each session (controlled by the History Compaction section's **Run memory extraction** toggle; **Rebuild history and memory** always runs it). Its output becomes this host's memory candidates for the target file.
 
 | Placeholder | Meaning |
 | --- | --- |

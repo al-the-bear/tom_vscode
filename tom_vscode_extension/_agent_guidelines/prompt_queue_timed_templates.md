@@ -127,6 +127,8 @@ The queue editor webview (opened via "Open Queue Editor") provides:
 
 **Template dropdown.** Lists the one template store (the user-message templates).
 
+**Recent Prompts.** The history icon of the first context bar posts `openRecentPrompts`; the host opens the Recent Prompts panel (`recentPromptsPanel-handler.ts`, `tomAi.editor.recentPrompts`, page `media/recentPromptsPanel/`). It shows the last 100 prompts of the quest's queue from the items the manager holds (the sent history included): `utils/recentPrompts.ts` counts pre-prompts and follow-ups by their `repeatIndex`, the main stage per iteration (`walkedTodos` / `repetitionAnswers` keys for a walk, `iterationSeq` / `repeatIndex` for a repetition) with a walk iteration's continuations (`repetitionAnswers[].continuations`, answers from `earlier`), and a chat send as one prompt. Only `lastDispatched` holds an expanded text; the other prompts show the text as queued. Rows newest first by the last dispatch; the row crossing the limit keeps its newest prompts. The page redraws on `onDidChange` (debounced) and keeps its expansions in the webview state; Markdown goes through the host's `renderMarkdown` → `markdownHtml` into `media/shared/mdOverlay.js`.
+
 **Add form.** A **Profile** select: a profile for the new item, or `(default profile)` — the default profile of its run.
 
 ### Tool surface

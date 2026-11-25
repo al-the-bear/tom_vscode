@@ -19,6 +19,8 @@ import { locateAgentSdkCli } from '../services/agentSdkCli';
 import { wireQuestHintMessages } from './questHint-handler';
 import { ApprovalRelay } from '../utils/approvalRelay';
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
+import { formatSessionTrailView, readHostTrail, sessionView } from '../services/hostTrail';
+import { hostSlugOf } from '../utils/hostSlug';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
 import { chatPanelChoices, chatSendAspectChoices } from '../services/aspectChoiceLevels';
@@ -31,6 +33,8 @@ import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { buildAssistPrompt } from '../utils/assistPrompts';
+import { promoteMemoryButtonSetting } from '../utils/vscodeSettings';
 import { getWorkspaceName } from '../utils/panelYamlStore';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
@@ -82,6 +86,14 @@ import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { assistProgress } from '../services/assistProgress';
 import { registerAskCancel } from '../services/askOwners';
 import { extensionToolsForWebview, openExtensionTool } from '../utils/extensionToolsCatalog';
+
+/** The VS Code setting that shows the chat panel's Promote memory button. */
+export const PROMOTE_MEMORY_BUTTON_SETTING = 'tomAi.memory.promoteMemoryButton';
+
+/** Whether the Promote memory button shows (the setting, default off). */
+export function promoteMemoryButtonEnabled(): boolean {
+    return promoteMemoryButtonSetting((key) => vscode.workspace.getConfiguration('tomAi').get(key));
+}
 
 const VIEW_ID = 'tomAi.chatPanel';
 
@@ -335,6 +347,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     extensionTools: extensionToolsForWebview(),
                     // The Logs section (questLogs-handler.ts): its HTML and the viewer's config.
                     questLogs: { html: getQuestLogsHtmlFragment(), config: getQuestLogsClientConfig(['logs']) },
+                    // The status bar's Promote memory button shows only with this setting on.
+                    promoteMemoryButton: promoteMemoryButtonEnabled(),
                 }
             });
             debugLog('[T2] webview HTML assigned', 'INFO', 'extension');
@@ -352,6 +366,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         wireCompletionMessages(webviewView.webview);
         // The "no quest is open" banner (media/shared/questHint.js).
         this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
+        // The Promote memory button follows its setting.
+        this._context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration(PROMOTE_MEMORY_BUTTON_SETTING) && this._view === webviewView) {
+                void webviewView.webview.postMessage({ type: 'promoteMemoryButton', visible: promoteMemoryButtonEnabled() });
+            }
+        }));
         // The run pickers follow the quest's runs and the window's run (created, deleted, selected).
         this._watchRuns(webviewView);
         this._watchContextSummary(webviewView);
@@ -656,38 +676,26 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
                         break;
-                    case 'recreateHistoryFromTrail': {
-                        // Force the chunked trail-rebuild path even when an
-                        // in-memory snapshot already exists. The handler's
-                        // status-update stream surfaces per-chunk progress
-                        // on the Anthropic panel's status line.
-                        const names = await this._pickPanelSessions('Recreate history from the trail', 'Recreate history');
-                        if (!names) { break; }
-                        const { AnthropicHandler } = await import('./anthropic-handler.js');
-                        // One after the other: each rebuild runs its own chunked compaction.
-                        void (async () => {
-                            for (const name of names) { await AnthropicHandler.instance.recreateHistoryFromTrail(undefined, name); }
-                        })();
-                        vscode.window.showInformationMessage(`Recreating the history of ${names.join(', ')} from its trail, in chunks…`);
+                    case 'rebuildHistoryAndMemory': {
+                        // One run: the quest's history from what it does not cover yet (the
+                        // consolidated trail, the todo archive) and memory candidates from the
+                        // new turns. Progress shows on the panel's status line.
+                        const handler = (await import('./anthropic-handler.js')).AnthropicHandler.instance;
+                        void handler.rebuildQuestHistoryAndMemory()
+                            .catch(() => undefined)
+                            .finally(() => { void this._view?.webview.postMessage({ type: 'historyRebuildDone' }); });
+                        vscode.window.showInformationMessage('Rebuilding the quest history and memory from the trail and the todo archive, in chunks…');
                         break;
                     }
-                    case 'recreateMemoryFromTrail': {
-                        // Walk the trail in chunks of `runEveryNRounds −
-                        // rawTurnsKept` rounds and run memory extraction
-                        // per chunk. The memory-extraction template
-                        // dedupes against `${existingMemory}`, so a
-                        // rebuild against the current memory is
-                        // idempotent. The facts become candidates
-                        // (this host's candidates file).
-                        const names = await this._pickPanelSessions('Recreate quest memory from the trail', 'Recreate memory');
-                        if (!names) { break; }
-                        const { AnthropicHandler } = await import('./anthropic-handler.js');
-                        void (async () => {
-                            for (const name of names) { await AnthropicHandler.instance.recreateMemoryFromTrail(undefined, name); }
-                        })();
-                        vscode.window.showInformationMessage(`Recreating memory candidates from the trail of ${names.join(', ')}, in chunks…`);
+                    case 'promoteMemory':
+                        // The Promote memory prompt, queued in the panel's run and session as Save to Queue
+                        // with the panel's target does: staged or pending as the subpanel's queue mode says.
+                        await this._handleAddToQueue(this._promoteMemoryPrompt(), '', undefined, {
+                            anthropicProfileId: typeof message.anthropicProfileId === 'string' ? message.anthropicProfileId : undefined,
+                            usePanelTarget: true,
+                            staged: message.initialStatus === 'staged',
+                        });
                         break;
-                    }
                     case 'runQuestRefresh': {
                         // Manual Quest Refresh (Status Page button analog on the
                         // chat panel): dispatch the configured refresh prompt
@@ -1263,7 +1271,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /**
      * Forward handler status events ("waiting for history compaction…",
-     * "Rebuild history from last N prompts…") to the webview so they
+     * "Rebuild history: folding chunk 2/5…") to the webview so they
      * show up in place of the generic "Sending…" status while the
      * handler waits on background work.
      */
@@ -1543,17 +1551,28 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the summary trail of `sessions` — each session's own trail pair
-     * (src/services/sessionStorage.ts) — or, without them, of the sessions the
-     * user picks (the panel's own button).
+     * Open the compact trail of `sessions` — each session's view of this
+     * host's trail `history/trail.<host>.md` (src/services/hostTrail.ts), as a
+     * Markdown document — or, without them, of the sessions the user picks
+     * (the panel's own button). OLD PLACE: a session without turns in the host
+     * trail opens its summary pair of an older build in the trail viewer.
      */
     private async _openAnthropicSummaryTrail(sessions?: string[]): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId();
         const names = sessions ?? await this._pickPanelSessions('Open the summary trail');
+        const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId || undefined));
+        const turns = readHostTrail(questFolder, hostSlugOf());
         for (const session of names ?? []) {
+            const view = sessionView(turns, session);
+            if (view.length > 0) {
+                const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: formatSessionTrailView(session, view) });
+                await vscode.window.showTextDocument(doc, { preview: false });
+                continue;
+            }
+            // OLD PLACE: the session's summary pair of an older build.
             const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic', session }, questId);
             if (!summaryPath || !fs.existsSync(summaryPath)) {
-                vscode.window.showInformationMessage(`No Anthropic summary trail yet for session "${session}".`);
+                vscode.window.showInformationMessage(`No trail yet for session "${session}" on this machine.`);
                 continue;
             }
             await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(summaryPath), 'tomAi.trailViewer');
@@ -1631,25 +1650,35 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    /** The Promote memory prompt (the Assist prompt `promoteMemory`) for this window's quest. */
+    private _promoteMemoryPrompt(): string {
+        const quest = this._getActiveQuestId() || TwoTierMemoryService.instance.currentQuest() || 'default';
+        return buildAssistPrompt(loadSendToChatConfig()?.assistPrompts, 'promoteMemory', {
+            quest,
+            memoryFolder: `_ai/quests/${quest}/memory/`,
+            ownCandidatesFile: TwoTierMemoryService.instance.candidatesFile(),
+        });
+    }
+
     /**
-     * Open the rolling session history (the markdown version written next
-     * to history.json on every turn by TwoTierMemoryService.persistHistorySnapshot)
-     * in the MD Browser custom editor. When the file is missing we
-     * fall through to a warning instead of opening something blank.
+     * Open the quest's history (`_ai/quests/<quest>/history/history.md`, the
+     * snapshot the history build writes) in the MD Browser. OLD PLACE: while
+     * the quest has none, the session's own `history.md` (its storage folder).
+     * With neither, a notice names the quest's file.
      */
     private async _openSessionHistoryMarkdown(session: string = this._panelSession()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
-        // Every session keeps its own history.
-        const folder = sessionRoot(TwoTierMemoryService.instance.historyFolder(questId || undefined), session);
-        const target = path.join(folder, 'history.md');
-        if (!fs.existsSync(target)) {
+        const historyRoot = TwoTierMemoryService.instance.historyFolder(questId || undefined);
+        const questFile = path.join(historyRoot, 'history.md');
+        // OLD PLACE: the session's own snapshot, until the quest's history exists.
+        const target = [questFile, path.join(sessionRoot(historyRoot, session), 'history.md')].find((f) => fs.existsSync(f));
+        if (!target) {
             vscode.window.showInformationMessage(
-                `No history yet for session "${session}" of quest "${questId || 'default'}". The history file is written after the first completed turn (${target}).`,
+                `No history yet for quest "${questId || 'default'}". The quest history (${questFile}) is written by its first build: Rebuild history and memory, or the compaction every N rounds.`,
             );
             return;
         }
-        const uri = vscode.Uri.file(target);
-        await vscode.commands.executeCommand('tomAi.openInMdBrowser', uri);
+        await vscode.commands.executeCommand('tomAi.openInMdBrowser', vscode.Uri.file(target));
     }
 
     /**

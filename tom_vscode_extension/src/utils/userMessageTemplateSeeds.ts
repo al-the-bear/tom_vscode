@@ -32,7 +32,7 @@ export const PREVIOUS_ASK_TOOLS_PARAGRAPH =
 export const ANSWER_TOOL_PARAGRAPH =
     '**Answering:** when my prompt asks you a question beside the work, answer it with `tomAi_answerUser` '
     + '(a title, the answer in Markdown, and prompts or complete todos you suggest) as soon as you know the answer, '
-    + 'and go on with the work: it does not wait, and I find the answer in the Answers page instead of the trail. '
+    + 'and go on with the work: it does not wait, and I find the answer in the Q&A page instead of the trail. '
     + 'A question from you to me stays `tomAi_askUser`.';
 
 /** The ask tools and the answer tool, as every seeded template names them. */

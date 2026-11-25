@@ -222,7 +222,12 @@
       },
       {
         "command": "tomAi.showAnswers",
-        "title": "@T: Answers",
+        "title": "@T: Q&A",
+        "category": "@Tom"
+      },
+      {
+        "command": "tomAi.editor.recentPrompts",
+        "title": "@T: Recent Prompts",
         "category": "@Tom"
       },
       {
@@ -946,6 +951,11 @@
             "type": "string"
           },
           "description": "Glob patterns excluded when building the non-recursive Project list in the Guidelines panel."
+        },
+        "tomAi.memory.promoteMemoryButton": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the Promote memory button under the @CHAT ANTHROPIC/LLM input: it queues a prompt that presents the memory candidates of every host (candidates.<host>.md in the quest's memory folder) and promotes the ones you choose into the curated memory files."
         }
       }
     },

@@ -5,7 +5,8 @@
  * the prompt a queue item continues with on another profile when its profile
  * ran out of credit (Out of budget), and the reminder a queue turn gets when
  * it ends its answer while its own background work still runs (Background
- * work reminder; a template whose text is empty sends none).
+ * work reminder; a template whose text is empty sends none), and the prompt
+ * the chat panel's Promote memory button queues (Promote memory).
  *
  * They are templates of one category (`assistPrompts.templates`, edited in the
  * Global Template Editor); for each use the Status Page chooses which template
@@ -17,7 +18,7 @@
  * vscode-free.
  */
 
-export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget', 'backgroundWork'] as const;
+export const ASSIST_PROMPT_USES = ['grillMe', 'explainInDetail', 'explainDecision', 'grillMeDecision', 'finishReviewRound', 'gateDecision', 'outOfBudget', 'backgroundWork', 'promoteMemory'] as const;
 export type AssistPromptUse = typeof ASSIST_PROMPT_USES[number];
 
 export interface AssistPromptTemplate {
@@ -294,6 +295,20 @@ const BACKGROUND_WORK_BODY = [
     '3. Then answer again, with the result. Do not start new work while it runs.',
 ].join('\n');
 
+/** Promote memory (the chat panel's button): the memory candidates of every host, offered for promotion. */
+const PROMOTE_MEMORY_BODY = [
+    '**Promote memory** — the memory candidates of quest ${quest}.',
+    '',
+    'The automatic memory extraction writes candidates, one file per host, into the quest\'s memory folder `${memoryFolder}`: this host\'s is `${ownCandidatesFile}`, the other hosts\' are the other `candidates.<host>.md` files there. Each entry names the session it was extracted in and the curated file it is meant for (`{session=… file=…}`).',
+    '',
+    '1. Read every candidates file of the folder — this host\'s and the other hosts\' (tomAi_listMemory, tomAi_readMemory) — and the curated files they are meant for.',
+    '2. Present the candidates as one numbered list, grouped by the curated file each is meant for, each with its host and session; mark duplicates and the ones a curated file already holds. Show the list with tomAi_askInMdBrowser (a list document in the memory folder, Keep this file is mine to decide) or, when it is short, with tomAi_askUser.',
+    '3. Ask me which to promote and into which curated file (the one it names, or another), and which to drop. Never decide for me.',
+    '4. Write the chosen ones into their curated files with the memory tools (tomAi_saveMemory, tomAi_updateMemory), as the facts alone — without the `{session=… file=…}` prefix.',
+    '5. Remove the promoted and the dropped entries from the candidates files they came from (read the file, tomAi_forgetMemory it, tomAi_saveMemory the entries that stay); leave the others.',
+    '6. End with a short summary: what was promoted where, what was dropped, what stays.',
+].join('\n');
+
 const QUESTION_PLACEHOLDERS = {
     documentKind: '`plain Markdown` or `a TomSpecs specification` — which tools read and propose',
     file: 'the document holding the question (workspace-relative)',
@@ -383,6 +398,16 @@ export const ASSIST_PROMPT_INFO: Record<AssistPromptUse, AssistPromptUseInfo> = 
             backgroundWork: 'the work still running, one line each: what it is, its id, the command, the output file',
             waitingSince: 'when the wait began (local time)',
             limitMinutes: 'the longest the queue waits for it, in minutes',
+        },
+    },
+    promoteMemory: {
+        label: 'Promote memory',
+        purpose: 'The chat panel\'s Promote memory button (setting tomAi.memory.promoteMemoryButton): queues a prompt that presents the memory candidates of every host and promotes the ones you choose into the curated memory files.',
+        defaultId: 'promote-memory', defaultName: 'Promote memory', defaultBody: PROMOTE_MEMORY_BODY,
+        placeholders: {
+            quest: 'the quest id',
+            memoryFolder: 'the quest\'s memory folder (workspace-relative, `_ai/quests/<quest>/memory/`)',
+            ownCandidatesFile: 'this host\'s candidates file (`candidates.<host>.md`)',
         },
     },
 };

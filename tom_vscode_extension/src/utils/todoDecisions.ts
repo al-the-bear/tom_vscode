@@ -4,11 +4,12 @@
  *
  * A todo that is waiting on one of these carries the `decision-needed` status;
  * once every entry has a recorded `decision` the todo can move to
- * `not-started`. The archive journal (`decisions.<quest>.md`) copies the list
- * out when the todo is archived, so the reasoning survives the todo.
+ * `not-started` ({@link answerTodoDecision}). The Q&A page's Decisions tab
+ * renders the decisions of the live and archived todos, and answers an open
+ * one in place.
  *
  * This module is the gate between hand-written YAML and every reader (the
- * panel, the archive journal, the MCP tools). Its one hard guarantee is that
+ * panel, the Q&A page, the MCP tools). Its one hard guarantee is that
  * **every decision it returns has a non-empty `summary`** — the collapsed UI
  * row shows nothing else, and an unlabelled row the user cannot identify is
  * worse than no row at all.
@@ -98,4 +99,46 @@ export function isDecisionResolved(decision: TodoDecision): boolean {
 /** True when at least one decision is still waiting on the user. */
 export function hasUnresolvedDecisions(decisions: TodoDecision[] | undefined): boolean {
     return Array.isArray(decisions) && decisions.some((d) => !isDecisionResolved(d));
+}
+
+/** The option letters a decision text offers: `(a)`, `(b)` … in order of first appearance, lower case. */
+export function decisionOptionLetters(text: string | undefined): string[] {
+    const out: string[] = [];
+    for (const m of (text ?? '').matchAll(/(?:^|[\s*_])\(([a-z])\)/gim)) {
+        const letter = m[1].toLowerCase();
+        if (!out.includes(letter)) { out.push(letter); }
+    }
+    return out;
+}
+
+/** What answering one decision of a todo writes: the whole `decisions` list and, when it was the last open one, the status. */
+export interface DecisionAnswerUpdate {
+    decisions: TodoDecision[];
+    /** `not-started` when the todo was `decision-needed` and no decision is open any more. */
+    status?: 'not-started';
+}
+
+/**
+ * Answer decision `index` of a todo with `answer` (trimmed; the option letter
+ * first when the user picked one, `(b) because …`): the decisions with that
+ * entry's `decision` set and, when the todo is `decision-needed` and every
+ * decision now has its answer, the status `not-started` — the rule the todo
+ * tools state (when every decision is answered and the status is
+ * `decision-needed`, set it to `not-started` in the same update). Undefined for
+ * an unknown index or an empty answer.
+ */
+export function answerTodoDecision(
+    raw: unknown,
+    status: string | undefined,
+    index: number,
+    answer: string,
+): DecisionAnswerUpdate | undefined {
+    const decisions = normaliseTodoDecisions(raw);
+    const text = answer.trim();
+    if (!decisions || !text || !Number.isInteger(index) || index < 0 || index >= decisions.length) { return undefined; }
+    const next = decisions.map((d, i) => (i === index ? { ...d, decision: text } : d));
+    return {
+        decisions: next,
+        ...(status === 'decision-needed' && !hasUnresolvedDecisions(next) ? { status: 'not-started' as const } : {}),
+    };
 }

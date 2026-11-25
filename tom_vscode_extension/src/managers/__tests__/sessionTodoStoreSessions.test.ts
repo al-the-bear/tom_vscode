@@ -28,6 +28,7 @@ import { createTodoInFile, ensureTodoFile, readTodoFile } from '../questTodoMana
 import { SessionTodoStore } from '../sessionTodoStore.js';
 import { sessionOfTodoSourceFile, sessionTodoCounts, sessionTodoSourceFile } from '../../services/sessionTodoFiles.js';
 import { removeSessionStorage } from '../../services/sessionStorage.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 import { setActiveToolTrail } from '../../services/tool-trail.js';
 
 const QUEST = 'default';
@@ -69,7 +70,7 @@ describe('session todos per session', () => {
         store.shownSession = 'default';
         assert.deepEqual(store.list({ status: 'all' }, 'alpha').map((t) => t.title), ['in alpha']);
         assert.deepEqual(store.list({ status: 'all' }, 'beta').map((t) => t.title), ['in beta (the view\'s session)']);
-        assert.ok(fs.existsSync(path.join(historyRoot, 'sessions', 'alpha', 'session-todos.todo.yaml')));
+        assert.ok(fs.existsSync(path.join(historyRoot, hostSlugOf(), 'sessions', 'alpha', 'session-todos.todo.yaml')));
         onTrail('alpha');
         assert.equal(store.getAll().session, 'alpha');
         store.update('wt-1', { status: 'done' });
@@ -84,7 +85,9 @@ describe('session todos per session', () => {
         const bySession = Object.fromEntries(counts.map((c) => [c.session, [c.open, c.total]]));
         assert.deepEqual(bySession, { alpha: [0, 1], beta: [2, 2], 'default@default': [1, 1] });
         assert.equal(counts[0].session, 'beta', 'most recently written first');
-        assert.equal(sessionTodoSourceFile('beta'), 'history/sessions/beta/session-todos.todo.yaml');
+        assert.equal(sessionTodoSourceFile(historyRoot, 'beta'), `history/${hostSlugOf()}/sessions/beta/session-todos.todo.yaml`);
+        assert.equal(sessionOfTodoSourceFile(`history/${hostSlugOf()}/sessions/beta/session-todos.todo.yaml`), 'beta');
+        // OLD PLACE: a session todo file of a session whose storage is still in history/sessions/.
         assert.equal(sessionOfTodoSourceFile('history/sessions/beta/session-todos.todo.yaml'), 'beta');
         assert.equal(sessionOfTodoSourceFile('todos.default.todo.yaml'), undefined);
         assert.equal(store.openCount('beta'), 2);

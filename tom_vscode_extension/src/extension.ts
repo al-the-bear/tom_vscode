@@ -103,6 +103,7 @@ import { registerGroupPromptEditor } from './handlers/groupPromptEditor-handler'
 import { AnthropicHandler } from './handlers/anthropic-handler';
 import { TwoTierMemoryService } from './services/memory-service';
 import { registerMemoryPanelCommand } from './handlers/memoryPanel-handler';
+import { registerHistoryRebuildNotice } from './handlers/historyRebuildNotice-handler';
 import { SessionTodoStore } from './managers/sessionTodoStore';
 import { PromptQueueManager } from './managers/promptQueueManager';
 import { TimerEngine } from './managers/timerEngine';
@@ -121,7 +122,8 @@ import { userInteractions } from './services/userInteractions';
 import { configureWindowRequests, publishInteractions, startWindowRequests } from './services/windowRequests';
 import { syncRemoteAsks } from './services/remoteAsks';
 import { configureAnswersStore } from './services/userAnswersStore';
-import { initAnswersPanel } from './handlers/answersPanel-handler';
+import { initQaPanel } from './handlers/qaPanel-handler';
+import { registerRecentPromptsPanel } from './handlers/recentPromptsPanel-handler';
 import { applyAspectChoiceRequest, applyAspectRenameRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
 import { initNightMode, setNightMode } from './services/nightMode';
 import { registerAspectSectionEditorCommand } from './handlers/aspectSectionEditor-handler';
@@ -510,9 +512,9 @@ export async function activate(context: vscode.ExtensionContext) {
     registerNotificationsView(context);
     // @TOM INFO › USER NOTIFICATIONS: what is directed at the user, kept apart (vscimpb170).
     registerUserNotificationsView(context);
-    // tomAi_answerUser (vscimpb171): the machine's answer store for this window's _ai, and the Answers page.
+    // tomAi_answerUser (vscimpb171): the machine's answer store for this window's _ai, and the Q&A page.
     configureAnswersStore(context.globalStorageUri.fsPath, () => WsPaths.aiRoot);
-    initAnswersPanel(context);
+    initQaPanel(context);
     registerAspectChoiceCommands(context);
     timeStep('notifications', stepStart);
 
@@ -561,6 +563,8 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = performance.now();
     registerQueueEditorCommand(context);
     timeStep('queueEditor', stepStart);
+    // The Recent Prompts panel (the last prompts the queue sent; also the queue editor's button)
+    registerRecentPromptsPanel(context);
 
     // Register Queue Template Editor command
     stepStart = performance.now();
@@ -872,6 +876,8 @@ export async function activate(context: vscode.ExtensionContext) {
         ensureRunDefaultSession(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), run);
     };
     registerMemoryPanelCommand(context);
+    // The notice after a reconcile brought another host's turns the quest history does not cover.
+    registerHistoryRebuildNotice(context);
     timeStep('memoryServiceAndPanel', stepStart);
 
     // Initialize Queue & Automation (§3.2–§3.4)

@@ -122,7 +122,7 @@ export const ADD_SESSION_TODO_DESCRIPTION =
     'Add a todo to the session this call runs in: a step you note for yourself while carrying out a quest todo, ' +
     'in the flow of this session (it shows for this session only, in the SESSION TODOS view). **NOT a quest todo** — ' +
     'work that outlives the session or belongs to the quest goes in `tomAi_createQuestTodo`. Stored in the session\'s ' +
-    '`history/sessions/<session>/session-todos.todo.yaml` (not versioned) and **deleted with the session**. Ids `wt-1`, ' +
+    '`history/<host>/sessions/<session>/session-todos.todo.yaml` (not versioned) and **deleted with the session**. Ids `wt-1`, ' +
     '`wt-2`, … per session. Default `priority: medium`, status `pending`.';
 
 export const ADD_SESSION_TODO_TOOL: SharedToolDefinition<SessionTodoAddInput> = {

@@ -36,6 +36,7 @@ import {
     prunedToolResultInfo, readToolResult, toolResultFolder,
 } from '../tool-result-store.js';
 import { TOOL_RESULT_RETENTION_MARKER, nextFreeToolResultIndex, readToolResultRetentionMarker } from '../sessionStorage.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 import { readPastToolResultImpl, type ToolHistoryAccess } from '../../tools/past-tool-access-tools.js';
 
 after(() => { stub.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -105,7 +106,7 @@ describe('stored tool results: retention', () => {
     test('TR-5: a whole quest', () => {
         const a = toolResultFolder('anthropic', QUEST, 'work');
         const b = toolResultFolder('anthropic', QUEST, 'chat');
-        assert.ok(a.includes(path.join('history', 'sessions', 'work', 'trail', 'tool_results')), a);
+        assert.ok(a.includes(path.join('history', hostSlugOf(), 'sessions', 'work', 'trail', 'tool_results')), a);
         fill(a, 1, 1500, (n) => (n <= 100 ? 90 : 1));
         fill(b, 1, 50, () => 1);
         const runs = pruneQuestToolResults(QUEST, { maxAgeDays: 30, maxPerSession: 1000 }, NOW);

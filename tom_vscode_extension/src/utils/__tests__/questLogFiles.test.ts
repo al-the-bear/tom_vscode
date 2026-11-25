@@ -1,28 +1,27 @@
 /**
  * Tests for the quest log-file catalogue that backs two viewers: the @CHAT Logs
- * section (one session's files: MD Trail, Trail, Prompts, Answers, Current
- * Prompt) and the quest-document sub-tabs of @WS Documentation (Quest Progress,
- * Quest Overview, Quest Notes, Quest Refresh, DocUpdate, Deferred, Questions,
- * Decisions).
+ * section (one session on this machine: Trail, Live Trail, Live Source) and the
+ * quest-document sub-tabs of @WS Documentation (Quest Progress, Quest Overview,
+ * Quest Notes, Quest Refresh, DocUpdate, Deferred, Q&A).
  *
- * The catalogue is pure — no `vscode`, no `fs` — so the sub-tab → file mapping,
- * the quest-id sanitisation and the tail window can be pinned down here rather
- * than by clicking through a webview. Four contracts matter most:
+ * The catalogue is pure, so the sub-tab → file mapping, the quest-id
+ * sanitisation and the tail window can be pinned down here rather than by
+ * clicking through a webview. Four contracts matter most:
  *
  *   - **Every tab resolves to exactly one deterministic file.** The quest
- *     folder has no globbing: `progress.<quest>.md`, `<quest>.anthropic.
- *     prompts.md`, and the two trail tabs both point at `live-trail.md`.
- *   - **A tab names the *area* it reads from, not just a file name.** Twelve
- *     tabs read the quest folder; Current Prompt reads the trail folder, which is
- *     gitignored — the whole point of putting a file rewritten on every send
- *     there rather than in the fleet-shared quest folder.
+ *     folder has no globbing: `progress.<quest>.md`, this host's
+ *     `trail.<host>.md` for the Trail tab, and the two live tabs both point at
+ *     the session's `live-trail.md`.
+ *   - **A tab names the *area* it reads from, not just a file name.** The
+ *     quest documents read the quest folder; the Logs tabs its `history/`.
  *   - **The read window never splits a line.** The viewer reads only one slice
  *     of a multi-hundred-KB file; cutting mid-line would corrupt the first or
  *     last rendered line, so the slice is snapped to a newline at whichever end
  *     was cut.
- *   - **Each tab is read from the end its newest content is at.** The trail is
- *     appended to, so its slice is the file's tail; the quest documents are
- *     prepended to or rewritten wholesale, so theirs is the file's head.
+ *   - **Each tab is read from the end its newest content is at.** The live
+ *     trail is appended to, so its slice is the file's tail; the quest
+ *     documents are prepended to or rewritten wholesale, so theirs is the
+ *     file's head; the Trail tab shows its turns newest first, at the top.
  */
 
 import test, { describe } from 'node:test';
@@ -30,16 +29,11 @@ import assert from 'node:assert/strict';
 
 import {
     QUEST_LOG_TABS,
-    CURRENT_PROMPT_VARIANTS,
     DEFAULT_QUEST_LOG_TAB_ID,
-    DEFAULT_QUEST_LOG_VARIANT_ID,
     MAX_QUEST_LOG_BYTES,
-    CURRENT_PROMPT_PENDING,
-    currentPromptFiles,
-    pendingCurrentPromptFiles,
     isQuestLogTabId,
-    isQuestLogVariantId,
     questLogLocation,
+    questLogSession,
     questLogViewKey,
     questLogTabsOf,
     isSessionTab,
@@ -47,48 +41,43 @@ import {
     trimToLineStart,
     trimToLineEnd,
     type QuestLogTabId,
-    type QuestLogVariantId,
 } from '../questLogFiles.js';
+import { hostSlugOf } from '../hostSlug.js';
 
 describe('QUEST_LOG_TABS catalogue', () => {
-    test('declares exactly the thirteen sub-tabs, in order: the Logs tabs, then the quest documents', () => {
+    test('declares exactly the ten sub-tabs, in order: the Logs tabs, then the quest documents', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.id),
             [
-                'mdTrail', 'trail', 'prompts', 'answers', 'currentPrompt',
+                'turns', 'mdTrail', 'trail',
                 'progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred',
-                'questions', 'decisions',
+                'questions',
             ],
         );
-        assert.deepEqual(questLogTabsOf('logs').map(t => t.id), ['mdTrail', 'trail', 'prompts', 'answers', 'currentPrompt']);
+        assert.deepEqual(questLogTabsOf('logs').map(t => t.id), ['turns', 'mdTrail', 'trail']);
         assert.deepEqual(questLogTabsOf('docs').map(t => t.id),
-            ['progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred', 'questions', 'decisions']);
+            ['progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred', 'questions']);
+        assert.equal(QUEST_LOG_TABS.find(t => t.id === 'questions')?.label, 'Q&A');
         assert.deepEqual(QUEST_LOG_TABS.filter(t => isSessionTab(t.id)).map(t => t.id), questLogTabsOf('logs').map(t => t.id),
             'exactly the Logs tabs show a session');
     });
 
-    test('labels match the names the panel shows', () => {
+    test('labels match the names the panel shows: one Trail tab, no Prompts / Answers / Current Prompt', () => {
         assert.deepEqual(
             QUEST_LOG_TABS.map(t => t.label),
             [
-                'MD Trail', 'Trail', 'Prompts', 'Answers', 'Current Prompt',
+                'Trail', 'Live Trail', 'Live Source',
                 'Quest Progress', 'Quest Overview', 'Quest Notes', 'Quest Refresh', 'DocUpdate', 'Deferred',
-                'Questions', 'Decisions',
+                'Q&A',
             ],
         );
     });
 
-    test('only Current Prompt offers variants; every other tab is one file', () => {
-        // `variants` is what makes the toolbar show a dropdown, so a stray
-        // `true` here would put an inapplicable selector above a fixed file.
-        const withVariants = QUEST_LOG_TABS.filter(t => t.variants).map(t => t.id);
-        assert.deepEqual(withVariants, ['currentPrompt']);
-    });
-
-    test('only MD Trail is rendered markdown; every other tab is highlighted source', () => {
-        const rendered = QUEST_LOG_TABS.filter(t => t.view === 'rendered').map(t => t.id);
-        assert.deepEqual(rendered, ['mdTrail']);
-        assert.equal(QUEST_LOG_TABS.every(t => t.view === 'rendered' || t.view === 'source'), true);
+    test('the Trail tab shows turns, Live Trail rendered markdown, every other tab highlighted source', () => {
+        assert.deepEqual(QUEST_LOG_TABS.filter(t => t.view === 'turns').map(t => t.id), ['turns']);
+        assert.deepEqual(QUEST_LOG_TABS.filter(t => t.view === 'rendered').map(t => t.id), ['mdTrail']);
+        assert.deepEqual(QUEST_LOG_TABS.filter(t => t.view === 'source').map(t => t.id),
+            ['trail', 'progress', 'overview', 'notes', 'refresh', 'docUpdate', 'deferred', 'questions']);
     });
 
     test('ids are unique', () => {
@@ -96,28 +85,22 @@ describe('QUEST_LOG_TABS catalogue', () => {
         assert.equal(new Set(ids).size, ids.length);
     });
 
-    test('the default tab is MD Trail and is part of the catalogue', () => {
-        assert.equal(DEFAULT_QUEST_LOG_TAB_ID, 'mdTrail');
+    test('the default tab is Trail and is part of the catalogue', () => {
+        assert.equal(DEFAULT_QUEST_LOG_TAB_ID, 'turns');
         assert.equal(QUEST_LOG_TABS.some(t => t.id === DEFAULT_QUEST_LOG_TAB_ID), true);
     });
 
     test('each tab is read from the end its own file grows at', () => {
         // live-trail.md is appended to, so its newest content is at the bottom,
-        // and so are the three journals — deferred steps, answered questions and
-        // recorded decisions are all added after the ones already there. The
-        // remaining quest documents are prepended to or rewritten wholesale, so
-        // reading their tail would show the oldest content and open the view
-        // scrolled away from what the reader wants. The current-prompt files are
-        // rewritten wholesale on every send, so they too are read — and opened —
-        // at the top.
+        // and so are the two journals — deferred steps and Q&A blocks are added
+        // after the ones already there. The remaining quest documents are
+        // prepended to or rewritten wholesale, so reading their tail would show
+        // the oldest content. The Trail tab lists its turns newest first.
         const fromEnd = QUEST_LOG_TABS.filter(t => t.newestAt === 'end').map(t => t.id);
-        assert.deepEqual(fromEnd, ['mdTrail', 'trail', 'deferred', 'questions', 'decisions']);
+        assert.deepEqual(fromEnd, ['mdTrail', 'trail', 'deferred', 'questions']);
 
         const fromStart = QUEST_LOG_TABS.filter(t => t.newestAt === 'start').map(t => t.id);
-        assert.deepEqual(fromStart, [
-            'prompts', 'answers', 'currentPrompt', 'progress', 'overview',
-            'notes', 'refresh', 'docUpdate',
-        ]);
+        assert.deepEqual(fromStart, ['turns', 'progress', 'overview', 'notes', 'refresh', 'docUpdate']);
     });
 
     test('every tab carries a codicon name for the tab strip', () => {
@@ -135,8 +118,11 @@ describe('isQuestLogTabId', () => {
         }
     });
 
-    test('rejects unknown / non-string values', () => {
+    test('rejects unknown / non-string values, the removed tabs included', () => {
         assert.equal(isQuestLogTabId('logs'), false);
+        for (const gone of ['prompts', 'answers', 'currentPrompt']) {
+            assert.equal(isQuestLogTabId(gone), false, `${gone} is no tab`);
+        }
         assert.equal(isQuestLogTabId(''), false);
         assert.equal(isQuestLogTabId(undefined), false);
         assert.equal(isQuestLogTabId(null), false);
@@ -152,8 +138,8 @@ describe('questLogLocation', () => {
         ['refresh', 'quest_refresh.vscode_extension.md'],
         ['docUpdate', 'quest_documentation_update.vscode_extension.md'],
         ['deferred', 'deferred.vscode_extension.md'],
-        ['questions', 'questions.vscode_extension.md'],
-        ['decisions', 'decisions.vscode_extension.md'],
+        // This host's Q&A journal; decisions.<quest>.md is no tab.
+        ['questions', `qa.${hostSlugOf()}.vscode_extension.md`],
     ];
 
     for (const [id, expected] of cases) {
@@ -165,19 +151,14 @@ describe('questLogLocation', () => {
         });
     }
 
-    // The live trail and the trail pair are per session; the tabs show the queue's (`default`).
+    // The live trail is per session; the tabs show the queue's (`default`).
     const historyCases: [QuestLogTabId, string][] = [
         ['mdTrail', 'sessions/default@default/live-trail.md'],
         ['trail', 'sessions/default@default/live-trail.md'],
-        ['prompts', 'sessions/default@default/vscode_extension.anthropic.prompts.md'],
-        ['answers', 'sessions/default@default/vscode_extension.anthropic.answers.md'],
     ];
 
     for (const [id, expected] of historyCases) {
         test(`${id} → quest history folder / ${expected}`, () => {
-            // The summary trail files are machine-generated and gitignored, so
-            // they sit in the quest's history/ folder rather than beside the
-            // hand-maintained quest documents.
             assert.deepEqual(
                 questLogLocation(id, 'vscode_extension'),
                 { area: 'questHistory', fileName: expected },
@@ -185,21 +166,24 @@ describe('questLogLocation', () => {
         });
     }
 
-    test('the Logs tabs read the chosen session\'s storage', () => {
-        assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'chat'), { area: 'questHistory', fileName: 'sessions/chat/live-trail.md' });
-        assert.deepEqual(questLogLocation('prompts', 'demo', undefined, 'tmp-261027-120000-a1'),
-            { area: 'questHistory', fileName: 'sessions/tmp-261027-120000-a1/demo.anthropic.prompts.md' });
-        assert.deepEqual(questLogLocation('answers', 'demo'), { area: 'questHistory', fileName: 'sessions/default@default/demo.anthropic.answers.md' },
-            'no session: the queue\'s');
-        assert.equal(questLogLocation('trail', 'demo', undefined, '../../etc').fileName, 'sessions/default@default/live-trail.md', 'a bad name cannot leave the folder');
-        assert.deepEqual(questLogLocation('mdTrail', 'demo', undefined, 'default@collab'), { area: 'questHistory', fileName: 'sessions/default@collab/live-trail.md' },
-            'a run\'s session reads its own folder, not default\'s');
-        assert.notEqual(questLogViewKey('mdTrail', undefined, 'default@collab'), questLogViewKey('mdTrail', undefined, 'default@another'), 'two runs\' sessions: two keys');
-        assert.equal(questLogLocation('trail', 'demo', undefined, 'x@../etc').fileName, 'sessions/default@default/live-trail.md', 'an @ name cannot leave the folder either');
-        assert.deepEqual(questLogLocation('progress', 'demo', undefined, 'chat'), { area: 'quest', fileName: 'progress.demo.md' }, 'a quest document has no session');
+    test('the Trail tab\'s file is this host\'s trail, whichever session is chosen', () => {
+        const expected = { area: 'questHistory', fileName: `trail.${hostSlugOf()}.md` };
+        assert.deepEqual(questLogLocation('turns', 'demo'), expected);
+        assert.deepEqual(questLogLocation('turns', 'demo', 'chat'), expected);
     });
 
-    test('both trail tabs read the same file — one rendered, one as source', () => {
+    test('the live tabs read the chosen session\'s storage', () => {
+        assert.deepEqual(questLogLocation('mdTrail', 'demo', 'chat'), { area: 'questHistory', fileName: 'sessions/chat/live-trail.md' });
+        assert.deepEqual(questLogLocation('trail', 'demo', 'tmp-261027-120000-a1'),
+            { area: 'questHistory', fileName: 'sessions/tmp-261027-120000-a1/live-trail.md' });
+        assert.equal(questLogLocation('trail', 'demo', '../../etc').fileName, 'sessions/default@default/live-trail.md', 'a bad name cannot leave the folder');
+        assert.deepEqual(questLogLocation('mdTrail', 'demo', 'default@collab'), { area: 'questHistory', fileName: 'sessions/default@collab/live-trail.md' },
+            'a run\'s session reads its own folder, not default\'s');
+        assert.equal(questLogLocation('trail', 'demo', 'x@../etc').fileName, 'sessions/default@default/live-trail.md', 'an @ name cannot leave the folder either');
+        assert.deepEqual(questLogLocation('progress', 'demo', 'chat'), { area: 'quest', fileName: 'progress.demo.md' }, 'a quest document has no session');
+    });
+
+    test('both live tabs read the same file — one rendered, one as source', () => {
         assert.deepEqual(
             questLogLocation('mdTrail', 'demo'),
             questLogLocation('trail', 'demo'),
@@ -218,253 +202,33 @@ describe('questLogLocation', () => {
         assert.equal(fileName.includes('\\'), false);
         assert.equal(fileName, 'overview..._.._etc.md');
     });
+});
 
-    test('Current Prompt reads the session\'s trail folder, not the quest folder', () => {
-        // The files are rewritten on every single send; the quest folder is
-        // tracked in the fleet-shared `_ai` repo, so parking them there would
-        // produce a merge conflict per prompt on four machines. A session's
-        // `trail/` is gitignored, and holds its own copy of the files.
-        const loc = questLogLocation('currentPrompt', 'demo', 'chatLiteral', 'walk');
-        assert.deepEqual(loc, { area: 'questHistory', fileName: 'sessions/walk/trail/current_prompt.chat.literal.md' });
-    });
-
-    test('each of the six variants maps to its own file', () => {
-        const names = CURRENT_PROMPT_VARIANTS.map(
-            v => questLogLocation('currentPrompt', 'demo', v.id).fileName.split('/').pop(),
-        );
-        assert.deepEqual(names, [
-            'current_prompt.chat.literal.md',
-            'current_prompt.chat.user.md',
-            'current_prompt.chat.system.md',
-            'current_prompt.queue.literal.md',
-            'current_prompt.queue.user.md',
-            'current_prompt.queue.system.md',
-        ]);
-        assert.equal(new Set(names).size, 6, 'two variants would overwrite each other');
-    });
-
-    test('the current-prompt file name does not carry the quest id', () => {
-        // The quest is already in the containing directory (the quest folder of
-        // the session). Repeating it in the name would only invite the two to
-        // disagree.
-        assert.equal(
-            questLogLocation('currentPrompt', 'alpha', 'queueUser').fileName,
-            questLogLocation('currentPrompt', 'beta', 'queueUser').fileName,
-        );
-    });
-
-    test('a missing or bogus variant falls back to the default rather than throwing', () => {
-        // The variant arrives from the webview, so it is boundary input: an old
-        // persisted selection or a plain `qlogRequest` without one must still
-        // resolve to a readable file.
-        const expected = questLogLocation('currentPrompt', 'demo', DEFAULT_QUEST_LOG_VARIANT_ID);
-        assert.deepEqual(questLogLocation('currentPrompt', 'demo'), expected);
-        assert.deepEqual(
-            questLogLocation('currentPrompt', 'demo', 'nonsense' as QuestLogVariantId),
-            expected,
-        );
-    });
-
-    test('a variant passed for a non-variant tab is ignored', () => {
-        assert.deepEqual(
-            questLogLocation('progress', 'demo', 'queueSystem'),
-            questLogLocation('progress', 'demo'),
-        );
+describe('questLogSession', () => {
+    test('a session name is canonical; anything else is the default', () => {
+        assert.equal(questLogSession('chat'), 'chat');
+        assert.equal(questLogSession('default'), 'default@default');
+        assert.equal(questLogSession('../evil'), 'default@default');
+        assert.equal(questLogSession(undefined), 'default@default');
     });
 });
 
-/**
- * The dropdown the Current Prompt tab carries. The user asked for the three
- * parts of a dispatched prompt — what they typed, what was actually sent as the
- * user message, and the system prompt — for each of the two prompts that can be
- * in flight at once, since a queue item and a chat message run in parallel.
- */
-describe('CURRENT_PROMPT_VARIANTS', () => {
-    test('is the full product of two origins and three parts, in order', () => {
-        assert.deepEqual(
-            CURRENT_PROMPT_VARIANTS.map(v => v.id),
-            ['chatLiteral', 'chatUser', 'chatSystem', 'queueLiteral', 'queueUser', 'queueSystem'],
-        );
-    });
-
-    test('labels are the three names prefixed by the origin', () => {
-        assert.deepEqual(
-            CURRENT_PROMPT_VARIANTS.map(v => v.label),
-            [
-                'Chat Literal Prompt', 'Chat User Prompt', 'Chat System Prompt',
-                'Queue Literal Prompt', 'Queue User Prompt', 'Queue System Prompt',
-            ],
-        );
-    });
-
-    test('every variant carries the origin and part it was built from', () => {
-        for (const v of CURRENT_PROMPT_VARIANTS) {
-            assert.ok(v.source === 'chat' || v.source === 'queue', `${v.id} has no origin`);
-            assert.ok(
-                v.part === 'literal' || v.part === 'user' || v.part === 'system',
-                `${v.id} has no part`,
-            );
-            assert.ok(v.label.startsWith(v.source === 'chat' ? 'Chat ' : 'Queue '));
-        }
-    });
-
-    test('the origins match the PromptSource values the send path already threads through', () => {
-        // `source` is handed straight to the capture writer, which is keyed by
-        // the same `PromptSource` union the Anthropic handler resolves from
-        // `options.source ?? 'chat'`. A third spelling here would write files
-        // nobody reads.
-        assert.deepEqual([...new Set(CURRENT_PROMPT_VARIANTS.map(v => v.source))], ['chat', 'queue']);
-    });
-
-    test('the default selection is the chat prompt the user typed', () => {
-        assert.equal(DEFAULT_QUEST_LOG_VARIANT_ID, 'chatLiteral');
-        assert.equal(CURRENT_PROMPT_VARIANTS.some(v => v.id === DEFAULT_QUEST_LOG_VARIANT_ID), true);
-    });
-});
-
-describe('isQuestLogVariantId', () => {
-    test('accepts every catalogued variant', () => {
-        for (const v of CURRENT_PROMPT_VARIANTS) {
-            assert.equal(isQuestLogVariantId(v.id), true);
-        }
-    });
-
-    test('rejects unknown / non-string values', () => {
-        assert.equal(isQuestLogVariantId('literal'), false);
-        assert.equal(isQuestLogVariantId('chat'), false);
-        assert.equal(isQuestLogVariantId(''), false);
-        assert.equal(isQuestLogVariantId(undefined), false);
-        assert.equal(isQuestLogVariantId(null), false);
-        assert.equal(isQuestLogVariantId(3), false);
-    });
-});
-
-/**
- * The host caches what it last sent so an unchanged file costs one `stat`.
- * Before the dropdown existed the cache key could be the tab id, because a tab
- * meant a file. It no longer does — six variants share one tab — so the key has
- * to name what is actually on screen.
- */
+/** The host caches what it last sent so an unchanged file costs one `stat`. */
 describe('questLogViewKey', () => {
-    test('distinguishes the six variants of the one tab', () => {
-        const keys = CURRENT_PROMPT_VARIANTS.map(v => questLogViewKey('currentPrompt', v.id));
-        assert.equal(new Set(keys).size, 6);
-    });
-
-    test('a variantless tab has one key however it is asked for', () => {
-        assert.equal(questLogViewKey('progress'), questLogViewKey('progress', 'queueUser'));
-    });
-
     test('different tabs never share a key', () => {
         const keys = QUEST_LOG_TABS.map(t => questLogViewKey(t.id));
         assert.equal(new Set(keys).size, QUEST_LOG_TABS.length);
     });
 
     test('a Logs tab has one key per session; a quest document has one', () => {
-        assert.notEqual(questLogViewKey('mdTrail', undefined, 'chat'), questLogViewKey('mdTrail', undefined, 'default'),
+        assert.notEqual(questLogViewKey('mdTrail', 'chat'), questLogViewKey('mdTrail', 'default'),
             'switching the session must load the other session\'s file, not answer "unchanged"');
-        assert.equal(questLogViewKey('mdTrail'), questLogViewKey('mdTrail', undefined, 'default'), 'no session: the default one');
-        assert.equal(questLogViewKey('currentPrompt', 'queueUser', 'walk'), 'currentPrompt:queueUser@walk');
-        assert.equal(questLogViewKey('progress', undefined, 'walk'), 'progress', 'the quest documents are one set');
-        assert.equal(questLogViewKey('trail', undefined, '../evil'), questLogViewKey('trail', undefined, 'default'), 'a bad name is the default');
-    });
-});
-
-/**
- * The writer side of the same mapping. It lives next to the reader's so the two
- * cannot disagree about a file name — a mismatch would not fail anywhere, it
- * would just show an empty tab forever.
- */
-describe('currentPromptFiles', () => {
-    const texts = { literal: 'what I typed', user: 'expanded user message', system: 'you are…' };
-
-    test('produces one file per part of the given origin', () => {
-        assert.deepEqual(currentPromptFiles('queue', texts), [
-            { fileName: 'current_prompt.queue.literal.md', text: 'what I typed' },
-            { fileName: 'current_prompt.queue.user.md', text: 'expanded user message' },
-            { fileName: 'current_prompt.queue.system.md', text: 'you are…' },
-        ]);
-    });
-
-    test('writes the chat and queue sets to different files', () => {
-        const chat = currentPromptFiles('chat', texts).map(f => f.fileName);
-        const queue = currentPromptFiles('queue', texts).map(f => f.fileName);
-        assert.equal(chat.some(name => queue.includes(name)), false);
-    });
-
-    test('every file the reader can select is written on every send', () => {
-        // The tab is "what is running *now*". Skipping a part would leave the
-        // previous send's text in place and present it as current — the one
-        // failure mode that looks like working software.
-        const written = new Set([
-            ...currentPromptFiles('chat', texts),
-            ...currentPromptFiles('queue', texts),
-        ].map(f => f.fileName));
-        for (const variant of CURRENT_PROMPT_VARIANTS) {
-            // The reader looks in the session's trail folder; the name is the writer's.
-            const fileName = questLogLocation('currentPrompt', 'demo', variant.id).fileName.split('/').pop()!;
-            assert.ok(written.has(fileName), `nothing writes ${fileName} (variant ${variant.id})`);
-        }
-    });
-
-    test('an absent system prompt is written as an empty file, not skipped', () => {
-        // The user's requirement, verbatim: with no system prompt the tab
-        // "would remain empty". Skipping the write would instead show whatever
-        // the last profile that *did* have one left behind.
-        const files = currentPromptFiles('chat', { literal: 'hi', user: 'hi', system: '' });
-        assert.equal(files.length, 3);
-        assert.deepEqual(files[2], { fileName: 'current_prompt.chat.system.md', text: '' });
-    });
-
-    test('undefined texts are normalised to empty rather than the string "undefined"', () => {
-        const files = currentPromptFiles('chat', {
-            literal: undefined as unknown as string,
-            user: undefined as unknown as string,
-            system: undefined as unknown as string,
-        });
-        assert.deepEqual(files.map(f => f.text), ['', '', '']);
-    });
-});
-
-/**
- * Phase one of the capture. A send does not know its user message or system
- * prompt when it starts — resolving them means waiting for the previous turn's
- * compaction and memory extraction, which routinely takes a minute or more.
- * Writing nothing until then leaves all three files describing the *previous*
- * send while the panel already says "sending", which is precisely the "the
- * current prompt remains the same" report this exists to answer.
- */
-describe('pendingCurrentPromptFiles', () => {
-    test('writes all three files, so none can survive from the previous send', () => {
-        const files = pendingCurrentPromptFiles('queue', 'what I typed');
-        assert.deepEqual(files.map(f => f.fileName), [
-            'current_prompt.queue.literal.md',
-            'current_prompt.queue.user.md',
-            'current_prompt.queue.system.md',
-        ]);
-    });
-
-    test('the literal is already final — it is what the user typed', () => {
-        const [literal] = pendingCurrentPromptFiles('chat', 'what I typed');
-        assert.equal(literal.text, 'what I typed');
-    });
-
-    test('the two unresolved texts say so rather than being left stale or blank', () => {
-        // Blank would be indistinguishable from "this profile has no system
-        // prompt", and stale is the bug. The marker says which of the two it is.
-        const [, user, system] = pendingCurrentPromptFiles('chat', 'hi');
-        assert.equal(user.text, CURRENT_PROMPT_PENDING);
-        assert.equal(system.text, CURRENT_PROMPT_PENDING);
-    });
-
-    test('covers exactly the same files the finished capture replaces', () => {
-        // Phase one has to clear every file phase two will write, or the part it
-        // skipped keeps showing the previous send until phase two lands.
-        const pending = pendingCurrentPromptFiles('queue', 'hi').map(f => f.fileName);
-        const finished = currentPromptFiles('queue', {
-            literal: 'hi', user: 'expanded', system: 'you are…',
-        }).map(f => f.fileName);
-        assert.deepEqual(pending, finished);
+        assert.notEqual(questLogViewKey('turns', 'chat'), questLogViewKey('turns', 'walk'), 'the Trail tab too: one host file, a view per session');
+        assert.equal(questLogViewKey('mdTrail'), questLogViewKey('mdTrail', 'default'), 'no session: the default one');
+        assert.notEqual(questLogViewKey('mdTrail', 'default@collab'), questLogViewKey('mdTrail', 'default@another'), 'two runs\' sessions: two keys');
+        assert.equal(questLogViewKey('turns', 'walk'), 'turns@walk');
+        assert.equal(questLogViewKey('progress', 'walk'), 'progress', 'the quest documents are one set');
+        assert.equal(questLogViewKey('trail', '../evil'), questLogViewKey('trail', 'default'), 'a bad name is the default');
     });
 });
 

@@ -45,12 +45,6 @@ import {
     isArchivedOrDeletedTodoFile,
     liveTodoFileName,
 } from './todoArchiveNames';
-import { questLogLocation } from './questLogFiles';
-import { normaliseTodoDecisions } from './todoDecisions';
-import {
-    decisionsJournalHeader,
-    formatDecisionJournalEntry,
-} from './decisionsJournalFormat';
 import { TodoYamlError, loadTodoYaml, parseTodoYaml } from './todoYamlDocument';
 import { todayLocalDate } from './todoDates';
 import { writeTodoFileText } from './todoBlockingSync';
@@ -170,87 +164,6 @@ export function schemaCommentOf(raw: string): string {
         if (trimmed.startsWith('# yaml-language-server:')) { return `${trimmed}\n`; }
     }
     return '';
-}
-
-// ============================================================================
-// Decisions journal
-// ============================================================================
-
-/**
- * Quest id of a todo file. The `quest:` field is authoritative — the file name
- * carries the quest too, but session todo files put a host slug in front of it,
- * so parsing the name would need to know which shape it is looking at.
- */
-function questIdOf(sourceFilePath: string, doc?: Document): string {
-    let source = doc;
-    if (!source) {
-        try {
-            source = parseDocument(fs.readFileSync(sourceFilePath, 'utf8'));
-        } catch {
-            return '';
-        }
-    }
-    const quest = source.get('quest');
-    return quest === undefined || quest === null ? '' : String(quest);
-}
-
-/**
- * Path of the Decisions journal for a todo file — resolved through
- * {@link questLogLocation}, the same table the Logs viewer reads through, so
- * the writer and the reader cannot disagree about the name.
- *
- * The journal sits beside the todo file. For quest todos that directory *is*
- * the quest folder, which is where the viewer looks.
- */
-export function decisionsJournalPathFor(sourceFilePath: string, questId?: string): string {
-    const quest = questId?.trim() || questIdOf(sourceFilePath);
-    const { fileName } = questLogLocation('decisions', quest);
-    return path.join(path.dirname(sourceFilePath), fileName);
-}
-
-/**
- * Copy the decisions of the todos being archived into the quest's Decisions
- * journal. A copy, not a move: the archived todo stays a complete record of
- * itself, and the journal is what you can still find once nobody remembers
- * which todo it was.
- *
- * **Only `completed` todos are journalled.** Archiving is normally the end of a
- * finished todo, but the panel's Archive button acts on the user's selection
- * whatever its status (`anyStatus`) — and a todo archived half-done was
- * abandoned, not concluded. Its `decisions[]` are questions the project never
- * got to; filing them under "what was decided" would misrepresent them.
- *
- * Best-effort — a journal that could fail the archive it was recording would
- * be worse than no journal.
- */
-function journalDecisions(
-    sourceFilePath: string,
-    todos: Record<string, unknown>[],
-    sourceDoc: Document,
-): void {
-    try {
-        const at = Date.now();
-        const entries = todos.map(plain => {
-            if (String(plain.status ?? 'not-started') !== 'completed') { return ''; }
-            const decisions = normaliseTodoDecisions(plain.decisions);
-            if (!decisions) { return ''; }
-            const title = plain.title ?? plain.description;
-            return formatDecisionJournalEntry({
-                todoId: String(plain.id ?? ''),
-                title: typeof title === 'string' ? title : undefined,
-                decisions,
-                archivedAt: at,
-            });
-        }).filter(text => text.length > 0);
-        if (entries.length === 0) { return; }
-
-        const quest = questIdOf(sourceFilePath, sourceDoc);
-        const file = decisionsJournalPathFor(sourceFilePath, quest);
-        const preamble = fs.existsSync(file) ? '' : decisionsJournalHeader(quest);
-        fs.appendFileSync(file, preamble + entries.join('\n'), 'utf8');
-    } catch {
-        // Best-effort journalling — never fail an archive over its own log file.
-    }
 }
 
 // ============================================================================
@@ -382,13 +295,6 @@ function moveTodosOrThrow(sourceFilePath: string, spec: MoveSpec): TodoMoveResul
     // reconciles the copy it finds instead of adding a second one. (Source-first
     // would fail the other way, with the todo in neither file.)
     const replaced = writeTodosIntoTarget(targetFile, movedPlain, raw, sourceDoc);
-
-    // Archiving retires a todo; deleting throws it away. Only the former is a
-    // decision the project stands by, so only the former is journalled — and
-    // within it, only the todos that actually completed (see journalDecisions).
-    if (spec.stamp === 'archived') {
-        journalDecisions(sourceFilePath, movedPlain, sourceDoc);
-    }
 
     // Remove from source (descending indices).
     for (const idx of removeIdx.reverse()) {

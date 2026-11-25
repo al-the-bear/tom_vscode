@@ -1,7 +1,7 @@
 // @ts-nocheck
 // SESSIONS sidebar view — the quest's named sessions.
 // Host: src/handlers/sessionsView-handler.ts. The rows arrive as one 'state'
-// message (src/utils/sessionsViewRows.ts); Reset and Delete are posted back
+// message (src/utils/sessionsViewRows.ts); the trail toggle, Reset and Delete are posted back
 // and the host answers with the new state.
 /* global acquireVsCodeApi */
 (function () {
@@ -37,6 +37,7 @@
         if (r.profileId || r.model) { parts.push((r.profileId || '') + (r.model ? (r.profileId ? ' · ' : '') + r.model : '')); }
         parts.push(r.hasConversation ? 'has a conversation' : 'no conversation yet');
         if (r.lastUse) { parts.push('used ' + when(r.lastUse)); }
+        if (r.contributesToTrailAndMemory === false) { parts.push('no trail or memory'); }
         return parts.join(' — ');
     }
 
@@ -70,6 +71,12 @@
                 + (r.todos && r.todos.total ? '<span class="tag todos" title="Session todos: ' + r.todos.open + ' open, ' + r.todos.total + ' in all">☑ ' + r.todos.open + '</span>' : '')
                 + '<div class="meta">' + esc(meta(r)) + '</div></div>'
                 + '<div class="actions">'
+                + '<button class="icon" data-op="trail" data-value="' + (r.contributesToTrailAndMemory === false ? 'true' : 'false') + '"'
+                + ' title="' + (r.contributesToTrailAndMemory === false
+                    ? 'Trail and memory: off — its prompts and answers go neither into this machine\'s trail nor into memory or the history. Click to turn on'
+                    : 'Trail and memory: on — its prompts and answers go into this machine\'s trail, memory and the history. Click to turn off')
+                + (r.hasFile ? '' : ' (a session without a file is on)') + '"'
+                + (r.hasFile ? '' : ' disabled') + '><span class="codicon ' + (r.contributesToTrailAndMemory === false ? 'codicon-circle-slash' : 'codicon-book') + '"></span></button>'
                 + '<button class="icon" data-op="reset" title="Reset: forget the conversation (its history and SDK session); keep base, lifetime, profile, trails and memory"'
                 + ((r.hasFile && r.hasConversation) || r.usedBy ? '' : ' disabled') + '><span class="codicon codicon-debug-restart"></span></button>'
                 + '<button class="icon" data-op="delete" title="' + esc(deleteTitle) + '"'
@@ -82,7 +89,9 @@
         var btn = e.target.closest('button[data-op]');
         if (!btn || btn.disabled) { return; }
         var row = btn.closest('.session');
-        vscode.postMessage({ type: btn.dataset.op, name: row.dataset.name });
+        var msg = { type: btn.dataset.op, name: row.dataset.name };
+        if (btn.dataset.op === 'trail') { msg.value = btn.dataset.value === 'true'; }
+        vscode.postMessage(msg);
     });
 
     window.addEventListener('message', function (e) {

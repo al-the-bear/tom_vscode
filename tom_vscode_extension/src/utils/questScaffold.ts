@@ -8,8 +8,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildIdPrefix } from '../tools/id-prefix-tools';
-import { decisionsJournalHeader } from './decisionsJournalFormat';
-import { questionsLogHeader } from './questionsLogFormat';
 import { questCodeWorkspaceText } from './workspaceSetup';
 import { DEFAULT_QUEST_NOTES_FILE, QUEST_NOTES_FOLDER } from './notesFiles';
 
@@ -124,8 +122,6 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
         },
         { name: `deferred.${id}.md`, content: md(`Standing notes and deferred items — ${name}`, 'Standing notes', 'Deferred implementation steps') },
         { name: `progress.${id}.md`, content: `# Progress — ${id}\n\nChronological record of shipped work, executed todo IDs, and published\nversions. Newest first.\n` },
-        { name: `decisions.${id}.md`, content: decisionsJournalHeader(id).replace(/\n+$/, '\n') },
-        { name: `questions.${id}.md`, content: questionsLogHeader(id).replace(/\n+$/, '\n') },
         { name: `open_topics.${id}.md`, content: md(`${name} — Open Topics`, 'Open Topics') },
         { name: `references.${id}.md`, content: md(`${name} — References`, 'Quest Files', 'Related Quests', 'Key Documents', 'External References') },
         { name: `quest_refresh.${id}.md`, content: `# Quest Refresh — attention notes (${id})\n\nItems that need your attention and are neither a plain todo nor stable\noverview/notes material. Remove entries once resolved.\n` },

@@ -4,22 +4,28 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <!--
-  The Answers page (src/handlers/answersPanel-handler.ts, vscimpb171): the
-  answers agents gave with tomAi_answerUser. The list on the left, the selected
-  answer on the right with its suggested todos (Add todo) and prompts (Copy).
+  The Q&A page (src/handlers/qaPanel-handler.ts): the Questions tab (the
+  quests' Q&A journals and the stored answers of tomAi_answerUser) and the
+  Decisions tab (the todos' decisions, open ones answerable in place), each
+  with its "new" counter, over the quests the filter picks.
   No inline handlers: main.js attaches every listener, so the loader's
   nonce-only CSP applies. Codicons are loaded by main.js from window.__INIT__.
 -->
 <link rel="stylesheet" href="{{baseUri}}/style.css">
 </head>
 <body>
-<div class="page">
+<div class="top">
+    <div id="tabs" class="tabs"></div>
+    <div id="filter" class="filter"></div>
+</div>
+<div id="page-questions" class="page">
     <div class="side">
         <div id="bar" class="bar"></div>
         <div id="list" class="list"><div class="muted">Loading…</div></div>
     </div>
     <div id="detail" class="detail"></div>
 </div>
+<div id="page-decisions" class="decisions hidden"></div>
 <script src="{{baseUri}}/main.js"></script>
 </body>
 </html>

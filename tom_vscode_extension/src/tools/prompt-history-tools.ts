@@ -1,14 +1,15 @@
 /**
  * Prompt-history tools — let the LLM inspect past prompt+answer pairs
- * from the per-quest summary trail files (the same files the
- * Anthropic history-rebuild path reads when no snapshot exists).
+ * of a quest.
  *
- * Source of truth: each Anthropic session's
- * `_ai/quests/<quest>/history/sessions/<session>/<quest>.anthropic.{prompts,answers}.md`
- * and the other subsystems' `_ai/quests/<quest>/history/<quest>.<subsystem>.{prompts,answers}.md`
- * (TrailService.writeSummaryPrompt / writeSummaryAnswer); `sessions` chooses
- * the Anthropic sessions (src/tools/session-param.ts). Pairs are
- * matched by `requestId` (the shared key on both files' headers).
+ * Source of truth: this host's compact trail
+ * `_ai/quests/<quest>/history/trail.<host>.md` (src/services/hostTrail.ts),
+ * one turn per pair, a session's pairs its turns (subsystem
+ * `anthropic:<session>`); OLD PLACE: a session's summary pair of an older
+ * build adds its turns older than the host trail's; the other subsystems'
+ * `_ai/quests/<quest>/history/<quest>.<subsystem>.{prompts,answers}.md`.
+ * `sessions` chooses the Anthropic sessions (src/tools/session-param.ts;
+ * `all`: every session of this host). Pairs are keyed by `requestId`.
  *
  * Two tools:
  *
@@ -95,7 +96,7 @@ export const LIST_PROMPT_PAIRS_TOOL: SharedToolDefinition<ListPromptPairsInput> 
     name: 'tomAi_listPromptPairs',
     displayName: 'List Prompt Pairs',
     description:
-        'List past prompt + answer pairs of a quest, newest first, with requestId, timestamp, subsystem, sizes and previews — from each Anthropic session\'s summary trail (subsystem `anthropic:<session>`) and the other subsystems\'. `subsystem` filters ("anthropic", a prefix such as "localllm-*"); `limit` (default 50) / `offset` page; `sessions` picks Anthropic sessions (default this call\'s). Full bodies: tomAi_getPromptPair with the `requestId`.',
+        'List past prompt + answer pairs of a quest, newest first, with requestId, timestamp, subsystem, sizes and previews — the turns of this machine\'s compact trail `history/trail.<host>.md` (one pair per turn; a session\'s pairs are subsystem `anthropic:<session>`; a session\'s older summary pair adds the turns before the trail\'s oldest) and the other subsystems\' summary pairs. `subsystem` filters ("anthropic", a prefix such as "localllm-*"); `limit` (default 50) / `offset` page; `sessions` picks Anthropic sessions (default this call\'s; "all": every session of this machine). Full bodies: tomAi_getPromptPair with the `requestId`.',
     tags: ['history', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
@@ -176,7 +177,7 @@ export const GET_PROMPT_PAIR_TOOL: SharedToolDefinition<GetPromptPairInput> = {
         `**Common args:**\n` +
         `  - questId    — defaults to current quest\n` +
         `  - subsystem  — narrow the scan (same shape as tomAi_listPromptPairs)\n` +
-        `  - sessions   — the Anthropic sessions to look in, as for tomAi_listPromptPairs (default: this call's session)\n\n` +
+        `  - sessions   — the Anthropic sessions to look in, as for tomAi_listPromptPairs (default: this call's session; "all": every session of this machine's trail)\n\n` +
         `Returns full bodies (no truncation) for up to 50 pairs per call. Use tomAi_listPromptPairs ` +
         `first when you don't know the requestIds.`,
     tags: ['history', 'tom-ai-chat'],

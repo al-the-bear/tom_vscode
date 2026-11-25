@@ -2,8 +2,9 @@
  * Every entry point that works on a quest's per-session storage asks for the sessions and passes them on
  * (the handlers import vscode, so their source is read, as in queueSessionWiring.test.ts).
  *
- *   SW-1 the ANTHROPIC panel: clear, recreate history, recreate memory (confirmed), open history, live trail,
- *        summary trail and raw trail — each per chosen session; the cleared sessions are reported back
+ *   SW-1 the ANTHROPIC panel: clear (confirmed), open history, live trail, summary trail and raw trail — each per
+ *        chosen session; the cleared sessions are reported back; Rebuild history and memory takes no session (the
+ *        history is the quest's)
  *   SW-2 the status page: the compaction dry run per chosen session (its own rolling history) and the raw trail
  *   SW-3 the compaction-format migration command asks for the sessions; "All sessions" means every session
  *   SW-4 the memory panel works in its chosen session
@@ -35,12 +36,10 @@ describe('session selection wiring', () => {
         assert.match(actions, /case 'clearHistory':[\s\S]{0,400}\{ modal: true \}[\s\S]{0,200}this\._clearSessions\(names\)/, 'destructive: confirmed');
         assert.match(actions, /for \(const name of names\) \{ AnthropicHandler\.instance\.clearSession\(name\); \}/);
         assert.match(actions, /type: 'anthropicHistoryCleared'/);
-        const history = caseBody(panel, 'recreateHistoryFromTrail');
-        assert.match(history, /_pickPanelSessions\('Recreate history from the trail', 'Recreate history'\)/);
-        assert.match(history, /recreateHistoryFromTrail\(undefined, name\)/);
-        const memory = caseBody(panel, 'recreateMemoryFromTrail');
-        assert.match(memory, /_pickPanelSessions\('Recreate quest memory from the trail', 'Recreate memory'\)/);
-        assert.match(memory, /recreateMemoryFromTrail\(undefined, name\)/);
+        // The history is the quest's: Rebuild history and memory picks no session.
+        const rebuild = caseBody(panel, 'rebuildHistoryAndMemory');
+        assert.doesNotMatch(rebuild, /_pickPanelSessions/);
+        assert.match(rebuild, /handler\.rebuildQuestHistoryAndMemory\(\)/);
         assert.match(actions, /case 'history':[\s\S]{0,120}_openSessionHistoryMarkdown\(name\)/);
         assert.match(actions, /case 'liveTrail':[\s\S]{0,120}_openLiveTrailMarkdown\('anthropic', name\)/);
         assert.match(actions, /case 'rawTrail':[\s\S]{0,400}sessionTrailFolder\(root, n\)/);

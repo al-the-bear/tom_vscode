@@ -1,7 +1,7 @@
 /**
  * The answers agents give the user with tomAi_answerUser (vscimpb171): kept
  * out of the trails, in one store per `_ai` folder on this machine, shown in
- * the Answers page.
+ * the Q&A page.
  *
  * **The store** is a folder in the extension's global storage,
  * `<globalStorage>/answers/<key of the real _ai folder>/`, so every window

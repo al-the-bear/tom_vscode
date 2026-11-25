@@ -62,6 +62,7 @@ import { waitMessageViews } from '../utils/itemWaitMessages';
 import { answerItemAsk, itemAskViews } from '../services/queueItemAsks';
 import { aspectPickerState } from '../services/aspectPickerState';
 import { handleAspectPickerMessage } from './aspectPickerMessages';
+import { openRecentPromptsPanel } from './recentPromptsPanel-handler';
 
 /** The process position a queue item belongs to, as text (`quest: Phase #n › Step #n`); undefined when none. */
 function processPositionOf(item: QueuedPrompt): string | undefined {
@@ -1238,6 +1239,11 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           }
           case 'openQueueTemplates': {
             await vscode.commands.executeCommand('tomAi.editor.queueTemplates');
+            return;
+          }
+          case 'openRecentPrompts': {
+            // The Recent Prompts panel (recentPromptsPanel-handler): the last prompts this queue sent.
+            if (_ctx) { openRecentPromptsPanel(_ctx); }
             return;
           }
     }

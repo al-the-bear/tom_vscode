@@ -66,7 +66,7 @@ after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const FILES = (id: string): string[] => [
     `${id}.code-workspace`, `overview.${id}.md`, `short_description.${id}.md`, `todos.${id}.todo.yaml`, 'notes/quest-notes.md', `deferred.${id}.md`,
-    `progress.${id}.md`, `decisions.${id}.md`, `questions.${id}.md`, `open_topics.${id}.md`, `references.${id}.md`,
+    `progress.${id}.md`, `open_topics.${id}.md`, `references.${id}.md`,
     `quest_refresh.${id}.md`, `quest_documentation_update.${id}.md`, `extension_config.${id}.yaml`,
 ];
 /** A guideline with the old Active Quests table: the scaffold leaves it alone (02_wslayout-11). */
@@ -115,8 +115,9 @@ describe('Create New Quest', () => {
         const ws2 = workspace(false);
         const withPurpose = createQuestScaffold(path.join(ws2, '_ai', 'quests'), 'purposeful', 'Purposeful', date, 'The order front end.');
         assert.equal(fs.readFileSync(path.join(withPurpose.folder, 'short_description.purposeful.md'), 'utf8').split('\n')[2], 'The order front end.');
-        assert.match(fs.readFileSync(path.join(folder, 'decisions.my_quest.md'), 'utf8'), /^# Decisions — my_quest\n/);
-        assert.match(fs.readFileSync(path.join(folder, 'questions.my_quest.md'), 'utf8'), /^# Questions — my_quest\n/);
+        // No journal files: the Q&A journal (qa.<host>.<quest>.md) is created by its first entry; decisions.<quest>.md is no file.
+        assert.equal(fs.existsSync(path.join(folder, 'decisions.my_quest.md')), false);
+        assert.equal(fs.existsSync(path.join(folder, 'questions.my_quest.md')), false);
         assert.deepEqual(parseYaml(fs.readFileSync(path.join(folder, 'extension_config.my_quest.yaml'), 'utf8')), {});
         // The todo.
         assert.equal(r.todoId, 'questsetup1_akho-define-the-quest');
@@ -143,7 +144,7 @@ describe('Create New Quest', () => {
         assert.match(todo.description, /short_description\.my_quest\.md\` up to date — every active quest must have one/, 'the short description is required');
         assert.match(todo.description, /_ai\/workspaces\/<workspace>\.yaml/, 'the workspace\'s quest list, when it keeps one');
         createQuestScaffold(path.join(workspace(false), '_ai', 'quests'), 'other', 'Other', date);
-        assert.equal(questScaffoldFiles('q', 'Q', date).length, 14);
+        assert.equal(questScaffoldFiles('q', 'Q', date).length, 12);
     });
 
     test('CQ-2: ids refused', () => {
@@ -175,7 +176,7 @@ describe('Create New Quest', () => {
         assert.equal(inputBoxes[2].title, 'Create New Quest (3/3)', 'the purpose, asked with the name');
         assert.match(fs.readFileSync(path.join(WS, '_ai', 'quests', 'first_quest', 'short_description.first_quest.md'), 'utf8'), /^# First Quest \(`first_quest`\)\n\nA first quest to try things\.\n/);
         assert.deepEqual(infos.at(-1)!.slice(1), [OPEN_QUEST_WORKSPACE]);
-        assert.match(String(infos.at(-1)![0]), /Created the quest first_quest \(14 files .*Its todo questsetup1_.*-define-the-quest defines the quest with you/);
+        assert.match(String(infos.at(-1)![0]), /Created the quest first_quest \(12 files .*Its todo questsetup1_.*-define-the-quest defines the quest with you/);
         const opened = openFolderCalls().slice(before);
         assert.equal((opened[0][1] as { fsPath: string }).fsPath, path.join(WS, '_ai', 'quests', 'first_quest', 'first_quest.code-workspace'));
         assert.deepEqual(opened[0][2], { forceNewWindow: true });

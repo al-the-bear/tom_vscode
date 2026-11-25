@@ -34,7 +34,7 @@ import { sessionsOfRuns } from '../utils/runSessions';
 import type { ProcessRunEntry } from '../utils/processRepository';
 import * as fs from 'fs';
 import * as path from 'path';
-import { decisionsJournalHeader } from '../utils/decisionsJournalFormat';
+import { appendProcessDecision } from '../services/qaJournal';
 import { processResetJournalEntry, processResetPlan, processResetRefused, type ProcessResetMode, type ProcessResetPlan } from '../utils/processReset';
 import { positionText } from '../utils/processActionPrompt';
 import {
@@ -341,15 +341,12 @@ export class ProcessStateStore {
         return { ok: true, state: plan.run === this.run ? this.state : (result as { state: ProcessState }).state };
     }
 
-    /** A reset goes to the quest's decisions journal (best effort). */
+    /** A reset goes to the quest's Q&A journal (best effort). */
     private journalReset(plan: ProcessResetPlan): void {
         try {
             const quests = WsPaths.ai('quests');
             if (!quests) { return; }
-            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
-            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, `${head}${processResetJournalEntry(plan)}\n`, 'utf-8');
+            appendProcessDecision(processResetJournalEntry(plan), { quest: this.quest, questFolder: path.join(quests, this.quest), run: plan.run });
         } catch { /* the journal is a record, not a participant */ }
     }
 
@@ -478,7 +475,7 @@ export class ProcessStateStore {
 
     /**
      * Abort the running subprocess or branch (confirmed by the user): the
-     * level goes, its position is written to the quest's decisions journal,
+     * level goes, its position is written to the quest's Q&A journal,
      * and the step below goes on with the follow-up chosen at the start.
      */
     abortNested(source: ChangeSource): ProcessChangeResult {
@@ -495,20 +492,17 @@ export class ProcessStateStore {
         return this.writeLevels(repo, ended.ended, ended.levels, source);
     }
 
-    /** CC-42: the aborted level's position goes to the quest's decisions journal (best effort). */
+    /** CC-42: the aborted level's position goes to the quest's Q&A journal (best effort). */
     private journalAbort(ended: ProcessState, parent: ProcessState): void {
         try {
             const quests = WsPaths.ai('quests');
             if (!quests) { return; }
-            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
             const where = (l: ProcessState): string => {
                 const def = this.entry(l.process)?.definition;
                 return def ? positionText(def, l) : `${l.phase} › ${l.step}`;
             };
             const entry = abortedLevelJournalEntry(ended, where(ended), parent, where(parent));
-            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, `${head}${entry}\n`, 'utf-8');
+            appendProcessDecision(entry, { quest: this.quest, questFolder: path.join(quests, this.quest), run: this.run });
         } catch { /* the journal is a record, not a participant */ }
     }
 
@@ -790,46 +784,39 @@ export class ProcessStateStore {
         return this.move('proceed', undefined, source);
     }
 
-    /** Jumps decision steps made go to the quest's decisions journal (best effort). */
+    /** Jumps decision steps made go to the quest's Q&A journal (best effort). */
     private journalJumps(process: string, jumps: ProcessJumpRecord[]): void {
         try {
             const quests = WsPaths.ai('quests');
             if (!quests) { return; }
-            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
-            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, `${head}${jumps.map((r) => `${jumpJournalEntry(r, process, this.run)}\n`).join('')}`, 'utf-8');
+            for (const r of jumps) {
+                appendProcessDecision(jumpJournalEntry(r, process, this.run), { quest: this.quest, questFolder: path.join(quests, this.quest), run: this.run });
+            }
         } catch { /* the journal is a record, not a participant */ }
     }
 
-    /** A move back to the start of the previous phase goes to the quest's decisions journal (best effort). */
+    /** A move back to the start of the previous phase goes to the quest's Q&A journal (best effort). */
     private journalMove(entryOf: typeof backPhaseJournalEntry, label: string, from: ProcessState, to: ProcessState): void {
         try {
             const quests = WsPaths.ai('quests');
             if (!quests) { return; }
-            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
             const def = this.entry(to.process)?.definition;
             const where = (l: ProcessState): string => (def ? positionText(def, l) : `${l.phase} › ${l.step}`);
-            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, `${head}${entryOf(label, from, where(from), to, where(to), this.run)}\n`, 'utf-8');
+            appendProcessDecision(entryOf(label, from, where(from), to, where(to), this.run), { quest: this.quest, questFolder: path.join(quests, this.quest), run: this.run });
         } catch { /* the journal is a record, not a participant */ }
     }
 
-    /** A switch to a follow-up process goes to the quest's decisions journal (best effort). */
+    /** A switch to a follow-up process goes to the quest's Q&A journal (best effort). */
     private journalFollowUp(from: ProcessState, to: ProcessState): void {
         try {
             const quests = WsPaths.ai('quests');
             if (!quests) { return; }
-            const file = path.join(quests, this.quest, `decisions.${this.quest}.md`);
             const where = (l: ProcessState): string => {
                 const def = this.entry(l.process)?.definition;
                 return def ? positionText(def, l) : `${l.phase} › ${l.step}`;
             };
             const entry = followUpJournalEntry(from, where(from), to, where(to), this.run);
-            const head = fs.existsSync(file) ? '' : decisionsJournalHeader(this.quest);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, `${head}${entry}\n`, 'utf-8');
+            appendProcessDecision(entry, { quest: this.quest, questFolder: path.join(quests, this.quest), run: this.run });
         } catch { /* the journal is a record, not a participant */ }
     }
 
@@ -915,7 +902,7 @@ export class ProcessStateStore {
             return this.endTop('finished', source, [...this.levels.slice(0, -1), result.state]);
         }
         repo.writeState(this.quest, result.state, this.run);
-        // The jumps a decision step made with this change go to the decisions journal.
+        // The jumps a decision step made with this change go to the Q&A journal.
         const newJumps = (result.state.jumps ?? []).filter((r) => !(before.jumps ?? []).includes(r));
         if (newJumps.length) { this.journalJumps(result.state.process, newJumps); }
         this.rawState = result.state;

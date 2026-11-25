@@ -12,7 +12,7 @@
 
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { createSession, listSessions, planSessionStartIn } from '../services/agentSdkSessionStore';
-import { normalizeSessionMode } from '../utils/agentSdkSessions';
+import { contributesToTrailAndMemory, normalizeSessionMode } from '../utils/agentSdkSessions';
 import { lookupProfile, type ProfileSection, type SessionProfile } from '../utils/sessionSpecs';
 
 export interface SessionToolDeps {
@@ -50,6 +50,7 @@ export async function listSessionsImpl(deps: SessionToolDeps, _input: Record<str
             ...(s.basedOn ? { basedOn: s.basedOn } : {}),
             ...(s.profileId ? { profile: s.profileId } : {}),
             ...(s.model ? { model: s.model } : {}),
+            contributesToTrailAndMemory: contributesToTrailAndMemory(s),
             hasConversation: !!s.sessionId || !!s.iteration?.sessionId,
             nextPrompt: nextPromptText(folder, s.name),
             ...(s.updatedAt ? { updatedAt: s.updatedAt } : {}),
@@ -66,6 +67,8 @@ export interface CreateSessionInput {
     mode?: string;
     /** An Anthropic profile id. */
     profile?: string;
+    /** Whether its turns go into the host trail and memory; unset: the base's setting, without a base true. */
+    contributesToTrailAndMemory?: boolean;
 }
 
 export async function createSessionImpl(deps: SessionToolDeps, input: CreateSessionInput): Promise<string> {
@@ -82,6 +85,7 @@ export async function createSessionImpl(deps: SessionToolDeps, input: CreateSess
         basedOn: input.basedOn || undefined,
         mode,
         ...(profile ? { profile: { id: profile.id, model: profile.model } } : {}),
+        ...(typeof input.contributesToTrailAndMemory === 'boolean' ? { contributesToTrailAndMemory: input.contributesToTrailAndMemory } : {}),
     });
     return json(r.ok ? { ok: true, session: r.session, quest: deps.quest() } : r);
 }
@@ -104,13 +108,15 @@ export const LIST_SESSIONS_TOOL: SharedToolDefinition<Record<string, never>> = {
     name: 'tomAi_listSessions',
     displayName: 'List Sessions',
     description:
-        'The named sessions of the active quest (`<name>.session.json` in its history folder; the Agent SDK conversation, '
+        'The named sessions of the active quest on this machine (`<name>.session.json` in the quest\'s `history/<host>/` '
+        + 'folder, or directly in `history/` where an older session still is; the Agent SDK conversation, '
         + 'or on the direct API transport the session\'s own history): each with its '
         + '`mode` (`continue`: prompts continue the session; `per-prompt`: every prompt starts again — from the base '
         + 'session\'s conversation, or fresh without a base — and changes nothing; `per-iteration`: one conversation per '
         + 'queue iteration, i.e. repeat round or `<prefix>*` todo, its pre-prompts and follow-ups included), its `basedOn`, '
         + 'its `profile` and `model` (the Anthropic profile it runs with unless a queue item names its own; without one the '
-        + 'queue default), whether it has a conversation yet, and how the next prompt in it starts. A queue item runs in a '
+        + 'queue default), `contributesToTrailAndMemory` (whether its turns go into this host\'s trail `history/trail.<host>.md` '
+        + 'and into memory and the history), whether it has a conversation yet, and how the next prompt in it starts. A queue item runs in a '
         + 'session named by `session` on tomAi_addQueueItem / tomAi_updateQueueItem.',
     tags: ['queue', 'session', 'tom-ai-chat'],
     readOnly: true,
@@ -129,7 +135,8 @@ export const CREATE_SESSION_TOOL: SharedToolDefinition<CreateSessionInput> = {
         + '`fork-from-base` is the old name) or `per-iteration` (one conversation per queue iteration: each repeat round '
         + 'or `<prefix>*` todo starts from the base, or fresh, and its pre-prompts and follow-ups continue it). '
         + '`profile` (an Anthropic profile id) is the profile its prompts run with unless a queue item names its own; '
-        + 'its model is stored too. A based session without a profile takes the base\'s. Refuses an existing name, a '
+        + 'its model is stored too. A based session without a profile takes the base\'s. `contributesToTrailAndMemory`: '
+        + 'its turns go into this host\'s trail and memory; unset, the base\'s, else true. Refuses an existing name, a '
         + 'missing base, an unknown lifetime and an unknown profile. Answers the session with its profile and model. '
         + 'Run prompts in it with `session` on tomAi_addQueueItem.',
     tags: ['queue', 'session', 'tom-ai-chat'],
@@ -143,6 +150,7 @@ export const CREATE_SESSION_TOOL: SharedToolDefinition<CreateSessionInput> = {
             basedOn: { type: 'string', description: 'The session the new one starts from.' },
             mode: { type: 'string', enum: ['continue', 'per-prompt', 'per-iteration', 'fork-from-base'], description: 'Default `continue`; `fork-from-base` = `per-prompt`.' },
             profile: { type: 'string', description: 'Anthropic profile id the session runs with.' },
+            contributesToTrailAndMemory: { type: 'boolean', description: 'Whether its turns go into the host trail and memory. Unset: the base\'s setting, without a base true.' },
         },
         required: ['name'],
     },

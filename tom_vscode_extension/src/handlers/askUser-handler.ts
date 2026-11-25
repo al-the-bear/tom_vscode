@@ -15,7 +15,7 @@ import { debugLog } from '../utils/debugLogger';
 import { userInteractions } from '../services/userInteractions';
 import { initUserInteractionPanel, SHOW_PENDING_QUESTION_COMMAND, showUserInteractions } from './userInteractionPanel';
 import { AskUserRegistry, PendingAsk, AskAnswerSource } from '../services/askUserRegistry';
-import { appendQuestionLogEntry } from '../services/questionsLog';
+import { appendQuestionAsked, appendQuestionLogEntry } from '../services/qaJournal';
 import { readChatQuestionsConfig } from './chatQuestions-config';
 import { telegramNotifyTarget } from './telegram-config';
 import {
@@ -223,6 +223,7 @@ const liveAskUserDeps: AskUserDeps = {
         closeQuestion(pending, source, answer);
     },
     log: (entry) => appendQuestionLogEntry(entry),
+    logAsked: (entry) => appendQuestionAsked(entry),
     processContext: liveProcessContext,
     moveTo: liveMoveTo,
     startNested: liveStartNested,
