@@ -129,7 +129,8 @@ function partSources(rootDir) {
             // The aspect definitions (aspect.yaml) and own texts the guideline files belong to.
             { path: '_ai/aspect_guidelines', kind: 'dir', optional: true },
             { path: '_ai/schemas', kind: 'dir' },
-            { path: '_ai/prompt', kind: 'dir' },
+            // Reusable prompt files: a root without them (its _ai cleaned up) packs none.
+            { path: '_ai/prompt', kind: 'dir', optional: true },
             { path: '_ai/format-version.yaml', kind: 'file' },
             // A quest that is used on this machine collects files of its use: left out, not refused.
             { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true, leaveOutUse: true },

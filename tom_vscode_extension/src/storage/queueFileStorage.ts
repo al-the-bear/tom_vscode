@@ -224,6 +224,8 @@ export interface QueuePromptYaml {
     'blocked-on'?: string;
     /** While the item is `todo-blocked`: the id of the todo it is held at. */
     'blocked-todo'?: string;
+    /** The hold switched the run's auto-send off: the queue switches it on again once the hold is over. */
+    'hold-paused-run'?: boolean;
     /** Todos the user skipped on the held item (Continue): its walk passes them. */
     'skipped-todos'?: string[];
     /** Todos the user runs anyway on the held item: their blockers do not hold. */
@@ -382,6 +384,8 @@ export interface QueueSettings {
     'auto-start-enabled'?: boolean;
     'auto-pause-enabled'?: boolean;
     'auto-continue-enabled'?: boolean;
+    /** A run paused by a hold (a blocked todo, an open decision) goes on by itself once the hold is over (default true). */
+    'auto-resume-held'?: boolean;
     /** Continuations a walk iteration gets while its todo is not completed (utils/walkCompletionCheck.ts; default 2). */
     'walk-continuations'?: number;
     'reload-prompt-by-scope'?: Record<string, QueueReloadAfterReloadSetting>;

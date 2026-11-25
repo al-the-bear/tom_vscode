@@ -56,6 +56,7 @@ const ITEM: Required<QueuedPrompt> = {
     waitingFor: { reason: 'pub.dev', details: 'limit', since: AT, until: AT },
     blockedOn: 'todo x2 waits for x1 (in-progress)',
     blockedTodo: 'x2',
+    holdPausedRun: true,
     skippedTodos: ['x3'],
     ignoreBlockTodos: ['x4'],
     waitMessages: [{ at: AT, into: 'waitFor', text: 'still there?', answer: 'yes', resumed: true }, { at: AT, into: 'background', text: 'status?' }],

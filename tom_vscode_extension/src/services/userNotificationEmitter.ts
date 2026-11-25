@@ -206,6 +206,16 @@ export function emitRunPaused(run: string, why: string, itemId?: string): void {
     }]);
 }
 
+/** A run paused by a hold (a blocked todo, an open decision) went on by itself once the hold was over. */
+export function emitRunResumed(run: string, why: string, itemId?: string): void {
+    emitNotifications([{
+        type: 'queueHolding',
+        run,
+        user: { kind: 'resumed', title: `Run ${run} resumed: ${why}`, details: ['The hold that paused the run is over; its queue goes on.'], ...(itemId ? { queueItemId: itemId } : {}) },
+        who: { kind: 'extension', label: 'the queue' },
+    }]);
+}
+
 /** The sources the wiring watches. */
 export interface UserNotificationSources {
     interactions: Pick<UserInteractions, 'onChange'>;

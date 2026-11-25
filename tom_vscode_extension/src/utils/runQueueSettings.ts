@@ -29,6 +29,11 @@ export interface RunQueueSettings {
     autoStart: boolean;
     autoPause: boolean;
     autoContinue: boolean;
+    /**
+     * A run paused by a hold of one of its items (a blocked todo, an open decision) goes on by itself once the
+     * hold is over (the blocker completed, the decisions answered). Default on.
+     */
+    autoResumeHeld: boolean;
     /** Continuations a walk iteration gets while its todo is not completed. */
     walkContinuations: number;
     /** Copilot: minutes until an answer file is overdue. */
@@ -60,6 +65,7 @@ export const BUILTIN_RUN_QUEUE_SETTINGS: Readonly<RunQueueSettings> = Object.fre
     autoStart: false,
     autoPause: true,
     autoContinue: false,
+    autoResumeHeld: true,
     walkContinuations: DEFAULT_WALK_CONTINUATIONS,
     responseTimeoutMinutes: 60,
     defaultTransport: 'copilot',
@@ -71,6 +77,7 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     autoStart: 'auto-start-enabled',
     autoPause: 'auto-pause-enabled',
     autoContinue: 'auto-continue-enabled',
+    autoResumeHeld: 'auto-resume-held',
     walkContinuations: 'walk-continuations',
     responseTimeoutMinutes: 'response-timeout-minutes',
     defaultReminderTemplateId: 'default-reminder-template-id',
@@ -97,7 +104,7 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
     if (typeof raw !== 'object' || raw === null) { return out; }
     const r = raw as Record<string, unknown>;
     const k = RUN_QUEUE_SETTING_KEYS;
-    for (const flag of ['autoSend', 'autoStart', 'autoPause', 'autoContinue'] as const) {
+    for (const flag of ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'autoResumeHeld'] as const) {
         if (typeof r[k[flag]] === 'boolean') { out[flag] = r[k[flag]] as boolean; }
     }
     const continuations = validContinuations(r[k.walkContinuations]);
@@ -135,12 +142,12 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
  * / -Continue, the default transport, profile, configuration, session, role and
  * prompt template, the Copilot answer timeout and reminder template. The walk
- * continuations (not shown in a tab) keep their top-level value; the run's
+ * continuations and the auto-resume after a hold (not shown in a tab) keep their top-level value; the run's
  * guideline choices stay the run's own (the quest default is their shared
  * level, gsel4).
  */
 export const DEFAULT_SETTING_FIELDS: ReadonlyArray<keyof RunQueueSettings> = Object.freeze(
-    ALL_FIELDS.filter((f) => f !== 'walkContinuations' && f !== 'guidelines'),
+    ALL_FIELDS.filter((f) => f !== 'walkContinuations' && f !== 'guidelines' && f !== 'autoResumeHeld'),
 );
 
 /** The start values once "Make default" took `from`'s shown settings: `start` with {@link DEFAULT_SETTING_FIELDS} of `from`. */

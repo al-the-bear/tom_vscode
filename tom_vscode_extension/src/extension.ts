@@ -903,6 +903,20 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!outcome.ok) { bridgeLog(`Reload: the answer to a chat send's question was not sent: ${outcome.error ?? 'unknown'}`, 'ERROR'); }
     });
     PromptQueueManager.init(context);
+    // A held item goes on by itself: a todo file changed (a blocker completed, decisions answered — here, in another
+    // window or quest), so the queue looks at its todo-blocked and decision-needed items again and resumes the runs
+    // their hold paused (PromptQueueManager.recheckHeldItems).
+    void import('./handlers/questTodoPanel-handler.js').then(({ setupQuestTodoWatcher }) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const watcher = setupQuestTodoWatcher(() => {
+            if (timer) { clearTimeout(timer); }
+            timer = setTimeout(() => {
+                timer = undefined;
+                try { PromptQueueManager.instance.recheckHeldItems(); } catch (err) { bridgeLog(`Held items: recheck failed: ${String(err)}`, 'ERROR'); }
+            }, 1500);
+        });
+        if (watcher) { context.subscriptions.push(watcher, { dispose: () => { if (timer) { clearTimeout(timer); } } }); }
+    }).catch((err) => bridgeLog(`Held items: the todo watcher did not start: ${String(err)}`, 'ERROR'));
     // USER NOTIFICATIONS (vscimpb170): this window's asks, process decisions and queue holds go to the shared log.
     {
         const stop = startUserNotificationEmitter({

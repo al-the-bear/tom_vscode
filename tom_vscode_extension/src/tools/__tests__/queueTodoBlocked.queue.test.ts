@@ -18,6 +18,14 @@
  *   TB-8 a held walk's Continue skips the blocked todo and goes on with the next; Run anyway runs it without
  *        waiting; a single-todo item offers Run anyway but no Continue; Stop and Interrupt put a held item back to
  *        staged (its hold record gone)
+ *   TB-9 the hold that paused the run is recorded (`holdPausedRun`, the queue file's `hold-paused-run`); once the
+ *        blocker is completed — seen by recheckHeldItems, which the todo files' watcher calls — the item is
+ *        released and its run goes on by itself: the walk runs without the user resuming it
+ *   TB-10 a run the user paused himself (auto-send set off after the hold) stays paused: the item is released
+ *         to pending, nothing is sent
+ *   TB-11 the run's `autoResumeHeld` off: released, not resumed
+ *   TB-12 a walk held at a `decision-needed` todo: once every decision of the todo is answered (its status left
+ *         as it was), the todo is set to not-started, the item is released and its run goes on by itself
  */
 
 import test, { after, describe } from 'node:test';
@@ -321,6 +329,98 @@ describe('a queue item whose todo is blocked', () => {
         assert.equal(queue().interruptActiveItemForContinuation(), true, 'Interrupt takes the held item too');
         assert.equal(live(other).status, 'staged');
         assert.equal(turns.length, 0);
+        reset();
+    });
+
+    test('TB-9: released by a completed blocker, the run goes on by itself', async () => {
+        reset();
+        writeTodoFile('gates', [['gate9', 'in-progress']]);
+        writeTodoFile('tm', [['tm1_x', 'not-started', ['gate9']], ['tm2_x', 'not-started']]);
+        const item = await runWalk('tm');
+        assert.equal(live(item).status, 'todo-blocked');
+        assert.equal(queue().autoSendEnabled, false, 'the hold paused the run');
+        assert.equal(live(item).holdPausedRun, true);
+        assert.match(queueFileText(item.id), /hold-paused-run: true/);
+        // Nothing changed yet: the recheck keeps it held.
+        queue().recheckHeldItems();
+        await wait(200);
+        assert.equal(live(item).status, 'todo-blocked');
+        assert.equal(queue().autoSendEnabled, false);
+        // The blocker is completed (another run, window or quest): the watcher's recheck releases and resumes.
+        setStatus('gate9', 'completed');
+        queue().recheckHeldItems();
+        await wait(500);
+        // The run went on by itself (Auto-Pause switches it off again once its lane is empty).
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tm1_x', 'tm2_x']);
+        assert.equal(live(item).status, 'sent');
+        assert.equal(live(item).holdPausedRun, undefined);
+        reset();
+    });
+
+    test('TB-10: a run the user paused himself stays paused', async () => {
+        reset();
+        writeTodoFile('gates', [['gate10', 'in-progress']]);
+        writeTodoFile('tn', [['tn1_x', 'not-started', ['gate10']]]);
+        const item = await runWalk('tn');
+        assert.equal(live(item).status, 'todo-blocked');
+        queue().autoSendEnabled = false; // the user pauses the run himself
+        assert.equal(live(item).holdPausedRun, undefined, 'the hold no longer decides the resume');
+        setStatus('gate10', 'completed');
+        queue().recheckHeldItems();
+        await wait(300);
+        assert.equal(live(item).status, 'pending', 'released');
+        assert.equal(queue().autoSendEnabled, false, 'the run stays paused');
+        assert.equal(turns.length, 0);
+        reset();
+    });
+
+    test('TB-11: auto-resume after a hold switched off', async () => {
+        reset();
+        queue().setRunQueueSettings(undefined, { autoResumeHeld: false });
+        try {
+            writeTodoFile('gates', [['gate11', 'in-progress']]);
+            writeTodoFile('to', [['to1_x', 'not-started', ['gate11']]]);
+            const item = await runWalk('to');
+            assert.equal(live(item).status, 'todo-blocked');
+            setStatus('gate11', 'completed');
+            queue().recheckHeldItems();
+            await wait(300);
+            assert.equal(live(item).status, 'pending');
+            assert.equal(queue().autoSendEnabled, false, 'not resumed');
+            assert.equal(turns.length, 0);
+        } finally {
+            queue().setRunQueueSettings(undefined, { autoResumeHeld: true });
+            reset();
+        }
+    });
+
+    test('TB-12: a walk held at a decision goes on once the decisions are answered', async () => {
+        reset();
+        const file = path.join(QDIR, `todos.tp.${QUEST}.todo.yaml`);
+        fs.writeFileSync(file, [
+            'todos:',
+            '  - id: tp1_x', '    title: todo tp1_x', '    description: do tp1_x', '    status: decision-needed', '    priority: medium', '    created: 2026-11-25',
+            '    decisions:', '      - summary: which one', '        decision_needed: (a) or (b)', '      - summary: how much', '        decision_needed: little or much', '        decision: little',
+            '  - id: tp2_x', '    title: todo tp2_x', '    description: do tp2_x', '    status: not-started', '    priority: medium', '    created: 2026-11-25',
+            '',
+        ].join('\n'));
+        const item = await runWalk('tp');
+        assert.equal(live(item).status, 'decision-needed');
+        assert.equal(queue().autoSendEnabled, false);
+        assert.equal(live(item).holdPausedRun, true);
+        // One decision still open: held.
+        queue().recheckHeldItems();
+        await wait(200);
+        assert.equal(live(item).status, 'decision-needed');
+        assert.equal(todoOf('tp1_x').status, 'decision-needed');
+        // The user answers the last decision in the todo panel; the status is left as it was.
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('        decision_needed: (a) or (b)\n', '        decision_needed: (a) or (b)\n        decision: (a)\n'));
+        queue().recheckHeldItems();
+        await wait(500);
+        assert.equal(todoOf('tp1_x').status !== 'decision-needed', true, 'the decided todo was set to not-started (and then run)');
+        // The run went on by itself (Auto-Pause switches it off again once its lane is empty).
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tp1_x', 'tp2_x']);
+        assert.equal(live(item).status, 'sent');
         reset();
     });
 });

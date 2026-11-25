@@ -154,7 +154,8 @@ import { ensureRunId, iterationKeyFor } from '../utils/queueIterations';
 import { emitNotifications } from '../services/notificationLog';
 import { queueItemDraft } from '../utils/notificationDrafts';
 import { DEFAULT_RUN_SESSION, canonicalSessionName, isRunDefaultSession } from '../utils/runSessions';
-import { emitRunPaused, type HoldingItem } from '../services/userNotificationEmitter';
+import { emitRunPaused, emitRunResumed, type HoldingItem } from '../services/userNotificationEmitter';
+import { hasUnresolvedDecisions, normaliseTodoDecisions } from '../utils/todoDecisions';
 
 // ============================================================================
 // Types
@@ -442,6 +443,13 @@ export interface QueuedPrompt {
     blockedOn?: string;
     /** While the item is `todo-blocked`: the id of the todo it is held at. Persisted as `blocked-todo`. */
     blockedTodo?: string;
+    /**
+     * The item's hold (`todo-blocked` or `decision-needed`) switched its run's auto-send off: once the hold is
+     * over (the blocker completed, the decisions answered), the queue switches it on again by itself, unless the
+     * run's `autoResumeHeld` is off or the run's auto-send was set since (by the user or a tool). Persisted as
+     * `hold-paused-run`.
+     */
+    holdPausedRun?: boolean;
     /** Todos the user skipped on this held item (Continue): its walk passes them. Persisted as `skipped-todos`. */
     skippedTodos?: string[];
     /** Todos the user runs anyway on this held item: their blockers do not hold. Persisted as `ignore-block-todos`. */
@@ -2329,14 +2337,60 @@ export class PromptQueueManager {
      * back off, which is what made the play button look like a no-op.
      */
     private _releaseResolvedDecisionItems(): void {
-        this._releaseUnblockedItems();
-        if (!this._items.some(i => i.status === 'decision-needed')) { return; }
+        const unblocked = this._releaseUnblockedItems();
+        const decided = this._releaseDecidedItems();
+        this._resumeRunsAfterHolds([...unblocked, ...decided]);
+    }
+
+    /** Put back to `pending` the `decision-needed` items whose todo's decisions are answered. Answers them. */
+    private _releaseDecidedItems(): QueuedPrompt[] {
+        if (!this._items.some(i => i.status === 'decision-needed')) { return []; }
         const questId = this.activeQuestId();
+        if (questId) { settleDecidedTodos(questId); }
         const released = releaseResolvedDecisionItems(this._items, (item) => (questId ? walkEntriesOf(item, questId) : []));
-        if (released.length === 0) { return; }
+        if (released.length === 0) { return []; }
         logQueue(`Decisions answered — releasing ${released.map(i => i.id).join(', ')} back to pending`);
         this.persist();
         this._onDidChange.fire();
+        return released;
+    }
+
+    /**
+     * Held items were released (blocker completed, decisions answered): switch on again the runs their hold had
+     * paused (`holdPausedRun`), when the run's `autoResumeHeld` is on, its auto-send was not set since, and no
+     * other item of it is still held by a hold that paused it. A run the user paused stays paused.
+     */
+    private _resumeRunsAfterHolds(released: readonly QueuedPrompt[]): void {
+        const runs = new Map<string, QueuedPrompt[]>();
+        for (const item of released) {
+            if (!item.holdPausedRun) { continue; }
+            delete item.holdPausedRun;
+            const run = itemRun(item);
+            runs.set(run, [...(runs.get(run) ?? []), item]);
+        }
+        for (const [run, items] of runs) {
+            const settings = this._settingsOf(run);
+            const stillHeld = this._items.some((i) => i.holdPausedRun && itemRun(i) === run && (i.status === 'todo-blocked' || i.status === 'decision-needed'));
+            if (settings.autoSend || !settings.autoResumeHeld || stillHeld) {
+                logQueue(`Run ${run}: held item(s) ${items.map((i) => i.id).join(', ')} released; not resumed (${settings.autoSend ? 'it sends already' : !settings.autoResumeHeld ? 'auto-resume after a hold is off' : 'another item of it is still held'})`);
+                continue;
+            }
+            const why = `${items.map((i) => i.id).join(', ')} no longer held (blocker completed or decisions answered)`;
+            logQueue(`Run ${run} resumed by itself: ${why}`);
+            emitRunResumed(run, why, items[0]?.id);
+            this.setRunAutoSend(run, true);
+        }
+        if (runs.size) { this.persist(); }
+    }
+
+    /**
+     * Look again at the held items (`todo-blocked`, `decision-needed`) now: a todo file changed (a blocker was
+     * completed, decisions answered — in this window, another window or another quest). Released items go back to
+     * pending and the runs their hold paused go on ({@link _resumeRunsAfterHolds}).
+     */
+    recheckHeldItems(): void {
+        if (!this._items.some((i) => i.status === 'todo-blocked' || i.status === 'decision-needed')) { return; }
+        this._releaseResolvedDecisionItems();
     }
 
     /**
@@ -2344,22 +2398,23 @@ export class PromptQueueManager {
      * blocked: its blockers were completed (a todo still marked `blocked` whose
      * blockers are all done is set back to `not-started` first).
      */
-    private _releaseUnblockedItems(): void {
+    private _releaseUnblockedItems(): QueuedPrompt[] {
         const held = this._items.filter(i => i.status === 'todo-blocked');
-        if (!held.length) { return; }
+        if (!held.length) { return []; }
         const questId = this.activeQuestId();
-        const released: string[] = [];
+        const released: QueuedPrompt[] = [];
         for (const item of held) {
             if (questId && this._todoBlockOf(item, questId)) { continue; }
             item.status = 'pending';
             delete item.blockedOn;
             delete item.blockedTodo;
-            released.push(item.id);
+            released.push(item);
         }
-        if (!released.length) { return; }
-        logQueue(`Blockers completed — releasing ${released.join(', ')} back to pending`);
+        if (!released.length) { return []; }
+        logQueue(`Blockers completed — releasing ${released.map((i) => i.id).join(', ')} back to pending`);
         this.persist();
         this._onDidChange.fire();
+        return released;
     }
 
     /**
@@ -2403,7 +2458,7 @@ export class PromptQueueManager {
         if (todoId) { item.blockedTodo = todoId; } else { delete item.blockedTodo; }
         item.awaitingAnswer = false;
         item.inFlightRepetition = undefined;
-        this._pauseRunOf(item, `item ${item.id} is blocked: ${why}`);
+        if (this._pauseRunOf(item, `item ${item.id} is blocked: ${why}`)) { item.holdPausedRun = true; }
         this.persist();
         this._onDidChange.fire();
     }
@@ -7119,7 +7174,7 @@ export class PromptQueueManager {
             item.status = 'decision-needed';
             item.awaitingAnswer = false;
             item.inFlightRepetition = undefined;
-            this._pauseRunOf(item, `walk ${item.id} waits for a decision`);
+            if (this._pauseRunOf(item, `walk ${item.id} waits for a decision`)) { item.holdPausedRun = true; }
             this.persist();
             this._onDidChange.fire();
             return 'paused';
@@ -7628,6 +7683,10 @@ export class PromptQueueManager {
         for (const key of ['defaultReminderTemplateId', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'] as const) {
             if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
         }
+        // Auto-send set by the user or a tool: a hold that paused the run no longer decides its resume.
+        if (patch.autoSend !== undefined) {
+            for (const i of this._items) { if (i.holdPausedRun && itemRun(i) === name) { delete i.holdPausedRun; } }
+        }
         this._putRunSettings(name, next);
         const changed = Object.keys(patch).filter((k) => (before as unknown as Record<string, unknown>)[k] !== (next as unknown as Record<string, unknown>)[k]);
         if (changed.length) { logQueue(`Run ${name}: ${changed.map((k) => `${k}=${String((next as unknown as Record<string, unknown>)[k])}`).join(', ')}`); }
@@ -7673,15 +7732,16 @@ export class PromptQueueManager {
     }
 
     /** Switch off the auto-send of the run `item` belongs to (an error, an interrupt, needs attention, ...), saying why. */
-    private _pauseRunOf(item: QueuedPrompt | undefined, why: string): void {
+    private _pauseRunOf(item: QueuedPrompt | undefined, why: string): boolean {
         const run = item ? itemRun(item) : this._windowRun();
-        if (!this._settingsOf(run).autoSend) { return; }
+        if (!this._settingsOf(run).autoSend) { return false; }
         this._putRunSettings(run, { ...this._settingsOf(run), autoSend: false });
         logQueue(`Run ${run} paused: ${why}`);
         // USER NOTIFICATIONS: the queue holds for the user (vscimpb170).
         emitRunPaused(run, why, item?.id);
         this.persistSettings();
         this._onDidChange.fire();
+        return true;
     }
 
     /**
@@ -8381,6 +8441,7 @@ export class PromptQueueManager {
                 ...(typeof main['needs-attention'] === 'string' && main['needs-attention'] ? { needsAttention: main['needs-attention'] } : {}),
                 ...(typeof main['blocked-on'] === 'string' && main['blocked-on'] ? { blockedOn: main['blocked-on'] } : {}),
                 ...(typeof main['blocked-todo'] === 'string' && main['blocked-todo'] ? { blockedTodo: main['blocked-todo'] } : {}),
+                ...(main['hold-paused-run'] === true ? { holdPausedRun: true } : {}),
                 ...(Array.isArray(main['skipped-todos']) ? { skippedTodos: main['skipped-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...(Array.isArray(main['ignore-block-todos']) ? { ignoreBlockTodos: main['ignore-block-todos'].filter((t): t is string => typeof t === 'string') } : {}),
                 ...doneNotificationMetaFromYaml(meta as Record<string, unknown>),
@@ -8556,6 +8617,7 @@ export class PromptQueueManager {
             ...(item.needsAttention ? { 'needs-attention': item.needsAttention } : {}),
             ...(item.blockedOn ? { 'blocked-on': item.blockedOn } : {}),
             ...(item.blockedTodo ? { 'blocked-todo': item.blockedTodo } : {}),
+            ...(item.holdPausedRun ? { 'hold-paused-run': true } : {}),
             ...(item.skippedTodos?.length ? { 'skipped-todos': [...item.skippedTodos] } : {}),
             ...(item.ignoreBlockTodos?.length ? { 'ignore-block-todos': [...item.ignoreBlockTodos] } : {}),
         };
@@ -8887,6 +8949,31 @@ function readQuestTodoBlock(questId: string, todoId: string): string | undefined
 }
 
 /** The live todo store, for {@link releaseUnblockedTodos}; the status write is the claim's own. */
+/**
+ * The todos of `questId` still `decision-needed` whose decisions are all answered (each has a `decision`): set
+ * to `not-started`, as the todo guideline says the one answering them does. So a walk held at such a todo goes on
+ * once the user has answered in the todo panel, without changing the status by hand. Answers the ids set.
+ */
+function settleDecidedTodos(questId: string): string[] {
+    const set: string[] = [];
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { readAllTodos } = require('../managers/questTodoManager');
+        const todos = readAllTodos(questId) as Array<{ id: string; status?: string; decisions?: unknown }>;
+        for (const t of todos) {
+            if (t.status !== 'decision-needed') { continue; }
+            const decisions = normaliseTodoDecisions(t.decisions);
+            if (!decisions?.length || hasUnresolvedDecisions(decisions)) { continue; }
+            // Through the unblock port, as a released blocked todo (the claim rules write no status back themselves).
+            if (QUEST_TODO_UNBLOCK_PORT.writeStatus(questId, t.id, 'not-started')) {
+                logQueue(`Todo ${t.id}: every decision answered — set to not-started`);
+                set.push(t.id);
+            }
+        }
+    } catch { /* no todo manager: nothing settled */ }
+    return set;
+}
+
 const QUEST_TODO_UNBLOCK_PORT: TodoUnblockPort = questTodoUnblockPort((questId, todoId, status) => writeQuestTodoStatus(questId, todoId, status));
 
 
