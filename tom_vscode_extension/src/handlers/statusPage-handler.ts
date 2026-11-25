@@ -47,6 +47,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { getLayout, describeAiMissing, layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { compactTrailMaxEntries } from '../utils/compactTrailTrim';
 import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import {
@@ -1199,7 +1200,10 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             if (!stcConfig.trail) { stcConfig.trail = {}; }
             if (message.maxRawFiles !== undefined) { stcConfig.trail.maxRawFiles = message.maxRawFiles; }
-            if (message.maxEntries !== undefined) { stcConfig.trail.maxEntries = message.maxEntries; }
+            // The compact trail's limit (trail.compact.maxEntries, utils/compactTrailTrim.ts).
+            if (Number.isFinite(message.compactMaxEntries) && message.compactMaxEntries >= 1) {
+                stcConfig.trail.compact = { ...(stcConfig.trail.compact ?? {}), maxEntries: Math.floor(message.compactMaxEntries) };
+            }
             // The stored tool results' retention (vscimpb49); 0 switches a limit off.
             if (Number.isFinite(message.toolResultsMaxAgeDays) && message.toolResultsMaxAgeDays >= 0) { stcConfig.trail.toolResultsMaxAgeDays = message.toolResultsMaxAgeDays; }
             if (Number.isFinite(message.toolResultsMaxPerSession) && message.toolResultsMaxPerSession >= 0) { stcConfig.trail.toolResultsMaxPerSession = message.toolResultsMaxPerSession; }
@@ -1794,7 +1798,7 @@ export interface StatusData {
     trail: {
         enabled: boolean;
         maxRawFiles: number;
-        maxEntries: number;
+        compactMaxEntries: number;
         toolResultsMaxAgeDays: number;
         toolResultsMaxPerSession: number;
     };
@@ -2092,7 +2096,7 @@ export async function gatherStatusData(): Promise<StatusData> {
         trail: {
             enabled: isTrailEnabled(),
             maxRawFiles: sendToChatConfig?.trail?.maxRawFiles ?? 1000,
-            maxEntries: sendToChatConfig?.trail?.maxEntries ?? 1000,
+            compactMaxEntries: compactTrailMaxEntries(sendToChatConfig?.trail),
             toolResultsMaxAgeDays: configuredToolResultRetention().maxAgeDays,
             toolResultsMaxPerSession: configuredToolResultRetention().maxPerSession,
         },
@@ -2619,8 +2623,8 @@ export function getEmbeddedStatusHtml(status: StatusData): string {
         <div class="sp-settings-row">
             <label>Max raw files per folder:</label>
             <input type="number" id="sp-trailMaxRawFiles" value="${status.trail.maxRawFiles}" min="10" max="100000">
-            <label>Max (entries per trail file):</label>
-            <input type="number" id="sp-trailMaxEntries" value="${status.trail.maxEntries}" min="10" max="100000">
+            <label title="The prompt / answer turns each compact trail file (&lt;quest&gt;.&lt;subsystem&gt;.prompts.md / .answers.md) keeps; the oldest beyond it are dropped on the next write.">Compact trail — turns per file:</label>
+            <input type="number" id="sp-trailCompactMaxEntries" value="${status.trail.compactMaxEntries}" min="10" max="100000">
             <button class="sp-btn" data-status-action="updateTrailSettings">Save</button>
         </div>
         <div class="sp-settings-row" title="Every tool call of a session is stored (history/sessions/&lt;session&gt;/trail/tool_results/t&lt;n&gt;.json) so tomAi_readPastToolResult can read it later. After each send the oldest are pruned: those older than the days given and those beyond the newest per session. 0 switches a limit off.">

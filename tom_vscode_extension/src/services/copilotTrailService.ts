@@ -2,8 +2,8 @@
  * Copilot trail service.
  *
  * Wave 3.2 continuation — the Copilot subpanel's trail-file
- * machinery (summary + raw trail writers, quest folder resolution,
- * old-file cleanup, sequence trimming) used to live as ~250 lines
+ * machinery (summary + raw trail writers through TrailService, quest folder resolution,
+ * old-file cleanup) used to live as ~250 lines
  * of free functions at the top of `chatPanel-handler.ts`. Moving
  * it into a service lets the handler stay an adapter layer while
  * downstream readers (todo-log panel, window-status panel) can
@@ -14,7 +14,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { loadSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { debugLog } from '../utils/debugLogger';
@@ -25,12 +24,6 @@ import {
     generateRequestId,
     getWindowId,
 } from './copilotAnswerService';
-
-/** Max entries before the summary file trims oldest; config-driven. */
-export function getMaxTrailEntries(): number {
-    const config = loadSendToChatConfig();
-    return config?.trail?.maxEntries ?? 1000;
-}
 
 /** `YYYYMMDD_HHMMSSmmm` used in raw trail file names. */
 export function getTrailFileTimestamp(): string {
@@ -114,55 +107,6 @@ export function getCopilotSummaryTrailPaths():
         answersPath: path.join(folder, `${questId}.copilot.answers.md`),
     };
 }
-
-/**
- * Parse the sequence number stamped into the first line of a summary
- * trail file (format: `=== PROMPT|ANSWER <id> <timestamp> <seq> ===`).
- * Returns 0 when the file is missing, empty, or lacks the header.
- */
-export function parseSequenceFromFile(filePath: string): number {
-    if (!fs.existsSync(filePath)) { return 0; }
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        if (!content.trim()) { return 0; }
-        const firstLine = content.split('\n')[0];
-        const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
-        return match ? parseInt(match[1], 10) : 0;
-    } catch { return 0; }
-}
-
-/**
- * Drop the oldest entry from a summary trail file once the running
- * sequence count crosses `maxEntries`. Entries are delimited by
- * `=== PROMPT|ANSWER …` header lines and ordered newest-first, so
- * trimming means slicing off the bottom block.
- */
-export function trimTrailFile(filePath: string, maxEntries: number): void {
-    if (!fs.existsSync(filePath)) { return; }
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const firstLine = content.split('\n')[0];
-        const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
-        const currentSeq = match ? parseInt(match[1], 10) : 0;
-        if (currentSeq <= maxEntries) { return; }
-
-        const lines = content.split('\n');
-        let lastEntryStart = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].match(/^===\s+(?:PROMPT|ANSWER)/)) {
-                lastEntryStart = i;
-                break;
-            }
-        }
-        if (lastEntryStart > 0) {
-            const trimmed = lines.slice(0, lastEntryStart).join('\n').trimEnd() + '\n';
-            fs.writeFileSync(filePath, trimmed, 'utf-8');
-        }
-    } catch (e) {
-        console.error('[CopilotTrail] Failed to trim trail file:', e);
-    }
-}
-
 
 /**
  * Write a prompt to the Copilot summary trail + raw trail, and

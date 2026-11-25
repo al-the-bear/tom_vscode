@@ -112,6 +112,7 @@ import { liveQuestTodoFiles, relationsOfText, setBlocking } from './todoBlocking
 import { mergeYamlLayout } from './yamlLayoutMerge';
 import { dropAskToolNamesFromYaml, dropAskToolSettings } from './removedAskTools';
 import { aspectDefinitionText, DEFINITION_FILE, LEGACY_DEFINITION_FILE } from './aspectFileMigration';
+import { compactTrailMaxEntries, trimCompactTrailContent } from './compactTrailTrim';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
 /**
@@ -142,6 +143,11 @@ export interface FormatMigrationOptions {
     formatVersion?: number;
     /** Today, for the stamp (default the local date; tests). */
     today?: string;
+    /**
+     * The turns a compact trail file keeps after its merge (`trail.compact.maxEntries`). Default: the
+     * workspace config's (`workspaceConfigPath`), else COMPACT_TRAIL_DEFAULT_MAX_ENTRIES.
+     */
+    compactTrailMaxEntries?: number;
 }
 
 export interface FormatChange {
@@ -159,8 +165,12 @@ export interface FormatMigrationResult {
 
 const SCRATCH_FILES = new Set(['rawTurns.json', 'compaction_rounds.json']);
 
+function isCompactTrailPair(name: string, quest: string): boolean {
+    return name === `${quest}.anthropic.prompts.md` || name === `${quest}.anthropic.answers.md`;
+}
+
 function driverFor(name: string, quest: string): MergeDriver | undefined {
-    if (name === SESSION_LIVE_TRAIL_FILE || name === `${quest}.anthropic.prompts.md` || name === `${quest}.anthropic.answers.md`) { return 'ai-trail'; }
+    if (name === SESSION_LIVE_TRAIL_FILE || isCompactTrailPair(name, quest)) { return 'ai-trail'; }
     if (name === 'history.json') { return 'ai-history-json'; }
     if (name === 'history.md') { return 'ai-history-md'; }
     if (name === 'compacted_history.md') { return 'ai-block-history'; }
@@ -220,6 +230,22 @@ class Run {
     // ---- storage ----------------------------------------------------------
 
     /** Move (or merge) one legacy file into its place in the session. Answers whether anything was done. */
+    private compactMax: number | undefined;
+
+    /** `trail.compact.maxEntries`: the option, else the workspace config's, else the default. */
+    private compactTrailMax(): number {
+        if (this.compactMax === undefined) {
+            let trail: unknown;
+            if (this.opts.compactTrailMaxEntries === undefined && this.opts.workspaceConfigPath) {
+                try { trail = (JSON.parse(fs.readFileSync(this.opts.workspaceConfigPath, 'utf8')) as { trail?: unknown }).trail; } catch { /* the default */ }
+            }
+            this.compactMax = this.opts.compactTrailMaxEntries !== undefined
+                ? compactTrailMaxEntries({ compact: { maxEntries: this.opts.compactTrailMaxEntries } })
+                : compactTrailMaxEntries(trail);
+        }
+        return this.compactMax;
+    }
+
     private place(quest: string, from: string, to: string, opts: { tool?: { folder: string; next: Map<string, number> } } = {}): boolean {
         const { apply } = this.opts;
         if (!fs.existsSync(to)) {
@@ -255,7 +281,11 @@ class Run {
             this.problem(quest, 'storage', `${this.rel(from)}: the session already has ${this.rel(to)} with other content, and no merge rule applies; both kept`);
             return false;
         }
-        const merged = this.opts.merge(driver, to, from);
+        const unioned = this.opts.merge(driver, to, from);
+        // The compact trail pair keeps its limit through the merge (utils/compactTrailTrim.ts).
+        const merged = unioned !== undefined && isCompactTrailPair(name, quest)
+            ? trimCompactTrailContent(unioned, this.compactTrailMax()) ?? unioned
+            : unioned;
         if (merged === undefined) {
             this.problem(quest, 'storage', `${this.rel(from)}: the ${driver} merge into ${this.rel(to)} failed; both kept`);
             return false;

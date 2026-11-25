@@ -20,6 +20,8 @@
  *        quest's `extension_config.<quest>.yaml` that exists and has no `mcpServer` section, and removed
  *   FM-8 `blocking` is filled on every live todo that live todos name in `blocked_by`
  *   FM-9 a todo tagged `user-action` without the field gets `user_action: true`
+ *   FM-10 the trail pair merged into the session keeps the compact trail limit: `compactTrailMaxEntries`, else the
+ *         workspace config's `trail.compact.maxEntries`, else 2000 — the newest turns kept
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- `blocked_by`, `user_action` are the todo schema's keys */
@@ -31,6 +33,7 @@ import * as path from 'path';
 import { parse } from 'yaml';
 
 import { migrateAiFormats, type MergeDriver } from '../aiFormatMigration';
+import { countCompactTrailTurns } from '../compactTrailTrim';
 
 function sandbox() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-format-'));
@@ -86,6 +89,34 @@ describe('ai format migration', () => {
         assert.equal(s.exists('quests/qa/live-trail.md'), false);
         assert.ok(s.exists('quests/qa/history/sessions/.storage-version'));
         assert.deepEqual(run(s, false).changes, [], 'nothing left to migrate');
+    });
+
+    test('FM-10: the merged trail pair keeps the compact trail limit', () => {
+        const entries = (from: number, n: number): string => Array.from({ length: n }, (_, i) => {
+            const seq = from + n - 1 - i;
+            return `=== PROMPT r${seq} 2026-11-20T10:00:00.000Z ${seq} ===\n\nbody ${seq}\n\n`;
+        }).join('');
+        const setup = () => {
+            const s = sandbox();
+            s.write('quests/qa/history/sessions/default/qa.anthropic.prompts.md', entries(101, 6));
+            s.write('quests/qa/history/qa.anthropic.prompts.md', entries(1, 6));
+            return s;
+        };
+        const merged = 'quests/qa/history/sessions/default/qa.anthropic.prompts.md';
+        let s = setup();
+        migrateAiFormats({ aiRoot: s.ai, hostSlug: 'mbp', apply: true, merge, compactTrailMaxEntries: 4 });
+        assert.equal(countCompactTrailTurns(s.read(merged)), 4, 'the option');
+        assert.match(s.read(merged), /^=== PROMPT r106 /, 'the newest kept');
+        assert.equal(s.exists('quests/qa/history/qa.anthropic.prompts.md'), false);
+
+        s = setup();
+        const config = s.write('../.tom/tom_vscode_extension.json', JSON.stringify({ trail: { compact: { maxEntries: 9 } } }));
+        run(s, true, { workspaceConfigPath: config });
+        assert.equal(countCompactTrailTurns(s.read(merged)), 9, 'the workspace config');
+
+        s = setup();
+        run(s, true);
+        assert.equal(countCompactTrailTurns(s.read(merged)), 12, 'within the default 2000: the whole union');
     });
 
     test('FM-3: merged with the reconcile drivers; failure kept as a problem', () => {

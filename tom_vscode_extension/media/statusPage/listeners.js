@@ -44,7 +44,7 @@ function attachStatusPanelListeners(skipEditorInit) {
             
             if (action === 'updateTrailSettings') {
                 msgData.maxRawFiles = parseInt((document.getElementById('sp-trailMaxRawFiles') || {}).value || '1000');
-                msgData.maxEntries = parseInt((document.getElementById('sp-trailMaxEntries') || {}).value || '1000');
+                msgData.compactMaxEntries = parseInt((document.getElementById('sp-trailCompactMaxEntries') || {}).value || '2000');
                 // The stored tool results' retention (0 switches a limit off).
                 msgData.toolResultsMaxAgeDays = parseInt((document.getElementById('sp-trailToolResultsMaxAgeDays') || {}).value || '30');
                 msgData.toolResultsMaxPerSession = parseInt((document.getElementById('sp-trailToolResultsMaxPerSession') || {}).value || '1000');

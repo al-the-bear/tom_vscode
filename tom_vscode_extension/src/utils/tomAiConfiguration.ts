@@ -16,8 +16,8 @@ import {
     BRIDGE_RESTART_DELAY,
     REMINDER_CHECK_INTERVAL,
     REMINDER_DEFAULT_TIMEOUT,
-    TRAIL_DEFAULT_MAX_ENTRIES,
 } from './constants';
+import { COMPACT_TRAIL_DEFAULT_MAX_ENTRIES } from './compactTrailTrim';
 
 export type CopilotConfig = Record<string, unknown>;
 export type TrailConfig = Record<string, unknown>;
@@ -132,7 +132,6 @@ export class TomAiConfiguration {
                 raw: {
                     enabled: true,
                     maxRawFiles: 1000,
-                    maxEntries: TRAIL_DEFAULT_MAX_ENTRIES,
                     stripThinking: true,
                     paths: {
                         localLlm: '${ai}/trail/localllm',
@@ -144,6 +143,9 @@ export class TomAiConfiguration {
                     enabled: true,
                     promptsFilePattern: '${ai}/quests/${quest}/history/${quest}.${subsystem}.prompts.md',
                     answersFilePattern: '${ai}/quests/${quest}/history/${quest}.${subsystem}.answers.md',
+                },
+                compact: {
+                    maxEntries: COMPACT_TRAIL_DEFAULT_MAX_ENTRIES,
                 },
             },
             bridge: {

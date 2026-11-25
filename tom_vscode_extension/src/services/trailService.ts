@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { FsUtils } from '../utils/fsUtils';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
+import { compactTrailMaxEntries, trimCompactTrailFile } from '../utils/compactTrailTrim';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
 import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
@@ -41,7 +42,6 @@ export interface TrailMetadata {
 
 interface RawTrailConfig {
     enabled?: boolean;
-    maxEntries?: number;
     /** Maximum number of raw individual trail files per directory before the oldest are deleted. Default: 1000. */
     maxRawFiles?: number;
     stripThinking?: boolean;
@@ -126,7 +126,7 @@ export class TrailService {
             `TEMPLATE: ${metadata.templateName || '(none)'}\n` +
             `ANSWER-WRAPPER: ${metadata.answerWrapper || 'no'}\n\n`;
         this.prependEntry(target, entry);
-        this.trimTrailFile(target, this.getMaxSummaryEntries());
+        trimCompactTrailFile(target, this.getMaxSummaryEntries());
     }
 
     writeSummaryAnswer(subsystem: TrailSubsystem, answer: string, metadata?: TrailMetadata, questId?: string): void {
@@ -163,7 +163,7 @@ export class TrailService {
             `=== ANSWER ${requestId} ${timestamp} ${sequence} ===\n\n` +
             `${payload}\n\n`;
         this.prependEntry(target, entry);
-        this.trimTrailFile(target, this.getMaxSummaryEntries());
+        trimCompactTrailFile(target, this.getMaxSummaryEntries());
     }
 
     /**
@@ -279,7 +279,6 @@ export class TrailService {
         const raw = (trail.raw ?? trail) as RawTrailConfig;
         return {
             enabled: raw.enabled !== false,
-            maxEntries: typeof raw.maxEntries === 'number' && raw.maxEntries > 0 ? raw.maxEntries : 1000,
             maxRawFiles: typeof raw.maxRawFiles === 'number' && raw.maxRawFiles > 0 ? raw.maxRawFiles : 1000,
             stripThinking: raw.stripThinking === true,
             paths: {
@@ -404,37 +403,9 @@ export class TrailService {
         }
     }
 
-    private trimTrailFile(filePath: string, maxEntries: number): void {
-        if (!fs.existsSync(filePath)) {
-            return;
-        }
-        try {
-            const content = fs.readFileSync(filePath, 'utf-8');
-            const firstLine = content.split('\n')[0] || '';
-            const match = firstLine.match(/===\s+(?:PROMPT|ANSWER)\s+\S+\s+\S+\s+(\d+)\s+===/);
-            const currentSeq = match ? parseInt(match[1], 10) : 0;
-            if (currentSeq <= maxEntries) {
-                return;
-            }
-            const lines = content.split('\n');
-            let lastEntryStart = -1;
-            for (let i = lines.length - 1; i >= 0; i--) {
-                if (/^===\s+(?:PROMPT|ANSWER)/.test(lines[i])) {
-                    lastEntryStart = i;
-                    break;
-                }
-            }
-            if (lastEntryStart > 0) {
-                const trimmed = lines.slice(0, lastEntryStart).join('\n').trimEnd() + '\n';
-                fs.writeFileSync(filePath, trimmed, 'utf-8');
-            }
-        } catch {
-            // ignore trim failures
-        }
-    }
-
+    /** `trail.compact.maxEntries`: the turns a compact trail file keeps (utils/compactTrailTrim.ts). */
     private getMaxSummaryEntries(): number {
-        return this.getRawConfig().maxEntries ?? 1000;
+        return compactTrailMaxEntries(TomAiConfiguration.instance.getTrail());
     }
 
     private generateRequestId(): string {

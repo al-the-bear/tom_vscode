@@ -445,12 +445,28 @@
             },
             "additionalProperties": true
         },
+        "trail": {
+            "type": "object",
+            "description": "The AI trail: raw (one file per prompt, answer, payload and tool call), summary (where the compact trail pair is written) and compact (its limit).",
+            "properties": {
+                "raw": { "$ref": "#/properties/tomAi.trail.raw" },
+                "compact": {
+                    "type": "object",
+                    "description": "The compact trail: the summary pair <quest>.<subsystem>.prompts.md / .answers.md, newest first.",
+                    "properties": {
+                        "maxEntries": { "type": "integer", "minimum": 1, "default": 2000, "description": "The prompt / answer turns a compact trail file keeps (distinct request ids; inner steps are not entries). Every writer drops the oldest beyond it on its next write." }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": true
+        },
         "tomAi.trail.raw": {
             "type": "object",
             "description": "Raw trail subsystem configuration (anthropic_sdk_integration.md §4, §14).",
             "properties": {
                 "enabled": { "type": "boolean", "default": true },
-                "maxEntries": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max entries in consolidated summary trail files (prompts.md / answers.md) before oldest are trimmed." },
+                "maxEntries": { "type": "integer", "minimum": 1, "default": 1000, "description": "Raw trail key kept for older configs; it does not limit the compact trail (trail.compact.maxEntries does). The raw trail's file limit is maxRawFiles." },
                 "maxRawFiles": { "type": "integer", "minimum": 1, "default": 1000, "description": "Max total raw trail files (prompt, answer, payload, tool_request, tool_answer combined) per quest directory. Oldest files are deleted when the limit is exceeded." },
                 "toolResultsMaxAgeDays": { "type": "integer", "minimum": 0, "default": 30, "description": "The stored tool results of a session (history/sessions/<session>/trail/tool_results/t<n>.json, read back by tomAi_readPastToolResult) older than this many days are pruned after each send. 0: no age limit." },
                 "toolResultsMaxPerSession": { "type": "integer", "minimum": 0, "default": 1000, "description": "At most this many stored tool results per session, the newest; the older ones are pruned after each send. 0: no count limit." },

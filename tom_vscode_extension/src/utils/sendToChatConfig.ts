@@ -115,8 +115,11 @@ export interface SendToChatConfig {
     trail?: {
         /** Max total raw trail files per quest directory before oldest are deleted (default: 1000). */
         maxRawFiles?: number;
-        /** Max entries in consolidated summary trail files before trimming (default: 1000). */
-        maxEntries?: number;
+        /** The compact trail (the summary pair `<quest>.<subsystem>.prompts.md` / `.answers.md`). */
+        compact?: {
+            /** The prompt / answer turns a compact trail file keeps (default 2000; utils/compactTrailTrim.ts). */
+            maxEntries?: number;
+        };
         /** Stored tool results older than this many days are pruned after each send (default 30; 0: no age limit). */
         toolResultsMaxAgeDays?: number;
         /** At most this many stored tool results per session, the newest (default 1000; 0: no count limit). */

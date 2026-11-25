@@ -12,7 +12,6 @@ export const TELEGRAM_AUTO_START_DELAY = 2_000;
 export const TRAIL_MAX_FILES_PER_FOLDER = 50;
 export const TRAIL_MAX_VIEWER_EXCHANGES = 100;
 export const TRAIL_DEFAULT_CLEANUP_DAYS = 2;
-export const TRAIL_DEFAULT_MAX_ENTRIES = 1000;
 
 export const FILE_EXT_TODO = '.todo.yaml';
 export const FILE_EXT_CHAT = '.chat.md';

@@ -1191,12 +1191,14 @@ type AnthropicProfile = AnthropicProfileTemplate;
 }
 ```
 
-### `trail.raw` additions
+### `trail.raw` and `trail.compact`
 
 ```json
+"trail": {
+  "compact": { "maxEntries": 2000 }
+},
 "tomAi.trail.raw": {
   "enabled": true,
-  "maxEntries": 1000,
   "paths": {
     "localLlm": "${ai}/trail/localllm/${quest}",
     "copilot":  "${ai}/trail/copilot/${quest}",
@@ -1205,6 +1207,8 @@ type AnthropicProfile = AnthropicProfileTemplate;
   }
 }
 ```
+
+`trail.compact.maxEntries` is the number of prompt / answer turns each summary trail file (`*.prompts.md` / `*.answers.md`) keeps; every write drops the oldest beyond it (`utils/compactTrailTrim.ts`). The raw trail is limited by `maxRawFiles`.
 
 ### `memory` section
 
