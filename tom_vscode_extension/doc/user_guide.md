@@ -891,7 +891,9 @@ A queue item knows what it holds — its **kind**, shown by `tomAi_listQueue` an
 
 Queue them from the todo panel with **Queue as todo item** (in the detail view; the queue button of a todo group, and ⏩ on a group todo's tile): a todo becomes a TODO item — its prompt is the todo panel's todo prompt, the Todo buttons template for that todo around a line naming it, on Anthropic, as the Queue button beside it does — and a group todo a GROUP item with the quest's group prompt, like a group walk. (In a group todo's detail **Run** row the button queues the group todo itself as a TODO item; the row's two group buttons queue the GROUP item.) Both go where you pick (quest, run, free session, at the place the Next toggle says; see *Where a todo is queued and sent* under the Quest TODO panel). The **Queue** button beside them still queues a plain prompt with the todo's text. Agents queue them with `tomAi_addQueueItem` (`todo` / `group`, `position: 0` for the front) and into another quest's queue with `tomAi_sendItemToQuest` (`todo` / `group`).
 
-A GROUP item lists its group's **members** in the queue editor, in their order in **Members**, each with its id, status and title, and a marker for what the walk does with it:
+**The header of a walk** shows what it walks where other items show their repeat counters (which do not apply to a walk): `todos <prefix>*` for a `<prefix>*` walk, `todo group <id>` for a GROUP item, `todo <id>` for a TODO item, with the todo being worked on beside it and, while it runs, the skip button.
+
+A GROUP item lists its group's **members** in the queue editor, in their order in **Members**, each with its id, status and title, and a marker for what the walk does with it — and a `<prefix>*` walk lists its **Todos** the same way, lowest number first. The list is read from the todo files each time: after every finished todo, and whenever a todo file changes (a todo added, renumbered, cancelled or archived, in any window), it is drawn again:
 
 - **→** the member being sent now;
 - **✓** a member this item sent and completed, **⚠** one it sent that is not completed (*needs attention*); the outcome is the mark's tooltip;

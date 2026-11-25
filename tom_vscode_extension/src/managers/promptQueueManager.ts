@@ -3432,15 +3432,18 @@ export class PromptQueueManager {
     }
 
     /**
-     * A GROUP item's members with their markers (utils/groupItemSelection.ts,
-     * vscimpb129): → the member being sent, ✓ those it sent, a checkbox for the
-     * others. Undefined for an item that is no GROUP item.
+     * A GROUP item's members — or a `<prefix>*` walk's todos — with their
+     * markers (utils/groupItemSelection.ts, vscimpb129): → the todo being sent,
+     * ✓ those it sent, a checkbox for the others. Read from the todo files each
+     * time, so a todo added, renumbered, cancelled or archived shows at once.
+     * Undefined for an item that walks no group or prefix.
      */
     groupMembers(id: string): GroupMemberView[] | undefined {
         const item = this.getById(id);
         const walk = item ? parseTodoWalk(item.repeatCount) : undefined;
-        if (!item || walk?.kind !== 'group') { return undefined; }
-        const questId = this.activeQuestId() ?? walk.quest;
+        if (!item || !walk || walk.kind === 'todo') { return undefined; }
+        const questId = this.activeQuestId() ?? (walk.kind === 'group' ? walk.quest : undefined);
+        if (!questId) { return undefined; }
         const sent = walkableRepeatIds(item);
         const sendingId = item.status === 'sending' && item.todoClaim && !item.todoClaim.released ? item.todoClaim.todoId : undefined;
         if (sendingId) { sent.delete(sendingId); }

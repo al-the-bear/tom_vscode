@@ -237,10 +237,27 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         });
     } catch { /* no process store */ }
 
+    // The todo lists of the walks (a GROUP item's members, a `<prefix>*` walk's todos) are read from the todo files:
+    // when one changes — a todo finished, added, renumbered, cancelled or archived, in any window — draw them again.
+    _todoFilesListener?.dispose();
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const todoPanel = require('./questTodoPanel-handler.js') as typeof import('./questTodoPanel-handler');
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const watcher = todoPanel.setupQuestTodoWatcher(() => {
+            if (!hasWalkList()) { return; }
+            if (timer) { clearTimeout(timer); }
+            timer = setTimeout(() => { timer = undefined; if (_panel === panel) { sendState(); } }, 800);
+        });
+        _todoFilesListener = watcher ? { dispose: () => { if (timer) { clearTimeout(timer); } watcher.dispose(); } } : undefined;
+    } catch { /* no todo watcher: the lists follow the queue's own changes */ }
+
     _panel.onDidDispose(() => {
         _panel = undefined;
         // An edit left open in the closed editor would hold the queue for good.
         try { void PromptQueueManager.instance.endTextEdit(undefined); } catch { /* no queue */ }
+        _todoFilesListener?.dispose();
+        _todoFilesListener = undefined;
         _runsListener?.dispose();
         _runsListener = undefined;
         _queueListener?.dispose();
@@ -253,6 +270,15 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
 }
 
 let _nightModeListener: vscode.Disposable | undefined;
+let _todoFilesListener: vscode.Disposable | undefined;
+
+/** Whether an item of the queue lists the todos of its walk (a GROUP item, a `<prefix>*` walk) that is not done yet. */
+function hasWalkList(): boolean {
+    try {
+        return PromptQueueManager.instance.items.some((i) => i.status !== 'sent' && i.status !== 'chat-sent' && typeof i.repeatCount === 'string'
+            && (/\*\s*$/.test(i.repeatCount) || i.repeatCount.startsWith('group:')));
+    } catch { return false; }
+}
 
 /**
  * The headline's night-mode button: on or off in this window, or in every open window of this machine (the

@@ -423,8 +423,10 @@ export function collectPrefixTodos(
             status: normaliseStatus(todo.status),
             ...(todo.userAction === true ? { userAction: true as const } : {}),
             ...(todo.walkableRepeat === true ? { walkableRepeat: true as const } : {}),
-            // A todo the user skipped on a held walk (Continue) is passed (utils/walkBlockView.ts).
+            // A todo the user skipped on a held walk (Continue) is passed (utils/walkBlockView.ts); unchecked in the
+            // walk's list it is passed too, checked it is sent whatever its status (utils/groupItemSelection.ts).
             ...(todo.excluded === true ? { excluded: true as const } : {}),
+            ...(todo.forced === true ? { forced: true as const } : {}),
             ...(todo.blockedReason ? { blockedReason: todo.blockedReason } : {}),
         });
     }

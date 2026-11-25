@@ -174,20 +174,14 @@ function renderEntry(item, idx) {
   var mainRepeatLabel = formatRepeatLabel(repeatCountRaw, item.repeatIndex, item.resolvedRepeatCount);
   var repeatProgress = '';
   var mpStartNumber = Math.max(1, repeatIndex + 1);
-  // TODO ITERATION (`prefix*` repeat count): the walk is driven by the quest
-  // todos' status, not by the counter — so the rep-number input would steer
-  // nothing. Show the current todo's number read-only instead, and name the
-  // todo itself in a badge next to it.
-  var isTodoIteration = typeof repeatCountRaw === 'string' && /\*\s*$/.test(repeatCountRaw) && repeatCountRaw.trim().length > 1;
-  if (isTodoIteration) {
-    repeatProgress = '  [MP <span title="Current todo number in the ' + escapeHtml(String(repeatCountRaw))
-      + ' series — read-only: the walk advances by todo status, not by this counter">' + repeatIndex + '</span>/'
-      + '<input type="text" value="' + escapeHtml(repeatCountDisplay)
-      + '" style="width:38px" title="Update main prompt repeat count (Enter)" placeholder="1 or var" onclick="event.stopPropagation()"'
-      + ' onkeydown="submitRepeatCountFromStatus(event, \'' + safeId + '\', ' + repeatIndex + ', this)">'
-      + (isSending ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next todo"></span>' : '')
-      + ']';
-    if (item.repeatTodoId) {
+  // A todo walk — `<prefix>*`, a GROUP item (`group:<quest>/<id>`) or a TODO item (`todo:<quest>/<id>`) — is driven
+  // by the quest todos' status, not by a counter: its header shows what it walks instead of the repeat counters
+  // (`todos wwremind*`, `todo group <id>`, `todo <id>`), the todo being worked on beside it.
+  var walkInfo = todoWalkInfo(repeatCountRaw);
+  if (walkInfo) {
+    repeatProgress = '  <span class="walk-info" title="' + escapeHtml(walkInfo.title) + '">' + escapeHtml(walkInfo.label) + '</span>'
+      + (isSending ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeId + '\')" title="Skip to next todo"></span>' : '');
+    if (item.repeatTodoId && walkInfo.kind !== 'todo') {
       repeatProgress += '  <span style="background:#6f42c1;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;" title="Quest todo this main prompt is working on">['
         + escapeHtml(String(item.repeatTodoId)) + ']</span>';
     }
@@ -258,6 +252,8 @@ function renderEntry(item, idx) {
   } else if (tplRepeatCount > 1 || tplRepeatIsVar) {
     tplRepeatProgress = '  [T ' + tplCurrent + '/' + tplTotal + ' (' + escapeHtml(tplRepeatCountDisplay) + ')]';
   }
+  // A todo walk shows no counters: the template counter only when the item really repeats its template.
+  if (walkInfo && !(tplRepeatCount > 1 || tplRepeatIsVar)) { tplRepeatProgress = ''; }
 
   var expanded = detailsExpanded[item.id] !== false;
 
@@ -639,6 +635,27 @@ function renderEntry(item, idx) {
   '</div>';
 }
 
+/**
+ * What a todo walk's repeat count walks, for the item header: `<prefix>*` → `todos <prefix>*`,
+ * `group:<quest>/<id>` → `todo group <id>`, `todo:<quest>/<id>` → `todo <id>`; null for anything else.
+ * @param {unknown} raw
+ * @returns {{kind: string, label: string, title: string} | null}
+ */
+function todoWalkInfo(raw) {
+  if (typeof raw !== 'string') { return null; }
+  var v = raw.trim();
+  var m = /^(group|todo):([^/]+)\/(.+)$/.exec(v);
+  if (m) {
+    return m[1] === 'group'
+      ? { kind: 'group', label: 'todo group ' + m[3], title: 'Walks the members of the group todo ' + m[3] + ' (quest ' + m[2] + '), listed below' }
+      : { kind: 'todo', label: 'todo ' + m[3], title: 'Runs the todo ' + m[3] + ' (quest ' + m[2] + ')' };
+  }
+  if (/\*$/.test(v) && v.length > 1) {
+    return { kind: 'prefix', label: 'todos ' + v, title: 'Walks the todos ' + v + ', lowest number first, listed below' };
+  }
+  return null;
+}
+
 /*
  * A GROUP item's members (vscimpb129, src/utils/groupItemSelection.ts), in
  * comprised_of order: → the member being sent, ✓ with the outcome for those it
@@ -681,7 +698,9 @@ function renderGroupMembers(item, safeId) {
       + '<button type="button" class="gm-rules" onclick="resetGroupSelection(\'' + safeId + '\')" title="Back to what the walk\'s rules send: every open member — a blocked or decision-needed one too, the walk waits there — not the user\'s own">Reset to rules</button>'
       + '</div>'
     : '';
-  return '<div class="group-members"><div class="gm-head">Members</div>' + rows + bar + '</div>';
+  // A `<prefix>*` walk lists its todos the same way (lowest number first).
+  var head = typeof item.repeatCount === 'string' && /\*\s*$/.test(item.repeatCount) ? 'Todos' : 'Members';
+  return '<div class="group-members"><div class="gm-head">' + head + '</div>' + rows + bar + '</div>';
 }
 
 /*

@@ -15,6 +15,12 @@
  *        to the user
  *   GS-6 the queue editor's list: → / ✓ / ⚠ / checkbox rows (a sent member's mark alone, its outcome on hover),
  *        Select all / Reset to rules while editable, their messages; no buttons and disabled boxes on a sent item
+ *   GS-7 a `<prefix>*` walk lists its todos the same way, lowest number first (only the prefix's, by number); a TODO
+ *        item (one todo) lists none
+ *   GS-8 the item header shows what a walk walks in place of the repeat counters — `todos <prefix>*`, `todo group
+ *        <id>`, `todo <id>` — with no [MP …] / [T …] counter; the prefix walk's list is headed Todos, a group's Members
+ *   GS-9 a prefix walk sends exactly its checked todos: a checked completed or blocked one is sent, an unchecked open
+ *        one passed
  */
 
 import test, { describe } from 'node:test';
@@ -159,5 +165,75 @@ describe('the queue editor\'s member list', () => {
         const done = row('g-done');
         assert.equal(done.querySelector('.gm-all'), null, 'a sent item has no buttons');
         assert.ok([...done.querySelectorAll('input.gm-box')].every((b: any) => b.disabled));
+    });
+
+    const PREFIX = { kind: 'prefix' as const, prefix: 'ww' };
+    const WW: TodoIterationSource[] = [
+        { id: 'ww10_x', title: 'Ten', status: 'not-started' },
+        { id: 'ww2_x', title: 'Two', status: 'completed' },
+        { id: 'ww3_x', title: 'Three', status: 'blocked' },
+        { id: 'zz1_x', title: 'Other', status: 'not-started' },
+        { id: 'ww1_x', title: 'One', status: 'not-started' },
+    ];
+
+    test('GS-7: a prefix walk lists its todos', () => {
+        const members = groupItemMembers({ walk: PREFIX, todos: WW, sent: new Set(['ww1_x']), sendingId: 'ww10_x' });
+        assert.deepEqual(members.map((m) => m.id), ['ww1_x', 'ww2_x', 'ww3_x', 'ww10_x'], 'the prefix\'s todos, lowest number first');
+        assert.deepEqual(members.map(memberMarkerText), ['✓ needs attention', '☐', '☑', '→']);
+        assert.deepEqual(groupItemMembers({ walk: { kind: 'todo', quest: 'q1', id: 'ww1_x' }, todos: WW, sent: new Set() }), [], 'a TODO item lists none');
+        // Read again after the todo file changed: a new todo shows, an archived one is gone.
+        const later = groupItemMembers({ walk: PREFIX, todos: [...WW.filter((t) => t.id !== 'ww2_x'), { id: 'ww4_x', title: 'Four', status: 'not-started' }], sent: new Set() });
+        assert.deepEqual(later.map((m) => m.id), ['ww1_x', 'ww3_x', 'ww4_x', 'ww10_x']);
+    });
+
+    test('GS-8: the header and the prefix walk\'s list', (t) => {
+        const prefixMembers = groupItemMembers({ walk: PREFIX, todos: WW, sent: new Set() });
+        const items = [
+            { id: 'p-walk', status: 'pending', originalText: 'walk', itemKind: 'prefix', repeatCount: 'ww*', groupMembers: prefixMembers, createdAt: '2026-11-25T10:00:00Z' },
+            { id: 'g-walk', status: 'sending', originalText: 'walk', itemKind: 'group', repeatCount: VALUE, repeatTodoId: 'b1', groupMembers: groupItemMembers({ walk: WALK, todos: TODOS, sent: new Set() }), createdAt: '2026-11-25T10:01:00Z' },
+            { id: 't-item', status: 'staged', originalText: 'one', itemKind: 'todo', repeatCount: 'todo:q1/b1', createdAt: '2026-11-25T10:02:00Z' },
+            { id: 'counted', status: 'staged', originalText: 'three times', repeatCount: 3, createdAt: '2026-11-25T10:03:00Z' },
+        ];
+        const html = readMedia('queueEditor', 'index.html').replace(/<script[\s\S]*?<\/script>/g, '');
+        const dom = new JSDOM(html, { runScripts: 'outside-only' });
+        const window = dom.window as any;
+        t.after(() => window.close());
+        window.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
+        window.__INIT__ = { state: { items, autoSend: false } };
+        window.eval([
+            readMedia('shared', 'queueEntryUtils.js'),
+            readMedia('shared', 'queueEntryRenderFunctions.js'),
+            readMedia('shared', 'queueEntryMessageHandlers.js'),
+            readMedia('queueEditor', 'main.js'),
+        ].join('\n;\n'));
+        const row = (id: string) => [...window.document.querySelectorAll('#queueList .queue-item')].find((el: any) => el.outerHTML.includes(`'${id}'`)) as any;
+        const header = (id: string) => (row(id).querySelector('.walk-info')?.textContent ?? '') as string;
+        assert.equal(header('p-walk'), 'todos ww*');
+        assert.equal(header('g-walk'), 'todo group g1');
+        assert.equal(header('t-item'), 'todo b1');
+        for (const id of ['p-walk', 'g-walk', 't-item']) {
+            assert.doesNotMatch(row(id).textContent, /\[MP|\[T /, `${id}: no repeat counters`);
+        }
+        assert.match(row('g-walk').textContent, /\[b1\]/, 'the todo being worked on beside it');
+        assert.match(row('counted').innerHTML, /\[MP /, 'a counted repeat keeps its counter');
+        assert.equal(row('p-walk').querySelector('.group-members .gm-head').textContent, 'Todos');
+        assert.deepEqual([...row('p-walk').querySelectorAll('.gm-row')].map((r: any) => r.getAttribute('data-member')), ['ww1_x', 'ww2_x', 'ww3_x', 'ww10_x']);
+        assert.equal(row('g-walk').querySelector('.group-members .gm-head').textContent, 'Members');
+    });
+
+    test('GS-9: a prefix walk sends exactly its checked todos', () => {
+        const selection = { checked: ['ww2_x', 'ww3_x'], unchecked: ['ww1_x'] };
+        const sent = new Set<string>();
+        const order: string[] = [];
+        let todos = WW;
+        for (let i = 0; i < 10; i++) {
+            const next = pickNextTodoForIteration('ww*', withSelectionFlags(todos, selection, sent));
+            if (!next) { break; }
+            order.push(next.id);
+            sent.add(next.id);
+            // The turn completes the todo it was sent.
+            todos = todos.map((x) => (x.id === next.id ? { ...x, status: 'completed' } : x));
+        }
+        assert.deepEqual(order, ['ww2_x', 'ww3_x', 'ww10_x'], 'ww2 (completed) and ww3 (blocked) checked, ww1 unchecked, ww10 by the rules');
     });
 });

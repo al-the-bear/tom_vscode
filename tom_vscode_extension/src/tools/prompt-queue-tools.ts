@@ -1133,7 +1133,7 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
                 return err('`groupSelection` is a list of member ids.');
             }
             const members = access.groupMembers?.(input.queueItemId);
-            if (!members) { return err(`Queue item "${input.queueItemId}" is no GROUP item: \`groupSelection\` is refused.`); }
+            if (!members) { return err(`Queue item "${input.queueItemId}" walks no group or prefix: \`groupSelection\` is refused.`); }
             const unknown = input.groupSelection.filter((m) => !members.some((x) => x.id === m));
             if (unknown.length) { return err(`Not members of the group: ${unknown.join(', ')}. Its members: ${members.map((m) => m.id).join(', ')}.`); }
             if (!access.setGroupSelection?.(input.queueItemId, { checked: input.groupSelection })) {
@@ -1187,7 +1187,7 @@ export const UPDATE_QUEUE_ITEM_DESCRIPTION =
     '`letNextGoFirst: true` on a pending or sending iteration item (a `<prefix>*` walk or a repeat count) lets the ' +
     'next pending item of its lane go first — a pending one moves behind it now, a sending one after its running ' +
     'iteration, the walk resuming after it; `false` cancels it. Refused without a following item in its lane. ' +
-    '`groupSelection: [ids]`: the members a GROUP item\'s walk sends (staged, pending or sending).';
+    '`groupSelection: [ids]`: the todos a GROUP item\'s or a `<prefix>*` walk sends (staged, pending or sending).';
 
 export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> = {
     name: 'tomAi_updateQueueItem',
@@ -1225,7 +1225,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             doneNotificationRun: { type: 'string', description: DONE_NOTIFICATION_RUN_DOC },
             doneNotificationDisabled: { type: 'boolean', description: 'Keep the done-notification prompt but do not queue it.' },
             letNextGoFirst: { type: 'boolean', description: 'An iteration item lets the next pending item of its lane go first (a sending one after its running iteration); false cancels it.' },
-            groupSelection: { type: 'array', items: { type: 'string' }, description: 'A GROUP item: the member ids its walk sends, in the group\'s order; the other members still to come are not sent.' },
+            groupSelection: { type: 'array', items: { type: 'string' }, description: 'A GROUP item (or a `<prefix>*` walk): the member (todo) ids its walk sends, in the walk\'s order; the others still to come are not sent.' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',

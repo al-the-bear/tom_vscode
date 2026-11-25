@@ -1,5 +1,6 @@
 /**
- * A GROUP item's members and which of them it sends (vscimpb129).
+ * A GROUP item's members and which of them it sends (vscimpb129); a
+ * `<prefix>*` walk's todos the same way.
  *
  * The item lists its group's members in `comprised_of` order (this quest's,
  * as the walk takes them, queueStep3Utils.collectWalkTodos), each with a
@@ -81,9 +82,11 @@ export function selectionOf(memberIds: readonly string[], checkedIds: readonly s
 }
 
 /**
- * A GROUP item's members with their markers, in walk order. `todos` are the
- * quest's todos (title, status), `sent` the members this item sent,
- * `sendingId` the member being sent now.
+ * A GROUP item's members — or a `<prefix>*` walk's todos, lowest number
+ * first — with their markers, in walk order. `todos` are the quest's todos as
+ * the todo files hold them now (title, status: a todo added, renumbered,
+ * cancelled or archived shows so at the next read), `sent` the todos this item
+ * sent, `sendingId` the todo being sent now. A TODO item (one todo) has none.
  */
 export function groupItemMembers(input: {
     walk: TodoWalk;
@@ -92,7 +95,7 @@ export function groupItemMembers(input: {
     sent: ReadonlySet<string>;
     sendingId?: string;
 }): GroupMemberView[] {
-    if (input.walk.kind !== 'group') { return []; }
+    if (input.walk.kind === 'todo') { return []; }
     const checked = new Set(input.selection?.checked ?? []);
     const unchecked = new Set(input.selection?.unchecked ?? []);
     const byId = new Map(input.todos.map((t) => [t.id, t]));
