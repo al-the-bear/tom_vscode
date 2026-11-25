@@ -111,6 +111,7 @@ describe('workspace folders and recorded quests', () => {
             layout: () => ({ root: ROOT }),
             workspaceFolders: (refresh: boolean) => { refreshed = refresh; return { root: ROOT, folders: reg.scanWorkspaceFolders(ROOT) }; },
             quests: () => reg.questsWithWorkspaceFolders(QUESTS),
+            repos: () => null,
         };
         const plain = JSON.parse(await getWorkspaceInfoImpl({ source: { snapshot }, extras }, {}));
         assert.equal('layout' in plain || 'quests' in plain || 'workspaceFolderScan' in plain, false, 'no include: as before');

@@ -11,6 +11,11 @@
  *   LR-4 without repos.yaml `{ok: false, error}` naming the file looked for; no root; a file that does not parse;
  *        an entry without path, url or kind is skipped and reported
  *   LR-5 the tool: read-only (on the MCP read-only floor), registered, selectable, categorised, documented
+ *   LR-6 an entry's `description:` is answered (absent when the entry has none)
+ *   LR-7 tomAi_getWorkspaceInfo `include: ["repos"]`: the root (path `.`, url, branch, description, cloned) and every
+ *        entry with path, kind, branch / pin, url, description and cloned; `repos: null` without repos.yaml or
+ *        without a root, `{file, error}` for a file that does not parse; documented in the tool description and
+ *        doc/llm_tools.md
  */
 
 import { describe, test, after } from 'node:test';
@@ -24,9 +29,10 @@ installVscodeStub({ workspaceFolders: [process.cwd()] });
 
 import { withTiming } from './_timing.js';
 import {
-    LIST_REPOSITORIES_TOOL_DEF, deepestContaining, isAtOrUnder, listRepositoriesImpl, normalizeUnder,
+    LIST_REPOSITORIES_TOOL_DEF, deepestContaining, isAtOrUnder, listRepositoriesImpl, normalizeUnder, workspaceRepos,
     type RepositorySource,
 } from '../repository-tools.js';
+import { GET_WORKSPACE_INFO_TOOL, getWorkspaceInfoImpl, WORKSPACE_INFO_PARTS } from '../editor-context-tools.js';
 import type { ProjectListing } from '../../services/workspaceProjects.js';
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'list-repositories-')));
@@ -34,11 +40,11 @@ after(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 const REPOS_YAML = [
     'version: 1',
-    'root: {url: git@github.com:me/root.git, branch: main}',
+    'root: {url: git@github.com:me/root.git, branch: main, description: "The fleet root."}',
     'repos:',
     '  - {path: ws/agent, url: git@github.com:me/agent.git, kind: code, branch: main}',
     '  - {path: ws/agent/tom_ai/core, url: git@github.com:me/core.git, kind: code, branch: main}',
-    '  - {path: ws/agent/tom_ai/xternal/dcli, url: git@github.com:me/dcli.git, kind: fork, branch: tom/10-fixes}',
+    '  - {path: ws/agent/tom_ai/xternal/dcli, url: git@github.com:me/dcli.git, kind: fork, branch: tom/10-fixes, description: "Our fork of dcli: the shell library."}',
     '  - {path: ws/agent/tom_ai/corelib, url: git@github.com:me/corelib.git, kind: code, branch: dev}',
     '  - {path: _ai, url: git@github.com:me/state.git, kind: ai, branch: main}',
     '  - {path: samples/cJSON, url: https://github.com/DaveGamble/cJSON.git, kind: upstream, pin: a29814f285cc531c00223743ad3c55cd38c0dc56, hosts: []}',
@@ -90,7 +96,7 @@ describe('tomAi_listRepositories', () => {
         ]);
         assert.deepEqual(r.repositories[2], {
             path: 'ws/agent/tom_ai/xternal/dcli', name: 'dcli', url: 'git@github.com:me/dcli.git', kind: 'fork',
-            branch: 'tom/10-fixes', cloned: true, workspaceFolder: 'ws/agent',
+            branch: 'tom/10-fixes', description: 'Our fork of dcli: the shell library.', cloned: true, workspaceFolder: 'ws/agent',
         });
         assert.deepEqual(r.repositories[5], {
             path: 'samples/cJSON', name: 'cJSON', url: 'https://github.com/DaveGamble/cJSON.git', kind: 'upstream',
@@ -171,5 +177,40 @@ describe('tomAi_listRepositories', () => {
         const doc = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'doc', 'llm_tools.md'), 'utf8');
         assert.match(doc, /\| `tomAi_listRepositories` \|/, 'in the tool table');
         assert.match(doc, /### `tomAi_listRepositories`/, 'its own section');
+    });
+
+    test('LR-6: the description', async () => {
+        const r = await run({ kind: 'fork' });
+        assert.equal(r.repositories[0].description, 'Our fork of dcli: the shell library.');
+        assert.equal('description' in (await run({ kind: 'ai' })).repositories[0], false, 'absent when the entry has none');
+        assert.match(LIST_REPOSITORIES_TOOL_DEF.description, /description\?/);
+    });
+
+    test('LR-7: tomAi_getWorkspaceInfo include repos', async () => {
+        const snapshot = async () => ({ workspaceName: 'w', workspaceFile: null, workspaceFolders: [], questId: 'q', projects: [], projectsSource: null, git: null }) as never;
+        const extras = (src: RepositorySource) => ({ layout: () => null, workspaceFolders: () => null, quests: () => [], repos: () => workspaceRepos(src) });
+        const info = async (src: RepositorySource, include = ['repos']) => JSON.parse(await getWorkspaceInfoImpl({ source: { snapshot }, extras: extras(src) }, { include, includeGit: false }));
+        assert.ok((WORKSPACE_INFO_PARTS as readonly string[]).includes('repos'));
+        const r = (await info(source())).repos;
+        assert.equal(r.file, path.join(ROOT, 'repos.yaml'));
+        assert.deepEqual(r.root, { path: '.', url: 'git@github.com:me/root.git', branch: 'main', description: 'The fleet root.', cloned: true, absolutePath: ROOT });
+        assert.equal(r.count, 6);
+        assert.deepEqual(r.repositories[2], {
+            path: 'ws/agent/tom_ai/xternal/dcli', name: 'dcli', url: 'git@github.com:me/dcli.git', kind: 'fork',
+            branch: 'tom/10-fixes', description: 'Our fork of dcli: the shell library.', cloned: true, workspaceFolder: 'ws/agent',
+        });
+        assert.deepEqual([r.repositories[5].pin, r.repositories[5].cloned, 'branch' in r.repositories[5]], ['a29814f285cc531c00223743ad3c55cd38c0dc56', false, false]);
+        assert.equal('repos' in (await info(source(), [])), false, 'only on request');
+        assert.equal((await info(source({ root: () => path.join(ROOT, 'nowhere') }))).repos, null, 'no repos.yaml: null');
+        assert.equal((await info(source({ root: () => undefined }))).repos, null, 'no root: null');
+        const broken = (await info(source({ readText: () => 'repos: [unclosed' }))).repos;
+        assert.equal(broken.file, path.join(ROOT, 'repos.yaml'));
+        assert.match(broken.error, /does not parse/);
+        // Documented.
+        assert.match(GET_WORKSPACE_INFO_TOOL.description, /`repos` \(the root\\?'s `repos\.yaml`/);
+        const schema = GET_WORKSPACE_INFO_TOOL.inputSchema as { properties: { include: { items: { enum: string[] } } } };
+        assert.ok(schema.properties.include.items.enum.includes('repos'));
+        const doc = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'doc', 'llm_tools.md'), 'utf8');
+        assert.match(doc, /`include: \["repos"\]`/, 'doc/llm_tools.md names the part');
     });
 });

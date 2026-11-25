@@ -153,7 +153,7 @@ opens; other transports are not affected.
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_getWorkspaceInfo` | Workspace + quest + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `tomspecs` each `configured` / `bundled` / `missing`). No project list unless asked for: `include` adds `projects` (the list as `tomAi_listProjects` answers it, unfiltered — buildkit's listing, else the JavaScript port with `projectsFallback` saying why; `projectsError` only when both fail — with `projectsSource`; without it buildkit is not run; to narrow the list use `tomAi_listProjects`' filters), `layout` (the window's TomLayout: root, workspace folder, standalone, `aiRoot`, config layers, guideline folders, overrides set, `aiMissing`), `workspaceFolders` (`workspaceFolderScan`: the root's workspace folders — folders with an `_ai` entry and a `.tom` or CLAUDE.md, ztmp, node_modules, build and hidden folders skipped — relative to the root; cached per window, `refresh: true` scans again) and `quests` (every quest with the workspace folder recorded when a window opened it, and the `_ai/workspaces/` lists naming it, `listedBy`). | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_getWorkspaceInfo` | Workspace + quest + git + `build` (the build this window runs, the installed one, `reloadNeeded`) + `dartBinaries` (this platform; `tom_bs` and `tomspecs` each `configured` / `bundled` / `missing`). No project list unless asked for: `include` adds `projects` (the list as `tomAi_listProjects` answers it, unfiltered — buildkit's listing, else the JavaScript port with `projectsFallback` saying why; `projectsError` only when both fail — with `projectsSource`; without it buildkit is not run; to narrow the list use `tomAi_listProjects`' filters), `layout` (the window's TomLayout: root, workspace folder, standalone, `aiRoot`, config layers, guideline folders, overrides set, `aiMissing`), `workspaceFolders` (`workspaceFolderScan`: the root's workspace folders — folders with an `_ai` entry and a `.tom` or CLAUDE.md, ztmp, node_modules, build and hidden folders skipped — relative to the root; cached per window, `refresh: true` scans again) and `quests` (every quest with the workspace folder recorded when a window opened it, and the `_ai/workspaces/` lists naming it, `listedBy`) and `repos` (see below). | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getActiveEditor` | Active file, selection, cursor, visible range. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_getOpenEditors` | All open tabs with dirty / pinned flags; an MD Browser tab is `kind: "mdBrowser"` with its file and `panelId`. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listMdBrowserPanels` | The open MD Browser panels (static, live, and the tabs restored after a reload — `dormant` until shown, with the file remembered for them): file, live mode, title, column, active / visible, unsaved in-place edits, dormant. Read-only. | ✅ | ✅ | ✅ | ✅ |
@@ -1395,6 +1395,20 @@ The answer `{ok: true, id, stored: true, suggestedPrompts, suggestedTodos, note}
 
 The tool is always on (whatever the role), in the core set, and allowed in plan mode: it changes nothing in the workspace.
 
+### `tomAi_getWorkspaceInfo`
+
+Workspace context as JSON: `workspaceName`, `workspaceFile`, `workspaceFolders` (index, name, path), `quest` (the active quest id, `''` when none), `git` (`{branch, commit, dirty, remote}`, null when the workspace is not a repository), `build` (the build this window runs and the one installed, `running` / `installed`, each `{commit, dirty, builtAt}`, with `reloadNeeded: true` when a newer build is installed — a live check of a new feature stops there and asks for a reload) and `dartBinaries` (this platform and, for `tom_bs` and `tomspecs`, `configured` / `bundled` / `missing`; the command tomAi.showDartBinariesHelp explains them). `includeGit: false` skips the git calls.
+
+`include` adds parts, each only on request:
+
+- `projects` — the project list as `tomAi_listProjects` answers it, with `projectsSource`; `projectsFallback` when buildkit did not list and the JavaScript port did; `projects: null` with `projectsError` when nothing did. Large in a big workspace: `tomAi_listProjects` narrows it.
+- `layout` — the window's layout: root, workspace folder, standalone, `aiRoot`, config layers, guideline folders, overrides, `aiMissing`.
+- `workspaceFolders` — `workspaceFolderScan`: the root's workspace folders, relative to it; cached per window, `refresh: true` scans again.
+- `quests` — each quest's recorded workspace folder and the `_ai/workspaces/` lists naming it (`listedBy`).
+- `repos` — the root's `repos.yaml`, a map of the tree for finding one's way around: `{file, root, count, repositories, skipped?}`. `root` is the root repository, `{path: ".", url, branch, description, cloned: true, absolutePath}`; each repository `{path, name, kind, url, branch?, pin?, description?, cloned, workspaceFolder?}` as `tomAi_listRepositories` answers it (unfiltered, without projects), `cloned` whether its folder exists on this machine. `repos: null` without repos.yaml or without a workspace; `{file, error}` when the file does not parse or has no `repos:` list.
+
+An unknown part is refused (`{ok: false, error}` naming the known ones).
+
 ### `tomAi_waitFor`
 
 A turn says it waits on something outside it and waits: `reason` (one line, shown on the queue item), `until` (an ISO date-time or `HH:MM` local) or `minutes`, at most 48 h, optional `details`. The call blocks; its queue run sends nothing else meanwhile. It answers `{ok, outcome, waited, message}`:
@@ -1526,6 +1540,7 @@ The answer is `{ok, root, file, count, repositories}`, and with a filter the `ki
 | `kind` | `code`, `fork`, `ai`, `binaries` or `upstream`. |
 | `branch` | The branch it follows; an `upstream` has none. |
 | `pin` | The SHA an `upstream` is pinned to. |
+| `description` | The entry's `description:` — one line on what the repository holds and what it is for; absent when the entry has none. |
 | `cloned` | Whether its folder exists on this machine (a repository for some hosts only, `hosts: []` on demand, is often not). |
 | `workspaceFolder` | The deepest of the root's workspace folders (as `tomAi_getWorkspaceInfo`'s `workspaceFolderScan` finds them) that the repository is in or is; absent when it is in none. |
 | `projects` | With `includeProjects: true`: the ids of the buildkit projects inside it, sorted — the listing `tomAi_listProjects` answers, each project given to the deepest repository holding its folder, so a nested repository's projects are not also its parent's. A listing that fails answers `projectsError` and the repositories without projects; the JavaScript fallback listing adds `projectsFallback`. |
@@ -1537,6 +1552,8 @@ The answer is `{ok, root, file, count, repositories}`, and with a filter the `ki
 - `includeProjects` — add `projects` (default false).
 
 **Refused:** no repos.yaml at the root (`{ok: false, error, file}`, `file` the path looked at), no workspace open, a file that does not parse or has no `repos:` list, an unknown `kind`. An entry without `path`, `url` or `kind` is left out and named in `skipped`.
+
+**The workspace map in `tomAi_getWorkspaceInfo`:** `include: ["repos"]` adds `repos`, the same file unfiltered, for finding one's way around the tree: `{file, root, count, repositories, skipped?}`. `root` is the root repository itself, `{path: ".", url, branch, description, cloned: true, absolutePath}` from the file's `root:` record; `repositories` are the entries with the fields above (no `projects`). Without repos.yaml, or without a workspace, `repos` is `null`; a file that does not parse or has no `repos:` list answers `{file, error}`.
 
 ### `tomAi_listPromptPairs`
 

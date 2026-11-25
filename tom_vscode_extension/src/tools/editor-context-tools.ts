@@ -165,14 +165,14 @@ export interface OpenEditorsSource {
 export interface GetWorkspaceInfoInput {
     /** Default true. Set false to skip the git CLI calls. */
     includeGit?: boolean;
-    /** Parts to add (02_wslayout-11): `projects`, `layout`, `workspaceFolders`, `quests`. */
+    /** Parts to add (02_wslayout-11): `projects`, `layout`, `workspaceFolders`, `quests`, `repos`. */
     include?: string[];
     /** With `workspaceFolders`: scan the root again instead of the window's cached scan. */
     refresh?: boolean;
 }
 
 /** The parts `include` may add. */
-export const WORKSPACE_INFO_PARTS = ['projects', 'layout', 'workspaceFolders', 'quests'] as const;
+export const WORKSPACE_INFO_PARTS = ['projects', 'layout', 'workspaceFolders', 'quests', 'repos'] as const;
 
 /** Where the `include` parts come from (02_wslayout-11). */
 export interface WorkspaceInfoExtras {
@@ -182,6 +182,11 @@ export interface WorkspaceInfoExtras {
     workspaceFolders(refresh: boolean): { root: string; folders: string[] } | null;
     /** Every quest with its recorded workspace folder and the workspace lists naming it. */
     quests(): Array<{ quest: string; workspaceFolder?: string; listedBy?: string[] }>;
+    /**
+     * The root's repos.yaml: the root and every entry with path, kind, branch / pin, url, description and whether it
+     * is cloned here (tools/repository-tools.ts workspaceRepos); null without repos.yaml.
+     */
+    repos(): Record<string, unknown> | null;
 }
 
 export async function getWorkspaceInfoImpl(
@@ -215,22 +220,22 @@ export async function getWorkspaceInfoImpl(
         ...(include.includes('layout') ? { layout: ex ? ex.layout() : null } : {}),
         ...(include.includes('workspaceFolders') ? { workspaceFolderScan: scan ?? null } : {}),
         ...(include.includes('quests') ? { quests: ex ? ex.quests() : [] } : {}),
+        ...(include.includes('repos') ? { repos: ex ? ex.repos() : null } : {}),
     }, null, 2);
 }
 
 export const GET_WORKSPACE_INFO_DESCRIPTION =
     'Workspace context as JSON: `workspaceName`, `workspaceFile`, `workspaceFolders` (index/name/path), `quest` ' +
-    '(active quest id, \'\' when none), `git` (`{branch, commit, dirty, remote}`, ' +
-    'null when not a repo), `build`: the build this window runs and the one installed (`running` / `installed`, each ' +
-    '`{commit, dirty, builtAt}`) with `reloadNeeded: true` when a newer build is installed — a live check of a new ' +
-    'feature stops there and asks for a reload. `dartBinaries`: this platform and, for `tom_bs` and `tomspecs`, ' +
-    '`configured` / `bundled` / `missing` (the command tomAi.showDartBinariesHelp explains them). `includeGit: false` ' +
-    'skips git. `include` adds parts: `projects` (the project list as tomAi_listProjects answers it, with ' +
-    '`projectsSource`, `projectsFallback` when buildkit did not list, null with `projectsError` when nothing did; ' +
-    'large — tomAi_listProjects narrows it), `layout` (root, workspace folder, standalone, `aiRoot`, config layers, guideline ' +
-    'folders, overrides, `aiMissing`), `workspaceFolders` (`workspaceFolderScan`: the root\'s workspace folders, ' +
-    'relative; cached, `refresh: true` scans again), `quests` (each quest\'s recorded workspace folder and the ' +
-    '`_ai/workspaces/` lists naming it).';
+    '(active quest id, \'\' when none), `git` (`{branch, commit, dirty, remote}`, null when not a repo), `build`: the ' +
+    'build this window runs and the one installed (`running` / `installed`, each `{commit, dirty, builtAt}`) with ' +
+    '`reloadNeeded: true` when a newer build is installed — a live check of a new feature stops there and asks for a ' +
+    'reload. `dartBinaries`: this platform and, for `tom_bs` and `tomspecs`, `configured` / `bundled` / `missing`. ' +
+    '`includeGit: false` skips git. `include` adds parts: `projects` (the project list as tomAi_listProjects answers ' +
+    'it; large), `layout` (root, workspace folder, `aiRoot`, config layers, guideline folders), `workspaceFolders` ' +
+    '(`workspaceFolderScan`: the root\'s workspace folders, relative; cached, `refresh: true` scans again), `quests` ' +
+    '(each quest\'s recorded workspace folder and the `_ai/workspaces/` lists naming it), `repos` (the root\'s ' +
+    '`repos.yaml`, a map of the tree: the root and every repository with path, kind, branch / pin, url, description ' +
+    'and `cloned` on this machine; `repos: null` without repos.yaml). More: tomAi_describeTool.';
 
 export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput> = {
     name: 'tomAi_getWorkspaceInfo',
@@ -242,7 +247,7 @@ export const GET_WORKSPACE_INFO_TOOL: SharedToolDefinition<GetWorkspaceInfoInput
         type: 'object',
         properties: {
             includeGit: { type: 'boolean', description: 'Include git branch/commit/dirty. Default true.' },
-            include: { type: 'array', items: { type: 'string', enum: [...WORKSPACE_INFO_PARTS] }, description: 'Parts to add: projects (the project list), layout, workspaceFolders, quests.' },
+            include: { type: 'array', items: { type: 'string', enum: [...WORKSPACE_INFO_PARTS] }, description: 'Parts to add: projects (the project list), layout, workspaceFolders, quests, repos (repos.yaml with descriptions).' },
             refresh: { type: 'boolean', description: 'With workspaceFolders: scan the root again. Default false (the window\'s cached scan).' },
         },
     },

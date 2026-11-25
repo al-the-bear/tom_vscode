@@ -402,7 +402,7 @@ export const MEMORY_LIST_TOOL: SharedToolDefinition<MemoryListInput> = {
 // ============================================================================
 
 import { CHAT_ENHANCEMENT_TOOLS } from './chat-enhancement-tools';
-import { LIST_REPOSITORIES_TOOL } from './repository-tools';
+import { LIST_REPOSITORIES_TOOL, liveRepositorySource, workspaceRepos } from './repository-tools';
 import {
     EDITOR_CONTEXT_TOOLS,
     GET_WORKSPACE_INFO_TOOL as GET_WORKSPACE_INFO_DEF,
@@ -1360,7 +1360,7 @@ setOpenAskRunner((tool: OpenAskTool, input: Record<string, unknown>): Promise<st
     return (def as { execute: (input: never) => Promise<string> }).execute(input as never);
 });
 
-// tomAi_getWorkspaceInfo's `include` parts (02_wslayout-11): the layout, the root's workspace folders, the quests.
+// tomAi_getWorkspaceInfo's `include` parts (02_wslayout-11): the layout, the root's workspace folders, the quests, repos.yaml.
 let workspaceFolderScanCache: { root: string; folders: string[] } | undefined;
 const liveWorkspaceInfoExtras = {
     layout: (): unknown => getWindowLayout() ?? null,
@@ -1378,4 +1378,5 @@ const liveWorkspaceInfoExtras = {
         const listed = workspacesListingQuests(aiRoot);
         return questsWithWorkspaceFolders(path.join(aiRoot, 'quests')).map((q) => ({ ...q, ...(listed.get(q.quest) ? { listedBy: listed.get(q.quest) } : {}) }));
     },
+    repos: (): Record<string, unknown> | null => workspaceRepos(liveRepositorySource),
 };

@@ -1,8 +1,8 @@
 /**
  * `tomAi_listRepositories` — the repositories of the Tom root's `repos.yaml`
  * (schema `.tom/json-schema/repos/repos.schema.json`): where each lives, its
- * remote, its kind, the branch it follows or the SHA it is pinned to, whether
- * it is cloned on this machine, the workspace folder it is in, and (on
+ * remote, its kind, the branch it follows or the SHA it is pinned to, its
+ * description, whether it is cloned on this machine, the workspace folder it is in, and (on
  * request) the buildkit projects inside it.
  *
  * Read-only, on the MCP read-only floor. The implementation reads through a
@@ -47,9 +47,32 @@ export interface RepositoryEntry {
     kind: string;
     branch?: string;
     pin?: string;
+    /** The entry's `description:` (one line: what the repository holds and what it is for). */
+    description?: string;
     cloned: boolean;
     workspaceFolder?: string;
     projects?: string[];
+}
+
+/** The root repository of repos.yaml (its `root:` record). */
+export interface RootRepositoryEntry {
+    path: '.';
+    url?: string;
+    branch?: string;
+    description?: string;
+    cloned: true;
+}
+
+/** repos.yaml read: the root record and every valid entry, in file order. */
+export interface ReposFile {
+    root: string;
+    file: string;
+    rootRepository: RootRepositoryEntry;
+    entries: RepositoryEntry[];
+    /** The raw `repos:` paths (for the project assignment), valid or not. */
+    allPaths: string[];
+    /** Entries left out: `repos[<i>]: needs path, url and kind`. */
+    skipped: string[];
 }
 
 /** What the tool reads, live or in a test. */
@@ -91,24 +114,33 @@ export function deepestContaining(p: string, folders: readonly string[]): string
 
 const err = (error: string, extra: Record<string, unknown> = {}): string => JSON.stringify({ ok: false, error, ...extra }, null, 2);
 
-export async function listRepositoriesImpl(src: RepositorySource, input: ListRepositoriesInput): Promise<string> {
+/**
+ * Read the Tom root's repos.yaml. `{ok: false, error, file?}` without a root, without the file, or when it does not
+ * parse or has no `repos:` list; `missing: true` when the file is not there.
+ */
+export function readReposFile(src: RepositorySource): ({ ok: true } & ReposFile) | { ok: false; error: string; file?: string; missing?: boolean } {
     const root = src.root();
-    if (!root) { return err('no workspace folder is open, so there is no Tom root to read repos.yaml from'); }
+    if (!root) { return { ok: false, error: 'no workspace folder is open, so there is no Tom root to read repos.yaml from' }; }
     const file = path.join(root, REPOS_FILE);
-    if (input.kind !== undefined && !(REPOSITORY_KINDS as readonly string[]).includes(input.kind)) {
-        return err(`unknown kind "${String(input.kind)}"; one of ${REPOSITORY_KINDS.join(', ')}`);
-    }
     const text = src.readText(file);
-    if (text === undefined) { return err(`no repos.yaml at the Tom root: ${file}`, { file }); }
+    if (text === undefined) { return { ok: false, error: `no repos.yaml at the Tom root: ${file}`, file, missing: true }; }
     let doc: unknown;
-    try { doc = parseYaml(text); } catch (e) { return err(`repos.yaml does not parse: ${(e as Error).message}`, { file }); }
-    const repos = doc && typeof doc === 'object' ? (doc as { repos?: unknown }).repos : undefined;
-    if (!Array.isArray(repos)) { return err('repos.yaml has no `repos:` list', { file }); }
-
+    try { doc = parseYaml(text); } catch (e) { return { ok: false, error: `repos.yaml does not parse: ${(e as Error).message}`, file }; }
+    const record = doc && typeof doc === 'object' ? doc as { repos?: unknown; root?: unknown } : {};
+    const repos = record.repos;
+    if (!Array.isArray(repos)) { return { ok: false, error: 'repos.yaml has no `repos:` list', file }; }
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined);
+    const rootRec = record.root && typeof record.root === 'object' ? record.root as Record<string, unknown> : {};
+    const rootRepository: RootRepositoryEntry = {
+        path: '.',
+        ...(str(rootRec.url) ? { url: str(rootRec.url) } : {}),
+        ...(str(rootRec.branch) ? { branch: str(rootRec.branch) } : {}),
+        ...(str(rootRec.description) ? { description: str(rootRec.description) } : {}),
+        cloned: true,
+    };
     const folders = src.workspaceFolders();
-    const under = input.under !== undefined ? normalizeUnder(input.under) : undefined;
     const skipped: string[] = [];
-    let entries: RepositoryEntry[] = [];
+    const entries: RepositoryEntry[] = [];
     repos.forEach((r, i) => {
         const rec = r && typeof r === 'object' ? r as Record<string, unknown> : undefined;
         const p = typeof rec?.path === 'string' ? toPosix(rec.path).replace(/\/+$/, '') : '';
@@ -124,10 +156,45 @@ export async function listRepositoriesImpl(src: RepositorySource, input: ListRep
             kind: rec.kind,
             ...(typeof rec.branch === 'string' ? { branch: rec.branch } : {}),
             ...(typeof rec.pin === 'string' ? { pin: rec.pin } : {}),
+            ...(str(rec.description) ? { description: str(rec.description) } : {}),
             cloned: src.isDirectory(path.join(root, ...p.split('/'))),
             ...(folder !== undefined ? { workspaceFolder: folder } : {}),
         });
     });
+    const allPaths = repos
+        .map((r) => (r && typeof r === 'object' && typeof (r as { path?: unknown }).path === 'string' ? toPosix((r as { path: string }).path) : ''))
+        .filter(Boolean);
+    return { ok: true, root, file, rootRepository, entries, allPaths, skipped };
+}
+
+/**
+ * tomAi_getWorkspaceInfo's `include: ["repos"]`: the root and every entry of repos.yaml with its description;
+ * null when there is no repos.yaml (or no root), `{error, file}` when it cannot be read.
+ */
+export function workspaceRepos(src: RepositorySource): Record<string, unknown> | null {
+    const read = readReposFile(src);
+    if (!read.ok) {
+        if (read.missing || read.file === undefined) { return null; }
+        return { file: read.file, error: read.error };
+    }
+    return {
+        file: read.file,
+        root: { ...read.rootRepository, absolutePath: read.root },
+        count: read.entries.length,
+        ...(read.skipped.length ? { skipped: read.skipped } : {}),
+        repositories: read.entries,
+    };
+}
+
+export async function listRepositoriesImpl(src: RepositorySource, input: ListRepositoriesInput): Promise<string> {
+    if (input.kind !== undefined && !(REPOSITORY_KINDS as readonly string[]).includes(input.kind)) {
+        return err(`unknown kind "${String(input.kind)}"; one of ${REPOSITORY_KINDS.join(', ')}`);
+    }
+    const read = readReposFile(src);
+    if (!read.ok) { return err(read.error, read.file !== undefined ? { file: read.file } : {}); }
+    const { root, file, skipped } = read;
+    const under = input.under !== undefined ? normalizeUnder(input.under) : undefined;
+    let entries = read.entries;
     if (input.kind !== undefined) { entries = entries.filter((e) => e.kind === input.kind); }
     if (under !== undefined) { entries = entries.filter((e) => isAtOrUnder(e.path, under)); }
 
@@ -139,9 +206,7 @@ export async function listRepositoriesImpl(src: RepositorySource, input: ListRep
         } else {
             // Every repository of the file (not only the filtered ones) competes, so a project of a nested
             // repository is never given to its parent.
-            const allPaths = repos
-                .map((r) => (r && typeof r === 'object' && typeof (r as { path?: unknown }).path === 'string' ? toPosix((r as { path: string }).path) : ''))
-                .filter(Boolean);
+            const allPaths = read.allPaths;
             const byRepo = new Map<string, string[]>();
             for (const project of listing.projects) {
                 const rel = toPosix(path.relative(root, project.absolutePath));
@@ -170,9 +235,10 @@ export async function listRepositoriesImpl(src: RepositorySource, input: ListRep
 
 export const LIST_REPOSITORIES_DESCRIPTION =
     'List the repositories of the Tom root\'s `repos.yaml` (schema `.tom/json-schema/repos/repos.schema.json`): ' +
-    'answers `{ok, root, file, count, repositories: [{path, name, url, kind, branch?, pin?, cloned, workspaceFolder?, ' +
-    'projects?}]}` — `path` root-relative with `/`, `name` its last segment, `kind` code / fork / ai / binaries / ' +
-    'upstream, `branch` the branch it follows (an upstream has none), `pin` the SHA an upstream is pinned to, `cloned` ' +
+    'answers `{ok, root, file, count, repositories: [{path, name, url, kind, branch?, pin?, description?, cloned, ' +
+    'workspaceFolder?, projects?}]}` — `path` root-relative with `/`, `name` its last segment, `kind` code / fork / ai / ' +
+    'binaries / upstream, `branch` the branch it follows (an upstream has none), `pin` the SHA an upstream is pinned to, ' +
+    '`description` what it holds and is for (one line), `cloned` ' +
     'whether its folder exists on this machine, `workspaceFolder` the root\'s workspace folder it is in (absent when ' +
     'none). Filters: `kind`, `under` (a root-relative path: that repository and those below it). `includeProjects: ' +
     'true` adds `projects`, the ids of the buildkit projects inside each repository (the listing of ' +
