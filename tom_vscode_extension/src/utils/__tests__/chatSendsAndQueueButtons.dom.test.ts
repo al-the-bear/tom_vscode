@@ -610,14 +610,12 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(overlay.style.display, 'flex', 'opened');
         const body = (): string => w.document.getElementById('anthropic-models-body').textContent;
         assert.match(body(), /Anthropic API.*missing or invalid/, 'no key: the reason');
-        assert.match(body(), /VS Code LM/);
+        assert.doesNotMatch(body(), /VS Code LM/, 'no vscode.lm model list');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicModels', models: [], error: 'HTTP 401 invalid x-api-key' } }));
         assert.match(body(), /Unavailable: HTTP 401 invalid x-api-key/);
         assert.ok(w.document.getElementById('anthropic-models-btn').classList.contains('models-problem'), 'the button says something is wrong');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicModels', models: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-x' }] } }));
-        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'vscodeLmModels', models: [{ id: 'copilot-gpt', label: 'GPT (Copilot)' }] } }));
         assert.match(body(), /Anthropic API \(2\)Claude Opus 5\.5 claude-opus-5-5claude-x/);
-        assert.match(body(), /VS Code LM \(1\)GPT \(Copilot\) copilot-gpt/);
         assert.equal(w.document.getElementById('anthropic-models-btn').classList.contains('models-problem'), false);
         w.document.querySelector('[data-action="closeAvailableModels"]').click();
         assert.equal(overlay.style.display, 'none');

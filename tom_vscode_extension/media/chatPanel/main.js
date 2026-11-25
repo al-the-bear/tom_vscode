@@ -676,7 +676,6 @@ function getSectionContent(id) {
                 '<div class="modal-popup-body" id="anthropic-models-body"></div>' +
                 '<div class="modal-popup-footer">' +
                 '<button data-action="refreshAnthropicModels" data-id="anthropic" title="Ask the Anthropic API again">Refresh API models</button>' +
-                '<button data-action="refreshVsCodeLmModels" data-id="anthropic" title="Ask VS Code LM again">Refresh VS Code LM models</button>' +
                 '<button class="primary" data-action="closeAvailableModels" data-id="anthropic">Close</button>' +
                 '</div>' +
                 '</div>' +
@@ -705,9 +704,9 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
-                // The models the API and VS Code LM offer (informational: the profile's configuration drives sends),
-                // in an overlay behind one button, with the reason when a list is unavailable (a missing key).
-                '<button class="icon-btn" data-action="showAvailableModels" data-id="anthropic" id="anthropic-models-btn" title="Available models: what the Anthropic API and VS Code LM offer (informational — the profile\'s configuration decides the model)"><span class="codicon codicon-hubot"></span></button>' +
+                // The models the Anthropic API offers (informational: the profile's configuration drives sends),
+                // in an overlay behind one button, with the reason when the list is unavailable (a missing key).
+                '<button class="icon-btn" data-action="showAvailableModels" data-id="anthropic" id="anthropic-models-btn" title="Available models: what the Anthropic API offers (informational — the profile\'s configuration decides the model)"><span class="codicon codicon-hubot"></span></button>' +
                 '</span></div>',
         })
     };
@@ -1112,7 +1111,6 @@ function handleAction(action, id, slot) {
         case 'showAvailableModels': { renderAvailableModels(); var mo = document.getElementById('anthropic-models-overlay'); if (mo) { mo.style.display = 'flex'; } break; }
         case 'closeAvailableModels': { var mc = document.getElementById('anthropic-models-overlay'); if (mc) { mc.style.display = 'none'; } break; }
         case 'revealQuestFolder': vscode.postMessage({ type: 'revealQuestFolder' }); break;
-        case 'refreshVsCodeLmModels': vscode.postMessage({ type: 'refreshVsCodeLmModels' }); break;
         // The host asks which sessions to clear and answers with anthropicHistoryCleared.
         case 'leavePlanMode': vscode.postMessage({ type: 'leavePlanMode' }); break;
         case 'planAccept': decidePlan(true); break;
@@ -1311,14 +1309,6 @@ function populateDropdowns() {
     if (anthropicProfileSel && anthropicProfileSel.value) {
         vscode.postMessage({ type: 'anthropicProfileSelected', profileId: anthropicProfileSel.value });
     }
-    // Kick off the initial vscode.lm model fetch once per panel lifetime
-    // so the dropdown shows content without requiring a manual refresh.
-    // The flag lives on window so repeated populate calls (e.g. config
-    // reloads) don't re-request.
-    if (!window._anthropicVsCodeLmBooted) {
-        window._anthropicVsCodeLmBooted = true;
-        vscode.postMessage({ type: 'refreshVsCodeLmModels' });
-    }
     ['copilot', 'anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
@@ -1332,10 +1322,8 @@ function populateAnthropicModels() {
     updateAnthropicSendButton();
 }
 
-// The Available models overlay: the Anthropic API's list and VS Code LM's, each with its count, or why it is empty.
+// The Available models overlay: the Anthropic API's list with its count, or why it is empty.
 var anthropicModelsError = '';
-var vscodeLmModels = null;      // null: not asked yet
-var vscodeLmModelsNote = '';
 function modelListHtml(title, models, empty) {
     var head = '<div class="models-head">' + escapeAttr(title) + (models && models.length ? ' <span class="models-count">(' + models.length + ')</span>' : '') + '</div>';
     if (!models || models.length === 0) { return head + '<div class="models-empty">' + escapeAttr(empty) + '</div>'; }
@@ -1348,9 +1336,7 @@ function renderAvailableModels() {
     if (!body) { return; }
     var api = (anthropicModels || []).map(function(m) { return { id: m.id, label: m.display_name || m.id }; });
     var apiEmpty = anthropicModelsError ? 'Unavailable: ' + anthropicModelsError : (anthropicApiKeyOk ? 'No models returned.' : 'No models: the Anthropic API key is missing or invalid.');
-    var lm = vscodeLmModels === null ? null : vscodeLmModels.map(function(m) { return { id: m.id, label: m.label || m.id }; });
-    var lmEmpty = vscodeLmModels === null ? 'Loading…' : (vscodeLmModelsNote || 'No models.');
-    body.innerHTML = modelListHtml('Anthropic API', api, apiEmpty) + modelListHtml('VS Code LM', lm, lmEmpty)
+    body.innerHTML = modelListHtml('Anthropic API', api, apiEmpty)
         + '<div class="models-note">Informational: the profile\'s configuration decides the model a send uses.</div>';
     var btn = document.getElementById('anthropic-models-btn');
     if (btn) { btn.classList.toggle('models-problem', api.length === 0); }
@@ -1655,21 +1641,6 @@ window.addEventListener('message', function(e) {
             setAnthropicStatus('');
         }
         populateAnthropicModels();
-    } else if (msg.type === 'vscodeLmModels') {
-        // Informational — the VS Code LM list of the Available models overlay (spec §4.12).
-        // Does NOT retarget sends; the configuration's stored modelId drives sends.
-        var vlmList = msg.models || [];
-        vscodeLmModels = vlmList;
-        vscodeLmModelsNote = msg.error ? 'Error: ' + msg.error : (msg.hint ? String(msg.hint) : '');
-        renderAvailableModels();
-        // One-shot retry — Copilot often takes a few seconds to finish activating after VS Code
-        // startup. The first query can legitimately return 0 models; try again after a short delay.
-        if (vlmList.length === 0 && !msg.error && !window._anthropicVsCodeLmRetried) {
-            window._anthropicVsCodeLmRetried = true;
-            setTimeout(function() {
-                vscode.postMessage({ type: 'refreshVsCodeLmModels' });
-            }, 3000);
-        }
     } else if (msg.type === 'anthropicApiKeyStatus') {
         anthropicApiKeyOk = !!msg.ok;
         updateAnthropicApiKeyDot();

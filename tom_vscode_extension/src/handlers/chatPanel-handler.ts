@@ -537,8 +537,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'refreshAnthropicModels':
                         await this._sendAnthropicModels();
                         break;
-                    case 'refreshVsCodeLmModels':
-                        await this._sendVsCodeLmModels();
                         break;
                     case 'setChatRun': {
                         const section = CHAT_RUN_SECTIONS.find((x) => x === message.section);
@@ -2040,59 +2038,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             models: result.models,
             ...(result.error ? { error: result.error } : {}),
         });
-    }
-
-    /**
-     * Populate the informational VS Code LM model dropdown on the
-     * Anthropic panel (spec §4.12). Called on Refresh click. Purely
-     * informational — selection does not retarget sends.
-     */
-    private async _sendVsCodeLmModels(): Promise<void> {
-        try {
-            const started = Date.now();
-            const models = await vscode.lm.selectChatModels({});
-            const elapsedMs = Date.now() - started;
-            const entries = models.map((m) => ({
-                id: m.id,
-                vendor: m.vendor,
-                family: m.family,
-                name: m.name,
-                label: `${m.vendor} · ${m.family} — ${m.name || m.id}`,
-            }));
-            debugLog(
-                `[VsCodeLm] selectChatModels returned ${entries.length} model(s) in ${elapsedMs}ms`,
-                'INFO',
-                'chatPanel',
-            );
-            // Empty result usually means Copilot hasn't finished booting
-            // or the user isn't signed in. Include an informational hint
-            // so the dropdown empty-state is actionable; the webview
-            // picks this up and renders a human-readable message.
-            let hint: string | undefined;
-            if (entries.length === 0) {
-                const copilotExt = vscode.extensions.getExtension('GitHub.copilot-chat')
-                    ?? vscode.extensions.getExtension('GitHub.copilot');
-                hint = copilotExt
-                    ? (copilotExt.isActive
-                        ? 'no models — sign into GitHub Copilot or wait for models to load'
-                        : 'Copilot extension inactive — open Copilot Chat once to activate')
-                    : 'GitHub Copilot not installed';
-                debugLog(`[VsCodeLm] empty result; hint: ${hint}`, 'WARN', 'chatPanel');
-            }
-            this._view?.webview.postMessage({
-                type: 'vscodeLmModels',
-                models: entries,
-                hint,
-            });
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            debugLog(`[VsCodeLm] selectChatModels threw: ${msg}`, 'ERROR', 'chatPanel');
-            this._view?.webview.postMessage({
-                type: 'vscodeLmModels',
-                models: [],
-                error: msg,
-            });
-        }
     }
 
     /**

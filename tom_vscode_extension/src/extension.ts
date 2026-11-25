@@ -29,7 +29,7 @@ import * as os from 'os';
 import { DartBridgeClient } from './vscode-bridge';
 
 // Command handlers
-import { bridgeLog, reportException, getBridgeClient, initializeBridgeClient, sendToChatHandler, SendToChatAdvancedManager, executeInTomAiBuildHandler, executeAsScriptHandler, restartBridgeHandler, switchBridgeProfileHandler, runTestsHandler, reloadWindowHandler, startCliServerHandler, startCliServerCustomPortHandler, stopCliServerHandler, startProcessMonitorHandler, toggleBridgeDebugLoggingHandler, printConfigurationHandler, showHelpHandler, showApiInfoHandler, LocalLlmManager, setLocalLlmManager, registerChordMenuCommands, registerCommandlineCommands, registerCombinedCommands, registerStateMachineCommands, registerDsNotesViews, registerChatPanel, registerWsPanel, registerChatVariablesEditorCommand, registerQueueEditorCommand, registerTimedRequestsEditorCommand, registerGlobalTemplateEditorCommand, registerRolesEditorCommands, registerReusablePromptEditorCommand, registerQueueTemplateEditorCommand, telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, initTelegramCommands, disposeTelegramStandalone, readEffectiveTelegramRaw, showStatusPageHandler, registerStatusPageSerializer, toggleTrailHandler, getConfigPath, registerTrailViewerCommands, setExtensionPath } from './handlers';
+import { bridgeLog, reportException, getBridgeClient, initializeBridgeClient, sendToChatHandler, SendToChatAdvancedManager, executeInTomAiBuildHandler, executeAsScriptHandler, restartBridgeHandler, switchBridgeProfileHandler, runTestsHandler, reloadWindowHandler, startCliServerHandler, startCliServerCustomPortHandler, stopCliServerHandler, startProcessMonitorHandler, toggleBridgeDebugLoggingHandler, printConfigurationHandler, showHelpHandler, LocalLlmManager, setLocalLlmManager, registerChordMenuCommands, registerCommandlineCommands, registerCombinedCommands, registerStateMachineCommands, registerDsNotesViews, registerChatPanel, registerWsPanel, registerChatVariablesEditorCommand, registerQueueEditorCommand, registerTimedRequestsEditorCommand, registerGlobalTemplateEditorCommand, registerRolesEditorCommands, registerReusablePromptEditorCommand, registerQueueTemplateEditorCommand, telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, initTelegramCommands, disposeTelegramStandalone, readEffectiveTelegramRaw, showStatusPageHandler, registerStatusPageSerializer, toggleTrailHandler, getConfigPath, registerTrailViewerCommands, setExtensionPath } from './handlers';
 
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
 import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
@@ -80,7 +80,6 @@ import { TrailService } from './services/trailService';
 import { readQueueSettings, getQueueReloadAfterReloadSetting } from './storage/queueFileStorage';
 
 // Tom AI Chat tools
-import { registerVsCodeLmTools } from './tools/vscodeLmTools';
 import { setBacklinkProvider } from './tools/codespecs-trace-tools';
 import { backlinkIndexJson, isValidatorAvailable, setValidationSkippedNotifier } from './services/codespecs-validator';
 import { initializeToolDescriptions } from './tools/guideline-tools';
@@ -981,12 +980,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Tom AI Chat tools
     stepStart = performance.now();
     initializeToolDescriptions();
-    timeStep('vscodeLmTools.initToolDescriptions', stepStart);
-    // Local-LLM bridge tools (Ask Big Brother, Ask Copilot) are lazy-initialized
-    // on first use — selectChatModels() takes 20–30s during activation rush
-    // but <1s when the event loop is idle.
+    timeStep('tools.initToolDescriptions', stepStart);
     stepStart = performance.now();
-    registerVsCodeLmTools(context);
     // The CodeSpecs trace reads a generated trio's back-links through
     // `tomspecs :codespecs-validate` (configured, or bundled in bin/<platform>/). Without it
     // on this platform the provider answers null: the trace goes on without
@@ -995,7 +990,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setBacklinkProvider(async (dirs) => (isValidatorAvailable() ? backlinkIndexJson(dirs) : null));
     setValidationSkippedNotifier((message) => { void showWithDartBinariesHelp('warning', message); });
     context.subscriptions.push({ dispose: () => { setBacklinkProvider(null); setValidationSkippedNotifier(null); } });
-    timeStep('vscodeLmTools.registerTools', stepStart);
+    timeStep('tools.codespecsProviders', stepStart);
 
     // Register chat variable resolvers (#quest, #role, etc.)
     stepStart = performance.now();
@@ -1276,14 +1271,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // Show API Info command
-    const showApiInfoCmd = vscode.commands.registerCommand(
-        'tomAi.showApiInfo',
-        async () => {
-            await showApiInfoHandler();
-        }
-    );
-
     // Capture the extension context for the Telegram command registry so the
     // `send_prompt` command can drive the Anthropic chat panel.
     initTelegramCommands(context);
@@ -1479,7 +1466,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         toggleDebugLoggingCmd,
         printConfigurationCmd,
         showHelpCmd,
-        showApiInfoCmd,
         telegramTestCmd,
         telegramToggleCmd,
         telegramConfigureCmd,

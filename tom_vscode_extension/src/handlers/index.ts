@@ -39,7 +39,6 @@ export { startProcessMonitorHandler } from './processMonitor-handler';
 export { toggleBridgeDebugLoggingHandler } from './debugLogging-handler';
 export { printConfigurationHandler } from './printConfiguration-handler';
 export { showHelpHandler } from './showHelp-handler';
-export { showApiInfoHandler } from './showApiInfo-handler';
 export {
     LocalLlmManager,
     setLocalLlmManager,

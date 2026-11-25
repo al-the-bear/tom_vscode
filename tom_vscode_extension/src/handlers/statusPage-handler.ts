@@ -366,71 +366,38 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
         newId = newId.trim();
     }
 
-    const transportChoice = await vscode.window.showQuickPick(
-        [
-            { label: 'Direct API', description: 'Uses @anthropic-ai/sdk and the apiKeyEnvVar env var', value: 'direct' as const },
-            { label: 'Claude Agent SDK', description: 'Inherits auth from the host Claude Code install', value: 'agentSdk' as const },
-            { label: 'VS Code LM', description: 'Routes through vscode.lm.selectChatModels — no API key needed', value: 'vscodeLm' as const },
-        ],
-        {
-            placeHolder: 'Transport',
-            title: `Transport for ${newName}`,
-            ignoreFocusOut: true,
-        },
-    );
-    if (!transportChoice) { return; }
-    const transport = transportChoice.value;
+    // The VS Code LM transport is kept for configurations that have it (their model as stored), but is no longer
+    // offered: the vscode.lm model list is gone (al_the_bear ai_format_migration AC-19).
+    const existingVscodeLm = existing?.transport === 'vscodeLm'
+        ? (existing as { vscodeLm?: { vendor: string; family: string; modelId: string } }).vscodeLm
+        : undefined;
+    let transport: 'direct' | 'agentSdk' | 'vscodeLm';
+    if (existingVscodeLm) {
+        transport = 'vscodeLm';
+    } else {
+        const transportChoice = await vscode.window.showQuickPick(
+            [
+                { label: 'Direct API', description: 'Uses @anthropic-ai/sdk and the apiKeyEnvVar env var', value: 'direct' as const },
+                { label: 'Claude Agent SDK', description: 'Inherits auth from the host Claude Code install', value: 'agentSdk' as const },
+            ],
+            {
+                placeHolder: 'Transport',
+                title: `Transport for ${newName}`,
+                ignoreFocusOut: true,
+            },
+        );
+        if (!transportChoice) { return; }
+        transport = transportChoice.value;
+    }
 
-    // Model selection varies by transport:
-    //   - direct / agentSdk: pick a Claude model id (or custom).
-    //   - vscodeLm: pick a model from vscode.lm.selectChatModels() — we
-    //     store {vendor, family, modelId} in `vscodeLm` and mirror the
-    //     modelId into `model` for the summary display.
+    // Model selection: direct / agentSdk pick a Claude model id (or custom); a kept VS Code LM configuration
+    // keeps the {vendor, family, modelId} it stores, mirrored into `model` for the summary display.
     let newModel: string;
     let vscodeLmOpts: { vendor: string; family: string; modelId: string } | undefined;
 
-    if (transport === 'vscodeLm') {
-        let models: vscode.LanguageModelChat[] = [];
-        try {
-            models = await vscode.lm.selectChatModels({});
-        } catch (err) {
-            vscode.window.showErrorMessage(`Failed to enumerate VS Code LM models: ${err instanceof Error ? err.message : String(err)}`);
-            return;
-        }
-        if (models.length === 0) {
-            vscode.window.showErrorMessage('No VS Code LM models are available. Install a chat provider (e.g. GitHub Copilot) and retry.');
-            return;
-        }
-        // When editing an existing vscodeLm configuration, mark the
-        // previously stored model as "(current)" so the user can tell
-        // at a glance what their current selection is and avoid
-        // accidentally changing it.
-        const existingVscodeLm = (existing as { vscodeLm?: { vendor?: string; family?: string; modelId?: string } } | undefined)?.vscodeLm;
-        const modelPickItems = models.map((m) => {
-            const isCurrent = existingVscodeLm
-                && existingVscodeLm.vendor === m.vendor
-                && existingVscodeLm.family === m.family
-                && existingVscodeLm.modelId === m.id;
-            return {
-                label: `${m.vendor} · ${m.family}`,
-                description: `${m.name || m.id}${isCurrent ? ' (current)' : ''}`,
-                detail: `id=${m.id}   maxTokens=${m.maxInputTokens ?? '?'}`,
-                value: m,
-                picked: !!isCurrent,
-            };
-        });
-        const picked = await vscode.window.showQuickPick(modelPickItems, {
-            placeHolder: 'VS Code LM model',
-            title: 'Pick a VS Code LM model',
-            ignoreFocusOut: true,
-        });
-        if (!picked) { return; }
-        vscodeLmOpts = {
-            vendor: picked.value.vendor,
-            family: picked.value.family,
-            modelId: picked.value.id,
-        };
-        newModel = picked.value.id;
+    if (existingVscodeLm) {
+        vscodeLmOpts = existingVscodeLm;
+        newModel = existingVscodeLm.modelId;
     } else {
         const modelPick = await vscode.window.showQuickPick(
             [

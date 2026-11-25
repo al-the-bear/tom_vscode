@@ -1,14 +1,11 @@
 /**
- * Shared Tool Registry — unified tool definitions usable by both:
- *   1. Ollama's /api/chat tool-calling (OpenAI-compatible format)
- *   2. VS Code Language Model API (vscode.lm.registerTool)
+ * Shared Tool Registry — unified tool definitions, converted for each
+ * transport's tool-calling format (Ollama / OpenAI-compatible, Anthropic).
  *
  * Each SharedToolDefinition bundles the JSON Schema, metadata, and executor
  * in one place so adding a tool once makes it available everywhere.
  */
 
-import * as vscode from 'vscode';
-import { runWithToolContext } from '../services/tool-execution-context';
 
 // ============================================================================
 // Core interfaces
@@ -219,31 +216,6 @@ export function toAnthropicTools(
         // as `Record<string, unknown>`, so assert the narrower SDK shape.
         input_schema: t.inputSchema as AnthropicTool['input_schema'],
     }));
-}
-
-// ============================================================================
-// VS Code LM tool adapter
-// ============================================================================
-
-/**
- * Wrap a SharedToolDefinition as a `vscode.LanguageModelTool<TInput>`.
- * The returned object can be passed to `vscode.lm.registerTool()`.
- */
-export function toVsCodeTool<TInput>(
-    tool: SharedToolDefinition<TInput>,
-): vscode.LanguageModelTool<TInput> {
-    return {
-        async invoke(
-            options: vscode.LanguageModelToolInvocationOptions<TInput>,
-            _token: vscode.CancellationToken,
-        ): Promise<vscode.LanguageModelToolResult> {
-            // Copilot calls it: what it changes is an agent's (e.g. @TOM INFO › NOTIFICATIONS).
-            const result = await runWithToolContext({ source: 'copilot' }, () => tool.execute(options.input));
-            return new vscode.LanguageModelToolResult([
-                new vscode.LanguageModelTextPart(result),
-            ]);
-        },
-    };
 }
 
 // ============================================================================

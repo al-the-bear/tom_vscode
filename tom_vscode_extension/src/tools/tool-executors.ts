@@ -2,7 +2,7 @@
  * Shared tool executors + SharedToolDefinition instances.
  *
  * Each tool is defined *once* here and consumed by:
- *   - vscodeLmTools.ts    → VS Code LM registration
+ *   - anthropic-handler.ts → the Anthropic transports' tool loops
  *   - localLlm-handler.ts → Ollama tool-call loop
  *
  * All executors return a plain string result.
