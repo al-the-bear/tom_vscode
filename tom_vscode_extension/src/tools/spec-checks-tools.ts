@@ -18,13 +18,15 @@
  * `ztmp/` (removed afterwards: a tool writes nowhere outside the workspace),
  * and what it changed
  * is written with the store's checks (a file dirty in an editor, a revision
- * moved since it was read, `expectedRevision`) — or only diffed on `dryRun`.
+ * moved since it was read, `expectedRevision`) — or only diffed on `dryRun`
+ * (the helper in spec-staging.ts, shared with spec-sync-tools.ts).
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import type { SharedToolDefinition } from './shared-tool-registry';
 import { FILE_PARAM, FIRST_LOOK, failure, json, liveDeps, resolveInput, toWorkspacePath, type SpecToolDeps } from './spec-tool-common';
+import { stage, withScratch, writeBack } from './spec-staging';
 import { DartBinaryMissing, dartBinariesHelp, type BinaryRun } from '../services/dartBinariesStatus';
 import { readSpecCheckRun, runSpecChecks, type SpecCheck, type SpecCheckReport } from '../services/spec-checks';
 import { SPEC_COMMANDS } from '../services/tomspecsCalls';
@@ -76,14 +78,6 @@ function renamePaths(report: SpecCheckReport, renames: Array<[string, string]>):
     report.findings = report.findings.map((f) => ({ ...f, text: fix(f.text) }));
 }
 
-/** A temporary folder for the copies in the workspace's `ztmp/`, removed afterwards whatever happens. */
-async function withScratch<T>(deps: SpecChecksDeps, work: (dir: string) => Promise<T>): Promise<T> {
-    const scratch = path.join(deps.wsRoot, 'ztmp');
-    fs.mkdirSync(scratch, { recursive: true });
-    const dir = fs.mkdtempSync(path.join(scratch, 'tom-spec-checks-'));
-    try { return await work(dir); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}
-
 // ---------------------------------------------------------------------------
 // The read-only checks
 // ---------------------------------------------------------------------------
@@ -133,29 +127,6 @@ async function guarded(work: () => Promise<string>): Promise<string> {
 // ---------------------------------------------------------------------------
 // The two writes
 // ---------------------------------------------------------------------------
-
-/** One file the check may change: its copy, and what it was when read. */
-interface Staged { abs: string; copy: string; text: string; revision: string }
-
-function stage(deps: SpecChecksDeps, dir: string, file: string, name: string): Staged {
-    const abs = resolveInput(deps, file);
-    const { text, revision } = deps.store.readText(abs);
-    const copy = path.join(dir, name);
-    fs.writeFileSync(copy, text);
-    return { abs, copy, text, revision };
-}
-
-/** Write what the check changed in `files` through the store; the answer's `files` entries. */
-async function writeBack(deps: SpecChecksDeps, files: Array<Staged & { expectedRevision?: string }>, dryRun: boolean): Promise<Array<Record<string, unknown>>> {
-    const out: Array<Record<string, unknown>> = [];
-    for (const f of files) {
-        const after = fs.readFileSync(f.copy, 'utf8');
-        if (after === f.text) { out.push({ file: toWorkspacePath(deps, f.abs), changed: false }); continue; }
-        const saved = await deps.store.writeText(f.abs, after, { baseRevision: f.revision, expectedRevision: f.expectedRevision, dryRun });
-        out.push({ file: toWorkspacePath(deps, f.abs), changed: true, written: saved.written, revision: saved.revision, ...(dryRun ? { diff: saved.diff } : {}) });
-    }
-    return out;
-}
 
 export interface SpecImportAnswersInput {
     file: string;

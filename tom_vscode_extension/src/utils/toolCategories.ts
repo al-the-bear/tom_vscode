@@ -263,6 +263,7 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specProjectIdeaCoverage',
         'tomAi_specAuthorizationCheck',
         'tomAi_specCoverage',
+        'tomAi_specSyncReport',
     ],
     'TomSpecs (edit)': [
         'tomAi_specAddNode',

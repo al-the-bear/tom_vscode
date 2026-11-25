@@ -414,6 +414,11 @@ export class SomDocumentStore {
         return merged !== encoded && holdsTheDocument(merged) ? merged : encoded;
     }
 
+    /** Whether the file is open in an editor with unsaved changes (false without an editor-aware io). */
+    isDirty(filePath: string): boolean {
+        return this.io.isDirty?.(filePath) ?? false;
+    }
+
     /**
      * Any text file as it is now (from its editor buffer when open), with its
      * revision: the read half of the save path, for files that are not SOM

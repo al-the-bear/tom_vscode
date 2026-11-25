@@ -282,6 +282,14 @@ export class DartBinaryMissing extends Error {
     }
 }
 
+/** A binary run that was stopped because it exceeded its time limit (`timeoutMs`). */
+export class BinaryRunTimedOut extends Error {
+    constructor(readonly label: string, readonly timeoutMs: number) {
+        super(`${label} did not finish within ${Math.round(timeoutMs / 1000)} s and was stopped.`);
+        this.name = 'BinaryRunTimedOut';
+    }
+}
+
 /** A binary's exit code and both streams. */
 export interface BinaryRun {
     exitCode: number;
@@ -295,7 +303,9 @@ export function runBinaryFile(binary: string, args: string[], label: string, opt
         execFile(binary, args, { maxBuffer: 256 << 20, timeout: options.timeoutMs, ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.env ? { env: options.env } : {}) }, (error, stdout, stderr) => {
             const code = (error as NodeJS.ErrnoException & { code?: unknown } | null)?.code;
             if (error && typeof code !== 'number') {
-                reject(new Error(`${label} did not run to completion: ${error.message}`));
+                // execFile's own timeout kills the process (`killed`, a signal): say so, so a caller can answer timedOut.
+                const stopped = error as Error & { killed?: boolean; signal?: string | null };
+                reject(stopped.killed && stopped.signal ? new BinaryRunTimedOut(label, options.timeoutMs) : new Error(`${label} did not run to completion: ${error.message}`));
                 return;
             }
             resolve({ exitCode: typeof code === 'number' ? code : 0, stdout, stderr });

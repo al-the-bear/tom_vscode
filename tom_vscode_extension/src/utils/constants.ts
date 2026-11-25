@@ -227,6 +227,8 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specAuthorizationCheck',
     'tomAi_specCoverage',
     'tomAi_specImportAnswers',
+    // TomSpecs document set (the bundled tomspecs :spec-sync-report …)
+    'tomAi_specSyncReport',
     // CodeSpecs (Phase 4: spec → code-generation inputs)
     'tomAi_specCodeSpecsAreas',
     'tomAi_specCodeSpecsRouting',

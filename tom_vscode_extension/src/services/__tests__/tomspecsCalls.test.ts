@@ -25,6 +25,8 @@ const CHECKS: Array<[string, string]> = [
     ['required-fields', ':spec-required-fields'], ['question-register', ':spec-question-register'],
     ['feature-register', ':spec-feature-register'], ['project-idea-coverage', ':spec-idea-coverage'],
     ['authorization', ':spec-authorization'], ['coverage', ':spec-coverage'],
+    ['sync-report', ':spec-sync-report'], ['backfill', ':spec-backfill'], ['prefill', ':spec-prefill'],
+    ['derive-fields', ':spec-derive-fields'], ['rename-id', ':spec-rename-id'],
 ];
 const SUBS: Array<[string, string]> = [['from-codespecs', ':ir-from-codespecs'], ['map', ':ir-map'], ['emit', ':ir-emit'], ['export', ':ir-export']];
 

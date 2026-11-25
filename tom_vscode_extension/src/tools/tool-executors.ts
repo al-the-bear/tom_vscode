@@ -1209,6 +1209,7 @@ import { CODESPECS_TRACE_TOOLS } from './codespecs-trace-tools';
 import { CODESPECS_VALIDATE_TOOLS } from './codespecs-validate-tools';
 import { CODESPECS_MAP_TOOL } from './codespecs-map-tools';
 import { SPEC_CHECKS_TOOLS } from './spec-checks-tools';
+import { SPEC_SYNC_TOOLS } from './spec-sync-tools';
 import { CODESPECS_PLAN_TOOLS } from './codespecs-plan-tools';
 import { CODESPECS_WORKFLOW_TOOLS } from './codespecs-workflow-tools';
 import { SESSION_TOOLS } from './session-tools';
@@ -1301,6 +1302,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CODESPECS_VALIDATE_TOOLS,  // CodeSpecs validate a trio (bundled binary), authoring-step context (read-only)
     CODESPECS_MAP_TOOL,           // CodeSpecs stage 5: map each generation unit from the IR (bundled tomspecs :ir-map; writer)
     ...SPEC_CHECKS_TOOLS,         // TomSpecs process checks (bundled tomspecs :spec-*): required fields, registers, coverage, authorization; import answers (approval)
+    ...SPEC_SYNC_TOOLS,           // TomSpecs document set (bundled tomspecs :spec-sync-report …): the set's validation
     ...CODESPECS_PLAN_TOOLS,      // CodeSpecs Stage C: the csopen / csproj / csgen todo tree (approval)
     ...CODESPECS_WORKFLOW_TOOLS,  // CodeSpecs: where a document is in Phase 4; the workflow guides and runbooks
     ...SESSION_TOOLS,             // Named Agent SDK sessions: list and create (queue items name theirs with `session`)

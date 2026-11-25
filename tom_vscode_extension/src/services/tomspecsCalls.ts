@@ -39,6 +39,12 @@ export const SPEC_COMMANDS: Readonly<Record<string, string>> = {
     'project-idea-coverage': ':spec-idea-coverage',
     'authorization': ':spec-authorization',
     'coverage': ':spec-coverage',
+    // The document-set commands (spec_sync_cli.dart): `--json` prints one JSON object.
+    'sync-report': ':spec-sync-report',
+    'backfill': ':spec-backfill',
+    'prefill': ':spec-prefill',
+    'derive-fields': ':spec-derive-fields',
+    'rename-id': ':spec-rename-id',
 };
 
 /** The IR subcommands → tomspecs commands. */

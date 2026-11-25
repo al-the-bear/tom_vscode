@@ -821,6 +821,45 @@ every mark (on a 16 MB YAML too). On Tom UAM's Blueprint the tools give the
 results `dart pub global run tom_specs_clitool:tomspecs` gives (the tool
 test SK-6 compares them with the bundled binary's own run).
 
+### 4.23b TomSpecs document set (`spec_checks`)
+
+A project's specification documents read side by side: the Blueprint and the
+Phase 3 documents it is detailed in (`@DetailedIn`, `@SyncedWith`), the document
+set of the runtimes (`SpecDocumentSet`, `tom_specs_model_rules.md` §9.7). The
+tools run the bundled `tomspecs` document-set commands (`:spec-sync-report`;
+`spec_sync_cli.dart` in tom_specs_clitool) with `--json` and read the one JSON
+object they print (`readSpecJsonRun`, `src/services/spec-checks.ts`).
+
+**The set.** Every tool takes exactly one of `files` (the documents,
+`*.tomspecs.yaml` or SOM Markdown; files of one root are fragments, assembled) and
+`specRoot` (the spec root of the tom_specs process, e.g. `tom_uam/tom_specs`:
+every `*.tomspecs.yaml` / `*.docspecs.yaml` directly in
+`phase2_solution_blueprint/` and `phase3_detailed_specifications/`, **never in
+their step folders**, which hold copies of the same documents). A document is
+named by its file name, so two files of one name in a set are refused. `pairs`
+takes the section ids of the `@DetailedIn` classes (`FR`, …).
+
+**How they run.** The documents are staged (`src/tools/spec-staging.ts`, the
+helper the process checks share): read through the document store (an
+editor's buffer when open), copied into a scratch folder of `ztmp/` that is
+removed whatever happens, and the command runs on the copies; paths in its
+output are named as the files they stand for. Each document's `revision` is
+the one its copy was made from.
+
+**Refusals** `{ok: false, code, error}`: `binaryMissing` (no `tomspecs` for this
+platform, with `expected`, `help` and `page`), `binaryOutdated` (the bundled
+binary does not know the command: rebuild the extension's binaries with
+`./compile_and_install.sh` and reload the window), `setRefused` (the set cannot
+be built: no Blueprint, two documents of one root, a document with no root or
+two, the CodeSpecs projection — `refusal`, `documents` as files, `className`),
+`usageError` (an unknown pair, neither or both of `files` / `specRoot`, a spec
+root without documents), `timedOut` (past `SPEC_CHECKS_TIMEOUT_MS`, 5 minutes),
+`failed` (the command ended otherwise, e.g. a crash: its stderr in `error`).
+
+| Tool | Description | Agent SDK | Direct | VS Code LM | Local LLM |
+| ---- | ----------- | --------- | ------ | ---------- | --------- |
+| `tomAi_specSyncReport` | The document-set validation (`:spec-sync-report`): pair by pair, the Blueprint against the Phase 3 documents, and each document's own findings (`validateDocument`, `validateLinks`). Read-only. `documents` with name, file, root, revision, model version and `dirty` (open with unsaved changes: reported, not refused); `countsByCode` / `countsByResolution` / `findingCount` cover the whole set; `codes`, `resolutions`, `includeInfo` filter the listed findings, `limit` (200) / `offset` page them; `output` writes the full report JSON (a gate's evidence). One document in `files`: its link check, every pair not started. | ✅ | ✅ | ⚪ | ✅ |
+
 ### 4.24 Plain DocSpecs Markdown
 
 Markdown that declares a DocSpecs schema (`<!-- docspec: <id>/<version> -->`)
@@ -1743,6 +1782,26 @@ Set a section's generation units (SOM §11.2), the counterpart of tomAi_specSetC
 
 - `path`: A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
 - `units`: The generation-unit ids, e.g. `["meridian_codespec_server"]` or `"meridian_codespec_server,meridian_codespec_client"`; null, `""` or `[]` clears them.
+
+### `tomAi_specSyncReport`
+
+The document-set validation of a project's specification documents, read-only: `tomspecs :spec-sync-report <the copies> [--pairs <ids>] --json` on staged copies of the set (§ 4.23b: which documents, how they run, the refusals). It compares, pair by pair, what the Blueprint says of a class with what the Phase 3 document detailing it says (values, elements added or removed, pending marks), and adds each document's own findings (`validateDocument`, then `validateLinks`). With a single document in `files` it is that document's link check: its `documentFindings`, every Phase 3 root `notStarted`.
+
+**Answer:** `{ok, clean, documents: [{name, file, root, revision, modelVersion, dirty}], notStarted, notStartedPairs, countsByCode, countsByResolution, findingCount, matchedCount, findings: [{code, pair, blueprint: {document, root, path, field, value, pendingMarks}, detail: {…}, holder, resolution, message?, info}], documentFindings: {<name>: [{path, code}]}, truncated, nextOffset, output?}`.
+
+- `clean`: no finding other than `info`.
+- `documents[].revision` is the revision the report was made on: a write tool given it as `expectedRevision` (`expectedRevisions`) writes onto exactly what was reported, or refuses. `dirty: true` marks a document open in an editor with unsaved changes: the report covers its editor text.
+- `notStarted`: the Phase 3 roots without a document; `notStartedPairs`: pairs whose document exists but holds nothing under the pair's anchor.
+- Each `path` is the document path the edit tools take, so an `agent` finding is corrected with `tomAi_specSetContent` and its siblings; `resolution` says who resolves it (`agent`, `backfill`, …, `info` reported only).
+- `message` is the finding's prose when the command's JSON carries it (the canonical JSON the conformance corpus compares carries none).
+
+**Arguments:**
+
+- `files` / `specRoot`: the set, exactly one of them.
+- `pairs`: only these pairs (section ids of the `@DetailedIn` classes); the pending and unmarkable scans then do not run.
+- `codes`, `resolutions`: list only findings of these codes / resolutions; `includeInfo` (default true) lists the `info` entries, flagged `info: true`. The counts always cover the whole set; `matchedCount` is the filtered count.
+- `limit` (default 200) and `offset`: the page of listed findings; `truncated` and `nextOffset` say what follows.
+- `output`: a workspace file to write the full report JSON to — every finding, unfiltered and unpaged, with `documents` (a gate's evidence); written through the store when it exists, refused (`dirtyInEditor`) before anything runs when it is dirty in an editor.
 
 ### `tomAi_specValidate`
 

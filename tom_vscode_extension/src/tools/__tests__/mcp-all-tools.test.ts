@@ -463,6 +463,8 @@ function inputs(): Record<string, Input> {
         tomAi_specAuthorizationCheck: { file: SPEC },
         tomAi_specCoverage: { sample: SPEC, file: SPEC },
         tomAi_specImportAnswers: { file: SPEC, rendition: 'specs/meridian.md', dryRun: true },
+        // The document set of the one sandbox document: its own findings, every pair not started.
+        tomAi_specSyncReport: { files: [SPEC] },
         tomAi_specCreateDocument: { file: 'specs/new.tomspecs.yaml', root: 'SBP' },
         tomAi_createSession: { name: 'mcp-test' },
     };

@@ -194,6 +194,65 @@ const READERS: Record<SpecCheck, Reader> = {
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
+// ---------------------------------------------------------------------------
+// The document-set commands: `--json` answers
+// ---------------------------------------------------------------------------
+
+/** The document-set commands (`tomspecs :spec-<command> … --json`, spec_sync_cli.dart in tom_specs_clitool). */
+export type SpecSyncCommand = 'sync-report' | 'backfill' | 'prefill' | 'derive-fields' | 'rename-id';
+
+/** Run a document-set command: `tomspecs :spec-<command> <args>` (the caller adds `--json`). */
+export function runSpecSync(command: SpecSyncCommand, args: string[], options: { extensionRoot?: string } = {}): Promise<BinaryRun> {
+    return runClitool({ tool: 'spec', args: [command, ...args] }, { timeoutMs: SPEC_CHECKS_TIMEOUT_MS, extensionRoot: options.extensionRoot });
+}
+
+/** What a `--json` run says, read back. */
+export interface SpecJsonRun {
+    command: SpecSyncCommand;
+    exitCode: number;
+    /**
+     * `clean` (exit 0) / `findings` (exit 1) with `json` the operation's result; `refused` (exit 2, `{"refused": …}`
+     * on stdout, `refused` its content); `usageError` (exit 2 otherwise); `binaryOutdated` (the binary does not know
+     * the command: built before it existed); `failed` (any other exit, or no JSON where one is due).
+     */
+    outcome: 'clean' | 'findings' | 'refused' | 'usageError' | 'binaryOutdated' | 'failed';
+    json?: Record<string, unknown>;
+    refused?: Record<string, unknown>;
+    /** The stderr lines (a usage text, `refused: …`, a crash's first lines). */
+    stderr: string[];
+}
+
+/** The last stdout line that parses as a JSON object, or undefined. */
+function lastJsonObject(stdout: string): Record<string, unknown> | undefined {
+    const lines = linesOf(stdout);
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line.startsWith('{')) { continue; }
+        try {
+            const value = JSON.parse(line) as unknown;
+            if (value && typeof value === 'object' && !Array.isArray(value)) { return value as Record<string, unknown>; }
+        } catch { /* not this line */ }
+    }
+    return undefined;
+}
+
+/** The answer of a document-set command run with `--json`, by its exit code and its one JSON object. */
+export function readSpecJsonRun(command: SpecSyncCommand, run: BinaryRun): SpecJsonRun {
+    const stderr = linesOf(run.stderr);
+    const json = lastJsonObject(run.stdout);
+    const base = { command, exitCode: run.exitCode, stderr };
+    if (run.exitCode === 2) {
+        if (stderr.some((l) => /^Unknown command: /.test(l))) { return { ...base, outcome: 'binaryOutdated' }; }
+        const refused = json?.refused;
+        if (refused && typeof refused === 'object') { return { ...base, outcome: 'refused', refused: refused as Record<string, unknown> }; }
+        return { ...base, outcome: 'usageError' };
+    }
+    if ((run.exitCode === 0 || run.exitCode === 1) && json) {
+        return { ...base, outcome: run.exitCode === 0 ? 'clean' : 'findings', json };
+    }
+    return { ...base, outcome: 'failed' };
+}
+
 /** `150 capability, 12 expectation` → {capability: 150, …}; with `nameFirst`, `covered 342, area 9` → {covered: 342, …}. */
 function kindCounts(text: string, nameFirst = false): Record<string, number> {
     const out: Record<string, number> = {};
