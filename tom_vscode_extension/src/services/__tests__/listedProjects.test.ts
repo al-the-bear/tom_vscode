@@ -96,7 +96,6 @@ describe('the listing for the extension\'s callers', () => {
             [['src', 'managers', 'questTodoManager.ts'], /export async function scanWorkspaceProjects\(\): Promise<ScannedProject\[\]> \{\s*const projects = await listedProjects\(workspaceFolder\(\)\);/],
             [['src', 'handlers', 'questTodoPanel-handler.ts'], /const projs = await scanWorkspaceProjects\(\);/],
             [['src', 'handlers', 'chatVariablesEditor-handler.ts'], /const projects = \(await scanWorkspaceProjects\(\)\)\.map/],
-            [['src', 'utils', 'promptScopes.ts'], /const defaultProjectLister: ProjectLister = \(wsRoot, fresh\) => listedProjects\(wsRoot, \{ fresh \}\);/],
             [['src', 'handlers', 'wsPanel-handler.ts'], /await listedProjects\(wsRootForProjects\)/],
             [['src', 'handlers', 'tomScriptingBridge-handler.ts'], /\(await listedProjects\(root\)\)\.map\(\(p\) => scriptingProjectInfo\(p, root\)\)/],
             [['src', 'handlers', 'telegram-cmd-handlers.ts'], /nearestListedProject\(await listedProjects\(root\), fromDir\)/],

@@ -17,7 +17,7 @@
  *     `aspects/` (aspect choices as guideline files) included, and `_ai/aspect_guidelines/`
  *     with the shared `workspace_agents.md`
  *   - CLAUDE.md, and AGENTS.md as a generic stub the build writes (ROOT_AGENTS_STUB)
- *   - _ai/roles/, role-types/, processes/, schemas/, prompt/, format-version.yaml,
+ *   - _ai/roles/, role-types/, processes/, schemas/, format-version.yaml,
  *     quests/tomai_introduction/ (without the files its use on this machine writes)
  * **`workspace/`**, read from a workspace folder (`--workspace`; default three
  * levels above this extension, the container):
@@ -129,8 +129,6 @@ function partSources(rootDir) {
             // The aspect definitions (aspect.yaml) and own texts the guideline files belong to.
             { path: '_ai/aspect_guidelines', kind: 'dir', optional: true },
             { path: '_ai/schemas', kind: 'dir' },
-            // Reusable prompt files: a root without them (its _ai cleaned up) packs none.
-            { path: '_ai/prompt', kind: 'dir', optional: true },
             { path: '_ai/format-version.yaml', kind: 'file' },
             // A quest that is used on this machine collects files of its use: left out, not refused.
             { path: '_ai/quests/tomai_introduction', kind: 'dir', optional: true, leaveOutUse: true },
@@ -217,8 +215,7 @@ const IGNORED_EXTENSIONS = new Set(['.pyc']);
  * Files of the sources that are this workspace's own and stay out of the
  * template: the guidelines on this workspace's projects and its `_bin/` checks
  * (the template carries no `_bin/`), the guidelines that only point into this
- * workspace's packages, the Tom analyzer's schema, and prompts written for one
- * quest or tool. Passages of other files that point into this workspace are
+ * workspace's packages, and the Tom analyzer's schema. Passages of other files that point into this workspace are
  * marked `<!-- workspace-specific -->` in the files themselves. List items and table rows linking to them are
  * dropped from the packed Markdown (dropLinksTo).
  */
@@ -232,11 +229,6 @@ const EXCLUDED_PATHS = withGuidelineAliases([
     '_copilot_guidelines/d4rt/generator_strategies.md',
     '_copilot_guidelines/d4rt/d4rt_interpreter_vs_d4rt_generator.md',
     '_ai/schemas/yaml/tom_analyzer_analysis.schema.json',
-    '_ai/prompt/Create GOOD tests.prompt.md',
-    '_ai/prompt/D4rt_Good_Demo_Test.prompt.md',
-    '_ai/prompt/bot.chat-history.prompt.md',
-    '_ai/prompt/execute-quest-todos-with-follow-up.prompt.md',
-    '_ai/prompt/execute_todo_list.prompt.md',
     // This workspace's D4rt rules as an aspect choice (gsel24): they named this workspace's packages
     // (inside the workspace-specific block of AGENTS.md before), so the template leaves them out.
     '_copilot_guidelines/aspects/d4rt/rules.md',

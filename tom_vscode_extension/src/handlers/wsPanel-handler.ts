@@ -32,6 +32,7 @@ import {
     setQuestTodoContext,
     registerQuestTodoPopoutSerializer,
 } from './questTodoPanel-handler.js';
+import { questFolderNotesEntries } from '../utils/notesFiles.js';
 import {
     getQuestDocsHtmlFragment,
     getQuestLogsCss,
@@ -506,8 +507,14 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
         // An AGENTS.md group lists that one file, not every Markdown file of its folder.
         const files = group?.startsWith(AGENTS_MD_GROUP_PREFIX)
             ? [AGENTS_MD].filter((f) => fs.existsSync(path.join(dir, f)))
-            : fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort();
+            : this._listGuidelinesDir(dir, group);
         this._view?.webview.postMessage({ type: 'guidelinesFiles', files });
+    }
+
+    /** The `.md` files of a group's folder; a quest's also its notes files (`notes/<file>`). */
+    private _listGuidelinesDir(dir: string, group?: string): string[] {
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort();
+        return group?.startsWith('quest:') ? [...files, ...questFolderNotesEntries(dir)] : files;
     }
 
     private _loadGuidelinesFile(file: string, group?: string): void {
@@ -558,7 +565,7 @@ export class WsPanelHandler implements vscode.WebviewViewProvider {
             return;
         }
         fs.writeFileSync(filePath, `# ${name}\n\n`, 'utf-8');
-        this._view?.webview.postMessage({ type: 'guidelinesFiles', files: fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort(), selectedFile: filename });
+        this._view?.webview.postMessage({ type: 'guidelinesFiles', files: this._listGuidelinesDir(dir, group), selectedFile: filename });
         this._loadGuidelinesFile(filename, group);
     }
 

@@ -11,20 +11,14 @@
 <div class="toolbar-row">
 <span id="fileName" class="file-name"></span>
 <button class="icon-btn" id="previewMarkdownBtn" title="Preview Markdown">👁️</button>
-<button class="icon-btn" id="changeFileBtn" title="Change file...">📁</button>
 <button class="icon-btn" id="openBtn" title="Open in Editor">📄</button>
 <button class="icon-btn" id="openMdBrowserBtn" title="Open in MD Browser">📖</button>
 <button class="icon-btn" id="openMdViewerBtn" title="Open in MD Viewer">↗️</button>
 </div>
 </div>
 <div id="noWorkspace" class="empty-state" style="display:none;">
-<div class="message">No workspace is open</div>
+<div class="message">WORKSPACE NOTES needs an open workspace folder with an _ai folder</div>
 <button class="primary" id="openWorkspaceBtn">Open Workspace...</button>
-</div>
-<div id="noFile" class="empty-state" style="display:none;">
-<div class="message">No workspace notes file configured</div>
-<button class="primary" id="createFileBtn">Create Notes File</button>
-<button id="selectFileBtn">Select Existing File...</button>
 </div>
 <textarea id="content" style="display:none;" placeholder="Workspace notes..." data-completion="on"></textarea>
 <div id="statusBar" class="status-bar" style="display:none;">

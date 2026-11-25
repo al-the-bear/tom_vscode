@@ -18,7 +18,7 @@ The extension carries a workspace template in two parts:
   (`_agent_guidelines/`, with the shared `workspace_agents.md` every
   workspace folder's `CLAUDE.md` imports), `CLAUDE.md` (`@AGENTS.md` and the
   shared file), an `AGENTS.md` for the root's own rules, and the generally
-  useful `_ai/` folders (roles, role types, processes, schemas, prompts, the
+  useful `_ai/` folders (roles, role types, processes, schemas, the
   format version) with the starting quest `tomai_introduction`.
 - **`workspace/`** — what a workspace folder holds: an empty `.tom/`, an
   `AGENTS.md` for its own rules, a `CLAUDE.md` importing the root's shared
@@ -123,7 +123,6 @@ Create `.tom/tom_vscode_extension.json` with at minimum:
 ```bash
 mkdir -p _ai/trail
 mkdir -p _ai/quests
-mkdir -p _ai/prompt
 mkdir -p _ai/roles
 ```
 
@@ -143,7 +142,7 @@ After creating the configuration, reload VS Code:
 | `.tom/` | Extension configuration files |
 | `_ai/trail/` | Prompt/answer trail logs |
 | `_ai/quests/` | Quest folders (structured project work) |
-| `_ai/prompt/` | Reusable prompt templates |
+| `_ai/quests/<quest>/prompt/` | The quest's reusable prompts (`*.prompt.md`), created with the first one |
 | `_ai/roles/` | AI role definitions |
 
 ## Where the Extension Looks: the Workspace Layout

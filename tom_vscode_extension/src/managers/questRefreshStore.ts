@@ -3,7 +3,7 @@
  *
  * Quest Refresh fires an automatic "refresh prompt" every *N* prompts to run
  * maintenance work off the recent trail (update the overview, prune todos,
- * refresh quest-notes). The configurable half — the interval and the prompt
+ * maintain the deferred list). The configurable half — the interval and the prompt
  * text — is GLOBAL (shared across quests) and lives in `SendToChatConfig`
  * (`questRefresh`). This store owns only the **per-quest** half:
  *

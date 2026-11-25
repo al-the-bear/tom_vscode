@@ -10,11 +10,12 @@
  *   new-session path; the file is written at once.
  * - Reset (row): forget the conversation — its history (compacted blocks,
  *   rolling tail, accumulator) and its SDK session id — and keep base,
- *   lifetime, profile, its trails and its quest memory.
+ *   lifetime, profile and its trails.
  * - Delete (row, confirmed, naming what goes): remove the session with its
  *   whole storage — `history/sessions/<name>/` (history, trail pair,
- *   live trail, raw trail, tool results) and its quest memory
- *   (`_ai/memory/<quest>/<name>/`); refused while another session is based on
+ *   live trail, raw trail, tool results) and its memory folder of the old
+ *   place (`_ai/memory/<quest>/<name>/`; the quest memory,
+ *   `_ai/quests/<quest>/memory/`, stays); refused while another session is based on
  *   it. `default` and `chat` have no file: Delete removes their storage only.
  * - Remove unused sessions (title-bar icon, `tomAi.sessions.removeUnused`):
  *   a multi-picker of the named sessions nothing uses any more
@@ -258,7 +259,7 @@ async function removeUnusedSessions(): Promise<void> {
         `Delete ${names.length} session${names.length === 1 ? '' : 's'}?`,
         {
             modal: true,
-            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results, quest memory and its session todos.`
+            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results, its memory folder under _ai/memory/ and its session todos. The quest memory stays.`
                 + (withTodos.length ? `\n\nWith open todos: ${withTodos.join(', ')}.` : ''),
         },
         'Delete',

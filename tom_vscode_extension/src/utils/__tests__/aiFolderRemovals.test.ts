@@ -56,7 +56,8 @@ describe('the removed _ai folders', () => {
         assert.match(bridge, /case 'doc\.listNotesVce':\s*case 'doc\.readNoteVce':\s*case 'doc\.writeNoteVce':\s*throw new Error\(REMOVED_AI_FOLDER_MESSAGE\('notes'\)\);/);
         assert.match(bridge, /if \(folder === 'notes' \|\| folder\.startsWith\('clarifications'\)\) \{ throw new Error\(REMOVED_AI_FOLDER_MESSAGE\(folder\)\); \}/);
         assert.doesNotMatch(bridge, /WsPaths\.ai\('notes'\)|WsPaths\.ai\('clarifications'\)/);
-        assert.match(bridge, /notes are the quest's \(quest-notes\.<quest>\.md, QUEST NOTES\)/);
+        assert.match(bridge, /notes are the quest's \(_ai\/quests\/<quest>\/notes\/, QUEST NOTES\)/);
+        assert.match(bridge, /the workspace notes \(_ai\/workspaces\/<workspace>\.notes\.md, WORKSPACE NOTES\)/);
         assert.doesNotMatch(read('src', 'tools', 'spec-checks-tools.ts'), /clarifications/, 'the example index is no clarifications file');
     });
 

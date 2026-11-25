@@ -3,11 +3,9 @@
  * {{sharedUri}}/notepadBase.css). Phase B.4 webview restructuring.
  */
 
-.file-name {
+/* The picker of the quest's notes files takes the row's free width. */
+.notes-file-select {
     flex: 1;
+    min-width: 0;
     font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }

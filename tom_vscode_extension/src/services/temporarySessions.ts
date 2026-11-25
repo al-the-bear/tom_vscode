@@ -40,7 +40,8 @@ export function createTemporarySession(deps: TemporarySessionDeps, base: string,
 /* eslint-disable @typescript-eslint/no-require-imports -- the stores and the handler pull in the manager layer: loaded on use */
 /**
  * Discard session `name` of the quest whose sessions are in `folder`: its
- * file, the handler's in-memory conversation, its storage and quest memory.
+ * file, the handler's in-memory conversation, its storage and its memory
+ * folder of the old place (`_ai/memory/<quest>/<name>/`).
  * Every part is best effort — a part already gone is no failure. The
  * conversation is cleared before the storage goes: clearing writes the
  * session's (empty) history files, which the storage removal then takes.
@@ -53,6 +54,7 @@ export function discardSessionCompletely(folder: string, quest: string, name: st
         else { (require('../handlers/anthropic-handler.js') as typeof import('../handlers/anthropic-handler')).AnthropicHandler.instance.clearSession(name); }
     } catch { /* no handler in this process */ }
     const storage = require('./sessionStorage.js') as typeof import('./sessionStorage');
+    // OLD PLACE: `_ai/memory`, for the session's per-session memory folder.
     let memoryRoot: string | undefined;
     try { memoryRoot = (require('./memory-service.js') as typeof import('./memory-service')).TwoTierMemoryService.instance.memoryRoot(); } catch { /* no memory service yet */ }
     try {

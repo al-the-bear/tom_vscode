@@ -38,6 +38,18 @@ body.qnp {
     border-bottom-color: var(--vscode-focusBorder);
 }
 .qnp-tab:focus-visible, .qnp-icon:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.qnp-select {
+    min-width: 0;
+    max-width: 45%;
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border, transparent);
+    border-radius: 2px;
+    padding: 1px 2px;
+    font: inherit;
+    font-size: 11px;
+}
+.qnp-select:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .qnp-file {
     flex: 1;
     min-width: 0;

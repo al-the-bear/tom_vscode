@@ -1,13 +1,11 @@
 /**
- * The `sessions` parameter of the tools that read or write a quest's per-session storage
+ * The `sessions` parameter of the tools that read a quest's per-session storage
  * (src/tools/session-param.ts, src/utils/sessionSelection.ts).
  *
  *   SP-1 prompt history: without `sessions` the session the call runs in (every session when it runs in none);
  *        one session, several, "all"; other subsystems always kept; an unknown session refused
  *   SP-2 past tool calls: without `sessions` the caller's ring buffer; with them every stored result of each chosen
  *        session, tagged with its session; read by key in another session; an unknown session refused
- *   SP-3 quest memory: writes go to each chosen session; reads and lists show each under its own heading; without
- *        `sessions` the call runs once as before; `scope: "shared"` is refused (no shared memory); an unknown session refused
  */
 
 import test, { after, before, describe } from 'node:test';
@@ -27,7 +25,6 @@ installVscodeStub({
 
 import { getPromptPairImpl, listPromptPairsImpl } from '../prompt-history-tools.js';
 import { listPastToolCallsImpl, readPastToolResultImpl, searchPastToolResultsImpl, type PastToolEntry, type ToolHistoryAccess } from '../past-tool-access-tools.js';
-import { listMemoryImpl, readMemoryImpl, saveMemoryImpl, type MemoryScope, type MemoryStore } from '../memory-tools.js';
 import { ToolTrail, setActiveToolTrail } from '../../services/tool-trail.js';
 
 const QUEST = 'demo_quest';
@@ -116,39 +113,5 @@ describe('sessions — past tool calls', () => {
         assert.equal(missing.ok, false);
         const unknown = JSON.parse(await listPastToolCallsImpl(access, { sessions: 'nope' }));
         assert.deepEqual([unknown.ok, unknown.code], [false, 'unknownSession']);
-    });
-});
-
-describe('sessions — quest memory', () => {
-    test('SP-3: per session', async () => {
-        // A memory store whose quest scope is per session, like TwoTierMemoryService.
-        const files: Record<string, Record<string, string>> = {};
-        let active = 'chat';
-        const key = (_scope: MemoryScope): string => `quest:${active}`;
-        const store: MemoryStore = {
-            list: (scope) => Object.keys(files[key(scope)] ?? {}),
-            read: (scope, file) => files[key(scope)]?.[file] ?? '',
-            append: (scope, file, content) => { (files[key(scope)] ??= {})[file] = (files[key(scope)][file] ?? '') + content; },
-            replaceSection: () => undefined,
-            delete: (scope, file) => { delete files[key(scope)]?.[file]; },
-            knownSessions: () => ['default', 'chat', 'walk'],
-            callerSession: () => 'chat',
-            inSession: (s, fn) => { const was = active; active = s; try { return fn(); } finally { active = was; } },
-        };
-        await saveMemoryImpl(store, { content: 'own fact' });
-        assert.deepEqual(files['quest:chat'], { 'facts.md': 'own fact' }, "without sessions: the caller's session, as before");
-        const both = JSON.parse(await saveMemoryImpl(store, { content: 'both', sessions: ['walk', 'default'] }));
-        assert.deepEqual([both.ok, both.sessions.map((s: { session: string }) => s.session)], [true, ['walk', 'default']]);
-        assert.deepEqual([files['quest:walk']['facts.md'], files['quest:default']['facts.md']], ['both', 'both']);
-        assert.equal(active, 'chat', 'the active session is restored');
-        const read = await readMemoryImpl(store, { sessions: 'all' });
-        assert.match(read, /## session default\n\n### quest\/facts\.md\nboth/);
-        assert.match(read, /## session chat\n\n### quest\/facts\.md\nown fact/);
-        assert.match(read, /## session walk/);
-        assert.match(await listMemoryImpl(store, { sessions: ['walk'] }), /## session walk\n\nquest\/facts\.md/);
-        const shared = JSON.parse(await saveMemoryImpl(store, { scope: 'shared', content: 'shared fact', sessions: ['walk', 'chat'] }));
-        assert.equal(shared.code, 'noSharedMemory', 'no shared memory');
-        assert.equal(JSON.stringify(files).includes('shared fact'), false, 'nothing written');
-        assert.deepEqual(JSON.parse(await saveMemoryImpl(store, { content: 'x', sessions: 'nope' })).code, 'unknownSession');
     });
 });

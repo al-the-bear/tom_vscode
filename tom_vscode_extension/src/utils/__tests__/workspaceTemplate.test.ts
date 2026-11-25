@@ -119,11 +119,12 @@ describe('the workspace template in two parts', () => {
             'root/.tom/json-schema/workspaces/ai-workspace.schema.json', 'root/.tom/tom_root.yaml', 'root/.tom/tom_vscode_extension.json',
             'root/.tom/workspace_template.json', 'root/AGENTS.md', 'root/CLAUDE.md',
             'root/_agent_guidelines/index.md', 'root/_agent_guidelines/quest_todos.md', 'root/_agent_guidelines/workspace_agents.md',
-            'root/_ai/format-version.yaml', 'root/_ai/processes/README.md', 'root/_ai/prompt/p.md',
+            'root/_ai/format-version.yaml', 'root/_ai/processes/README.md',
             'root/_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml', 'root/_ai/quests/tomai_introduction/overview.tomai_introduction.md',
             'root/_ai/role-types/coder/role-type.yaml', 'root/_ai/roles/default/role.md', 'root/_ai/schemas/todo.schema.json',
             'workspace/.tom/', 'workspace/AGENTS.md', 'workspace/CLAUDE.md', 'workspace/_copilot_guidelines/dart/coding.md', 'workspace/_copilot_guidelines/index.md',
         ]);
+        assert.deepEqual(names(r).filter((n) => n.startsWith('root/_ai/prompt')), [], 'no _ai/prompt: saved prompts are a quest\'s');
         assert.equal(text(r, 'root/AGENTS.md'), tpl.ROOT_AGENTS_STUB, 'the root\'s own AGENTS.md is replaced by the stub');
         assert.equal(text(r, 'workspace/CLAUDE.md'), '# CLAUDE\n\n@{{root}}/_agent_guidelines/workspace_agents.md\n@AGENTS.md\n');
         assert.equal(text(r, 'workspace/AGENTS.md'), '# Group rules\n\n');
@@ -176,7 +177,7 @@ describe('the workspace template in two parts', () => {
             ['.tom/tom_vscode_extension.json', '{"anthropic": {"apiKey": "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123"}}', /root\/\.tom\/tom_vscode_extension\.json: contains an Anthropic API key/],
             ['ws/_copilot_guidelines/index.md', 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789', /workspace\/_copilot_guidelines\/index\.md: contains a GitHub token \(ghp_/],
             ['ws/CLAUDE.md', 'github_pat_11ABCDEFG0123456789_abcdefghij', /GitHub token \(github_pat_/],
-            ['_ai/prompt/p.md', 'bot 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawq', /Telegram bot token/],
+            ['_ai/roles/default/role.md', 'bot 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawq', /Telegram bot token/],
         ] as const) {
             const f = fixture();
             f.put(file, body);

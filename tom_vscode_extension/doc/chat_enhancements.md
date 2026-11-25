@@ -617,26 +617,15 @@ interface QueuedPrompt {
 
 ## 5. Workspace Notes Rework
 
-**Current state:** `WorkspaceNotepadProvider` hardcodes `notes.md` in the first workspace folder root.
+`WorkspaceNotepadProvider` (`sidebarNotes-handler.ts`) shows the workspace's one notes file:
 
-**Enhancement:**
+1. **The file:** `_ai/workspaces/<workspace>.notes.md`, `<workspace>` being the name of the window's root folder (the name of the workspace's quest list `_ai/workspaces/<workspace>.yaml`). The view offers no file choice.
 
-1. **Workspace detection:** Use `vscode.workspace.workspaceFile` to detect if an actual `.code-workspace` file is open
-   - If yes → show the notes panel with the workspace name
-   - If no → show "No workspace is open" message with a "Open Workspace..." button
+2. **Workspace detection:** without a workspace folder that has an `_ai` folder the view shows its message and an "Open Workspace..." button.
 
-2. **Configurable file location:** The notes file path is stored in VS Code's workspace storage (`context.workspaceState.get('workspaceNotesPath')`)
-   - First use: prompt user to choose/create the file (file picker dialog)
-   - Subsequent: auto-load from stored path
-   - "Change file..." action in the panel header to pick a different file
+3. **Creating the file:** a missing file is created when the view first shows it — with the content of the notes file the window had picked for the view or of `{workspaceRoot}/notes.md` (the first that exists and is not empty; it stays as it is), else with the heading `# Workspace notes`.
 
-3. **Create notes file:** If the workspace is open but no notes file is configured:
-   - Show "No workspace notes file configured" with a "Create Notes File" button
-   - On click: file save dialog, defaulting to `{workspaceRoot}/notes.md`
-   - Creates the file with a header: `# Workspace Notes — {workspaceName}`
-   - Stores the chosen path in workspace storage
-
-4. **Workspace name display:** Show the workspace name (from the `.code-workspace` filename, without extension) in the panel header: "WORKSPACE NOTES — Tom Agent Container"
+4. **Workspace name display:** the panel header names the workspace: "Workspace Notes — tom_agent_container".
 
 ---
 

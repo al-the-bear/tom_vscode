@@ -110,7 +110,7 @@ export async function deleteRunsAction(store: RunStorePort, ui: RunUiPort): Prom
     // The runs' own sessions (`<session>@<run>`): offered, not taken for granted — a conversation may still be wanted.
     const also = await ui.confirm(
         `Also delete the ${sessions.length === 1 ? 'session' : `${sessions.length} sessions`} of ${picked.length === 1 ? 'the run' : 'these runs'}?`,
-        `${sessions.join(', ')} — with their history, trails, tool results and quest memory. Kept, they stay in the SESSIONS view.`,
+        `${sessions.join(', ')} — with their history, trails and tool results (the quest memory stays). Kept, they stay in the SESSIONS view.`,
         sessions.length === 1 ? 'Delete the session' : 'Delete the sessions',
     );
     if (also) { store.deleteRunSessions(picked); }

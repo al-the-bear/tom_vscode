@@ -7,9 +7,17 @@
  *         when missing; another message is not taken; without a file it warns and opens nothing
  *   SNB-2 VS CODE NOTES: Open in MD Browser opens the global notes file in the MD Browser, Open in MD
  *         Viewer hands it to the external application, Open in Editor shows it in an editor
- *   SNB-3 QUEST NOTES opens the quest's notes file; WORKSPACE NOTES without a file warns and opens nothing
+ *   SNB-3 QUEST NOTES opens the quest's default notes file (notes/quest-notes.md, created with its header);
+ *         WORKSPACE NOTES opens `_ai/workspaces/<workspace>.notes.md`, created from the file the window had
+ *         picked (the one-time import; the picked file stays, its workspaceState key is dropped)
  *   SNB-4 the prompt features are gone: sendToCopilot, selectTemplate and previewPrompt do nothing, and
  *         no panel's state carries templates
+ *   SNB-5 QUEST NOTES (sidebar): the state lists the quest's notes files and names the one shown;
+ *         selectNotesFile shows and saves another file; newNotesFile creates one in notes/ and shows it; the
+ *         QUEST NOTES side panel shares the choice and shows what the sidebar view saves
+ *   SNB-6 WORKSPACE NOTES: one file, read and saved; no file pick (changeFile / createNotesFile do nothing,
+ *         no file dialog, the host names no picked-file state but for the import); an existing workspace
+ *         notes file is never replaced by an import
  */
 
 import { describe, test, after } from 'node:test';
@@ -56,6 +64,7 @@ stubWindow.registerWebviewViewProvider = (id: string, provider: { resolveWebview
 
 import { setExtensionPath } from '../handler_shared.js';
 import { registerDsNotesViews } from '../sidebarNotes-handler.js';
+import { QuestNotesPanelProvider } from '../questNotesPanel-handler.js';
 import { handleNotesFileMessage, NOTES_FILE_MESSAGES, type NotesFileOpeners } from '../notepad/notesFileActions.js';
 
 setExtensionPath(EXT_ROOT);
@@ -70,9 +79,20 @@ const context = {
     subscriptions: [] as Array<{ dispose(): void }>,
     extensionPath: EXT_ROOT,
     extensionUri: { fsPath: EXT_ROOT, scheme: 'file' },
-    workspaceState: memento(),
+    workspaceState: memento() as { get(k: string, d?: unknown): unknown; update(k: string, v: unknown): Promise<void> },
     globalState: memento(),
 };
+// What the window had picked for WORKSPACE NOTES before: imported once into the workspace notes file.
+const PICKED_NOTES = path.join(WS, 'docs', 'my-notes.md');
+fs.mkdirSync(path.dirname(PICKED_NOTES), { recursive: true });
+fs.writeFileSync(PICKED_NOTES, '# Picked\n\nearlier notes\n');
+fs.writeFileSync(path.join(WS, 'notes.md'), '# Root notes\n');
+void context.workspaceState.update('tomAi.notes.workspaceNoteFile', PICKED_NOTES);
+const inputAnswers: Array<string | undefined> = [];
+stubWindow.showInputBox = async () => inputAnswers.shift();
+const dialogs: string[] = [];
+stubWindow.showOpenDialog = async () => { dialogs.push('open'); return undefined; };
+stubWindow.showSaveDialog = async () => { dialogs.push('save'); return undefined; };
 registerDsNotesViews(context as never);
 after(() => { for (const p of providers.values()) { (p as { dispose?(): void }).dispose?.(); } });
 
@@ -102,7 +122,9 @@ function resolve(viewId: string): { send(msg: Record<string, unknown>): Promise<
 }
 
 const GLOBAL_NOTES = path.join(HOME, '.tom', 'notes', 'global_notes.md');
-const QUEST_NOTES = path.join(WS, '_ai', 'quests', QUEST, `quest-notes.${QUEST}.md`);
+const NOTES_DIR = path.join(WS, '_ai', 'quests', QUEST, 'notes');
+const QUEST_NOTES = path.join(NOTES_DIR, 'quest-notes.md');
+const WS_NOTES = path.join(WS, '_ai', 'workspaces', 'ws.notes.md');
 
 describe('NOTES panels: open buttons', () => {
     test('SNB-1: handleNotesFileMessage', async () => {
@@ -145,20 +167,27 @@ describe('NOTES panels: open buttons', () => {
         assert.equal((shown[0].args[0] as { uri: { fsPath: string } }).uri.fsPath, GLOBAL_NOTES);
     });
 
-    test('SNB-3: QUEST NOTES opens the quest notes; WORKSPACE NOTES without a file warns', async () => {
+    test('SNB-3: QUEST NOTES opens the quest notes; WORKSPACE NOTES opens the workspace notes file', async () => {
         const quest = resolve('tomAi.questNotes');
         await quest.send({ type: 'ready' });
+        assert.equal(fs.readFileSync(QUEST_NOTES, 'utf8'), `# Quest Notes — ${QUEST}\n\n`, 'created with its header when first shown');
         mdBrowserOpens.length = 0;
         await quest.send({ type: 'openInMdBrowser' });
         assert.deepEqual(mdBrowserOpens.map((o) => o.filePath), [QUEST_NOTES]);
 
+        assert.equal(fs.existsSync(WS_NOTES), false);
         const ws = resolve('tomAi.workspaceNotes');
+        await ws.send({ type: 'ready' });
+        assert.equal(fs.readFileSync(WS_NOTES, 'utf8'), '# Picked\n\nearlier notes\n', 'imported from the file the window had picked');
+        assert.equal(fs.readFileSync(PICKED_NOTES, 'utf8'), '# Picked\n\nearlier notes\n', 'the picked file is left as it is');
+        assert.equal(context.workspaceState.get('tomAi.notes.workspaceNoteFile'), undefined, 'the picked file is not read again');
+        const state = ws.posted.find((m) => m.type === 'state');
+        assert.deepEqual(state, { type: 'state', content: '# Picked\n\nearlier notes\n', filePath: WS_NOTES, workspaceName: 'ws', hasWorkspace: true });
         mdBrowserOpens.length = 0;
         warnings.length = 0;
         await ws.send({ type: 'openInMdBrowser' });
-        await ws.send({ type: 'openInMdViewer' });
-        assert.equal(mdBrowserOpens.length, 0);
-        assert.deepEqual(warnings, ['No notes file configured', 'No notes file configured']);
+        assert.deepEqual(mdBrowserOpens.map((o) => o.filePath), [WS_NOTES]);
+        assert.deepEqual(warnings, []);
     });
 
     test('SNB-4: the prompt messages do nothing and the state has no templates', async () => {
@@ -178,5 +207,93 @@ describe('NOTES panels: open buttons', () => {
             assert.equal('templates' in state, false, `${id}: no templates`);
             assert.equal('selectedTemplate' in state, false, `${id}: no selected template`);
         }
+    });
+
+    test('SNB-5: QUEST NOTES lists, switches and creates notes files, with the side panel', async () => {
+        fs.writeFileSync(path.join(NOTES_DIR, 'ideas.md'), '# ideas\n');
+        const quest = resolve('tomAi.questNotes');
+        await quest.send({ type: 'ready' });
+        const states = (): Array<Record<string, unknown>> => quest.posted.filter((m) => m.type === 'state');
+        const list = [{ name: 'quest-notes.md', isDefault: true }, { name: 'ideas.md', isDefault: false }];
+        assert.deepEqual([states()[0].notesFiles, states()[0].notesFile, states()[0].filePath], [list, 'quest-notes.md', QUEST_NOTES]);
+
+        // The side panel, on the same quest in the same window.
+        const panel = new QuestNotesPanelProvider(context as never, 40);
+        const panelPosted: Array<Record<string, unknown>> = [];
+        panel.resolveWebviewView({
+            visible: true, title: '',
+            onDidChangeVisibility: () => ({ dispose: () => undefined }),
+            onDidDispose: () => ({ dispose: () => undefined }),
+            webview: {
+                options: {}, html: '', cspSource: 'vscode-resource:',
+                asWebviewUri: (u: { fsPath?: string; path?: string }) => ({ toString: () => `res:${u.fsPath ?? u.path}` }),
+                onDidReceiveMessage: () => ({ dispose: () => undefined }),
+                postMessage: async (m: Record<string, unknown>) => { panelPosted.push(m); return true; },
+            },
+        } as never);
+        try {
+            await panel.handleMessage({ type: 'ready' });
+            const panelStates = (): Array<Record<string, unknown>> => panelPosted.filter((m) => m.type === 'notesState');
+
+            quest.posted.length = 0;
+            await quest.send({ type: 'selectNotesFile', name: 'ideas.md' });
+            assert.deepEqual([states().pop()!.notesFile, states().pop()!.content, states().pop()!.filePath], ['ideas.md', '# ideas\n', path.join(NOTES_DIR, 'ideas.md')]);
+            assert.deepEqual([panelStates().pop()!.notesFile, panelStates().pop()!.content], ['ideas.md', '# ideas\n'], 'the side panel follows the switch');
+
+            await quest.send({ type: 'updateContent', content: '# ideas\n\none more\n' });
+            assert.equal(fs.readFileSync(path.join(NOTES_DIR, 'ideas.md'), 'utf8'), '# ideas\n\none more\n');
+            assert.equal(fs.readFileSync(QUEST_NOTES, 'utf8'), `# Quest Notes — ${QUEST}\n\n`, 'the default is not written');
+            const end = Date.now() + 3000;
+            while (!panelStates().some((m) => m.external === true && m.content === '# ideas\n\none more\n')) {
+                assert.ok(Date.now() < end, 'the side panel shows what the sidebar view saved');
+                await new Promise((r) => setTimeout(r, 20));
+            }
+
+            mdBrowserOpens.length = 0;
+            await quest.send({ type: 'openInMdBrowser' });
+            assert.deepEqual(mdBrowserOpens.map((o) => o.filePath), [path.join(NOTES_DIR, 'ideas.md')], 'the buttons act on the file shown');
+
+            // The side panel switches back: the sidebar view follows.
+            quest.posted.length = 0;
+            await panel.handleMessage({ type: 'selectNotesFile', name: 'quest-notes.md' });
+            assert.deepEqual([states().pop()!.notesFile, states().pop()!.filePath], ['quest-notes.md', QUEST_NOTES]);
+
+            inputAnswers.push('Retro 1');
+            await quest.send({ type: 'newNotesFile' });
+            assert.equal(fs.readFileSync(path.join(NOTES_DIR, 'Retro 1.md'), 'utf8'), '# Retro 1\n\n');
+            assert.deepEqual([states().pop()!.notesFile, (states().pop()!.notesFiles as Array<{ name: string }>).map((f) => f.name)],
+                ['Retro 1.md', ['quest-notes.md', 'ideas.md', 'Retro 1.md']]);
+            assert.equal(panelStates().pop()!.notesFile, 'Retro 1.md');
+            assert.deepEqual(context.workspaceState.get('tomAi.notes.questNotesFile'), { [QUEST]: 'Retro 1.md' });
+        } finally {
+            panel.dispose();
+        }
+    });
+
+    test('SNB-6: WORKSPACE NOTES is one file without a file pick', async () => {
+        const ws = resolve('tomAi.workspaceNotes');
+        await ws.send({ type: 'ready' });
+        await ws.send({ type: 'updateContent', content: '# Workspace\n\nmine\n' });
+        assert.equal(fs.readFileSync(WS_NOTES, 'utf8'), '# Workspace\n\nmine\n');
+
+        dialogs.length = 0;
+        ws.posted.length = 0;
+        await ws.send({ type: 'changeFile' });
+        await ws.send({ type: 'createNotesFile' });
+        assert.deepEqual(dialogs, [], 'no file dialog');
+        assert.equal(ws.posted.length, 0);
+        assert.equal(context.workspaceState.get('tomAi.notes.workspaceNoteFile'), undefined);
+
+        // A picked file or a notes.md appearing later is not imported over the workspace notes file.
+        await context.workspaceState.update('tomAi.notes.workspaceNoteFile', PICKED_NOTES);
+        const again = resolve('tomAi.workspaceNotes');
+        await again.send({ type: 'ready' });
+        assert.equal(fs.readFileSync(WS_NOTES, 'utf8'), '# Workspace\n\nmine\n');
+        assert.equal(again.posted.find((m) => m.type === 'state')!.content, '# Workspace\n\nmine\n');
+
+        const host = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'sidebarNotes-handler.ts'), 'utf8');
+        assert.doesNotMatch(host, /showOpenDialog|showSaveDialog|'changeFile'|'createNotesFile'/);
+        assert.equal(host.split('tomAi.notes.workspaceNoteFile').length - 1, 1, 'the picked-file key is named once, for the import');
+        assert.doesNotMatch(host, /workspaceState\.update\(PICKED_WORKSPACE_NOTES_KEY, (?!undefined)/, 'the key is only ever dropped');
     });
 });

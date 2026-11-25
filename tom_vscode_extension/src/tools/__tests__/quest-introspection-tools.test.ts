@@ -78,13 +78,13 @@ before(() => {
     write('_ai/quests/beta/extra.beta.todo.yaml', 'todos: []\n');
 
     // -- Document categories -------------------------------------------------
-    // prompts (recursive)
-    write('_ai/prompt/start.md', '# start\n');
-    write('_ai/prompt/templates/quest.md', '# template\n');
-    write('_ai/prompt/.hidden.md', 'should be skipped\n');
+    // prompts: the active quest's (recursive)
+    write('_ai/quests/alpha/prompt/start.md', '# start\n');
+    write('_ai/quests/alpha/prompt/templates/quest.md', '# template\n');
+    write('_ai/quests/alpha/prompt/.hidden.md', 'should be skipped\n');
     // a folder beside the categories (no category of its own)
     write('_ai/answers/copilot/2026/jan/answer1.md', 'a1\n');
-    write('_ai/prompt/archive/2026/jan/old.md', 'old\n');
+    write('_ai/quests/alpha/prompt/archive/2026/jan/old.md', 'old\n');
     // notes
     write('_ai/notes/note1.md', 'n1\n');
     write('_ai/notes/note2.md', 'n2\n');
@@ -156,7 +156,7 @@ const projectSource = projectSourceFor(async () => ({
 const documentSource: DocumentSource = {
     resolveCategoryFolder(category: DocumentCategory) {
         const map: Record<DocumentCategory, string> = {
-            prompts:    '_ai/prompt',
+            prompts:    '_ai/quests/alpha/prompt',
             roles:      '_ai/roles',
             guidelines: '_copilot_guidelines',
         };
@@ -414,7 +414,7 @@ describe('listDocumentsImpl', () => {
 
     test('each of the 3 categories resolves to the correct workspace-relative folder', async () => {
         const expectations: Record<DocumentCategory, string> = {
-            prompts:    '_ai/prompt',
+            prompts:    '_ai/quests/<active quest>/prompt',
             roles:      '_ai/roles',
             guidelines: '_agent_guidelines (or _copilot_guidelines)',
         };
@@ -440,7 +440,7 @@ describe('listDocumentsImpl', () => {
         const r = JSON.parse(await listDocumentsImpl(documentSource, {
             category: 'prompts', subPath: 'templates',
         }));
-        assert.equal(r.resolvedFolder, '_ai/prompt/templates');
+        assert.equal(r.resolvedFolder, '_ai/quests/alpha/prompt/templates');
         assert.deepEqual(r.files, ['quest.md']);
     });
 
@@ -463,7 +463,7 @@ describe('listDocumentsImpl', () => {
 
     test('missing category folder → ok: true with exists: false', async () => {
         const noFolder: DocumentSource = {
-            resolveCategoryFolder: () => ({ absolute: '/nope', relative: '_ai/prompt' }),
+            resolveCategoryFolder: () => ({ absolute: '/nope', relative: '_ai/quests/alpha/prompt' }),
             listFilesRecursive: () => ({ exists: false, files: [] }),
         };
         const r = JSON.parse(await listDocumentsImpl(noFolder, { category: 'prompts' }));
@@ -471,6 +471,28 @@ describe('listDocumentsImpl', () => {
         assert.equal(r.exists, false);
         assert.equal(r.fileCount, 0);
         assert.deepEqual(r.files, []);
+    });
+
+    test('a category without a folder (prompts, no active quest) → exists: false, nothing walked', async () => {
+        const walked: string[] = [];
+        const noQuest: DocumentSource = {
+            resolveCategoryFolder: () => ({ absolute: undefined, relative: '_ai/quests/<active quest>/prompt' }),
+            listFilesRecursive: (folder) => { walked.push(folder); return { exists: true, files: ['never.md'] }; },
+        };
+        const r = JSON.parse(await listDocumentsImpl(noQuest, { category: 'prompts' }));
+        assert.equal(r.ok, true);
+        assert.equal(r.exists, false);
+        assert.equal(r.categoryFolder, '_ai/quests/<active quest>/prompt');
+        assert.equal(r.resolvedFolder, '_ai/quests/<active quest>/prompt');
+        assert.deepEqual(r.files, []);
+        const sub = JSON.parse(await listDocumentsImpl(noQuest, { category: 'prompts', subPath: 'templates' }));
+        assert.equal(sub.ok, true);
+        assert.equal(sub.exists, false);
+        assert.equal(sub.resolvedFolder, '_ai/quests/<active quest>/prompt/templates');
+        const escape = JSON.parse(await listDocumentsImpl(noQuest, { category: 'prompts', subPath: '../roles' }));
+        assert.equal(escape.ok, false);
+        assert.match(escape.error, /traversal rejected/);
+        assert.deepEqual(walked, [], 'no folder is walked');
     });
 
     test('workspace not open → ok: false', async () => {

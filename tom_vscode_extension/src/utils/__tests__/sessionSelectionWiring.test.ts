@@ -69,14 +69,16 @@ describe('session selection wiring', () => {
         assert.match(cmd, /sessions: picked\.all \? 'all' : picked\.sessions/);
     });
 
-    test('SW-4: the memory panel', () => {
+    test('SW-4: the memory panel has no session choice', () => {
+        // The quest memory has no session level: the panel works on the quest's memory folder.
         const panel = source('src', 'handlers', 'memoryPanel-handler.ts');
-        assert.match(panel, /case 'pickSession'/);
+        assert.doesNotMatch(panel, /pickSession|inPanelSession|_session\b/);
         for (const op of ['svc.listWithMeta(\'quest\')', 'TwoTierMemoryService.instance.read(scope, file)', 'TwoTierMemoryService.instance.write(scope, file, content)',
             'TwoTierMemoryService.instance.delete(scope, file)', 'TwoTierMemoryService.instance.filePath(scope, file)']) {
-            assert.ok(panel.includes(`inPanelSession(() => ${op})`), `${op} runs in the panel's session`);
+            assert.ok(panel.includes(op), `${op} on the quest's memory folder`);
         }
-        assert.match(source('media', 'memoryPanel', 'main.js'), /type: 'pickSession'/);
+        assert.doesNotMatch(source('media', 'memoryPanel', 'main.js'), /pickSession|btn-session/);
+        assert.doesNotMatch(source('media', 'memoryPanel', 'index.html'), /btn-session/);
     });
 
     test('SW-5: the SESSIONS view', () => {

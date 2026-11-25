@@ -7,7 +7,8 @@
  *        category that is one fixed entry
  *   EO-2 a file-based list gets a stored order: moveInStoredOrder writes `editorListOrder[<key>]` into the
  *        configuration, inStoredOrder shows the list in it, an entry created later follows the placed ones, a
- *        move that cannot be made stores nothing; the other configuration keys stay
+ *        move that cannot be made stores nothing; the other configuration keys stay; renameInStoredOrder keeps a
+ *        renamed entry's place
  *   EO-3 the Role Editor and the Role Type Editor: `move` answers `order` (the ids as shown now) and not `data`,
  *        so the form being edited stays; the data read afterwards is in that order; each kind has its own list
  *        key; the role folders are not renamed
@@ -35,7 +36,7 @@ import { installVscodeStub } from '../../tools/__tests__/_vscode-stub.js';
 const vs = installVscodeStub({ workspaceFolders: [WS] });
 after(() => { vs.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-import { inStoredOrder, moveInStoredOrder, storedListOrder } from '../../services/editorListOrder.js';
+import { inStoredOrder, moveInStoredOrder, renameInStoredOrder, storedListOrder } from '../../services/editorListOrder.js';
 import { RoleStore } from '../../services/roleStore.js';
 import type { SendToChatConfig } from '../../utils/sendToChatConfig.js';
 import { moveTemplateItemInConfig } from '../globalTemplateEditor-handler.js';
@@ -46,6 +47,8 @@ type Json = any;
 const onDisk = (): Json => JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
 const item = (id: string) => ({ id });
 const ids = (items: Array<{ id: string }>) => items.map((i) => i.id);
+/** A quest's reusable prompt list. */
+const PROMPTS_KEY = 'reusablePrompts:quest:q1';
 
 describe('editor lists: Up / Down on the host', () => {
     test('EO-1: a configuration list is reordered in its array', () => {
@@ -73,8 +76,13 @@ describe('editor lists: Up / Down on the host', () => {
         assert.deepEqual(ids(inStoredOrder('queueTemplates', [...files, item('aaa')], (i) => i.id)), ['alpha', 'gamma', 'beta', 'aaa'], 'a new entry follows');
         assert.equal(moveInStoredOrder('queueTemplates', ['alpha', 'gamma', 'beta'], 'alpha', 'up'), false);
         assert.deepEqual(onDisk().editorListOrder, { queueTemplates: ['alpha', 'gamma', 'beta'] });
-        assert.equal(moveInStoredOrder('reusablePrompts:global', ['x', 'y'], 'x', 'down'), true);
-        assert.deepEqual(onDisk().editorListOrder, { queueTemplates: ['alpha', 'gamma', 'beta'], 'reusablePrompts:global': ['y', 'x'] });
+        assert.equal(moveInStoredOrder(PROMPTS_KEY, ['x', 'y'], 'x', 'down'), true);
+        assert.deepEqual(onDisk().editorListOrder, { queueTemplates: ['alpha', 'gamma', 'beta'], [PROMPTS_KEY]: ['y', 'x'] });
+        // A renamed entry keeps its place; a list without a stored order, or without the entry, stores nothing.
+        assert.equal(renameInStoredOrder(PROMPTS_KEY, 'y', 'z'), true);
+        assert.equal(renameInStoredOrder(PROMPTS_KEY, 'nope', 'w'), false);
+        assert.equal(renameInStoredOrder('reusablePrompts:quest:q2', 'x', 'w'), false);
+        assert.deepEqual(onDisk().editorListOrder, { queueTemplates: ['alpha', 'gamma', 'beta'], [PROMPTS_KEY]: ['z', 'x'] });
     });
 
     test('EO-3: the Role Editor and the Role Type Editor', async () => {

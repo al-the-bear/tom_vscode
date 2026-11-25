@@ -367,7 +367,7 @@ export class ProcessStateStore {
         }
     }
 
-    /** Delete the sessions of runs completely (file, conversation, storage, quest memory); answers their names. */
+    /** Delete the sessions of runs completely (file, conversation, storage); answers their names. */
     deleteRunSessions(runs: readonly string[]): string[] {
         const names = this.runSessions(runs);
         if (!names.length) { return []; }

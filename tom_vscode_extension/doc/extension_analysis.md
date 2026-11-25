@@ -181,7 +181,7 @@ flowchart TD
 | `globalTemplateEditor-handler.ts` | 1068 | Prompt template editor |
 | `markdownBrowser-handler.ts` | 1068 | Markdown browser custom viewer |
 | `handler_shared.ts` | 990 | Shared utilities (bridge, config, templates) |
-| `reusablePromptEditor-handler.ts` | 950 | Reusable prompt .md editor |
+| `reusablePromptEditor-handler.ts` | 352 | Editor of the active quest's reusable prompts (`_ai/quests/<quest>/prompt/*.prompt.md`) |
 | `commandline-handler.ts` | 929 | Custom CLI commandlines |
 | `windowStatusPanel-handler.ts` | 693 | Window status sidebar panel |
 
@@ -442,7 +442,7 @@ Tools carry the `tomAi_` prefix.
 | `*.todo.yaml` | Todo files (Quest TODO Editor) |
 | `*.prompts.md` | Trail prompt logs |
 | `*.answers.md` | Trail answer logs |
-| `*.prompt.md` | Reusable prompt templates |
+| `*.prompt.md` | Reusable prompts of a quest (`_ai/quests/<quest>/prompt/`) |
 
 ---
 

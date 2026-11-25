@@ -9,6 +9,9 @@
  *         posted to the host; the writing controls are not shown
  *   MQP-4 a change on disk reloads the text area; with unsaved edits it asks: Load the file / Keep my text
  *   MQP-5 no quest open: the page says so and shows no tabs
+ *   MQP-6 the picker shows the quest's notes files with the one shown selected; a change saves unsaved text and
+ *         posts selectNotesFile; New notes file posts newNotesFile; another file's text replaces the text shown
+ *         without asking; while the conflict bar asks, the picker and the New button wait
  */
 
 import test, { describe } from 'node:test';
@@ -55,9 +58,10 @@ function setup(initialState?: Msg): Page {
         of: (type) => posted.filter((m) => m.type === type),
     };
 }
-const NOTES = '/ws/_ai/quests/q1/quest-notes.q1.md';
-const notes = (p: Page, content: string, extra: Msg = {}): void => p.send({ type: 'notesState', hasQuest: true, questId: 'q1', filePath: NOTES, relativePath: '_ai/quests/q1/quest-notes.q1.md', content, ...extra });
-const view = (p: Page, content: string): void => p.send({ type: 'mdContent', content: transformMarkdown(content), filePath: NOTES, relativePath: '_ai/quests/q1/quest-notes.q1.md', fileName: 'quest-notes.q1.md', crlf: false });
+const NOTES = '/ws/_ai/quests/q1/notes/quest-notes.md';
+const FILES = [{ name: 'quest-notes.md', isDefault: true }, { name: 'Alpha.md', isDefault: false }, { name: 'zeta.md', isDefault: false }];
+const notes = (p: Page, content: string, extra: Msg = {}): void => p.send({ type: 'notesState', hasQuest: true, questId: 'q1', filePath: NOTES, relativePath: '_ai/quests/q1/notes/quest-notes.md', content, notesFiles: FILES, notesFile: 'quest-notes.md', ...extra });
+const view = (p: Page, content: string): void => p.send({ type: 'mdContent', content: transformMarkdown(content), filePath: NOTES, relativePath: '_ai/quests/q1/notes/quest-notes.md', fileName: 'quest-notes.md', crlf: false });
 const type = (p: Page, value: string): void => { const t = p.el('notesText'); t.value = value; t.dispatchEvent(new p.w.Event('input')); };
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -67,7 +71,7 @@ describe('QUEST NOTES side panel (page)', () => {
         assert.deepEqual(p.of('ready').length, 1);
         notes(p, '# Notes\n');
         assert.deepEqual([p.el('editPane').hidden, p.el('viewPane').hidden], [false, true], 'Edit first');
-        assert.equal(p.el('qnpFile').textContent, '_ai/quests/q1/quest-notes.q1.md');
+        assert.equal(p.el('qnpFile').textContent, '_ai/quests/q1/notes/quest-notes.md');
         p.el('tabView').click();
         assert.deepEqual([p.el('editPane').hidden, p.el('viewPane').hidden], [true, false]);
         assert.equal(p.el('tabView').getAttribute('aria-selected'), 'true');
@@ -149,5 +153,49 @@ describe('QUEST NOTES side panel (page)', () => {
         p.send({ type: 'notesState', hasQuest: false, questId: '', filePath: '', relativePath: '', content: '' });
         assert.equal(p.el('qnpEmpty').hidden, false);
         assert.deepEqual([p.el('editPane').hidden, p.el('viewPane').hidden, p.w.document.querySelector('.qnp-bar').hidden], [true, true, true]);
+    });
+
+    test('MQP-6: the picker of notes files', () => {
+        const p = setup();
+        notes(p, 'default text');
+        const select = p.el('notesFileSelect');
+        const pick = (name: string): void => { select.value = name; select.dispatchEvent(new p.w.Event('change')); };
+        // The page's messages as plain objects of this realm.
+        const sent = (): Msg[] => JSON.parse(JSON.stringify(p.posted));
+        assert.deepEqual([...select.options].map((o: Win) => o.value), ['quest-notes.md', 'Alpha.md', 'zeta.md']);
+        assert.equal(select.value, 'quest-notes.md');
+        assert.equal(select.closest('.qnp-bar') !== null, true, 'in the view\'s bar');
+
+        p.posted.length = 0;
+        pick('zeta.md');
+        assert.deepEqual(sent(), [{ type: 'selectNotesFile', name: 'zeta.md' }], 'nothing to save: the switch alone');
+
+        // The host answers with the other file: its text is shown, without asking.
+        const ZETA = '/ws/_ai/quests/q1/notes/zeta.md';
+        notes(p, 'zeta text', { filePath: ZETA, relativePath: '_ai/quests/q1/notes/zeta.md', notesFile: 'zeta.md' });
+        assert.deepEqual([p.el('notesText').value, select.value, p.el('conflictBar').hidden, p.el('qnpFile').textContent], ['zeta text', 'zeta.md', true, '_ai/quests/q1/notes/zeta.md']);
+
+        // Unsaved text is saved to the file shown before the switch is asked for.
+        p.posted.length = 0;
+        type(p, 'zeta text, mine');
+        pick('Alpha.md');
+        assert.deepEqual(sent(), [{ type: 'save', content: 'zeta text, mine' }, { type: 'selectNotesFile', name: 'Alpha.md' }]);
+        notes(p, 'alpha text', { filePath: '/ws/_ai/quests/q1/notes/Alpha.md', notesFile: 'Alpha.md' });
+        assert.equal(p.el('notesText').value, 'alpha text');
+
+        p.posted.length = 0;
+        assert.equal(p.el('newNotesFileBtn').title, 'New notes file');
+        type(p, 'alpha text, mine');
+        p.el('newNotesFileBtn').click();
+        assert.deepEqual(sent(), [{ type: 'save', content: 'alpha text, mine' }, { type: 'newNotesFile' }]);
+        notes(p, '# Fresh\n', { filePath: '/ws/_ai/quests/q1/notes/Fresh.md', notesFile: 'Fresh.md', notesFiles: [...FILES, { name: 'Fresh.md', isDefault: false }] });
+        assert.deepEqual([[...select.options].map((o: Win) => o.value), select.value, p.el('notesText').value], [['quest-notes.md', 'Alpha.md', 'zeta.md', 'Fresh.md'], 'Fresh.md', '# Fresh\n']);
+
+        // A change on disk of the file shown still asks; the picker and New wait for the answer.
+        type(p, '# Fresh\n mine');
+        notes(p, '# Fresh\n theirs', { filePath: '/ws/_ai/quests/q1/notes/Fresh.md', notesFile: 'Fresh.md', external: true });
+        assert.deepEqual([p.el('conflictBar').hidden, select.disabled, p.el('newNotesFileBtn').disabled], [false, true, true]);
+        p.el('loadDiskBtn').click();
+        assert.deepEqual([p.el('conflictBar').hidden, select.disabled, p.el('newNotesFileBtn').disabled, p.el('notesText').value], [true, false, false, '# Fresh\n theirs']);
     });
 });

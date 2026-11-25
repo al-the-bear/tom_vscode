@@ -3,8 +3,6 @@
 .toolbar-spacer { flex: 1; min-width: 16px; }
 .checkbox-label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
 .checkbox-label input[type="checkbox"] { margin: 0; cursor: pointer; }
-.reusable-prompt-type { min-width: 90px; max-width: 130px; }
-.reusable-prompt-scope { min-width: 140px; max-width: 240px; }
 .reusable-prompt-file { min-width: 180px; max-width: 320px; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; background: rgba(0,0,0,0.4); display: flex; align-items: flex-start; justify-content: center; padding: 12px 0; }
 .modal-popup { position: relative; z-index: 201; width: 100%; max-width: 420px; background: var(--vscode-editorWidget-background, var(--vscode-panel-background)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); overflow-y: auto; max-height: calc(100vh - 24px); }

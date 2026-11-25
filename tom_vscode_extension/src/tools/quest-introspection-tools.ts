@@ -88,9 +88,11 @@ export interface DocumentSource {
      * Map a `category` enum value to its category folder.  Returns
      * `undefined` when the workspace isn't open.  `relative` is the
      * workspace-relative path for use in response envelopes;
-     * `absolute` is what the walker is given.
+     * `absolute` is what the walker is given — `undefined` when the
+     * category has no folder in this window (`prompts` without an
+     * active quest), which is answered like a missing folder.
      */
-    resolveCategoryFolder(category: DocumentCategory): { absolute: string; relative: string } | undefined;
+    resolveCategoryFolder(category: DocumentCategory): { absolute: string | undefined; relative: string } | undefined;
     /**
      * Recursive file walk under `absoluteFolder`, returning paths
      * relative to `absoluteFolder`.  Hidden entries (`.foo`) are
@@ -391,7 +393,8 @@ export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
 // ===========================================================================
 
 const CATEGORY_FOLDER_LABEL: Record<DocumentCategory, string> = {
-    prompts:    '_ai/prompt',
+    // The active quest's saved prompts; no folder while the window has no quest.
+    prompts:    '_ai/quests/<active quest>/prompt',
     roles:      '_ai/roles',
     // The workspace folder's guidelines folder (else the root's), under either name.
     guidelines: '_agent_guidelines (or _copilot_guidelines)',
@@ -422,7 +425,7 @@ export async function listDocumentsImpl(docs: DocumentSource, input: ListDocumen
         }
         if (!DOCUMENT_CATEGORIES.includes(input.category)) {
             return err(`Unknown category "${String(input.category)}" (one of: ${DOCUMENT_CATEGORIES.join(', ')}).` +
-                (String(input.category) === 'notes' ? ' _ai/notes is no longer part of the workspace: notes are the quest\'s (quest-notes.<quest>.md) or the workspace notes.' : ''));
+                (String(input.category) === 'notes' ? ' _ai/notes is no longer part of the workspace: notes are the quest\'s (_ai/quests/<quest>/notes/, default quest-notes.md) or the workspace notes (_ai/workspaces/<workspace>.notes.md).' : ''));
         }
         const resolved = docs.resolveCategoryFolder(input.category);
         if (!resolved) {
@@ -432,17 +435,18 @@ export async function listDocumentsImpl(docs: DocumentSource, input: ListDocumen
         let displayRelative = resolved.relative;
         const subPath = (input.subPath ?? '').trim();
         if (subPath) {
-            const safe = safeJoinSubPath(resolved.absolute, subPath);
+            // A category without a folder is checked against a stand-in root: the traversal guard holds either way.
+            const safe = safeJoinSubPath(resolved.absolute ?? path.resolve(path.sep, 'no-folder'), subPath);
             if (!safe) {
                 return err('`subPath` escapes the category folder (traversal rejected).', {
                     category: input.category,
                     subPath,
                 });
             }
-            target = safe;
+            target = resolved.absolute === undefined ? undefined : safe;
             displayRelative = path.posix.join(resolved.relative, subPath.replace(/\\/g, '/'));
         }
-        const walk = docs.listFilesRecursive(target);
+        const walk = target === undefined ? { exists: false, files: [] } : docs.listFilesRecursive(target);
         if (!walk.exists) {
             return ok({
                 category: input.category,
@@ -468,7 +472,9 @@ export async function listDocumentsImpl(docs: DocumentSource, input: ListDocumen
 
 export const LIST_DOCUMENTS_DESCRIPTION =
     'Recursively list files in a workspace document category folder. ' +
-    'Category → folder mapping: `prompts` → `_ai/prompt`, `roles` → `_ai/roles`, ' +
+    'Category → folder mapping: `prompts` → the active quest\'s saved prompts, ' +
+    '`_ai/quests/<active quest>/prompt` (`exists: false` while the window has no ' +
+    'quest), `roles` → `_ai/roles`, ' +
     '`guidelines` → the workspace folder\'s guidelines folder (`_agent_guidelines`, ' +
     'or the older `_copilot_guidelines`; else the root\'s; the global guideline ' +
     'tools read both levels). The walk returns **every** file ' +
@@ -493,7 +499,7 @@ export const LIST_DOCUMENTS_TOOL: SharedToolDefinition<ListDocumentsInput> = {
             category: {
                 type: 'string',
                 enum: [...DOCUMENT_CATEGORIES],
-                description: 'prompts → _ai/prompt; roles → _ai/roles; guidelines → the workspace folder\'s guidelines folder (_agent_guidelines or _copilot_guidelines).',
+                description: 'prompts → _ai/quests/<active quest>/prompt (the active quest\'s saved prompts); roles → _ai/roles; guidelines → the workspace folder\'s guidelines folder (_agent_guidelines or _copilot_guidelines).',
             },
             subPath: {
                 type: 'string',

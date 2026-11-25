@@ -4,8 +4,8 @@
  * the Logs panel, never on `default` or on a session picked again.
  *
  *   LA-1 trail summary: the selected session's summary trail opens in the trail viewer, no session picker
- *   LA-2 memory: the memory panel opens on the selected session (`tomAi.panel.memory <session>`), and the
- *        command hands that session to the panel
+ *   LA-2 memory: the memory panel opens (`tomAi.panel.memory`) on the quest's memory folder, which has no session
+ *        level: no session is handed over
  *   LA-3 history and live trail open the selected session's files
  *   LA-4 the chat panel provider is in the context's subscriptions, so its dispose (the answer-folder watcher, the
  *        answer poll timer) runs on deactivate — this test process ends only because it does
@@ -76,14 +76,14 @@ describe('the @CHAT Logs session actions', () => {
         assert.ok(summary!.includes(path.join('sessions', SESSION)), 'the session\'s own trail pair');
     });
 
-    test('LA-2: the memory panel on the selected session', async () => {
+    test('LA-2: the memory panel, without a session', async () => {
         const before = commands().length;
         await runChatSessionAction('memory', SESSION);
-        assert.deepEqual(since(before).find((a) => a[0] === 'tomAi.panel.memory'), ['tomAi.panel.memory', SESSION]);
-        // The command hands the session to the panel.
+        assert.deepEqual(since(before).find((a) => a[0] === 'tomAi.panel.memory'), ['tomAi.panel.memory']);
+        // The command takes no session: the panel shows the quest's memory folder.
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'memoryPanel-handler.ts'), 'utf8');
-        assert.match(src, /registerCommand\('tomAi\.panel\.memory', \(session\?: unknown\) => \{\n\s+openMemoryPanel\(context, typeof session === 'string' && session \? session : undefined\);/);
-        assert.match(src, /export function openMemoryPanel\(context: vscode\.ExtensionContext, session\?: string\): void \{\n\s+_context = context;\n\s+if \(session\) \{ _session = session; \}/);
+        assert.match(src, /registerCommand\('tomAi\.panel\.memory', \(\) => \{\n\s+openMemoryPanel\(context\);/);
+        assert.match(src, /export function openMemoryPanel\(context: vscode\.ExtensionContext\): void \{\n\s+_context = context;\n/);
     });
 
     test('LA-3: history and live trail of the selected session', async () => {

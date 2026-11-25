@@ -155,7 +155,7 @@ extension with `.tom/tom_root.yaml`): `.tom/tom_root.yaml`, the config (its
 issue / test panel repositories and command lines emptied: `genericConfig`),
 `.tom/json-schema/workspaces/`, the root guidelines with `workspace_agents.md`,
 CLAUDE.md, an AGENTS.md stub the build writes (`ROOT_AGENTS_STUB`), `_ai`
-roles / role types / processes / schemas / prompt / format-version.yaml and
+roles / role types / processes / schemas / format-version.yaml and
 the starting quest `tomai_introduction`, plus `.tom/workspace_template.json`
 (type `dart`, version 2, both parts' files, the `{{root}}` token).
 `workspace/`, from the workspace folder (`--workspace`, default the

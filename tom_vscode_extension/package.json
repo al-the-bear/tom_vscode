@@ -929,8 +929,8 @@
         },
         "tomAi.notes.questNotesPattern": {
           "type": "string",
-          "default": "_ai/quests/${quest}/quest-notes.${quest}.md",
-          "description": "Pattern for quest notes file path. Supports ${quest} and ${workspaceFolder}."
+          "default": "_ai/quests/${quest}/notes/quest-notes.md",
+          "description": "The default notes file of a quest, shown first by the QUEST NOTES views. The quest's other notes files are the .md files of the same folder. Supports ${quest} and ${workspaceFolder}."
         },
         "tomAi.todo.questTodoPattern": {
           "type": "string",

@@ -585,7 +585,8 @@ Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos),
 the **@TOM WS** sidebar for the workspace (VS Code and workspace notes,
 workspace todos, the todo log, window status), and the **@TOM INFO** sidebar:
-the active quest's notes on their own (`tomAi.questNotesPanel`, with an
+the active quest's notes on their own (`tomAi.questNotesPanel`, with a
+dropdown of the quest's notes files `_ai/quests/<quest>/notes/*.md`, an
 **Edit** tab, a text area, and a **View** tab, rendered as the MD Browser
 renders it; you can drag it into the secondary side bar), and **RUNS**
 (`tomAi.runsOverview`): every process run of every window on this machine with

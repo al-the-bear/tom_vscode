@@ -44,6 +44,7 @@ import { osLoginName } from './osUserName';
 import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
 import { collectClaudeMd, collectWithImports, renderClaudeMd } from '../services/claudeMd';
 import { AGENTS_MD, CLAUDE_MD } from './agentInstructions';
+import { defaultQuestNotesPath, resolveDefaultQuestNotes } from './notesFiles';
 
 // ============================================================================
 // Public types
@@ -788,7 +789,9 @@ export function resolveDynamicKey(key: string, values: Record<string, string>, n
  *                                (fallback: _ai/roles/<name>/role.md)
  *   ${quest-<type>}           → first file matching
  *                                _ai/quests/${quest}/<type>.${quest}.* —
- *                                e.g. ${quest-overview} → overview.${quest}.md
+ *                                e.g. ${quest-overview} → overview.${quest}.md;
+ *                                ${quest-quest-notes} → the quest's default
+ *                                notes file, notes/quest-notes.md
  *   ${file-<path>}            → <path> (relative to workspace root, or
  *                                absolute when it starts with `/`)
  *
@@ -878,6 +881,10 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         const questsPath = values['questsPath'] || (wsRoot ? path.join(wsRoot, '_ai', 'quests') : '');
         if (!quest || !questsPath) { return ''; }
         const dir = path.join(questsPath, quest);
+        if (rawType === 'quest-notes') {
+            // The quest's default notes file (utils/notesFiles.ts), which also knows the old place.
+            return injectFile(resolveDefaultQuestNotes(defaultQuestNotesPath(dir), dir, quest).filePath, values);
+        }
         const name = firstMatchingFile(dir, `${rawType}.${quest}.`);
         return name ? injectFile(path.join(dir, name), values) : '';
     }
@@ -892,7 +899,8 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         return injectFile(resolved, values);
     }
 
-    // ${memory}         — the quest memory block, newest file first
+    // ${memory}         — the quest memory block (`_ai/quests/<quest>/memory/`): the curated
+    //                     files, newest first, then this host's candidates
     // ${memory-quest}   — the same (kept for templates that name it)
     // ${memory-shared}  — resolves to nothing: the shared memory is gone (al_the_bear
     //                     ai_format_migration AC-18); an old template does not show the raw placeholder
@@ -943,14 +951,17 @@ function resolveMemoryPlaceholder(
         } catch { /* fallback stays */ }
         const quest = values['quest'] || values['chat.quest'] || '';
         // Profile-supplied memory suffix (e.g. 'gemma4'). When present,
-        // restricts injection to files named `facts-<suffix>.md` in each
-        // scope. Passed in via `values.memorySuffix` by the LocalLlm /
-        // Anthropic handler at send time; legacy callers omit it and get
-        // the unfiltered "every file in scope" behaviour.
+        // restricts injection to `facts-<suffix>.md` and this host's
+        // candidates meant for it. Passed in via `values.memorySuffix` by
+        // the caller at send time; without it every curated file is offered.
         const memorySuffix = values['memorySuffix'] || undefined;
+        // The session the send runs in (`values.memorySession`, set by the
+        // Anthropic handler). OLD PLACE: it names whose files of
+        // `_ai/memory/<quest>/<session>/` follow the quest folder's.
+        const memorySession = values['memorySession'] || undefined;
         // The quest memory is the only one, so `${memory}` and `${memory-quest}` are the same block.
         void key;
-        return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix).text;
+        return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix, memorySession).text;
     } catch {
         return '';
     }
@@ -1294,7 +1305,7 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${role-NAME}</code> – <code>_ai/roles/NAME.md</code> (fallback: <code>_ai/roles/NAME/role.md</code>). Example: <code>\${role-reviewer}</code>.<br>
 <code>\${quest-TYPE}</code> – First file matching <code>_ai/quests/\${quest}/TYPE.\${quest}.*</code>. Example: <code>\${quest-overview}</code>, <code>\${quest-open_topics}</code>.<br>
 <code>\${file-PATH}</code> – Inline any file; <code>PATH</code> is workspace-relative, or absolute when it starts with <code>/</code>. Example: <code>\${file-README.md}</code>, <code>\${file-/etc/hosts}</code>.<br>
-<code>\${memory}</code> – The quest memory block: the current quest's memory files (this session's), newest first. Char budget comes from <code>anthropic.memory.maxInjectedTokens</code> (× 4). Put this in the user-message template (preferred, so prompt caching on the system prompt keeps hitting) or directly in the system prompt.<br>
+<code>\${memory}</code> – The quest memory block (<code>_ai/quests/QUEST/memory/</code>): the curated files, newest first, then this host's candidates from the automatic extraction under their own heading. Char budget comes from <code>anthropic.memory.maxInjectedTokens</code> (× 4). Put this in the user-message template (preferred, so prompt caching on the system prompt keeps hitting) or directly in the system prompt.<br>
 <code>\${memory-quest}</code> – The same as <code>\${memory}</code>.<br>
 <br>
 <em>Path variables support sub-properties:</em><br>

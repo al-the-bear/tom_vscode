@@ -1,47 +1,40 @@
 /**
  * Reusable Prompt Editor — full-screen webview panel.
  *
- * Unified editor for `.prompt.md` files across four scopes:
- *   1. Global    — _ai/prompt/
- *   2. Project   — {projectRoot}/prompt/
- *   3. Quest     — _ai/quests/{questId}/prompt/
- *   4. Scan      — ancestor `prompt/` dirs relative to active file
+ * The editor of the active quest's saved prompts: the `*.prompt.md` files of
+ * `_ai/quests/<quest>/prompt/` (utils/questPrompts.ts). There is no other
+ * place a saved prompt lives, so the page has no scope to choose; a window
+ * without a quest is told so and edits nothing.
  *
- * Layout: top action bar with scope selector + sub-scope + add/delete/open btns,
- * left column *.prompt.md file list, right column markdown editor.
+ * Layout: top action bar with add / rename / delete / up / down / preview /
+ * open, left column the file list, right column the Markdown editor.
  */
 
-import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
-import { WsPaths } from '../utils/workspacePaths';
-import { ChatVariablesStore } from '../managers/chatVariablesStore';
-import { projectPromptScopes, scanPromptScopes } from '../utils/promptScopes';
-import { getWorkspaceName } from '../utils/panelYamlStore';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
-import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
+import { inStoredOrder, moveInStoredOrder, renameInStoredOrder } from '../services/editorListOrder';
 import { moveDirection, type MoveDirection } from '../utils/listOrder';
+import {
+    NO_QUEST_PROMPTS_MESSAGE,
+    activeQuestPromptFolder,
+    deleteQuestPrompt,
+    listQuestPromptFiles,
+    notifyQuestPromptsChanged,
+    questPromptFileName,
+    questPromptFilePath,
+    questPromptsListKey,
+    renameQuestPrompt,
+    writeQuestPrompt,
+    type QuestPromptFile,
+    type QuestPromptFolder,
+} from '../utils/questPrompts';
 
-// ============================================================================
-// Types
-// ============================================================================
-
-export type PromptScope = 'global' | 'project' | 'quest' | 'scan';
-
-export const SCOPE_LABELS: Record<PromptScope, string> = {
-    global: 'Global',
-    project: 'Project',
-    quest: 'Quest',
-    scan: 'Scan',
-};
-
-interface ScopeItem {
-    id: string;
-    label: string;
-    dir: string;
+/** What opening the editor may pre-select: a prompt file of the active quest. */
+export interface ReusablePromptEditorOptions {
+    fileId?: string;
 }
 
 // ============================================================================
@@ -52,23 +45,18 @@ let _panel: vscode.WebviewPanel | undefined;
 let _context: vscode.ExtensionContext | undefined;
 
 /**
- * Open the reusable prompt editor, optionally pre-selecting a scope and file.
+ * Open the reusable prompt editor, optionally pre-selecting a file.
  */
 export function openReusablePromptEditor(
     context: vscode.ExtensionContext,
-    options?: { scope?: PromptScope; subScopeId?: string; fileId?: string },
+    options?: ReusablePromptEditorOptions,
 ): void {
     _context = context;
 
     if (_panel) {
         _panel.reveal();
-        if (options?.scope || options?.fileId) {
-            _panel.webview.postMessage({
-                type: 'selectFile',
-                scope: options.scope,
-                subScopeId: options.subScopeId,
-                fileId: options.fileId,
-            });
+        if (options?.fileId) {
+            _panel.webview.postMessage({ type: 'selectFile', fileId: options.fileId });
         }
         return;
     }
@@ -98,16 +86,16 @@ function getReusablePromptEditorWebviewOptions(context: vscode.ExtensionContext)
 
 /**
  * Wire a (freshly-created or reload-restored) Reusable Prompt editor panel:
- * install the message handler, paint the HTML, and push scope/file data. Both
+ * install the message handler, paint the HTML, and push the file list. Both
  * `openReusablePromptEditor` and the reload serializer call this so the wiring
- * lives in one place. `options` carries the scope/sub-scope/file to pre-select —
- * on restore it comes from the webview's persisted `setState`, so the editor
- * re-opens the same prompt the user was last editing.
+ * lives in one place. `options` carries the file to pre-select — on restore it
+ * comes from the webview's persisted `setState`, so the editor re-opens the
+ * prompt the user was last editing.
  */
 function bindReusablePromptEditorPanel(
     context: vscode.ExtensionContext,
     panel: vscode.WebviewPanel,
-    options?: { scope?: PromptScope; subScopeId?: string; fileId?: string },
+    options?: ReusablePromptEditorOptions,
 ): void {
     _context = context;
     _panel = panel;
@@ -119,7 +107,7 @@ function bindReusablePromptEditorPanel(
     const webviewCodiconsUri = panel.webview.asWebviewUri(codiconsUri);
 
     panel.webview.onDidReceiveMessage(
-        (msg) => _handleMessage(msg),
+        (msg) => handleReusablePromptEditorMessage(msg),
         undefined,
         context.subscriptions,
     );
@@ -130,7 +118,7 @@ function bindReusablePromptEditorPanel(
     panel.onDidDispose(() => { _panel = undefined; });
 
     setTimeout(() => {
-        void _sendAllData(options?.scope, options?.subScopeId, options?.fileId);
+        _sendData(_post, options?.fileId);
     }, 100);
 }
 
@@ -138,16 +126,12 @@ export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext
     _context = ctx;
     ctx.subscriptions.push(
         vscode.commands.registerCommand('tomAi.editor.reusablePrompts', (args?: any) => {
-            openReusablePromptEditor(ctx, {
-                scope: args?.scope,
-                subScopeId: args?.subScopeId,
-                fileId: args?.fileId,
-            });
+            openReusablePromptEditor(ctx, { fileId: typeof args?.fileId === 'string' ? args.fileId : undefined });
         }),
     );
     // Restore the panel after a window reload. Singleton; the webview persists
-    // its selected {scope, subScopeId, fileId} via setState, so the deserialize
-    // path re-opens the same prompt the user was editing. Without the serializer
+    // its selected {fileId} via setState, so the deserialize path re-opens the
+    // prompt the user was editing. Without the serializer
     // the tab silently vanishes on reload.
     ctx.subscriptions.push(
         vscode.window.registerWebviewPanelSerializer('tomAi.reusablePromptEditor', {
@@ -155,324 +139,204 @@ export function registerReusablePromptEditorCommand(ctx: vscode.ExtensionContext
                 if (_panel) { panel.dispose(); return; }
                 const context = _context ?? ctx;
                 panel.webview.options = getReusablePromptEditorWebviewOptions(context);
-                bindReusablePromptEditorPanel(context, panel, {
-                    scope: state?.scope,
-                    subScopeId: state?.subScopeId,
-                    fileId: state?.fileId,
-                });
+                bindReusablePromptEditorPanel(context, panel, { fileId: typeof state?.fileId === 'string' ? state.fileId : undefined });
             },
         }),
     );
 }
 
 // ============================================================================
-// Scope resolution (adapted from chatPanel-handler.ts)
+// The active quest's list
 // ============================================================================
 
-function _getGlobalPromptsDir(): string | null {
-    const aiRoot = WsPaths.aiRoot;
-    if (!aiRoot) return null;
-    return WsPaths.ai('prompt') || path.join(aiRoot, 'prompt');
+type Post = (message: Record<string, unknown>) => void;
+
+const _post: Post = (message) => { void _panel?.webview.postMessage(message); };
+
+/** The quest's prompt files in the order the Up / Down buttons gave them; a file not placed yet follows by name. */
+function _orderedPromptFiles(folder: QuestPromptFolder): QuestPromptFile[] {
+    return inStoredOrder(questPromptsListKey(folder.questId), listQuestPromptFiles(folder.dir), (f) => f.id);
 }
 
-function _getActiveQuestId(): string {
-    try {
-        return ChatVariablesStore.instance.quest.trim();
-    } catch {
-        return '';
-    }
+/** What the page shows: the quest ('' without one) and its prompt files. */
+export function reusablePromptEditorData(fileId?: string): Record<string, unknown> {
+    const folder = activeQuestPromptFolder();
+    return {
+        type: 'data',
+        quest: folder?.questId ?? '',
+        noQuestMessage: folder ? '' : NO_QUEST_PROMPTS_MESSAGE,
+        files: folder ? _orderedPromptFiles(folder) : [],
+        initialFileId: folder && fileId ? fileId : '',
+    };
 }
 
-function _getPreferredQuestId(): string {
-    const activeQuest = _getActiveQuestId();
-    if (activeQuest) return activeQuest;
-    const workspaceFile = vscode.workspace.workspaceFile?.fsPath;
-    if (workspaceFile && workspaceFile.endsWith('.code-workspace')) {
-        const guessed = getWorkspaceName().trim();
-        if (guessed && guessed !== 'default') return guessed;
-    }
-    return '';
+function _sendData(post: Post, fileId?: string): void {
+    post(reusablePromptEditorData(fileId));
 }
 
-function _getQuestPromptsDir(questId: string): string | null {
-    const aiRoot = WsPaths.aiRoot;
-    if (!aiRoot || !questId) return null;
-    return WsPaths.ai('quests', questId, 'prompt') || path.join(aiRoot, 'quests', questId, 'prompt');
-}
-
-function _getQuestPromptScopes(): ScopeItem[] {
-    const aiRoot = WsPaths.aiRoot;
-    if (!aiRoot) return [];
-
-    const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
-    if (!fs.existsSync(questsDir) || !fs.statSync(questsDir).isDirectory()) return [];
-
-    return fs.readdirSync(questsDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
-        .map(e => {
-            const qid = e.name;
-            return {
-                id: qid,
-                label: qid,
-                dir: _getQuestPromptsDir(qid) || path.join(questsDir, qid, 'prompt'),
-            };
-        })
-        .sort((a, b) => a.label.localeCompare(b.label));
-}
-
-// ============================================================================
-// File listing
-// ============================================================================
-
-function _listPromptFiles(dir: string): { id: string; label: string }[] {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
-    return fs.readdirSync(dir)
-        .filter(f => f.endsWith('.prompt.md'))
-        .sort()
-        .map(f => ({ id: f, label: f }));
-}
-
-/** The list key of a scope's stored file order (services/editorListOrder.ts). */
-export function reusablePromptsListKey(scope: string, subScopeId: string): string {
-    return scope === 'global' ? 'reusablePrompts:global' : `reusablePrompts:${scope}:${subScopeId}`;
-}
-
-/** The prompt files of a scope in the order the Up / Down buttons gave them; a file not placed yet follows by name. */
-function _orderedPromptFiles(scope: string, subScopeId: string, dir: string): { id: string; label: string }[] {
-    return inStoredOrder(reusablePromptsListKey(scope, subScopeId), _listPromptFiles(dir), (f) => f.id);
-}
-
-/** Up / Down: the file moves one place in its scope's list; the order is stored, the files are not touched. */
-async function _moveFile(scope: PromptScope, subScopeId: string, fileId: string, direction: MoveDirection | undefined): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir || !fileId || !direction) { return; }
-    const shown = _orderedPromptFiles(scope, subScopeId, dir).map((f) => f.id);
-    if (!moveInStoredOrder(reusablePromptsListKey(scope, subScopeId), shown, fileId, direction)) { return; }
-    _panel?.webview.postMessage({ type: 'filesReordered', scope, subScopeId, files: _orderedPromptFiles(scope, subScopeId, dir) });
-}
-
-/** The workspace walks behind the project and scan scopes (shared, asynchronous). */
-async function _getProjectPromptScopes(): Promise<ScopeItem[]> {
-    const wsRoot = layoutWorkspaceFolder();
-    return wsRoot ? projectPromptScopes(wsRoot) : [];
-}
-
-async function _getScanPromptScopes(): Promise<ScopeItem[]> {
-    const wsRoot = layoutWorkspaceFolder();
-    return wsRoot ? scanPromptScopes(wsRoot) : [];
-}
-
-async function _resolveDir(scope: PromptScope, subScopeId: string): Promise<string | null> {
-    switch (scope) {
-        case 'global':
-            return _getGlobalPromptsDir();
-        case 'project': {
-            const scopes = await _getProjectPromptScopes();
-            const item = scopes.find(s => s.id === subScopeId);
-            return item?.dir || null;
-        }
-        case 'quest': {
-            return _getQuestPromptsDir(subScopeId);
-        }
-        case 'scan': {
-            const scopes = await _getScanPromptScopes();
-            const item = scopes.find(s => s.id === subScopeId);
-            return item?.dir || null;
-        }
-    }
+/** The active quest's folder, or null after telling the user that the window has none. */
+function _folderOrWarn(): QuestPromptFolder | null {
+    const folder = activeQuestPromptFolder();
+    if (!folder) { vscode.window.showWarningMessage(NO_QUEST_PROMPTS_MESSAGE); }
+    return folder;
 }
 
 // ============================================================================
 // Message handling
 // ============================================================================
 
-async function _handleMessage(msg: any): Promise<void> {
+/**
+ * A message from the page. Every action is on the active quest's folder: a
+ * `scope` / `subScopeId` a message carries is not read.
+ */
+export async function handleReusablePromptEditorMessage(msg: Record<string, unknown>, post: Post = _post): Promise<void> {
+    const fileId = String(msg.fileId ?? '');
     switch (msg.type) {
         case 'ready':
-            await _sendAllData();
+            _sendData(post);
             break;
         case 'requestData':
-            await _sendAllData(msg.scope, msg.subScopeId, msg.fileId);
-            break;
-        case 'selectScope':
-            await _sendScopeFiles(msg.scope, msg.subScopeId);
+            _sendData(post, fileId || undefined);
             break;
         case 'loadFile':
-            await _sendFileContent(msg.scope, msg.subScopeId, msg.fileId);
+            _sendFileContent(post, fileId);
             break;
         case 'save':
-            await _saveFile(msg.scope, msg.subScopeId, msg.fileId, msg.content);
+            _saveFile(fileId, String(msg.content ?? ''));
             break;
         case 'add':
-            await _addFile(msg.scope, msg.subScopeId);
+            await _addFile(post);
+            break;
+        case 'rename':
+            await _renameFile(post, fileId);
             break;
         case 'delete':
-            await _deleteFile(msg.scope, msg.subScopeId, msg.fileId);
+            await _deleteFile(post, fileId);
             break;
         case 'move':
-            await _moveFile(msg.scope, String(msg.subScopeId ?? ''), String(msg.fileId ?? ''), moveDirection(msg.direction));
+            _moveFile(post, fileId, moveDirection(msg.direction));
             break;
         case 'openInVsCode':
-            await _openInVsCode(msg.scope, msg.subScopeId, msg.fileId);
+            await _openInVsCode(fileId);
             break;
         case 'openInPreview':
-            await _openInPreview(msg.scope, msg.subScopeId, msg.fileId);
+            await _openInPreview(fileId);
             break;
     }
 }
 
-async function _sendAllData(scope?: string, subScopeId?: string, fileId?: string): Promise<void> {
-    const [projectScopes, scanScopes] = await Promise.all([_getProjectPromptScopes(), _getScanPromptScopes()]);
-    const questScopes = _getQuestPromptScopes();
-    const preferredQuestId = _getPreferredQuestId();
-
-    // Determine preferred project scope
-    let preferredProjectId = projectScopes[0]?.id || '';
-    const activeFile = vscode.window.activeTextEditor?.document?.uri.fsPath;
-    if (activeFile && projectScopes.length > 0) {
-        let best: { id: string; depth: number } | undefined;
-        for (const s of projectScopes) {
-            const projectDir = decodeURIComponent(s.id);
-            if (activeFile.startsWith(projectDir + path.sep) || activeFile === projectDir) {
-                const depth = projectDir.split(path.sep).length;
-                if (!best || depth > best.depth) best = { id: s.id, depth };
-            }
-        }
-        if (best) preferredProjectId = best.id;
-    }
-
-    const globalDir = _getGlobalPromptsDir();
-
-    _panel?.webview.postMessage({
-        type: 'allData',
-        scopes: {
-            global: [{ id: 'global', label: 'Global', dir: globalDir || '' }],
-            project: projectScopes.map(s => ({ id: s.id, label: s.label })),
-            quest: questScopes.map(s => ({ id: s.id, label: s.label })),
-            scan: scanScopes.map(s => ({ id: s.id, label: s.label })),
-        },
-        files: {
-            global: globalDir ? _orderedPromptFiles('global', 'global', globalDir) : [],
-        },
-        preferred: {
-            scope: scope || 'global',
-            project: subScopeId || preferredProjectId,
-            quest: subScopeId || preferredQuestId,
-            scan: subScopeId || scanScopes[0]?.id || '',
-        },
-        initialFileId: fileId || '',
-    });
+/** Up / Down: the file moves one place in the quest's list; the order is stored, the files are not touched. */
+function _moveFile(post: Post, fileId: string, direction: MoveDirection | undefined): void {
+    const folder = activeQuestPromptFolder();
+    if (!folder || !fileId || !direction) { return; }
+    const shown = _orderedPromptFiles(folder).map((f) => f.id);
+    if (!moveInStoredOrder(questPromptsListKey(folder.questId), shown, fileId, direction)) { return; }
+    post({ type: 'filesReordered', files: _orderedPromptFiles(folder) });
+    notifyQuestPromptsChanged();
 }
 
-async function _sendScopeFiles(scope: PromptScope, subScopeId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    const files = dir ? _orderedPromptFiles(scope, subScopeId, dir) : [];
-    _panel?.webview.postMessage({ type: 'scopeFiles', scope, subScopeId, files });
-}
-
-async function _sendFileContent(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir) {
-        _panel?.webview.postMessage({ type: 'fileContent', fileId, content: '' });
-        return;
-    }
-    const filePath = path.join(dir, fileId);
+function _sendFileContent(post: Post, fileId: string): void {
+    const folder = activeQuestPromptFolder();
+    const filePath = folder ? questPromptFilePath(folder.dir, fileId) : null;
     let content = '';
-    try { content = fs.readFileSync(filePath, 'utf-8'); } catch { /* empty */ }
-    _panel?.webview.postMessage({ type: 'fileContent', fileId, content });
+    if (filePath) {
+        try { content = fs.readFileSync(filePath, 'utf-8'); } catch { /* empty */ }
+    }
+    post({ type: 'fileContent', fileId, content });
 }
 
-async function _saveFile(scope: PromptScope, subScopeId: string, fileId: string, content: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir) {
-        vscode.window.showWarningMessage('Cannot determine prompt directory for this scope.');
+function _saveFile(fileId: string, content: string): void {
+    const folder = _folderOrWarn();
+    if (!folder) { return; }
+    const written = writeQuestPrompt(folder.dir, fileId, content, true);
+    if (!written.ok) {
+        vscode.window.showWarningMessage(written.error);
         return;
     }
-    // Ensure directory exists
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    const filePath = path.join(dir, fileId);
-    fs.writeFileSync(filePath, content, 'utf-8');
     vscode.window.showInformationMessage(`Saved ${fileId}`);
 }
 
-async function _addFile(scope: PromptScope, subScopeId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir) {
-        vscode.window.showWarningMessage('Cannot determine prompt directory for this scope.');
-        return;
-    }
-
-    let name = await vscode.window.showInputBox({
-        prompt: 'New reusable prompt filename',
+/** Ask for a prompt file name; `.prompt.md` is added when it is left out. */
+async function _askFileName(prompt: string, value?: string): Promise<string | null> {
+    const typed = await vscode.window.showInputBox({
+        prompt,
         placeHolder: 'my_prompt.prompt.md',
-        validateInput: (v) => {
-            if (!v.trim()) return 'Name is required';
-            if (!v.endsWith('.prompt.md')) return 'Must end with .prompt.md';
-            return null;
-        },
+        value,
+        validateInput: (v) => (questPromptFileName(v) ? null : 'A file name is required (no folder part)'),
     });
-    if (!name) return;
-    if (!name.endsWith('.prompt.md')) name += '.prompt.md';
-
-    // Ensure directory exists
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    const filePath = path.join(dir, name);
-    if (fs.existsSync(filePath)) {
-        vscode.window.showWarningMessage(`File "${name}" already exists.`);
-        return;
-    }
-    fs.writeFileSync(filePath, `# ${name.replace('.prompt.md', '')}\n\n`, 'utf-8');
-
-    // Refresh list with new file selected
-    await _sendScopeFiles(scope, subScopeId);
-    setTimeout(() => {
-        _panel?.webview.postMessage({ type: 'selectNewFile', fileId: name });
-    }, 100);
+    return typed ? questPromptFileName(typed) : null;
 }
 
-async function _deleteFile(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir) return;
-    const filePath = path.join(dir, fileId);
+async function _addFile(post: Post): Promise<void> {
+    const folder = _folderOrWarn();
+    if (!folder) { return; }
+    const name = await _askFileName('New reusable prompt filename');
+    if (!name) { return; }
+    const written = writeQuestPrompt(folder.dir, name, `# ${name.replace(/\.prompt\.md$/, '')}\n\n`);
+    if (!written.ok) {
+        vscode.window.showWarningMessage(written.error);
+        return;
+    }
+    post({ type: 'files', files: _orderedPromptFiles(folder), selectFileId: name });
+    notifyQuestPromptsChanged();
+}
+
+/** Rename: the file gets its new name in the quest's folder and keeps its place in the list. */
+async function _renameFile(post: Post, fileId: string): Promise<void> {
+    const folder = _folderOrWarn();
+    if (!folder || !fileId) { return; }
+    const name = await _askFileName(`Rename "${fileId}" to`, fileId);
+    if (!name || name === fileId) { return; }
+    const renamed = renameQuestPrompt(folder.dir, fileId, name);
+    if (!renamed.ok) {
+        vscode.window.showWarningMessage(renamed.error);
+        return;
+    }
+    renameInStoredOrder(questPromptsListKey(folder.questId), fileId, name);
+    post({ type: 'fileRenamed', fileId, newFileId: name, files: _orderedPromptFiles(folder) });
+    notifyQuestPromptsChanged();
+}
+
+async function _deleteFile(post: Post, fileId: string): Promise<void> {
+    const folder = activeQuestPromptFolder();
+    if (!folder || !questPromptFilePath(folder.dir, fileId)) { return; }
 
     const confirm = await vscode.window.showWarningMessage(
         `Delete "${fileId}"?`, { modal: true }, 'Delete',
     );
-    if (confirm !== 'Delete') return;
+    if (confirm !== 'Delete') { return; }
 
-    try { fs.unlinkSync(filePath); } catch { /* ok */ }
-    await _sendScopeFiles(scope, subScopeId);
-    _panel?.webview.postMessage({ type: 'fileDeleted', fileId });
+    deleteQuestPrompt(folder.dir, fileId);
+    post({ type: 'files', files: _orderedPromptFiles(folder) });
+    post({ type: 'fileDeleted', fileId });
+    notifyQuestPromptsChanged();
 }
 
-async function _openInVsCode(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir) return;
-    const filePath = path.join(dir, fileId);
-    if (!fs.existsSync(filePath)) {
+/** The path of an existing prompt file of the active quest, or null after a warning. */
+function _existingFile(fileId: string): string | null {
+    const folder = activeQuestPromptFolder();
+    const filePath = folder ? questPromptFilePath(folder.dir, fileId) : null;
+    if (!filePath || !fs.existsSync(filePath)) {
         vscode.window.showWarningMessage('File not found.');
-        return;
+        return null;
     }
+    return filePath;
+}
+
+async function _openInVsCode(fileId: string): Promise<void> {
+    const filePath = _existingFile(fileId);
+    if (!filePath) { return; }
     const doc = await vscode.workspace.openTextDocument(filePath);
     await vscode.window.showTextDocument(doc, { preview: false });
 }
 
-async function _openInPreview(scope: PromptScope, subScopeId: string, fileId: string): Promise<void> {
-    const dir = await _resolveDir(scope, subScopeId);
-    if (!dir || !_context) return;
-    const filePath = path.join(dir, fileId);
-    if (!fs.existsSync(filePath)) {
-        vscode.window.showWarningMessage('File not found.');
-        return;
-    }
-    const content = fs.readFileSync(filePath, 'utf-8');
+async function _openInPreview(fileId: string): Promise<void> {
+    if (!_context) { return; }
+    const filePath = _existingFile(fileId);
+    if (!filePath) { return; }
     await showMarkdownHtmlPreview(_context, {
         title: fileId,
-        markdown: content,
+        markdown: fs.readFileSync(filePath, 'utf-8'),
         meta: filePath,
     });
 }

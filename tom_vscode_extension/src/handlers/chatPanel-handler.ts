@@ -27,7 +27,6 @@ import { runWithQueueRole } from '../services/queueRoleContext';
 import { handleAspectPickerMessage } from './aspectPickerMessages';
 import { chatQueueItemFields, chatRoleKey, chatRoleSource, effectiveChatRole } from '../utils/chatPanelRole';
 import { listRoleNames } from '../utils/roleNames';
-import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -46,7 +45,8 @@ import { WsPaths } from '../utils/workspacePaths';
 import { sanitizeQuestSegment } from '../utils/questPaths';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
-import { projectPromptScopes, scanPromptScopes } from '../utils/promptScopes';
+import { NO_QUEST_PROMPTS_MESSAGE, activeQuestPromptFolder, listQuestPromptFiles, onQuestPromptsChanged, questPromptFileName, questPromptFilePath, questPromptsListKey, writeQuestPrompt } from '../utils/questPrompts';
+import { inStoredOrder } from '../services/editorListOrder';
 import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
@@ -126,6 +126,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             if (!active) { this._settlePlanProposals({ accepted: true }, run); }
         });
         context.subscriptions.push({ dispose: () => { stopPlanFollow(); registerPlanDecider(undefined); } });
+        // The reusable prompt dropdown follows the Reusable Prompt Editor's changes.
+        context.subscriptions.push(onQuestPromptsChanged(() => { this._sendReusablePrompts(); }));
         this._registerChatProviders();
         // Why here and not at the first panel send: a queue item's tool can
         // ask for approval before the panel ever sent anything.
@@ -397,8 +399,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         break;
                     }
                     case 'refreshChoices': {
-                        // A template field was clicked: the lists again (a template may have been added since),
-                        // then the webview opens the picker over the fresh options.
+                        // A template or prompt file field was clicked: the lists again (an entry may have been
+                        // added since), then the webview opens the picker over the fresh options.
+                        this._sendReusablePrompts();
                         this._sendProfiles();
                         void this._view?.webview.postMessage({ type: 'choicesRefreshed', requestId: message.requestId });
                         break;
@@ -547,7 +550,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         void this._sendAnthropicModels();
                         break;
                     case 'getReusablePrompts':
-                        await this._sendReusablePrompts();
+                        this._sendReusablePrompts();
                         break;
                     case 'sendReusablePrompt':
                         await this._sendReusablePrompt(message.reusableId, message.section, {
@@ -567,7 +570,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         this._loadReusablePromptContent(message.reusableId);
                         break;
                     case 'openReusablePromptInEditor':
-                        await this._openReusablePromptInEditor(message.section || '', message.reusableId);
+                        this._openReusablePromptInEditor(message.reusableId);
                         break;
                     case 'openReusablePromptInOverlay':
                         await this._openReusablePromptInOverlay(message.reusableId);
@@ -576,7 +579,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         await this._openReusablePromptInExternalApp(message.reusableId);
                         break;
                     case 'saveReusablePrompt':
-                        await this._saveReusablePrompt(message.section, message.text, message.selection || {});
+                        await this._saveReusablePrompt(message.text);
                         break;
                     case 'openPromptPanelEditor':
                         await this._openPromptPanelEditor(message.section, message.draft || {});
@@ -673,15 +676,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         // rawTurnsKept` rounds and run memory extraction
                         // per chunk. The memory-extraction template
                         // dedupes against `${existingMemory}`, so a
-                        // rebuild against the current memory file is
-                        // idempotent.
+                        // rebuild against the current memory is
+                        // idempotent. The facts become candidates
+                        // (this host's candidates file).
                         const names = await this._pickPanelSessions('Recreate quest memory from the trail', 'Recreate memory');
                         if (!names) { break; }
                         const { AnthropicHandler } = await import('./anthropic-handler.js');
                         void (async () => {
                             for (const name of names) { await AnthropicHandler.instance.recreateMemoryFromTrail(undefined, name); }
                         })();
-                        vscode.window.showInformationMessage(`Recreating the quest memory of ${names.join(', ')} from its trail, in chunks…`);
+                        vscode.window.showInformationMessage(`Recreating memory candidates from the trail of ${names.join(', ')}, in chunks…`);
                         break;
                     }
                     case 'runQuestRefresh': {
@@ -1075,14 +1079,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private _getGlobalPromptsDir(): string | null {
-        const aiRoot = WsPaths.aiRoot;
-        if (!aiRoot) {
-            return null;
-        }
-        return WsPaths.ai('prompt') || path.join(aiRoot, 'prompt');
-    }
-
     private _getActiveQuestId(): string {
         try {
             return ChatVariablesStore.instance.quest.trim();
@@ -1092,169 +1088,23 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getPreferredQuestId(): string {
-        const activeQuest = this._getActiveQuestId();
-        if (activeQuest) {
-            return activeQuest;
-        }
-        const workspaceFile = vscode.workspace.workspaceFile?.fsPath;
-        if (workspaceFile && workspaceFile.endsWith('.code-workspace')) {
-            const guessed = getWorkspaceName().trim();
-            if (guessed && guessed !== 'default') {
-                return guessed;
-            }
-        }
-        return '';
-    }
-
-    private _getQuestPromptsDir(questId: string): string | null {
-        const aiRoot = WsPaths.aiRoot;
-        if (!aiRoot || !questId) {
-            return null;
-        }
-        return WsPaths.ai('quests', questId, 'prompt') || path.join(aiRoot, 'quests', questId, 'prompt');
-    }
-
-    private _getQuestPromptScopes(): { id: string; label: string; dir: string }[] {
-        const aiRoot = WsPaths.aiRoot;
-        if (!aiRoot) {
-            return [];
-        }
-        const questsDir = WsPaths.ai('quests') || path.join(aiRoot, 'quests');
-        if (!fs.existsSync(questsDir) || !fs.statSync(questsDir).isDirectory()) {
-            return [];
-        }
-        const scopes = fs.readdirSync(questsDir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => {
-                const questId = entry.name;
-                return {
-                    id: questId,
-                    label: questId,
-                    dir: this._getQuestPromptsDir(questId) || path.join(questsDir, questId, 'prompt'),
-                };
-            })
-            .sort((a, b) => a.label.localeCompare(b.label));
-        // The workspace's quests first (vscimpb144); the others follow, marked, as the escape to every quest.
-        const ws = windowWorkspaceQuests();
-        if (!ws || ws.source === 'all') { return scopes; }
-        const inWorkspace = new Set(ws.quests);
-        const own = scopes.filter((sc) => inWorkspace.has(sc.id));
-        const others = scopes.filter((sc) => !inWorkspace.has(sc.id)).map((sc) => ({ ...sc, label: `${sc.label} (not in ${ws.workspace})` }));
-        return [...own, ...others];
-    }
-
+    /**
+     * A reusable prompt of the active quest by its id, the file name
+     * (`_ai/quests/<quest>/prompt/<name>.prompt.md`, utils/questPrompts.ts).
+     */
     private _parseReusablePromptId(reusableId: string): { filePath: string; fileName: string } | null {
-        if (!layoutWorkspaceFolder() || !reusableId) {
-            return null;
-        }
-
-        if (reusableId.startsWith('global::')) {
-            const fileName = reusableId.substring('global::'.length);
-            if (!fileName) {
-                return null;
-            }
-            const dir = this._getGlobalPromptsDir();
-            if (!dir) {
-                return null;
-            }
-            return { filePath: path.join(dir, fileName), fileName };
-        }
-
-        if (reusableId.startsWith('quest::')) {
-            const parts = reusableId.split('::');
-            if (parts.length !== 3) {
-                return null;
-            }
-            const questId = parts[1] || '';
-            const fileName = parts[2] || '';
-            if (!questId || !fileName) {
-                return null;
-            }
-            const dir = this._getQuestPromptsDir(questId);
-            if (!dir) {
-                return null;
-            }
-            return { filePath: path.join(dir, fileName), fileName };
-        }
-
-        if (reusableId.startsWith('project::') || reusableId.startsWith('scan::') || reusableId.startsWith('path::')) {
-            const parts = reusableId.split('::');
-            if (parts.length !== 3) {
-                return null;
-            }
-            const dir = decodeURIComponent(parts[1] || '');
-            const fileName = parts[2] || '';
-            if (!dir || !fileName) {
-                return null;
-            }
-            return { filePath: path.join(dir, fileName), fileName };
-        }
-
-        return null;
+        const folder = activeQuestPromptFolder();
+        const filePath = folder ? questPromptFilePath(folder.dir, reusableId) : null;
+        return filePath ? { filePath, fileName: reusableId } : null;
     }
 
-    private async _sendReusablePrompts(): Promise<void> {
-        const wsRoot = layoutWorkspaceFolder();
-        const globalDir = this._getGlobalPromptsDir();
-        // Both walk the workspace: asynchronously and shared, so asking for
-        // the prompts while the window opens does not hold the extension host.
-        const [projectScopes, scanScopes] = wsRoot
-            ? await Promise.all([projectPromptScopes(wsRoot), scanPromptScopes(wsRoot)])
-            : [[], []];
-        const questScopes = this._getQuestPromptScopes();
-        const preferredQuestId = this._getPreferredQuestId();
-
-        const listPromptFiles = (dir: string): { id: string; label: string }[] => {
-            if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-                return [];
-            }
-            return fs.readdirSync(dir)
-                .filter((file) => file.endsWith('.prompt.md'))
-                .sort()
-                .map((file) => ({ id: file, label: file }));
-        };
-
-        const model = {
-            scopes: {
-                project: projectScopes.map((scope) => ({ id: scope.id, label: scope.label })),
-                quest: questScopes.map((scope) => ({ id: scope.id, label: scope.label })),
-                scan: scanScopes.map((scope) => ({ id: scope.id, label: scope.label })),
-            },
-            files: {
-                global: globalDir ? listPromptFiles(globalDir) : [],
-                project: Object.fromEntries(projectScopes.map((scope) => [scope.id, listPromptFiles(scope.dir)])),
-                quest: Object.fromEntries(questScopes.map((scope) => [scope.id, listPromptFiles(scope.dir)])),
-                scan: Object.fromEntries(scanScopes.map((scope) => [scope.id, listPromptFiles(scope.dir)])),
-            },
-        };
-
-        // Pre-select project containing the active editor file
-        let preferredProjectId = projectScopes[0]?.id || '';
-        const activeFilePath = vscode.window.activeTextEditor?.document?.uri.fsPath;
-        if (activeFilePath && projectScopes.length > 0) {
-            // Find the most specific (deepest) project whose absolutePath contains the active file
-            let bestMatch: { id: string; depth: number } | undefined;
-            for (const scope of projectScopes) {
-                const projectDir = decodeURIComponent(scope.id);
-                if (activeFilePath.startsWith(projectDir + path.sep) || activeFilePath === projectDir) {
-                    const depth = projectDir.split(path.sep).length;
-                    if (!bestMatch || depth > bestMatch.depth) {
-                        bestMatch = { id: scope.id, depth };
-                    }
-                }
-            }
-            if (bestMatch) {
-                preferredProjectId = bestMatch.id;
-            }
-        }
-
-        this._view?.webview.postMessage({
+    /** The active quest's prompt files, in the Reusable Prompt Editor's order, to the webview. */
+    private _sendReusablePrompts(): void {
+        const folder = activeQuestPromptFolder();
+        void this._view?.webview.postMessage({
             type: 'reusablePrompts',
-            model,
-            preferredQuestId,
-            preferredProjectId,
-            preferredScanId: scanScopes[0]?.id || '',
+            quest: folder?.questId ?? '',
+            files: folder ? inStoredOrder(questPromptsListKey(folder.questId), listQuestPromptFiles(folder.dir), (f) => f.id) : [],
         });
     }
 
@@ -1288,34 +1138,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         await chatProviders.get(section ?? 'anthropic')?.sendReusablePrompt?.(content, anthropicState as Record<string, unknown>);
     }
 
-    private async _openReusablePromptInEditor(section: string, reusableId: string): Promise<void> {
+    private _openReusablePromptInEditor(reusableId: string): void {
         const parsed = this._parseReusablePromptId(reusableId);
         if (!parsed || !fs.existsSync(parsed.filePath)) {
             vscode.window.showWarningMessage('Reusable prompt file not found.');
             return;
         }
-
-        // Map reusableId prefix to PromptScope for the new editor
-        let scope: 'global' | 'project' | 'quest' | 'scan' = 'global';
-        let subScopeId: string | undefined;
-        if (reusableId.startsWith('global::')) {
-            scope = 'global';
-        } else if (reusableId.startsWith('quest::')) {
-            scope = 'quest';
-            subScopeId = reusableId.split('::')[1];
-        } else if (reusableId.startsWith('project::')) {
-            scope = 'project';
-            subScopeId = decodeURIComponent(reusableId.split('::')[1] || '');
-        } else if (reusableId.startsWith('scan::') || reusableId.startsWith('path::')) {
-            scope = 'scan';
-            subScopeId = decodeURIComponent(reusableId.split('::')[1] || '');
-        }
-
-        openReusablePromptEditor(this._context, {
-            scope,
-            subScopeId,
-            fileId: parsed.fileName,
-        });
+        openReusablePromptEditor(this._context, { fileId: parsed.fileName });
     }
 
     private async _openReusablePromptInOverlay(reusableId: string): Promise<void> {
@@ -1344,35 +1173,16 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _resolveReusablePromptTargetDir(selection: { type?: string; scopeId?: string }): string | null {
-        const selectedType = (selection.type || '').toLowerCase();
-        if (selectedType === 'global') {
-            return this._getGlobalPromptsDir();
-        }
-        if (selectedType === 'project') {
-            const projectRoot = decodeURIComponent(selection.scopeId || '');
-            return projectRoot ? path.join(projectRoot, 'prompt') : null;
-        }
-        if (selectedType === 'quest') {
-            const questId = selection.scopeId || '';
-            return this._getQuestPromptsDir(questId);
-        }
-        if (selectedType === 'scan') {
-            const folder = decodeURIComponent(selection.scopeId || '');
-            return folder || null;
-        }
-        return null;
-    }
-
-    private async _saveReusablePrompt(_section: string, text: string, selection: { type?: string; scopeId?: string }): Promise<void> {
+    /** Save the tab's text as a prompt of the active quest (its `prompt/` folder is created on demand). */
+    private async _saveReusablePrompt(text: string): Promise<void> {
         if (!text || !text.trim()) {
             vscode.window.showWarningMessage('Current tab text is empty; nothing to save.');
             return;
         }
 
-        const dir = this._resolveReusablePromptTargetDir(selection || {});
-        if (!dir) {
-            vscode.window.showWarningMessage('Please select a folder first.');
+        const folder = activeQuestPromptFolder();
+        if (!folder) {
+            vscode.window.showWarningMessage(NO_QUEST_PROMPTS_MESSAGE);
             return;
         }
 
@@ -1384,17 +1194,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const normalized = fileBase.trim().replace(/\.prompt\.md$/i, '').replace(/\.md$/i, '');
-        if (!normalized) {
+        const fileName = questPromptFileName(fileBase);
+        if (!fileName) {
+            vscode.window.showWarningMessage(`"${fileBase}" is no file name (no folder part).`);
             return;
         }
 
-        const fileName = `${normalized}.prompt.md`;
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        const filePath = path.join(dir, fileName);
-        if (fs.existsSync(filePath)) {
+        const filePath = questPromptFilePath(folder.dir, fileName);
+        if (filePath && fs.existsSync(filePath)) {
             const overwrite = await vscode.window.showWarningMessage(
                 `Prompt "${fileName}" already exists. Overwrite?`,
                 { modal: true },
@@ -1405,9 +1212,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        fs.writeFileSync(filePath, text, 'utf-8');
+        const written = writeQuestPrompt(folder.dir, fileName, text, true);
+        if (!written.ok) {
+            vscode.window.showWarningMessage(written.error);
+            return;
+        }
         vscode.window.showInformationMessage(`Saved reusable prompt: ${fileName}`);
-        void this._sendReusablePrompts();
+        this._sendReusablePrompts();
     }
 
     /** The double-click guard (src/utils/duplicateSubmitGuard.ts): queue adds and sends, each its own. */
@@ -1786,8 +1597,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                 for (const name of names) { await this._openLiveTrailMarkdown('anthropic', name); }
                 return;
             case 'memory':
-                // The memory panel shows one session's quest memory: the first given.
-                await vscode.commands.executeCommand('tomAi.panel.memory', names[0]);
+                // The quest memory has no session level: the panel shows the quest's memory folder.
+                await vscode.commands.executeCommand('tomAi.panel.memory');
                 return;
             case 'clearHistory': {
                 const choice = await vscode.window.showWarningMessage(
@@ -1842,20 +1653,24 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Open the quest memory's canonical file in the MD Browser: `facts.md`
-     * in `_ai/memory/<quest>/<session>/` (see TwoTierMemoryService's
-     * `scopeFolder()` + `filePath()`); the default memory-extraction
-     * template writes there. When the file is missing we surface an
-     * informational notice naming the path the next extraction pass
-     * would create — same pattern as `_openSessionHistoryMarkdown`.
+     * Open the quest memory in the MD Browser: the curated `facts.md` of
+     * `_ai/quests/<quest>/memory/` (see TwoTierMemoryService's
+     * `scopeFolder()` + `filePath()`), or — while there is none — this
+     * host's candidates file, which the memory extraction writes. With
+     * neither, an informational notice names both paths — same pattern as
+     * `_openSessionHistoryMarkdown`.
      */
     private async _openMemoryMarkdown(): Promise<void> {
-        const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
-        const target = TwoTierMemoryService.instance.filePath('quest', 'facts.md', questId || undefined);
+        const svc = TwoTierMemoryService.instance;
+        const questId = WsPaths.getWorkspaceQuestId() ?? svc.currentQuest() ?? '';
+        const curated = svc.filePath('quest', 'facts.md', questId || undefined);
+        const candidates = svc.filePath('quest', svc.candidatesFile(), questId || undefined);
+        const target = fs.existsSync(curated) ? curated : candidates;
         const scopeLabel = `quest "${questId || 'default'}"`;
         if (!fs.existsSync(target)) {
             vscode.window.showInformationMessage(
-                `No ${scopeLabel} memory yet. The file is written after the first memory-extraction pass that finds something memory-worthy (${target}).`,
+                `No ${scopeLabel} memory yet. The curated facts (${curated}) are written deliberately: Remember, the memory tools, the Memory panel. `
+                + `The memory extraction writes this host's candidates (${candidates}) after the first pass that finds something memory-worthy.`,
             );
             return;
         }

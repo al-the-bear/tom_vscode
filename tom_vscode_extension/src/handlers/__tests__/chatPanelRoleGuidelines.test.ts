@@ -255,12 +255,13 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.deepEqual(field('anthropic-session-name'), ['Session', 'chat']);
             const linked = (id: string): [string, string] => [$(id + '-field').querySelector('.chat-field-label').textContent, $(id + '-field').querySelector('.chat-link').textContent];
             for (const [id, label] of [['anthropic-profile', 'Model'], ['anthropic-userMessage', 'Template'], ['anthropic-role', 'Role'],
-                ['anthropic-reusable-type', 'Prompt type'], ['anthropic-reusable-file', 'Prompt file']]) {
+                ['anthropic-reusable-file', 'Prompt file']]) {
                 assert.ok($(id).classList.contains('linked-select'), `${id}: hidden behind its field`);
                 assert.equal(linked(id)[0], label, `${id}: labelled ${label}`);
                 assert.equal(linked(id)[1], $(id).options[$(id).selectedIndex]?.textContent ?? '(none)', `${id}: shows the selected option`);
             }
-            assert.equal(linked('anthropic-reusable-type')[1], 'global');
+            assert.equal(linked('anthropic-reusable-file')[1], '(File)', 'no prompt file yet');
+            assert.equal($('anthropic-reusable-type'), null, 'the reusable prompts have no type to choose');
             assert.match(css, /\.linked-select, \.linked-label \{ display: none !important; \}/);
             // The one chat subpanel: ANTHROPIC/LLM.
             assert.ok($('anthropic-text'), 'the ANTHROPIC/LLM prompt');

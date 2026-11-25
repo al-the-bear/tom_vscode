@@ -35,6 +35,7 @@ import { groupPromptDirs } from '../services/groupPromptDirs';
 import { readGroupPrompts } from '../services/groupPromptStore';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../handlers/handler_shared';
 import { WsPaths } from '../utils/workspacePaths';
+import { activeQuestPromptFolder } from '../utils/questPrompts';
 import { liveSectionsReader } from './aspect-guideline-tools';
 import { telegramNotifyTarget } from '../handlers/telegram-config';
 import { refreshSessionPanel, deleteSessionTodoToFile } from '../handlers/questTodoPanel-handler';
@@ -1212,8 +1213,9 @@ export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
 // Impls and tool defs live in `quest-introspection-tools.ts` (entry #23).
 // Bridges below wire the vscode-bound sources:
 //   - liveProjectSource runs `buildkit :projects --all --json` (services/workspaceProjects.ts).
-//   - liveDocumentSource resolves WsPaths.ai('prompt'|'roles')
-//     and WsPaths.guidelines() for the `guidelines` category.
+//   - liveDocumentSource resolves the active quest's prompt folder
+//     (utils/questPrompts.ts), WsPaths.ai('roles') and WsPaths.guidelines()
+//     for the `guidelines` category.
 //   - liveQuestSource was wired further up where DETERMINE_QUEST_TOOL is exported.
 // ============================================================================
 
@@ -1225,24 +1227,21 @@ const liveProjectSource: ProjectSource = {
     },
 };
 
+/** A category's folder; `prompts` is the active quest's and has none while the window has no quest. */
 function categoryFolder(category: DocumentCategory): string | undefined {
     switch (category) {
-        case 'prompts':    return WsPaths.ai('prompt');
+        case 'prompts':    return activeQuestPromptFolder()?.dir;
         case 'roles':      return WsPaths.ai('roles');
         case 'guidelines': return WsPaths.guidelines();
     }
 }
 
-const CATEGORY_RELATIVE: Record<Exclude<DocumentCategory, 'guidelines'>, string> = {
-    prompts:    '_ai/prompt',
-    roles:      '_ai/roles',
-};
-
 /** A category's folder relative to the workspace folder (the guidelines folder is the one in use). */
-function categoryRelative(category: DocumentCategory, abs: string): string {
-    if (category !== 'guidelines') { return CATEGORY_RELATIVE[category]; }
+function categoryRelative(category: DocumentCategory, abs: string | undefined): string {
+    if (category === 'roles') { return `${WsPaths.aiFolder}/roles`; }
+    if (category === 'prompts') { return `${WsPaths.aiFolder}/quests/${activeQuestPromptFolder()?.questId ?? '<active quest>'}/prompt`; }
     const ws = WsPaths.wsRoot;
-    return ws ? path.relative(ws, abs).split(path.sep).join('/') : abs;
+    return ws && abs ? path.relative(ws, abs).split(path.sep).join('/') : abs ?? '';
 }
 
 function walkRecursive(dir: string, prefix = ''): string[] {
@@ -1263,7 +1262,8 @@ function walkRecursive(dir: string, prefix = ''): string[] {
 const liveDocumentSource: DocumentSource = {
     resolveCategoryFolder(category) {
         const abs = categoryFolder(category);
-        if (!abs) { return undefined; }
+        // Without a workspace nothing resolves; `prompts` alone may be without a folder (no active quest).
+        if (!abs && (category !== 'prompts' || !WsPaths.aiRoot)) { return undefined; }
         return { absolute: abs, relative: categoryRelative(category, abs) };
     },
     listFilesRecursive(absoluteFolder) {

@@ -112,9 +112,20 @@ textarea {
     font-style: italic;
 }
 
-/* The session whose quest memory the Quest tab shows. */
-.session-btn {
+/* The quest memory folder the panel shows. */
+.memory-folder {
     margin-left: auto;
     align-self: center;
     font-size: 12px;
+    color: var(--vscode-descriptionForeground);
 }
+
+/* The heading above the candidates files, and a candidates file's host mark. */
+.file-group {
+    padding: 8px 10px 2px;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground);
+}
+
+.file-item .kind { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: 8px; font-style: italic; }

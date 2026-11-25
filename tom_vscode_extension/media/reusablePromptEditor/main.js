@@ -2,7 +2,7 @@
 // Reusable Prompt Editor webview client — extracted from the inline <script> of
 // _getHtml() in src/handlers/reusablePromptEditor-handler.ts (Phase B.9 webview
 // restructuring). First-paint data (codicons URI) arrives via window.__INIT__;
-// scope/file data flows via postMessage. The content textarea is rendered after
+// the quest's file list flows via postMessage. The content textarea is rendered after
 // load and opts into shared completion (data-completion="on" + completion.js).
 // @ts-nocheck: verbatim legacy extraction (loose getElementById access predates
 // the strict checkJs gate).
@@ -20,58 +20,42 @@
     const vscode = acquireVsCodeApi();
     window.__tomVscodeApi = vscode; // shared completion.js reads this
 
-    let scopeData = {};
-    let currentScope = 'global';
-    let currentSubScope = 'global';
+    const NO_SELECTION_HTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
+
+    // The active quest ('' while the window has none: nothing is offered then).
+    let currentQuest = '';
     let currentFileId = '';
     let currentFiles = [];
-    let preferred = {};
     let dirty = false;
 
-    const scopeSelect = document.getElementById('scopeSelect');
-    const subScopeSelect = document.getElementById('subScopeSelect');
     const fileList = document.getElementById('fileList');
     const editorArea = document.getElementById('editorArea');
     const saveBar = document.getElementById('saveBar');
     const panelHeadline = document.getElementById('panelHeadline');
+    const noQuest = document.getElementById('noQuest');
+    const mainArea = document.getElementById('mainArea');
+    const btnAdd = document.getElementById('btnAdd');
+    const btnRename = document.getElementById('btnRename');
+    const btnDelete = document.getElementById('btnDelete');
+    const btnPreview = document.getElementById('btnPreview');
+    const btnOpen = document.getElementById('btnOpen');
 
     function updateHeadline() {
-        const scopeLabels = { global: 'Global', project: 'Project', quest: 'Quest', scan: 'Scan' };
-        const label = scopeLabels[currentScope] || currentScope;
-        panelHeadline.textContent = label + ' — Reusable Prompt Editor';
+        panelHeadline.textContent = (currentQuest ? currentQuest + ' — ' : '') + 'Reusable Prompt Editor';
     }
 
-    scopeSelect.addEventListener('change', () => {
-        if (dirty && !confirmDiscard()) { scopeSelect.value = currentScope; return; }
-        currentScope = scopeSelect.value;
-        dirty = false;
-        updateSubScopeSelect();
-        updateHeadline();
-        requestFiles();
-        editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
-        saveBar.style.display = 'none';
-        currentFileId = '';
-        persistState();
+    btnAdd.addEventListener('click', () => {
+        if (!currentQuest) return;
+        vscode.postMessage({ type: 'add' });
     });
-
-    subScopeSelect.addEventListener('change', () => {
-        if (dirty && !confirmDiscard()) { subScopeSelect.value = currentSubScope; return; }
-        currentSubScope = subScopeSelect.value;
-        dirty = false;
-        updateHeadline();
-        requestFiles();
-        editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
-        saveBar.style.display = 'none';
-        currentFileId = '';
-        persistState();
-    });
-
-    document.getElementById('btnAdd').addEventListener('click', () => {
-        vscode.postMessage({ type: 'add', scope: currentScope, subScopeId: getSubScopeId() });
-    });
-    document.getElementById('btnDelete').addEventListener('click', () => {
+    btnRename.addEventListener('click', () => {
         if (!currentFileId) return;
-        vscode.postMessage({ type: 'delete', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
+        if (dirty && !confirmDiscard()) return;
+        vscode.postMessage({ type: 'rename', fileId: currentFileId });
+    });
+    btnDelete.addEventListener('click', () => {
+        if (!currentFileId) return;
+        vscode.postMessage({ type: 'delete', fileId: currentFileId });
     });
     document.getElementById('btnSave').addEventListener('click', saveFile);
     // Up / Down: the selected file moves one place in the list (the order is stored by the host; the files stay).
@@ -79,23 +63,28 @@
     const btnMoveDown = document.getElementById('btnMoveDown');
     function moveCurrentFile(direction) {
         if (!currentFileId) return;
-        vscode.postMessage({ type: 'move', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId, direction });
+        vscode.postMessage({ type: 'move', fileId: currentFileId, direction });
     }
     btnMoveUp.addEventListener('click', () => moveCurrentFile('up'));
     btnMoveDown.addEventListener('click', () => moveCurrentFile('down'));
-    /** The buttons follow the selection: off at the list's ends and without one. */
-    function syncMoveButtons() {
+    /** The buttons follow the selection: off at the list's ends and without one; everything is off without a quest. */
+    function syncButtons() {
         const at = currentFiles.findIndex(f => f.id === currentFileId);
         btnMoveUp.disabled = at <= 0;
         btnMoveDown.disabled = at < 0 || at >= currentFiles.length - 1;
+        btnAdd.disabled = !currentQuest;
+        btnRename.disabled = at < 0;
+        btnDelete.disabled = at < 0;
+        btnPreview.disabled = at < 0;
+        btnOpen.disabled = at < 0;
     }
-    document.getElementById('btnPreview').addEventListener('click', () => {
+    btnPreview.addEventListener('click', () => {
         if (!currentFileId) return;
-        vscode.postMessage({ type: 'openInPreview', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
+        vscode.postMessage({ type: 'openInPreview', fileId: currentFileId });
     });
-    document.getElementById('btnOpen').addEventListener('click', () => {
+    btnOpen.addEventListener('click', () => {
         if (!currentFileId) return;
-        vscode.postMessage({ type: 'openInVsCode', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
+        vscode.postMessage({ type: 'openInVsCode', fileId: currentFileId });
     });
 
     // Ctrl/Cmd+S to save
@@ -106,48 +95,27 @@
         }
     });
 
-    function getSubScopeId() {
-        if (currentScope === 'global') return 'global';
-        return currentSubScope;
-    }
-
     // Persist the current selection so deserializeWebviewPanel() can re-open the
     // same prompt after a window reload (the extension reads this state object).
     function persistState() {
-        vscode.setState({ scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
+        vscode.setState({ fileId: currentFileId });
     }
 
-    function updateSubScopeSelect() {
-        if (currentScope === 'global') {
-            subScopeSelect.style.display = 'none';
-            currentSubScope = 'global';
-            return;
-        }
-        const items = scopeData[currentScope] || [];
-        if (items.length === 0) {
-            subScopeSelect.style.display = 'none';
-            subScopeSelect.innerHTML = '';
-            currentSubScope = '';
-            return;
-        }
-        subScopeSelect.style.display = '';
-        const prevId = preferred[currentScope] || items[0]?.id || '';
-        subScopeSelect.innerHTML = items.map(s =>
-            '<option value="' + escapeAttr(s.id) + '"' + (s.id === prevId ? ' selected' : '') + '>' +
-            escapeText(s.label) + '</option>'
-        ).join('');
-        currentSubScope = prevId || items[0]?.id || '';
+    function clearEditor() {
+        editorArea.innerHTML = NO_SELECTION_HTML;
+        saveBar.style.display = 'none';
+        dirty = false;
     }
 
-    function requestFiles() {
-        vscode.postMessage({ type: 'selectScope', scope: currentScope, subScopeId: getSubScopeId() });
+    function loadCurrentFile() {
+        vscode.postMessage({ type: 'loadFile', fileId: currentFileId });
     }
 
     function renderFileList(files, selectId) {
         currentFiles = files || [];
         if (currentFiles.length === 0) {
-            fileList.innerHTML = '<div class="empty">No .prompt.md files in this scope</div>';
-            syncMoveButtons();
+            fileList.innerHTML = '<div class="empty">No .prompt.md files in this quest</div>';
+            syncButtons();
             return;
         }
         fileList.innerHTML = currentFiles.map(f =>
@@ -162,12 +130,12 @@
                 currentFileId = el.dataset.id;
                 fileList.querySelectorAll('.item').forEach(e => e.classList.remove('selected'));
                 el.classList.add('selected');
-                syncMoveButtons();
+                syncButtons();
                 persistState();
-                vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
+                loadCurrentFile();
             });
         });
-        syncMoveButtons();
+        syncButtons();
     }
 
     function renderEditor(fileId, content) {
@@ -193,13 +161,7 @@
     function saveFile() {
         const ta = document.getElementById('contentEditor');
         if (!ta || !currentFileId) return;
-        vscode.postMessage({
-            type: 'save',
-            scope: currentScope,
-            subScopeId: getSubScopeId(),
-            fileId: currentFileId,
-            content: ta.value,
-        });
+        vscode.postMessage({ type: 'save', fileId: currentFileId, content: ta.value });
         dirty = false;
     }
 
@@ -211,67 +173,56 @@
     window.addEventListener('message', e => {
         const msg = e.data;
         switch (msg.type) {
-            case 'allData': {
-                scopeData = msg.scopes;
-                preferred = msg.preferred || {};
-                const initScope = preferred.scope || 'global';
-                scopeSelect.value = initScope;
-                currentScope = initScope;
-                updateSubScopeSelect();
-
-                // If globalFiles were provided, render them immediately
-                if (initScope === 'global' && msg.files?.global) {
-                    renderFileList(msg.files.global, msg.initialFileId);
-                    if (msg.initialFileId) {
-                        currentFileId = msg.initialFileId;
-                        vscode.postMessage({ type: 'loadFile', scope: 'global', subScopeId: 'global', fileId: msg.initialFileId });
-                    }
-                } else {
-                    requestFiles();
-                    if (msg.initialFileId) {
-                        // Will be selected when scopeFiles arrives
-                        currentFileId = msg.initialFileId;
-                    }
-                }
+            case 'data': {
+                currentQuest = String(msg.quest || '');
+                updateHeadline();
+                noQuest.textContent = currentQuest ? '' : String(msg.noQuestMessage || '');
+                noQuest.style.display = currentQuest ? 'none' : '';
+                mainArea.style.display = currentQuest ? '' : 'none';
+                const files = currentQuest ? (msg.files || []) : [];
+                const wanted = msg.initialFileId || currentFileId;
+                currentFileId = files.some(f => f.id === wanted) ? wanted : '';
+                renderFileList(files, currentFileId);
+                if (currentFileId) { loadCurrentFile(); } else { clearEditor(); }
                 persistState();
                 break;
             }
-            case 'scopeFiles':
+            case 'files':
+                // The list after a file was added or deleted; a new file is selected and loaded.
+                if (msg.selectFileId) { currentFileId = msg.selectFileId; dirty = false; }
                 renderFileList(msg.files, currentFileId);
-                if (currentFileId && msg.files.some(f => f.id === currentFileId)) {
-                    vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: currentFileId });
-                }
+                if (msg.selectFileId) { persistState(); loadCurrentFile(); }
                 break;
             case 'filesReordered':
                 // Only the list: the file being edited stays as it is.
-                if (msg.scope === currentScope && msg.subScopeId === getSubScopeId()) { renderFileList(msg.files, currentFileId); }
+                renderFileList(msg.files, currentFileId);
                 break;
             case 'fileContent':
-                renderEditor(msg.fileId, msg.content);
+                if (msg.fileId === currentFileId) { renderEditor(msg.fileId, msg.content); }
                 break;
-            case 'selectNewFile':
-                currentFileId = msg.fileId;
-                renderFileList(currentFiles.concat([{ id: msg.fileId, label: msg.fileId }]), msg.fileId);
+            case 'fileRenamed':
+                if (currentFileId === msg.fileId) { currentFileId = msg.newFileId; }
+                renderFileList(msg.files, currentFileId);
                 persistState();
-                vscode.postMessage({ type: 'loadFile', scope: currentScope, subScopeId: getSubScopeId(), fileId: msg.fileId });
+                if (currentFileId === msg.newFileId) { loadCurrentFile(); }
                 break;
             case 'fileDeleted':
-                currentFileId = '';
-                editorArea.innerHTML = '<div class="no-selection">Select a prompt file from the left to edit</div>';
-                saveBar.style.display = 'none';
-                dirty = false;
-                persistState();
+                if (currentFileId === msg.fileId) {
+                    currentFileId = '';
+                    clearEditor();
+                    syncButtons();
+                    persistState();
+                }
                 break;
             case 'selectFile':
-                if (msg.scope) { currentScope = msg.scope; scopeSelect.value = msg.scope; updateSubScopeSelect(); }
-                if (msg.subScopeId) { currentSubScope = msg.subScopeId; subScopeSelect.value = msg.subScopeId; }
-                if (msg.fileId) { currentFileId = msg.fileId; }
-                persistState();
-                requestFiles();
+                if (!msg.fileId || (dirty && !confirmDiscard())) { break; }
+                dirty = false;
+                vscode.postMessage({ type: 'requestData', fileId: msg.fileId });
                 break;
         }
     });
 
+    syncButtons();
     vscode.postMessage({ type: 'ready' });
 
     // ── Splitter logic ──

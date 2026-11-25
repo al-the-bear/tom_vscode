@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <!--
   QUEST NOTES side panel (@TOM INFO, view tomAi.questNotesPanel) —
-  src/handlers/questNotesPanel-handler.ts. Two tabs on the active quest's
-  notes file: Edit (a text area) and View (the MD Browser's renderer:
+  src/handlers/questNotesPanel-handler.ts. A picker of the active quest's
+  notes files (with New notes file) and two tabs on the file picked: Edit (a
+  text area) and View (the MD Browser's renderer:
   media/markdownBrowser/blocks.js, teamReview.js, main.js, loaded by main.js
   from window.__INIT__.scripts, read-only). The ids in the View tab's bar and
   #contentArea are the ones the MD Browser's main.js wires.
@@ -20,6 +21,8 @@
         <button class="qnp-tab" role="tab" id="tabEdit" data-tab="edit" aria-selected="true">Edit</button>
         <button class="qnp-tab" role="tab" id="tabView" data-tab="view" aria-selected="false">View</button>
     </div>
+    <select id="notesFileSelect" class="qnp-select" title="Notes file of the quest" aria-label="Notes file"></select>
+    <button class="qnp-icon" id="newNotesFileBtn" title="New notes file"><span class="codicon codicon-new-file"></span></button>
     <span class="qnp-file" id="qnpFile"></span>
     <button class="qnp-icon" id="openMdBrowserBtn" title="Open the quest notes in the MD Browser"><span class="codicon codicon-book"></span></button>
     <button class="qnp-icon" id="openEditorBtn" title="Open the quest notes in an editor (more space)"><span class="codicon codicon-go-to-file"></span></button>

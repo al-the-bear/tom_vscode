@@ -1,14 +1,15 @@
 // @ts-nocheck
-// memoryPanel webview client — the quest memory editor (per session).
+// memoryPanel webview client — the editor of the quest memory folder
+// (_ai/quests/<quest>/memory/): the curated files first, then the candidates
+// files (candidates.<host>.md), marked as such.
 //
-// Verbatim extraction of the inline <script> IIFE from `_getHtml` in
-// src/handlers/memoryPanel-handler.ts. All panel data flows in via postMessage
-// (the webview posts `ready`, the host replies with `snapshot`/`fileContent`),
-// so there is no window.__INIT__ first-paint payload. The only addition is
-// publishing window.__tomVscodeApi so the shared completion component
-// (media/shared/completion.js) reuses the single acquireVsCodeApi() handle.
+// All panel data flows in via postMessage (the webview posts `ready`, the
+// host replies with `snapshot`/`fileContent`), so there is no
+// window.__INIT__ first-paint payload. window.__tomVscodeApi is published so
+// the shared completion component (media/shared/completion.js) reuses the
+// single acquireVsCodeApi() handle.
 // @ts-nocheck because it touches ambient DOM globals without strict checkJs
-// typings (consistent with the other Phase B verbatim extractions).
+// typings.
 
 (() => {
     const vscode = acquireVsCodeApi();
@@ -26,9 +27,7 @@
     const btnSave = document.getElementById('btn-save');
     const btnDelete = document.getElementById('btn-delete');
     const btnOpen = document.getElementById('btn-open');
-    const btnSession = document.getElementById('btn-session');
-    // Quest memory is per session (_ai/memory/<quest>/<session>/): the host picks whose.
-    btnSession.addEventListener('click', () => { vscode.postMessage({ type: 'pickSession' }); });
+    const memoryFolder = document.getElementById('memory-folder');
 
     content.addEventListener('input', () => {
         dirty = true;
@@ -75,10 +74,37 @@
             fileList.appendChild(empty);
             return;
         }
+        // The host sends the curated files first, then the candidates files.
+        let candidatesHeading = false;
         for (const f of files) {
+            const isCandidates = f.kind === 'candidates';
+            if (isCandidates && !candidatesHeading) {
+                candidatesHeading = true;
+                const group = document.createElement('div');
+                group.className = 'file-group';
+                group.textContent = 'Candidates (automatic extraction)';
+                fileList.appendChild(group);
+            }
             const item = document.createElement('div');
-            item.className = 'file-item';
-            item.innerHTML = '<span>' + f.file + '</span><span class="bytes">' + f.bytes + 'b</span>';
+            item.className = 'file-item' + (isCandidates ? ' candidates' : '');
+            item.dataset.file = f.file;
+            item.dataset.kind = isCandidates ? 'candidates' : 'curated';
+            const name = document.createElement('span');
+            name.textContent = f.file;
+            item.appendChild(name);
+            if (isCandidates) {
+                const kind = document.createElement('span');
+                kind.className = 'kind';
+                kind.textContent = f.ownHost ? 'candidates · this host' : 'candidates · host ' + (f.host || '?');
+                item.title = f.ownHost
+                    ? 'Candidates the memory extraction on this host wrote; each line names its session and the curated file it is meant for'
+                    : 'Candidates of host ' + (f.host || '?') + ': that host writes this file';
+                item.appendChild(kind);
+            }
+            const bytes = document.createElement('span');
+            bytes.className = 'bytes';
+            bytes.textContent = f.bytes + 'b';
+            item.appendChild(bytes);
             if (f.file === currentFile) item.classList.add('active');
             item.addEventListener('click', () => {
                 if (dirty && !confirm('Discard unsaved changes?')) return;
@@ -96,8 +122,7 @@
         if (msg.type === 'snapshot') {
             snapshot = msg;
             questTab.textContent = msg.quest ? 'Quest: ' + msg.quest : 'Quest';
-            btnSession.textContent = 'Session: ' + (msg.session || 'default');
-            btnSession.style.display = msg.quest ? '' : 'none';
+            memoryFolder.textContent = msg.folder || '';
             renderList();
         } else if (msg.type === 'fileContent') {
             if (msg.scope === currentScope && msg.file === currentFile) {

@@ -16,7 +16,8 @@
  *                         prepend a single summary message of the drop
  *   - llm_extract       → compress each turn individually (per-turn
  *                         summarisation) and write extracted facts to
- *                         memory via `TwoTierMemoryService`
+ *                         this host's memory candidates via
+ *                         `TwoTierMemoryService`
  *
  * The LLM dispatch is abstracted behind `runCompactionCall()`, which
  * selects between the Anthropic handler (internal, no tool loop, no
@@ -117,9 +118,12 @@ export interface CompactionOptions {
     compactionMaxRounds?: number;
     /** Root of the memory store (only used to seed placeholders). */
     memoryPath?: string;
-    /** Quest id for quest-scoped memory writes. */
+    /** Quest id: the quest whose memory folder the extraction's candidates go to. */
     questId?: string;
-    /** The Anthropic session the pass runs for: its raw trail goes to that session's storage. */
+    /**
+     * The Anthropic session the pass runs for: its raw trail goes to that session's storage, and a
+     * memory candidate extracted in the pass names it.
+     */
     session?: string;
     /** Whether to emit verbose progress lines (currently a no-op hook). */
     trailEnabled?: boolean;
@@ -602,7 +606,8 @@ async function runLlmExtract(
         try {
             const memorySvc = TwoTierMemoryService.instance;
             const scope = 'quest' as const;
-            const existing = memorySvc.read(scope, tpl.targetFile, options.questId);
+            // What is known already: the curated target file, then this host's candidates meant for it.
+            const existing = memorySvc.existingMemoryForExtraction(tpl.targetFile, options.questId);
             const recentHistoryText = formatHistoryForTemplate(latest);
             const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, options.questId);
             const memoryCap = options.memoryMaxChars ?? DEFAULT_MEMORY_MAX_CHARS;
@@ -644,8 +649,9 @@ async function runLlmExtract(
                 questId: options.questId,
             });
             if (extracted) {
-                memorySvc.prepend(scope, tpl.targetFile, extracted, options.questId);
-                logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
+                // Extraction writes candidates (this host's `candidates.<host>.md`), never a curated file.
+                const candidatesFile = memorySvc.addCandidates(extracted, { session: options.session, targetFile: tpl.targetFile }, options.questId);
+                logMemoryWrite(`${scope}:${candidatesFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
             } else {
                 logCompactionWarn(`memory extraction returned empty output (template=${tpl.id})`);
             }
@@ -758,9 +764,11 @@ export async function runIncrementalCompaction(params: {
 
 /**
  * Every-turn memory extraction. Input: last exchange + current
- * compacted summary + existing memory file. Output is handled by the
- * underlying compaction LLM call and appended to the quest
- * memory file by the service.
+ * compacted summary + what is known already (the curated target file and this
+ * host's candidates meant for it). The output of the underlying compaction LLM
+ * call goes to this host's candidates file (`candidates.<host>.md` in the
+ * quest's memory folder), each entry naming the session and the curated file
+ * it is meant for; the curated files are not written.
  *
  * Template placeholders: `${lastTurn}`, `${compactedSummary}`,
  * `${existingMemory}`, `${memoryFilePath}`, `${memoryScope}`.
@@ -774,7 +782,7 @@ export async function runIncrementalMemoryExtraction(params: {
     historyMaxChars?: number;
     memoryMaxChars?: number;
     questId?: string;
-    /** The Anthropic session the pass runs for: its quest memory and its trail. */
+    /** The Anthropic session the pass runs for: the candidates name it, and its trail takes the pass's files. */
     session?: string;
     /** Progress callback (retry countdowns etc.) — see runIncrementalCompaction. */
     onProgress?: (msg: string) => void;
@@ -783,17 +791,16 @@ export async function runIncrementalMemoryExtraction(params: {
     if (!tpl) { return; }
     const memorySvc = TwoTierMemoryService.instance;
     const scope = 'quest' as const;
-    const existing = memorySvc.read(scope, tpl.targetFile, params.questId);
+    const existing = memorySvc.existingMemoryForExtraction(tpl.targetFile, params.questId);
     const memoryFilePath = memorySvc.filePath(scope, tpl.targetFile, params.questId);
     const historyCap = params.historyMaxChars ?? DEFAULT_HISTORY_MAX_CHARS;
     const memoryCap = params.memoryMaxChars ?? DEFAULT_MEMORY_MAX_CHARS;
     const userPrompt = expandTemplate(tpl.template, {
         lastTurn: formatHistoryForTemplate(params.lastTurn),
         compactedSummary: tailBounded(params.compactedSummary, historyCap, 'compacted summary'),
-        // Memory files are prepended newest-first, so keeping the HEAD
-        // preserves the newest entries — the opposite of the tail-keep
-        // behaviour we use for summaries. Older entries at the bottom
-        // of the file fall off cleanly when the cap is exceeded.
+        // The curated file first, then the candidates (newest first): the
+        // HEAD is kept, so the curated facts stay and the oldest candidates
+        // fall off when the cap is exceeded.
         existingMemory: headBounded(existing, memoryCap, 'existing memory'),
         memoryFilePath,
         memoryScope: scope,
@@ -859,15 +866,14 @@ export async function runIncrementalMemoryExtraction(params: {
         outputChars: extracted.length,
         questId: params.questId,
     });
-    // Prepend newest entries on top of the memory file. Combined with
-    // headBounded at read-time, older entries at the bottom fall off
-    // cleanly when the file outgrows memoryMaxChars.
-    memorySvc.prepend(scope, tpl.targetFile, extracted, params.questId);
-    logMemoryWrite(`${scope}:${tpl.targetFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
+    // Extraction writes candidates (this host's `candidates.<host>.md`, newest
+    // entries on top), never a curated file.
+    const candidatesFile = memorySvc.addCandidates(extracted, { session: params.session, targetFile: tpl.targetFile }, params.questId);
+    logMemoryWrite(`${scope}:${candidatesFile}`, Buffer.byteLength(extracted, 'utf8'), 'prepend');
     const bulletCount = extracted.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
     params.onProgress?.(
         `Memory extraction succeeded — ${bulletCount} bullet${bulletCount === 1 ? '' : 's'}, ${extracted.length} chars ` +
-        `prepended to ${scope}:${tpl.targetFile}`,
+        `added to ${scope}:${candidatesFile} as candidates for ${tpl.targetFile}`,
     );
 }
 

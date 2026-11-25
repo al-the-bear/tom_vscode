@@ -5841,8 +5841,8 @@ export class PromptQueueManager {
 
     /**
      * Delete a temporary session: its file and its whole storage — history,
-     * trails, live trail, tool results and quest memory
-     * (src/services/sessionStorage.ts).
+     * trails, live trail, tool results and its memory folder of the old
+     * place, `_ai/memory/<quest>/<name>/` (src/services/sessionStorage.ts).
      */
     private _deleteTemporarySession(name: string): void {
         if (isRunDefaultSession(name) || name === 'chat') { return; }

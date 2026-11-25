@@ -423,7 +423,7 @@ shows, else `default`.
 | --- | --- | :-: | :-: | :-: | :-: |
 | `tomAi_listProjects` | The projects as the build tools see them, from `buildkit :projects --all --json`, every project of the tree: `{id, name, path, absolutePath, language, type, natures, version?, description?}`. Optional filters `under`, `language`, `type`, `name` and `compact: true` (each entry `{id, path, type}`; with any of them the answer adds `total`). buildkit is looked for in turn — `bridge.executables.buildkit`, `bridge.binaryPath` (passed with a note when its `${env:…}` variable is unset, as in a VS Code started from the Dock), the workspace's binaries layer, `$TOM_BINARY_PATH/<platform>/`, PATH (never `~/.tom/bin`). Without one, or when it cannot list (a buildkit before tom_build_kit 1.19.0 has no `:projects`), the extension's JavaScript port of the same rules lists them (`discoveredFrom` says so; `fallback` `{kind, reason, searched, binary?, buildkitError?, hint}`), and a notification once per reason shows the diagnostic and how to fix it. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_listRepositories` | The repositories of the Tom root's `repos.yaml`: `{path, name, url, kind, branch?, pin?, cloned, workspaceFolder?, projects?}` per entry of its `repos:` list — `kind` and `under` filters, `includeProjects` adds the buildkit project ids inside each. Without repos.yaml `{ok: false, error, file}`. Read-only (MCP read-only floor). | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listDocuments` | Files in prompts / roles / guidelines. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listDocuments` | Files in a document category: `prompts` (the active quest's saved prompts, `_ai/quests/<quest>/prompt`; `exists: false` in a window without a quest), `roles` (`_ai/roles`), `guidelines`. | ✅ | ✅ | ✅ | ✅ |
 
 ### 4.14 Issues (bottom-panel WS tab, Issues subpanel)
 
@@ -462,17 +462,28 @@ Parallel to §4.14 but scoped to the **Tests** subpanel (test reports, flaky-tes
 | `tomAi_readChatVariable` | Read a chat variable. | ✅ | ✅ | ✅ | ✅ |
 | `tomAi_writeChatVariable` | Write a chat variable (own change log — no approval). | ✅ | ✅ | ⚪ | ✅ |
 
-### 4.17 Memory (`_ai/memory/`)
+### 4.17 Memory (`_ai/quests/<quest>/memory/`)
 
-The quest's memory, per session: `{quest}/{session}/`, the session the running prompt belongs to (`default` the queue's, `chat` the ANTHROPIC/LLM panel's, or a named session). The tools, `${memory}` and background memory extraction all use the running session's quest memory; a Local LLM memory bucket (`facts-<suffix>.md`) reads the `default` session's.
+The quest's memory is one folder in the quest folder, `_ai/quests/<quest>/memory/`, shared by every session and every host; there is no session level and no memory shared across quests. It holds two kinds of file:
+
+| Kind | Files | Written by |
+| --- | --- | --- |
+| **curated** facts | every file that is not a candidates file: `facts.md` (the default), a profile's bucket `facts-<suffix>.md`, any other name | deliberately: the memory tools, the user's `Remember:` / `Forget:`, the Memory panel |
+| **candidates** | `candidates.<host>.md`, one per host | the automatic memory extraction, on that host only |
+
+A candidate is one stamped line, `- <time> [<host>] {session=<session> file=<curated file>} <fact>`: it names the session it was extracted in (empty when the extraction ran in none) and the curated file it is meant for (the extraction template's target file). The extraction never writes a curated file.
+
+The tools work on the folder's files by name; the default file is `facts.md`. A candidates file is addressed like any file: read it with `tomAi_readMemory {file: "candidates.<host>.md"}`; to promote a candidate, save the fact into its curated file (`tomAi_saveMemory` / `tomAi_updateMemory`) and remove its line from the candidates file. `suffix` restricts a read or a list to exactly `facts-<suffix>.md`. A call with `scope: "shared"` is refused (code `noSharedMemory`).
 
 | Tool | Purpose | Agent SDK | Anthropic API | Local LLM | VS Code LM |
 | --- | --- | :-: | :-: | :-: | :-: |
-| `tomAi_readMemory` | Read a memory file. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_listMemory` | List memory files. | ✅ | ✅ | ✅ | ✅ |
-| `tomAi_saveMemory` | Save new memory (approval). | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_updateMemory` | Patch-edit memory (approval). | ✅ | ✅ | ⚪ | ✅ |
-| `tomAi_forgetMemory` | Delete memory (approval). | ⚪ | ⚪ | ⚪ | ⚪ |
+| `tomAi_readMemory` | Read a memory file by name (a curated file or a candidates file); without `file` every file, the curated ones first, each under `### quest/<file> [curated]` or `### quest/<file> [candidates of host <host>]`. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_listMemory` | List the memory files, the curated ones first: one `quest/<file> [curated]` or `quest/<file> [candidates of host <host>]` per line. | ✅ | ✅ | ✅ | ✅ |
+| `tomAi_saveMemory` | Append to a memory file, or replace a section of it (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_updateMemory` | Replace a section of a memory file (approval). | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_forgetMemory` | Delete a memory file, or clear a section of it (approval). | ⚪ | ⚪ | ⚪ | ⚪ |
+
+What a prompt gets injected (`${memory}`): the curated files, newest first, then this host's candidates under their own heading (`### candidates/candidates.<host>.md — …`), within `anthropic.memory.maxInjectedTokens`; other hosts' candidates are not injected. With a profile's memory suffix: only `facts-<suffix>.md` and this host's candidates meant for that file. While the folder `_ai/memory/<quest>/` exists, the files a session wrote there (`_ai/memory/<quest>/<session>/*.md`, the send's session; with a suffix `facts-<suffix>.md` of `default@default`) follow, read-only and within the same budget; the tools do not show them.
 
 ### 4.18 User interaction
 
@@ -562,11 +573,12 @@ The buffer is **session-scoped** (cleared on `Clear session history`) and **Anth
 
 Tool results are per session: each session keeps them in `history/sessions/<session>/trail/tool_results/`, and its keys continue past the stored ones, so a key never names two results; `tomAi_readPastToolResult` reads the running session's first. `tomAi_listPromptPairs` lists every session's Anthropic pair as subsystem `anthropic:<session>` (the filter `anthropic` matches them all).
 
-**`sessions`.** The tools that read or write per-session storage take an optional `sessions` — a session name, a list of names, or `"all"`; an unknown session is refused (code `unknownSession`) with the sessions there are. Without it they work on the session the call runs in:
+**`sessions`.** The tools that read per-session storage take an optional `sessions` — a session name, a list of names, or `"all"`; an unknown session is refused (code `unknownSession`) with the sessions there are. Without it they work on the session the call runs in:
 
 - `tomAi_listPromptPairs` / `tomAi_getPromptPair`: those sessions' Anthropic pairs (other subsystems are always included); a call that runs in no session (Local LLM, an MCP client) reads every session; the answer names the `sessions` read.
 - `tomAi_listPastToolCalls` / `tomAi_searchPastToolResults` / `tomAi_readPastToolResult`: without `sessions` the caller's in-memory ring buffer as before; with them every result the chosen sessions stored on disk (evicted ones included), each entry and hit tagged with its `session` (keys are per session; a read names the session it came from, `alsoIn` the others holding the key).
-- `tomAi_saveMemory` / `tomAi_updateMemory` / `tomAi_forgetMemory` / `tomAi_readMemory` / `tomAi_listMemory`: quest memory is per session (`_ai/memory/<quest>/<session>/`); a write goes to each chosen session, a read or list shows each under a `## session <name>` heading. There is no shared memory: a call with `scope: "shared"` is refused (code `noSharedMemory`).
+
+The memory tools take no `sessions`: the quest memory has no session level (§4.17).
 
 **Every call, every transport: the Tom Tool Log.** Each tool call an agent makes writes one line to the *Tom Tool Log* output channel (`src/utils/toolCallLog.ts`): `<ISO time> [tool-call] <transport> <tool> <ms> ms <chars> chars ok` (or `error: <first line>`). The transport is `direct`, `vscodeLm` or `localLlm` for the Anthropic handler's own tool loop, `agentSdk` for the Agent SDK's in-process MCP server, and `mcp` for the standalone MCP server's clients. `tomAi_readOutputChannel {channel: 'Tom Tool Log', grep: '<tool>'}` answers how long a tool takes and which call failed in any session; `run: 1` reads the run before the last window reload. The ToolTrail (the tools above) covers the ANTHROPIC/LLM panel and the queue on every transport, the Agent SDK's included (with full results); calls of standalone MCP clients are only in the log, since their conversations are not an Anthropic session.
 

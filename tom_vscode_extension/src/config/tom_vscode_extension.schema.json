@@ -109,7 +109,7 @@
         },
         "questRefresh": {
             "type": "object",
-            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
+            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, maintain the deferred list). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
             "properties": {
                 "anthropic": { "$ref": "#/definitions/questRefreshPanel" },
                 "copilot": { "deprecated": true, "description": "Not read." },
@@ -369,7 +369,7 @@
         },
         "memory": {
             "type": "object",
-            "description": "Memory settings: the quest memory, per session, _ai/memory/<quest>/<session>/ (anthropic_sdk_integration.md §5, §14).",
+            "description": "Memory settings: the quest memory, _ai/quests/<quest>/memory/ — curated files and one candidates file per host (anthropic_sdk_integration.md §5, §14).",
             "properties": {
                 "enabled": {
                     "type": "boolean",
@@ -379,7 +379,7 @@
                 "path": {
                     "type": "string",
                     "default": "_ai/memory",
-                    "description": "Workspace-relative root directory for memory files."
+                    "description": "Not read: the quest memory is always _ai/quests/<quest>/memory/."
                 },
                 "maxInjectedTokens": {
                     "type": "integer",
@@ -699,7 +699,7 @@
                 "name": { "type": "string" },
                 "description": { "type": "string" },
                 "template": { "type": "string" },
-                "targetFile": { "type": "string", "description": "File name in the quest memory, _ai/memory/<quest>/<session>/ (e.g. facts.md)." }
+                "targetFile": { "type": "string", "description": "The curated file of the quest memory, _ai/quests/<quest>/memory/ (e.g. facts.md), the template's candidates are meant for. The extraction writes them to this host's candidates.<host>.md in that folder, each naming this file." }
             }
         }
     }

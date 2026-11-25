@@ -3,8 +3,9 @@
  *
  * Three live providers, each backed by a file on disk:
  * - TomNotepad     — global notes (`~/.tom/notes/global_notes.md`).
- * - WorkspaceNotepad — a user-chosen workspace notes file.
- * - QuestNotes     — per-quest notes, path derived from the active quest.
+ * - WorkspaceNotepad — the workspace's notes file (`_ai/workspaces/<workspace>.notes.md`).
+ * - QuestNotes     — the active quest's notes files (`_ai/quests/<quest>/notes/*.md`), one at a
+ *                    time, chosen with the view's picker ({@link QuestNotesSession}).
  *
  * Each offers a markdown preview, copy / clear where it has them, and opens its
  * file in the editor, the MD Browser or the MD Viewer ({@link
@@ -30,6 +31,9 @@ import { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 import { handleNotesFileMessage } from './notepad/notesFileActions';
+import { QuestNotesSession } from './notepad/questNotesSession';
+import { ensureWorkspaceNotesFile, workspaceNotesFile } from '../utils/notesFiles';
+import { aiWorkspaceName } from '../utils/aiWorkspace';
 
 // View IDs
 const VIEW_IDS = {
@@ -66,24 +70,13 @@ async function showNotesMarkdownPreview(
 // Default global notes path (configurable)
 const GLOBAL_NOTES_PATH = path.join(process.env.HOME || process.env.USERPROFILE || '', WsPaths.homeTomFolder, 'notes', 'global_notes.md');
 
-/** The file dialogs' filters for a workspace notes file; the keys are the labels the dialog shows. */
-// eslint-disable-next-line @typescript-eslint/naming-convention
-const NOTES_FILE_FILTERS = { 'Markdown': ['md'], 'Text': ['txt'], 'All Files': ['*'] };
-
 const DEFAULT_WORKSPACE_TODO_FILE = 'workspace.todo.yaml';
-const DEFAULT_QUEST_NOTES_PATTERN = '_ai/quests/${quest}/quest-notes.${quest}.md';
 const DEFAULT_QUEST_TODO_FILE_PATTERN = 'todos.${quest}.todo.yaml';
 
 function getWorkspaceTodoRelativePath(): string {
     return vscode.workspace.getConfiguration('tomAi').get<string>('todo.workspaceTodoFile')
         || vscode.workspace.getConfiguration('tomAi').get<string>('todo.workspaceTodoFile')
         || DEFAULT_WORKSPACE_TODO_FILE;
-}
-
-function getQuestNotesPattern(): string {
-    return vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesPattern')
-        || vscode.workspace.getConfiguration('tomAi').get<string>('notes.questNotesPattern')
-        || DEFAULT_QUEST_NOTES_PATTERN;
 }
 
 function getQuestTodoFilePattern(): string {
@@ -95,14 +88,6 @@ function getQuestTodoFilePattern(): string {
 function resolveQuestTodoFileName(questId: string): string {
     const pattern = getQuestTodoFilePattern();
     return pattern.replace(/\$\{quest\}/g, questId);
-}
-
-function resolveQuestNotesPath(questId: string, wsRoot: string): string {
-    const pattern = getQuestNotesPattern();
-    const rel = pattern
-        .replace(/\$\{quest\}/g, questId)
-        .replace(/\$\{workspaceFolder\}/g, wsRoot);
-    return path.isAbsolute(rel) ? rel : path.join(wsRoot, rel);
 }
 
 function getQuestIdFromWorkspaceFile(): string {
@@ -189,198 +174,30 @@ class TomNotepadProvider implements vscode.WebviewViewProvider {
 
 
 // ============================================================================
-// Workspace Notepad (file-based, stored in workspace root as notes.md)
+// Workspace Notepad (one file per workspace: _ai/workspaces/<workspace>.notes.md)
 // ============================================================================
+
+/**
+ * workspaceState key under which a window kept a freely picked workspace notes
+ * file. Read only by the one-time import into the workspace notes file
+ * (`ensureWorkspaceNotesFile`), and dropped once that file exists.
+ */
+const PICKED_WORKSPACE_NOTES_KEY = 'tomAi.notes.workspaceNoteFile';
+
+/** The window's workspace notes file and workspace name; null without a workspace folder or an `_ai` folder. */
+export function windowWorkspaceNotesFile(): { workspace: string; filePath: string } | null {
+    const wsRoot = layoutWorkspaceFolder();
+    const aiRoot = WsPaths.aiRoot;
+    if (!wsRoot || !aiRoot || !fs.existsSync(aiRoot)) { return null; }
+    const workspace = aiWorkspaceName(wsRoot);
+    return { workspace, filePath: workspaceNotesFile(aiRoot, workspace) };
+}
 
 class WorkspaceNotepadProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    /**
-     * Storage is rebuilt whenever the user picks a new file — unlike Tom
-     * and Quest whose paths are derived from ambient state, this provider
-     * lets the user choose arbitrary paths via the Change/Create dialog.
-     */
+    /** On the workspace's notes file; null without a workspace folder or an `_ai` folder. */
     private _storage: NotepadFileStorage | null = null;
-
-    private static readonly storageKey = 'tomAi.notes.workspaceNoteFile';
-
-    constructor(private readonly _context: vscode.ExtensionContext) {
-        this._initNotesFilePath();
-    }
-
-    dispose(): void {
-        this._storage?.dispose();
-    }
-
-    /** Detect workspace and resolve the notes file path from workspace state. */
-    private _initNotesFilePath(): void {
-        const storedPath = this._context.workspaceState.get<string>(WorkspaceNotepadProvider.storageKey);
-        if (storedPath && fs.existsSync(storedPath)) {
-            this._setStorageFor(storedPath);
-        } else if (storedPath) {
-            // Stored path no longer exists — clear it
-            this._context.workspaceState.update(WorkspaceNotepadProvider.storageKey, undefined);
-        }
-        // Fallback: try to find notes.md in workspace root if nothing stored
-        if (!this._storage) {
-            const wsRoot = layoutWorkspaceFolder();
-            if (wsRoot) {
-                const defaultPath = path.join(wsRoot, 'notes.md');
-                if (fs.existsSync(defaultPath)) {
-                    this._setStorageFor(defaultPath);
-                    this._context.workspaceState.update(WorkspaceNotepadProvider.storageKey, defaultPath);
-                }
-            }
-        }
-    }
-
-    /** Rebuild the storage wrapper + file watcher when the target file changes. */
-    private _setStorageFor(filePath: string): void {
-        this._storage?.dispose();
-        this._storage = new NotepadFileStorage(filePath);
-        this._storage.load();
-        this._storage.watch(() => this._sendState());
-    }
-
-    /** Returns true if a .code-workspace file is open. */
-    private _hasWorkspaceFile(): boolean {
-        return !!vscode.workspace.workspaceFile;
-    }
-
-    /** Get workspace name from the .code-workspace filename (without extension). */
-    private _getWorkspaceName(): string {
-        const wsFile = vscode.workspace.workspaceFile;
-        if (wsFile) {
-            const base = path.basename(wsFile.fsPath);
-            return base.replace(/\.code-workspace$/, '');
-        }
-        const folder = vscode.workspace.workspaceFolders?.[0];
-        return folder ? path.basename(folder.uri.fsPath) : 'Workspace';
-    }
-
-    resolveWebviewView(webviewView: vscode.WebviewView): void {
-        this._view = webviewView;
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
-        };
-
-        this._storage?.load();
-        webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'sidebarNotes/workspace');
-        wireCompletionMessages(webviewView.webview);
-
-        webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
-                this._storage?.load();
-                this._sendState();
-            }
-        });
-
-        webviewView.webview.onDidReceiveMessage(async (msg) => {
-            if (await handleNotesFileMessage(msg.type, this._storage, this._context)) { return; }
-            switch (msg.type) {
-                case 'ready':
-                    this._sendState();
-                    break;
-                case 'updateContent':
-                    this._storage?.save(msg.content);
-                    break;
-                case 'previewMarkdown':
-                    if (this._storage) {
-                        await showNotesMarkdownPreview(this._context, 'WORKSPACE NOTES Preview', this._storage.content, this._storage.path);
-                    }
-                    break;
-                case 'createNotesFile':
-                    await this._createNotesFile();
-                    break;
-                case 'changeFile':
-                    await this._changeFile();
-                    break;
-                case 'openWorkspace':
-                    await vscode.commands.executeCommand('workbench.action.openWorkspace');
-                    break;
-            }
-        });
-    }
-
-    private _sendState(): void {
-        if (!this._view) { return; }
-        const wsName = this._getWorkspaceName();
-        const hasWorkspace = this._hasWorkspaceFile() || !!vscode.workspace.workspaceFolders?.length;
-        const filePath = this._storage?.path ?? null;
-        this._view.webview.postMessage({
-            type: 'state',
-            content: this._storage?.content ?? '',
-            filePath,
-            workspaceName: wsName,
-            hasWorkspace,
-            hasFile: !!filePath && fs.existsSync(filePath),
-        });
-    }
-
-    /** Prompt user to create a new notes file via save dialog. */
-    private async _createNotesFile(): Promise<void> {
-        const wsRoot = layoutWorkspaceFolder();
-        const wsName = this._getWorkspaceName();
-        const defaultUri = wsRoot ? vscode.Uri.file(path.join(wsRoot, 'notes.md')) : undefined;
-        const uri = await vscode.window.showSaveDialog({
-            defaultUri,
-            filters: NOTES_FILE_FILTERS,
-            title: 'Create Workspace Notes File',
-        });
-        if (!uri) { return; }
-        const filePath = uri.fsPath;
-        const header = `# Workspace Notes — ${wsName}\n\n`;
-        fs.writeFileSync(filePath, header, 'utf-8');
-        this._setStorageFor(filePath);
-        this._context.workspaceState.update(WorkspaceNotepadProvider.storageKey, filePath);
-        this._sendState();
-    }
-
-    /** Prompt user to pick a different notes file. */
-    private async _changeFile(): Promise<void> {
-        const wsRoot = layoutWorkspaceFolder();
-        const defaultUri = wsRoot ? vscode.Uri.file(wsRoot) : undefined;
-        const uris = await vscode.window.showOpenDialog({
-            defaultUri,
-            canSelectMany: false,
-            filters: NOTES_FILE_FILTERS,
-            title: 'Select Workspace Notes File',
-        });
-        if (!uris || uris.length === 0) { return; }
-        const filePath = uris[0].fsPath;
-        this._setStorageFor(filePath);
-        this._context.workspaceState.update(WorkspaceNotepadProvider.storageKey, filePath);
-        this._sendState();
-    }
-}
-
-/**
- * The active quest's notes file (`tomAi.notes.questNotesPattern`), or null
- * while no quest is open (no `.code-workspace`, or its quest folder is
- * missing). The @TOM QUEST NOTES view and the QUEST NOTES side panel
- * (questNotesPanel-handler.ts) read and write it.
- */
-export function activeQuestNotesFile(): { questId: string; filePath: string } | null {
-    const wsRoot = layoutWorkspaceFolder();
-    if (!wsRoot || !vscode.workspace.workspaceFile) { return null; }
-    const questId = getQuestIdFromWorkspaceFile();
-    if (!questId || !questFolderExists(questId)) { return null; }
-    return { questId, filePath: resolveQuestNotesPath(questId, wsRoot) };
-}
-
-/** A new quest notes file's first line. */
-export function questNotesHeader(questId: string): string {
-    return `# Quest Notes — ${questId}\n\n`;
-}
-
-class QuestNotesProvider implements vscode.WebviewViewProvider {
-    private _view?: vscode.WebviewView;
-    /**
-     * Storage is (re)built on every `_load()` because the target path
-     * depends on the active quest id, which changes when the user opens
-     * a different .code-workspace file. Null when no quest is active.
-     */
-    private _storage: NotepadFileStorage | null = null;
+    private _workspace = '';
 
     constructor(private readonly _context: vscode.ExtensionContext) {}
 
@@ -388,29 +205,31 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
         this._storage?.dispose();
     }
 
-    private _resolveQuestFile(): string | null {
-        return activeQuestNotesFile()?.filePath ?? null;
-    }
-
+    /**
+     * The storage on the workspace notes file, read from disk. A missing file is created the moment the view
+     * shows it: with what the window's notes held before (the one-time import), else with its heading.
+     */
     private _load(): void {
-        const filePath = this._resolveQuestFile();
-        if (!filePath) {
+        const notes = windowWorkspaceNotesFile();
+        if (!notes) {
             this._storage?.dispose();
             this._storage = null;
+            this._workspace = '';
             return;
         }
-        // Rebuild the storage wrapper only when the target path has
-        // actually changed (opening a different quest workspace).
-        if (this._storage?.path !== filePath) {
-            this._storage?.dispose();
-            this._storage = new NotepadFileStorage(filePath);
-            this._storage.watch(() => this._sendState());
+        this._workspace = notes.workspace;
+        try {
+            ensureWorkspaceNotesFile(notes.filePath, this._context.workspaceState.get<string>(PICKED_WORKSPACE_NOTES_KEY), layoutWorkspaceFolder());
+            if (this._context.workspaceState.get<string>(PICKED_WORKSPACE_NOTES_KEY) !== undefined) {
+                void this._context.workspaceState.update(PICKED_WORKSPACE_NOTES_KEY, undefined);
+            }
+        } catch (e) {
+            vscode.window.showErrorMessage(`Failed to create the workspace notes file: ${e}`);
         }
-        // Seed the file with a header on first creation so the user
-        // sees something when they open the view on a fresh quest.
-        if (!fs.existsSync(filePath)) {
-            this._storage.ensureFile();
-            this._storage.save(questNotesHeader(getQuestIdFromWorkspaceFile() || 'quest'));
+        if (this._storage?.path !== notes.filePath) {
+            this._storage?.dispose();
+            this._storage = new NotepadFileStorage(notes.filePath);
+            this._storage.watch(() => this._sendState());
         }
         this._storage.load();
     }
@@ -421,10 +240,9 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
         };
-        webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'sidebarNotes/questNotes');
+
+        webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'sidebarNotes/workspace');
         wireCompletionMessages(webviewView.webview);
-        // The "no quest is open" banner (media/shared/questHint.js).
-        this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -441,12 +259,15 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
                     this._sendState();
                     break;
                 case 'updateContent':
-                    this._storage?.save(msg.content || '');
+                    this._storage?.save(msg.content);
                     break;
                 case 'previewMarkdown':
                     if (this._storage) {
-                        await showNotesMarkdownPreview(this._context, 'QUEST NOTES Preview', this._storage.content, this._storage.path);
+                        await showNotesMarkdownPreview(this._context, 'WORKSPACE NOTES Preview', this._storage.content, this._storage.path);
                     }
+                    break;
+                case 'openWorkspace':
+                    await vscode.commands.executeCommand('workbench.action.openWorkspace');
                     break;
             }
         });
@@ -458,7 +279,74 @@ class QuestNotesProvider implements vscode.WebviewViewProvider {
             type: 'state',
             content: this._storage?.content ?? '',
             filePath: this._storage?.path ?? null,
+            workspaceName: this._workspace,
+            hasWorkspace: !!this._storage,
+        });
+    }
+}
+
+class QuestNotesProvider implements vscode.WebviewViewProvider {
+    private _view?: vscode.WebviewView;
+    /** The notes file shown and the picker's list; shared logic with the QUEST NOTES side panel. */
+    private readonly _session: QuestNotesSession;
+
+    constructor(private readonly _context: vscode.ExtensionContext) {
+        // A change on disk: the storage is current. A change of the choice: the session loaded the file chosen.
+        this._session = new QuestNotesSession(_context, () => this._sendState());
+    }
+
+    dispose(): void {
+        this._session.dispose();
+    }
+
+    resolveWebviewView(webviewView: vscode.WebviewView): void {
+        this._view = webviewView;
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
+        };
+        webviewView.webview.html = loadWebviewHtml(webviewView.webview, 'sidebarNotes/questNotes');
+        wireCompletionMessages(webviewView.webview);
+        // The "no quest is open" banner (media/shared/questHint.js).
+        this._context.subscriptions.push(wireQuestHintMessages(webviewView.webview));
+
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                this._session.load();
+                this._sendState();
+            }
+        });
+
+        webviewView.webview.onDidReceiveMessage(async (msg) => {
+            const storage = this._session.storage;
+            if (await handleNotesFileMessage(msg.type, storage, this._context)) { return; }
+            if (await this._session.handleMessage(msg)) { return; }
+            switch (msg.type) {
+                case 'ready':
+                    this._session.load();
+                    this._sendState();
+                    break;
+                case 'updateContent':
+                    storage?.save(msg.content || '');
+                    break;
+                case 'previewMarkdown':
+                    if (storage) {
+                        await showNotesMarkdownPreview(this._context, 'QUEST NOTES Preview', storage.content, storage.path);
+                    }
+                    break;
+            }
+        });
+    }
+
+    private _sendState(): void {
+        if (!this._view) { return; }
+        const storage = this._session.storage;
+        this._view.webview.postMessage({
+            type: 'state',
+            content: storage?.content ?? '',
+            filePath: storage?.path ?? null,
             hasWorkspaceFile: !!vscode.workspace.workspaceFile,
+            ...this._session.pickerState,
         });
     }
 }

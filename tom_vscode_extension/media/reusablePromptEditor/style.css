@@ -34,14 +34,6 @@ body {
     background: var(--vscode-sideBar-background);
     flex-shrink: 0;
 }
-.action-bar select {
-    padding: 4px 8px;
-    border: 1px solid var(--vscode-input-border);
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border-radius: 3px;
-    font-size: 13px;
-}
 .action-bar .spacer { flex: 1; }
 .icon-btn {
     background: none;
@@ -165,3 +157,10 @@ body {
     color: var(--vscode-button-foreground);
 }
 .save-bar button:hover { opacity: 0.9; }
+
+/* ── A window without a quest: nothing to edit ── */
+.no-quest {
+    padding: 24px 16px;
+    color: var(--vscode-descriptionForeground);
+}
+.icon-btn:disabled { opacity: 0.4; cursor: default; }

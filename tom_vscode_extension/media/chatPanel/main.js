@@ -52,11 +52,9 @@ var claudeCliVisible = false; // true when any config uses transport: 'agentSdk'
 var anthropicSending = false;
 var anthropicSessionTurns = 0;
 var anthropicLastToolCalls = 0;
-var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
+// The active quest's saved prompts ({id, label}: the file name), as the host lists them.
+var reusablePromptFiles = [];
 var pendingReusableCopySection = '';
-var reusablePreferredQuestId = '';
-var reusablePreferredProjectId = '';
-var reusablePreferredScanId = '';
 var reusablePromptState = {};
 var slotEnabledSections = ['anthropic'];
 var sectionSlotState = {};
@@ -130,9 +128,6 @@ function getPanelSlotButtonsHtml(sectionId) {
 function getReusablePromptControlsHtml(sectionId) {
     // Each select is shown as a field (its label above, its value a link): linkChatSelects.
     return '' +
-    '<select id="' + sectionId + '-reusable-type" class="reusable-prompt-type" title="Reusable prompt type"><option value="global">global</option><option value="project">project</option><option value="quest">quest</option><option value="scan">scan</option></select>' +
-    '<label id="' + sectionId + '-reusable-scope-label" class="linked-label" style="display:none;">Project:</label>' +
-    '<select id="' + sectionId + '-reusable-scope" class="reusable-prompt-scope" title="Reusable prompt scope" style="display:none;"><option value="">(Select)</option></select>' +
     '<select id="' + sectionId + '-reusable-file" class="reusable-prompt-file" title="Reusable prompt file"><option value="">(File)</option></select>' +
     '<button class="icon-btn" data-action="previewReusablePrompt" data-id="' + sectionId + '" title="Preview in overlay"><span class="codicon codicon-open-preview"></span></button>' +
         '<button class="icon-btn" data-action="openReusablePromptExternal" data-id="' + sectionId + '" title="Open in MD viewer"><span class="codicon codicon-link-external"></span></button>' +
@@ -621,10 +616,10 @@ function getSectionContent(id) {
                 '<button class="icon-btn" data-action="openRoleEditor" id="anthropic-role-editor-btn" title="Role Editor — the roles a prompt can run as (_ai/roles)"><span class="codicon codicon-person"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
                 '<button class="icon-btn" data-action="recreateHistoryFromTrail" data-id="anthropic" title="Recreate the history of the chosen sessions, each from its own prompt/answer trail. Uses the &quot;Rebuild from last N prompts&quot; window from the Compaction settings and folds rounds in chunks of &quot;Run every N rounds − Raw turn pairs kept&quot;."><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate the quest memory of the chosen sessions, each from its own prompt/answer trail. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
+                '<button class="icon-btn" data-action="recreateMemoryFromTrail" data-id="anthropic" title="Recreate memory candidates from the chosen sessions, each from its own prompt/answer trail: the extracted facts go to the candidates file of this host in the quest memory folder (_ai/quests/QUEST/memory/), not to the curated files. Same windowing as Recreate History; the memory-extraction template is responsible for deduping against existing memory."><span class="codicon codicon-database"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
                 '<button class="icon-btn" data-action="openQuestHistoryInMdBrowser" data-id="anthropic" title="Open quest history (history.md) in the MD Browser"><span class="codicon codicon-book"></span></button>' +
-                '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open quest memory (facts.md for the active quest) in the MD Browser"><span class="codicon codicon-notebook"></span></button>' +
+                '<button class="icon-btn" data-action="openQuestMemoryInMdBrowser" data-id="anthropic" title="Open the quest memory in the MD Browser: facts.md of _ai/quests/QUEST/memory/, or the candidates file of this host while there is no facts.md"><span class="codicon codicon-notebook"></span></button>' +
                 // The models the Anthropic API offers (informational: the profile's configuration drives sends),
                 // in an overlay behind one button, with the reason when the list is unavailable (a missing key).
                 '<button class="icon-btn" data-action="showAvailableModels" data-id="anthropic" id="anthropic-models-btn" title="Available models: what the Anthropic API offers (informational — the profile\'s configuration decides the model)"><span class="codicon codicon-hubot"></span></button>' +
@@ -653,11 +648,6 @@ var selectPickSeq = 0;
 function linkChatSelects() {
     Object.keys(LINKED_SELECT_LABELS).forEach(function(id) { linkSelect(document.getElementById(id), LINKED_SELECT_LABELS[id]); });
     ['anthropic'].forEach(function(section) {
-        linkSelect(document.getElementById(section + '-reusable-type'), 'Prompt type');
-        var scopeLabel = document.getElementById(section + '-reusable-scope-label');
-        linkSelect(document.getElementById(section + '-reusable-scope'), function() {
-            return scopeLabel ? scopeLabel.textContent.replace(/:\s*$/, '') : 'Scope';
-        }, scopeLabel);
         linkSelect(document.getElementById(section + '-reusable-file'), 'Prompt file');
     });
 }
@@ -701,7 +691,7 @@ function linkSelect(sel, labelFor, labelSource) {
         if (sel.disabled) { return; }
         var requestId = ++selectPickSeq;
         pendingSelectPicks[requestId] = sel;
-        // A template list may have changed since the panel was filled (a template added in the editor):
+        // A list may have changed since the panel was filled (a template or a prompt file added):
         // the host sends the lists again first, then the picker opens over the fresh options.
         if (FRESH_CHOICE_SELECTS[sel.id]) {
             vscode.postMessage({ type: 'refreshChoices', requestId: requestId });
@@ -711,8 +701,8 @@ function linkSelect(sel, labelFor, labelSource) {
     });
     sync();
 }
-/** The selects whose options are asked for again before their picker opens: the templates. */
-var FRESH_CHOICE_SELECTS = { 'anthropic-userMessage': true };
+/** The selects whose options are asked for again before their picker opens: the templates and the quest's prompt files. */
+var FRESH_CHOICE_SELECTS = { 'anthropic-userMessage': true, 'anthropic-reusable-file': true };
 /** VS Code's picker over the select of request `requestId`, its options as they are now. */
 function postSelectPick(requestId) {
     var sel = pendingSelectPicks[requestId];
@@ -969,8 +959,7 @@ function handleAction(action, id, slot) {
         }
         case 'saveReusablePrompt': {
             var currentText = document.getElementById((id || '') + '-text');
-            var selState = ensureReusablePromptState(id || '');
-            vscode.postMessage({ type: 'saveReusablePrompt', section: id || '', text: currentText ? currentText.value : '', selection: { type: selState.type || '', scopeId: selState.scope || '' } });
+            vscode.postMessage({ type: 'saveReusablePrompt', section: id || '', text: currentText ? currentText.value : '' });
             break;
         }
         case 'previewReusablePrompt': {
@@ -1328,122 +1317,41 @@ function buildAnthropicStatusLine(historyMode) {
 
 function ensureReusablePromptState(sectionId) {
     if (!reusablePromptState[sectionId]) {
-        reusablePromptState[sectionId] = { type: 'global', scope: '', file: '' };
+        reusablePromptState[sectionId] = { file: '' };
     }
     return reusablePromptState[sectionId];
 }
 
-function reusableScopeLabel(type) {
-    if (type === 'project') {return 'Project:';}
-    if (type === 'quest') {return 'Quest:';}
-    if (type === 'scan') {return 'Folder:';}
-    return '';
-}
-
-function scopesForType(type) {
-    if (type === 'project') {return reusablePromptModel.scopes.project || [];}
-    if (type === 'quest') {return reusablePromptModel.scopes.quest || [];}
-    if (type === 'scan') {return reusablePromptModel.scopes.scan || [];}
-    return [];
-}
-
-function filesForSelection(type, scopeId) {
-    if (type === 'global') {
-        return reusablePromptModel.files.global || [];
-    }
-    if (type === 'project') {
-        return (reusablePromptModel.files.project && reusablePromptModel.files.project[scopeId || '']) || [];
-    }
-    if (type === 'quest') {
-        return (reusablePromptModel.files.quest && reusablePromptModel.files.quest[scopeId || '']) || [];
-    }
-    if (type === 'scan') {
-        return (reusablePromptModel.files.scan && reusablePromptModel.files.scan[scopeId || '']) || [];
-    }
-    return [];
-}
-
+/** The file dropdown of a section, filled from the host's list; the selection is kept while the file is there. */
 function populateReusablePromptSelectors(sectionId) {
-    var typeSel = document.getElementById(sectionId + '-reusable-type');
-    var scopeLabel = document.getElementById(sectionId + '-reusable-scope-label');
-    var scopeSel = document.getElementById(sectionId + '-reusable-scope');
     var fileSel = document.getElementById(sectionId + '-reusable-file');
-    if (!typeSel || !scopeSel || !fileSel || !scopeLabel) {return;}
+    if (!fileSel) {return;}
 
     var state = ensureReusablePromptState(sectionId);
-
-    if (!state.type) {
-        state.type = 'global';
-        state.scope = '';
-        state.file = '';
-    }
-
-    typeSel.value = state.type;
-
-    var needsScope = state.type === 'project' || state.type === 'quest' || state.type === 'scan';
-    scopeLabel.style.display = needsScope ? '' : 'none';
-    scopeSel.style.display = needsScope ? '' : 'none';
-    scopeLabel.textContent = reusableScopeLabel(state.type);
-
-    var scopes = scopesForType(state.type);
-    var hasScope = scopes.some(function(s) { return s.id === state.scope; });
-    if (!hasScope) {
-        if (state.type === 'quest' && reusablePreferredQuestId) {
-            var preferredQuest = scopes.find(function(s) { return s.id === reusablePreferredQuestId; });
-            state.scope = preferredQuest ? preferredQuest.id : '';
-        }
-        if (!state.scope && state.type === 'project' && reusablePreferredProjectId) {
-            var preferredProject = scopes.find(function(s) { return s.id === reusablePreferredProjectId; });
-            state.scope = preferredProject ? preferredProject.id : '';
-        }
-        if (!state.scope && state.type === 'scan' && reusablePreferredScanId) {
-            var preferredScan = scopes.find(function(s) { return s.id === reusablePreferredScanId; });
-            state.scope = preferredScan ? preferredScan.id : '';
-        }
-        if (!state.scope) {
-            state.scope = scopes.length > 0 ? scopes[0].id : '';
-        }
-        state.file = '';
-    }
-    scopeSel.innerHTML = '<option value="">(Select)</option>' + scopes.map(function(scope) {
-        return '<option value="' + scope.id + '"' + (scope.id === state.scope ? ' selected' : '') + '>' + scope.label + '</option>';
-    }).join('');
-
-    var files = filesForSelection(state.type, state.scope);
+    var files = reusablePromptFiles;
     var hasFile = files.some(function(f) { return (f.id || '') === state.file; });
     if (!hasFile) {
         state.file = files.length > 0 ? (files[0].id || '') : '';
     }
 
-    fileSel.innerHTML = '<option value="">(File)</option>' + files.map(function(file) {
-        var value = file.id || '';
-        var label = file.label || value;
-        return '<option value="' + value + '"' + (value === state.file ? ' selected' : '') + '>' + label + '</option>';
-    }).join('');
-
-    typeSel.disabled = false;
-    scopeSel.disabled = !needsScope || scopes.length === 0;
+    fileSel.innerHTML = '';
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '(File)';
+    fileSel.appendChild(placeholder);
+    files.forEach(function(file) {
+        var option = document.createElement('option');
+        option.value = file.id || '';
+        option.textContent = file.label || option.value;
+        option.selected = option.value === state.file;
+        fileSel.appendChild(option);
+    });
     fileSel.disabled = files.length === 0;
 }
 
+/** The selected prompt's id for the host: its file name. */
 function getSelectedReusablePromptId(sectionId) {
-    var state = ensureReusablePromptState(sectionId);
-    if (!state.file) {
-        return '';
-    }
-    if (state.type === 'global') {
-        return 'global::' + state.file;
-    }
-    if (state.type === 'project') {
-        return 'project::' + (state.scope || '') + '::' + state.file;
-    }
-    if (state.type === 'quest') {
-        return 'quest::' + (state.scope || '') + '::' + state.file;
-    }
-    if (state.type === 'scan') {
-        return 'scan::' + (state.scope || '') + '::' + state.file;
-    }
-    return '';
+    return ensureReusablePromptState(sectionId).file || '';
 }
 
 function populateSelect(id, options) {
@@ -1587,10 +1495,7 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'anthropicToolApprovalSettled') {
         dropAnthropicApproval(msg.toolId || '');
     } else if (msg.type === 'reusablePrompts') {
-        reusablePromptModel = msg.model || { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
-        reusablePreferredQuestId = msg.preferredQuestId || '';
-        reusablePreferredProjectId = msg.preferredProjectId || '';
-        reusablePreferredScanId = msg.preferredScanId || '';
+        reusablePromptFiles = Array.isArray(msg.files) ? msg.files : [];
         ['anthropic'].forEach(function(sectionId) {
             populateReusablePromptSelectors(sectionId);
         });
@@ -1740,29 +1645,6 @@ document.addEventListener('keydown', function(event) {
 
 function initReusablePromptSelectors() {
     ['anthropic'].forEach(function(sectionId) {
-        var typeSel = document.getElementById(sectionId + '-reusable-type');
-        if (typeSel) {
-            typeSel.addEventListener('change', function() {
-                var state = ensureReusablePromptState(sectionId);
-                state.type = typeSel.value || '';
-                state.scope = '';
-                state.file = '';
-                // Re-fetch from disk so newly added files appear
-                vscode.postMessage({ type: 'getReusablePrompts' });
-            });
-        }
-
-        var scopeSel = document.getElementById(sectionId + '-reusable-scope');
-        if (scopeSel) {
-            scopeSel.addEventListener('change', function() {
-                var state = ensureReusablePromptState(sectionId);
-                state.scope = scopeSel.value || '';
-                state.file = '';
-                // Re-fetch from disk so newly added files appear
-                vscode.postMessage({ type: 'getReusablePrompts' });
-            });
-        }
-
         var fileSel = document.getElementById(sectionId + '-reusable-file');
         if (fileSel) {
             fileSel.addEventListener('change', function() {

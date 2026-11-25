@@ -87,7 +87,6 @@ const AI_SUBPATHS: Record<string, string> = {
     chatReplies:         'chat_replies',
     attachments:         'attachments',
     queue:               'queue',
-    prompt:              'prompt',
     memory:              'memory',
     trail:               'trail',
     // Trail sub-folders (inside local/ etc.)

@@ -427,7 +427,7 @@ export interface SendToChatConfig {
             name: string;
             description?: string;
             template: string;
-            /** The file in the quest memory (`_ai/memory/<quest>/<session>/`) the extraction prepends to. */
+            /** The curated file of the quest memory (`_ai/quests/<quest>/memory/`) the template's candidates are meant for; the extraction writes them to this host's `candidates.<host>.md`. */
             targetFile: string;
             toolsEnabled?: boolean;
             enabledTools?: string[];
@@ -504,7 +504,7 @@ export interface SendToChatConfig {
     /**
      * Quest Refresh — an automatic "refresh prompt" that fires every *N* prompts
      * to run maintenance work off the recent trail (update the overview, prune
-     * todos, refresh quest-notes). Global (shared across quests); the per-quest
+     * todos, maintain the deferred list). Global (shared across quests); the per-quest
      * activation checkbox and the prompt counter live in
      * `_ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml` (see
      * `QuestRefreshStore`), not here. Read via {@link getQuestRefreshSettings}

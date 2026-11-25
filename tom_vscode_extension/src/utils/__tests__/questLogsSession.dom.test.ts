@@ -7,7 +7,8 @@
  *   QS-2 the host settling the choice (a plan for a deleted session) settles it for every tab
  *   QS-3 state saved per tab (`sessions`, tab → name) is read as one session: the active tab's, else the first
  *   QS-4 every session action behind the switch (raw trail, trail summary, history, live trail, memory, clear) posts
- *        the selected session, not `default`, and its title names it
+ *        the selected session, not `default`, and its title names it — but the memory button's: the quest memory
+ *        has no session level, its title says it is shared by every session
  */
 
 import test, { afterEach, describe } from 'node:test';
@@ -106,7 +107,11 @@ describe('@CHAT Logs: one session for every tab', () => {
             b.click();
             const sent = posted.filter((m) => m.type === 'qlogSessionAction').at(-1)!;
             assert.deepEqual([sent.action, sent.session], [b.getAttribute('data-qlog-session-action'), 'op5']);
-            assert.match(b.getAttribute('title'), /op5/, `${b.getAttribute('data-qlog-session-action')}: the title names the session`);
+            if (b.getAttribute('data-qlog-session-action') === 'memory') {
+                assert.equal(b.getAttribute('title'), 'Open the memory panel: the quest memory (curated files and the candidates files of the hosts), shared by every session');
+            } else {
+                assert.match(b.getAttribute('title'), /op5/, `${b.getAttribute('data-qlog-session-action')}: the title names the session`);
+            }
         }
     });
 });

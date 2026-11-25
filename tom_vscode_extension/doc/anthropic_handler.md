@@ -65,7 +65,7 @@ stream in flight.
 | Thinking and effort | The profile's `thinking` (`adaptive` / `off`) and `effort` (`low` … `max`), sent as the model takes them: `thinking: {type: 'adaptive'}` (or `{type: 'disabled'}`) and `output_config.effort`; `{type: 'enabled', budget_tokens: legacyThinkingBudgetTokens}` (default 8192) only on models without adaptive thinking (Haiku 4.5 and older). Off is not possible on Opus 5.5 / Fable, nor on Opus 5 at xhigh / max. A setting the model does not take is left out and named in the payload dump | The SDK's `thinking` and `effort` options, decided the same way (`{type: 'enabled', budgetTokens}` on a budget model; `src/handlers/__tests__/agent-sdk-thinking.test.ts`) |
 | Context compaction | Our `history-compaction.ts` | SDK-managed (`historyMode`, `maxHistoryTokens` ignored) |
 | Tool-use loop | Hand-rolled in `anthropic-handler.ts` | SDK-managed |
-| Memory tools | Same (`tomAi_memory_*`) | Same (`tomAi_memory_*`) — still exposed over MCP |
+| Memory tools | Same (`tomAi_readMemory`, `tomAi_listMemory`, `tomAi_saveMemory`, `tomAi_updateMemory`, `tomAi_forgetMemory`) | Same — still exposed over MCP |
 | Memory → system prompt injection | Yes (§5.2) | No — agent pulls via tools on demand |
 
 To switch, edit the JSON config:
@@ -113,7 +113,7 @@ Which tools a request carries — the core set, the `<!-- tools: … -->` line a
 
 ## 4. Enable memory tools
 
-The quest memory (`_ai/memory/<quest>/<session>/`) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
+The quest memory (`_ai/quests/<quest>/memory/`: the curated files such as `facts.md`, and one candidates file per host, `candidates.<host>.md`, which the automatic memory extraction writes) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
 
 ```json
 "memoryToolsEnabled": true

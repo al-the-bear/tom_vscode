@@ -16,8 +16,10 @@
  *             tool_results/t<n>.json                        its tool results,
  *             current_prompt.<source>.<variant>.md          and the last prompt it sent
  *
- * and its own quest memory, `_ai/memory/<quest>/<name>/` (there is no
- * shared memory). The session's
+ * The quest memory has no session level (`_ai/quests/<quest>/memory/`,
+ * src/services/questMemoryFiles.ts). OLD PLACE: a session's memory folder
+ * `_ai/memory/<quest>/<name>/` is still removed with the session, and the
+ * moves below still carry it. The session's
  * `<name>.session.json` stays beside the `sessions/` folder.
  *
  * {@link migrateQuestToSessionStorage} moves a quest's files from the layout
@@ -71,7 +73,7 @@ export function sessionLiveTrailFile(historyRoot: string, name: string): string 
     return path.join(sessionRoot(historyRoot, name), SESSION_LIVE_TRAIL_FILE);
 }
 
-/** The quest memory of session `name`; `memoryRoot` is `_ai/memory`. */
+/** OLD PLACE: the per-session memory folder of session `name`, `_ai/memory/<quest>/<name>/`; `memoryRoot` is `_ai/memory`. Read by the memory injection's interim rule, removed with the session; nothing writes it. */
 export function sessionMemoryFolder(memoryRoot: string, quest: string, name: string): string {
     return path.join(memoryRoot, quest, canonicalSessionName(name));
 }
@@ -112,9 +114,10 @@ export function sessionLiveTrailsSince(historyRoot: string, since?: Date): Sessi
     return trails.sort((a, b) => b.modified.getTime() - a.modified.getTime() || a.session.localeCompare(b.session));
 }
 
-/** Remove everything session `name` stored: its storage root and its quest memory. */
+/** Remove everything session `name` stored: its storage root and its memory folder of the old place. */
 export function removeSessionStorage(historyRoot: string, memoryRoot: string, quest: string, name: string): void {
     fs.rmSync(sessionRoot(historyRoot, name), { recursive: true, force: true });
+    // OLD PLACE: `_ai/memory/<quest>/<name>/`.
     fs.rmSync(sessionMemoryFolder(memoryRoot, quest, name), { recursive: true, force: true });
 }
 
@@ -238,6 +241,7 @@ export function migrateQuestToSessionStorage(layout: LegacyQuestLayout): Migrati
         if (e.name.startsWith('current_prompt.') || e.name.startsWith('last_request')) { continue; }
         move(path.join(layout.rawTrailFolder, e.name), path.join(target, SESSION_TRAIL_FOLDER, e.name), report);
     }
+    // OLD PLACE: the flat files of `_ai/memory/<quest>/` go to `_ai/memory/<quest>/default@default/`.
     const questMemory = path.join(layout.memoryRoot, layout.quest);
     for (const e of list(questMemory)) {
         if (e.isFile() && e.name.endsWith('.md')) {

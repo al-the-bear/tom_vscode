@@ -25,6 +25,7 @@
 import { MIGRATION_TARGET_SESSION, SESSION_LIVE_TRAIL_FILE, SESSION_TRAIL_FOLDER, SESSIONS_FOLDER } from '../services/sessionStorage';
 import { canonicalSessionName } from './runSessions';
 import { sanitizeQuestSegment } from './questPaths.js';
+import { DEFAULT_QUEST_NOTES_FILE, QUEST_NOTES_FOLDER } from './notesFiles.js';
 import { SESSION_NAME_PATTERN } from './agentSdkSessions.js';
 
 /** Identifier of one Logs sub-tab. */
@@ -342,7 +343,9 @@ export function questLogLocation(
         case 'overview':
             return { area: 'quest', fileName: `overview.${quest}.md` };
         case 'notes':
-            return { area: 'quest', fileName: `quest-notes.${quest}.md` };
+            // The quest's default notes file (utils/notesFiles.ts); the host resolves a quest whose
+            // notes are still at the old place.
+            return { area: 'quest', fileName: `${QUEST_NOTES_FOLDER}/${DEFAULT_QUEST_NOTES_FILE}` };
         case 'refresh':
             return { area: 'quest', fileName: `quest_refresh.${quest}.md` };
         case 'docUpdate':

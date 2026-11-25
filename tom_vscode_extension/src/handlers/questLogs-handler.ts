@@ -40,6 +40,7 @@ import { readMediaText } from '../utils/webviewLoader.js';
 import { WsPaths } from '../utils/workspacePaths.js';
 import { TwoTierMemoryService } from '../services/memory-service.js';
 import { questTrailFolder, sanitizeQuestSegment } from '../utils/questPaths.js';
+import { resolveDefaultQuestNotes } from '../utils/notesFiles.js';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown.js';
 import { highlightMarkdownSource } from '../utils/markdownSourceHighlight.js';
 import { listSessions } from '../services/agentSdkSessionStore.js';
@@ -212,6 +213,11 @@ function resolveQuestLogPath(
     const questsRoot = WsPaths.ai('quests') ?? path.join(wsRoot, WsPaths.aiFolder, 'quests');
     const questFolder = path.join(questsRoot, sanitizeQuestSegment(questId));
     const dir = area === 'questHistory' ? questTrailFolder(questFolder) : questFolder;
+    if (tab === 'notes') {
+        // The default notes file, through the one rule that also knows the old place.
+        const notes = resolveDefaultQuestNotes(path.join(dir, ...fileName.split('/')), questFolder, sanitizeQuestSegment(questId));
+        return { questId: questId || 'default', fileName: path.basename(notes.filePath), filePath: notes.filePath };
+    }
     return {
         questId: questId || 'default',
         fileName,

@@ -1,41 +1,29 @@
 /**
- * Memory Panel — webview that exposes the quest's memory
- * (`_ai/memory/<quest>/<session>/`) for inline editing.
+ * Memory Panel — webview that exposes the quest's memory folder
+ * (`_ai/quests/<quest>/memory/`) for inline editing.
  *
  * Spec: anthropic_sdk_integration.md §11.2. The panel is opened via the
  * `tomAi.panel.memory` command, which the ANTHROPIC section's Memory
  * button invokes when the webview posts `{ type: 'openAnthropicMemory' }`.
  *
  * Layout (two-pane):
- *   ├── Header              [Quest: {quest}]   [Session: {name}]
- *                           (quest memory is per session; the button picks whose)
- *   ├── File list (left)    one entry per file in the selected scope
+ *   ├── Header              [Quest: {quest}]
+ *   ├── File list (left)    the folder's files: the curated ones first, then
+ *                           the candidates files (`candidates.<host>.md`),
+ *                           marked as such — this host's and other hosts'
  *   ├── Content view (right) editable markdown textarea
  *   └── Toolbar             [+ New file] [Save] [Delete] [Open in editor]
  */
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { TwoTierMemoryService, MemoryScope } from '../services/memory-service';
+import { TwoTierMemoryService, MemoryScope, currentMemoryHost } from '../services/memory-service';
+import { memoryPanelRows } from '../services/questMemoryFiles';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
-import { sessionsWithStorage } from '../services/sessionStorage';
-import { pickSessions } from './sessionSelectionPicker';
 
 let _panel: vscode.WebviewPanel | undefined;
 let _context: vscode.ExtensionContext | undefined;
-/**
- * The session whose quest memory the Quest tab shows and edits
- * (`_ai/memory/<quest>/<session>/`); chosen with the Session button, at first
- * the session the last send ran in.
- */
-let _session: string | undefined;
-
-/** Run a memory operation in the panel's session. */
-function inPanelSession<T>(fn: () => T): T {
-    const svc = TwoTierMemoryService.instance;
-    return svc.withSession(_session ?? svc.activeSession, fn);
-}
 
 /** The one memory scope: the quest's. */
 const QUEST: MemoryScope = 'quest';
@@ -48,9 +36,8 @@ interface WebviewMessage {
 export function registerMemoryPanelCommand(context: vscode.ExtensionContext): void {
     _context = context;
     context.subscriptions.push(
-        // An optional session names whose quest memory the panel shows (the @CHAT Logs button passes its selected session).
-        vscode.commands.registerCommand('tomAi.panel.memory', (session?: unknown) => {
-            openMemoryPanel(context, typeof session === 'string' && session ? session : undefined);
+        vscode.commands.registerCommand('tomAi.panel.memory', () => {
+            openMemoryPanel(context);
         }),
     );
     // Restore the panel after a window reload. Singleton that reloads all memory
@@ -69,10 +56,9 @@ export function registerMemoryPanelCommand(context: vscode.ExtensionContext): vo
     );
 }
 
-/** Open (or reveal) the memory panel; `session`, when given, is the session whose quest memory it shows. */
-export function openMemoryPanel(context: vscode.ExtensionContext, session?: string): void {
+/** Open (or reveal) the memory panel on the quest's memory folder. */
+export function openMemoryPanel(context: vscode.ExtensionContext): void {
     _context = context;
-    if (session) { _session = session; }
     if (_panel) {
         _panel.reveal();
         _sendSnapshot();
@@ -140,23 +126,6 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
             case 'newFile':
                 await _newFile(QUEST);
                 return;
-            case 'pickSession': {
-                const svc = TwoTierMemoryService.instance;
-                const quest = svc.currentQuest();
-                const names = await pickSessions(quest, {
-                    title: 'Quest memory of which session',
-                    current: _session ?? svc.activeSession,
-                    extra: sessionsWithStorage(svc.historyFolder(quest || undefined)),
-                });
-                if (names && names.length > 0) {
-                    _session = names[0];
-                    if (names.length > 1) {
-                        void vscode.window.showInformationMessage(`The memory panel edits one session at a time: showing "${names[0]}".`);
-                    }
-                    _sendSnapshot();
-                }
-                break;
-            }
             case 'openInEditor':
                 _openInEditor(QUEST, String(msg.file ?? ''));
                 return;
@@ -172,26 +141,25 @@ async function _handleMessage(msg: WebviewMessage): Promise<void> {
 function _sendSnapshot(): void {
     const svc = TwoTierMemoryService.instance;
     const quest = svc.currentQuest();
-    const questFiles = quest
-        ? inPanelSession(() => svc.listWithMeta('quest')).sort((a, b) => a.file.localeCompare(b.file))
-        : [];
+    // The folder's files, curated first; a candidates file carries its host.
+    const questFiles = quest ? memoryPanelRows(svc.listWithMeta('quest'), currentMemoryHost()) : [];
     _panel?.webview.postMessage({
         type: 'snapshot',
         quest,
-        session: _session ?? svc.activeSession,
-        questFiles: questFiles.map((e) => ({ file: e.file, bytes: e.bytes })),
+        folder: quest ? vscode.workspace.asRelativePath(svc.scopeFolder('quest'), false) : '',
+        questFiles,
     });
 }
 
 function _sendFile(scope: MemoryScope, file: string): void {
     if (!file) return;
-    const content = inPanelSession(() => TwoTierMemoryService.instance.read(scope, file));
+    const content = TwoTierMemoryService.instance.read(scope, file);
     _panel?.webview.postMessage({ type: 'fileContent', scope, file, content });
 }
 
 function _saveFile(scope: MemoryScope, file: string, content: string): void {
     if (!file) return;
-    inPanelSession(() => TwoTierMemoryService.instance.write(scope, file, content));
+    TwoTierMemoryService.instance.write(scope, file, content);
     vscode.window.setStatusBarMessage(`Memory: saved ${scope}/${file}`, 2000);
     _sendSnapshot();
     _sendFile(scope, file);
@@ -199,39 +167,38 @@ function _saveFile(scope: MemoryScope, file: string, content: string): void {
 
 function _deleteFile(scope: MemoryScope, file: string): void {
     if (!file) return;
-    inPanelSession(() => TwoTierMemoryService.instance.delete(scope, file));
+    TwoTierMemoryService.instance.delete(scope, file);
     vscode.window.setStatusBarMessage(`Memory: deleted ${scope}/${file}`, 2000);
     _sendSnapshot();
 }
 
 async function _newFile(scope: MemoryScope): Promise<void> {
     const name = await vscode.window.showInputBox({
-        prompt: `New memory file (${scope})`,
+        prompt: `New memory file (${scope}): a curated file of the quest's memory folder`,
         placeHolder: 'e.g. decisions.md',
         validateInput: (v) => (v && v.trim() && !v.includes('..') ? null : 'Invalid file name'),
     });
     if (!name) return;
     const file = name.trim().endsWith('.md') ? name.trim() : `${name.trim()}.md`;
     const svc = TwoTierMemoryService.instance;
-    if (inPanelSession(() => svc.read(scope, file))) {
+    if (svc.read(scope, file)) {
         vscode.window.showWarningMessage(`Memory file already exists: ${scope}/${file}`);
         return;
     }
-    inPanelSession(() => svc.write(scope, file, ''));
+    svc.write(scope, file, '');
     _sendSnapshot();
     _sendFile(scope, file);
 }
 
 function _openInEditor(scope: MemoryScope, file: string): void {
     if (!file) return;
-    const abs = inPanelSession(() => TwoTierMemoryService.instance.filePath(scope, file));
+    const abs = TwoTierMemoryService.instance.filePath(scope, file);
     void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(abs));
 }
 
-// The webview HTML/JS/CSS now live in media/memoryPanel/{index.html,main.js,
-// style.css} and are loaded via loadWebviewHtml; the former inline `_getHtml`
-// template was removed in Phase B.3 of the webview restructuring. All panel data
-// flows via postMessage (no first-paint init payload).
+// The webview HTML/JS/CSS live in media/memoryPanel/{index.html,main.js,
+// style.css} and are loaded via loadWebviewHtml. All panel data flows via
+// postMessage (no first-paint init payload).
 
 // Appease strict unused-import linting when the module-level `_context`
 // is only read from within closures — retained for future API hooks.

@@ -20,7 +20,7 @@ All four share the tool registry and the trail system.
 This specification also covers:
 
 - **Trail files** — Anthropic added as a new raw trail subsystem; raw trail enabled by default; cleanup and `.gitignore` fixes
-- **Memory system** (`_ai/memory/`) — the quest's memory, per session
+- **Memory system** (`_ai/quests/{quest}/memory/`) — the quest's memory: curated facts and per-host candidates
 - **Tool approval** — user confirmation gate for write tools; chat variable writes exempt (panel visibility)
 - **Tool trail** — last two prompt rounds of tool calls, always full, prepended to each prompt
 - **History compaction** — `summary`/`trim_and_summary`/`llm_extract` modes; Local LLM or Anthropic as compaction provider
@@ -100,7 +100,7 @@ graph TD
     COMPACT --> STE
 
     subgraph MemoryLayer["Memory"]
-        MEMQ["_ai/memory/{quest}/{session}/\nquest-specific facts"]
+        MEMQ["_ai/quests/{quest}/memory/\nquest-specific facts"]
     end
 
     PA -->|sendAnthropic| AH
@@ -235,31 +235,42 @@ Their place in the panel's toolbar: §11.3.
 
 ### 5.1 Quest memory
 
-Memory is the quest's: `_ai/memory/{quest}/{session}/`, one folder per session (§18.13). Facts about one quest's work (its files, components, decisions) are irrelevant to another quest, the injected block stays small, and the memory lives and goes with the quest, like its trails and todos. There is no workspace-wide memory: what holds for every quest (preferences, conventions, who the user is) belongs in the guidelines and the instruction files, which every prompt reads.
+Memory is the quest's: `_ai/quests/{quest}/memory/`, one folder in the quest folder, with no session level. Facts about one quest's work (its files, components, decisions) are irrelevant to another quest, the injected block stays small, and the memory lives and goes with the quest, like its trails and todos. There is no workspace-wide memory: what holds for every quest (preferences, conventions, who the user is) belongs in the guidelines and the instruction files, which every prompt reads.
 
 ```text
-_ai/memory/
+_ai/quests/
     {quest}/
-        {session}/            ← the session's quest memory
-            facts.md          ← key facts extracted from conversations
-            project-context.md
-            decisions.md
-            open-issues.md
+        memory/
+            facts.md              ← curated facts (the default file)
+            facts-{suffix}.md     ← a profile's curated bucket
+            decisions.md          ← any other curated file
             custom/
                 {topic}.md
+            candidates.{host}.md  ← the candidates the extraction on {host} wrote
 ```
 
-The model and the memory tools write the running session's quest memory; the tools' `sessions` argument reaches other sessions of the quest.
+Two kinds of file live there (`src/services/questMemoryFiles.ts`):
+
+| Kind | Files | Written by | Shared |
+| --- | --- | --- | --- |
+| **curated facts** | every file that is not a candidates file: `facts.md` (the default), a profile's bucket `facts-{suffix}.md`, any other name | deliberately: the memory tools, the user's remember / forget, the Memory panel | by every host (tracked, merged) |
+| **candidates** | `candidates.{host}.md`, one per host (the host name made safe for a file name) | the automatic memory extraction, on that host only | tracked, never merged: only its host writes it |
+
+A candidate is a stamped bullet like every memory entry, `- <iso time> [<host>] <text>`, whose text starts with a fixed prefix: `{session=<session> file=<curated file>} <fact>`. It names the session the fact was extracted in (empty when the extraction ran in none) and the curated file it is meant for, the extraction template's `targetFile` (`formatCandidateText` / `parseCandidateText`; a line without the prefix is the fact alone, meant for `facts.md`). Both extraction passes (`runIncrementalMemoryExtraction`, the `llm_extract` mode) write candidates through `TwoTierMemoryService.addCandidates` and never a curated file; their `${existingMemory}` is the target curated file's content followed by this host's candidates meant for that file (`existingMemoryForExtraction`). A candidate becomes a fact by promotion: the fact is saved into its curated file and its line removed from the candidates file — by the user in the Memory panel or by a prompt with the memory tools, which address a candidates file by its name like any file.
+
+The memory service has no session: `scopeFolder` is the quest's folder, and the session a send runs in is handed over where it matters — to the extraction (the candidate's session) and to the injection (below).
 
 ### 5.2 System prompt injection
 
-`${memory}` (or `autoInjectMemory`) injects the running session's quest memory, `_ai/memory/{quest}/{session}/`, when a quest is active. Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens): the files are included newest first until the budget is used.
+`${memory}` (or `autoInjectMemory`) injects the quest memory when a quest is active (`injectForSystemPrompt`, block built by `buildMemoryBlock`): the curated files, newest first, each under `### quest/<file>`, then this host's candidates under their own heading (`### candidates/candidates.<host>.md — …`), so the model can tell a curated fact from a candidate. Other hosts' candidates are not injected. Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens): a curated file that does not fit is left out, and of the candidates as many of the newest entries as fit are taken. With a profile's memory `suffix` the block holds only `facts-<suffix>.md` and this host's candidates meant for that file.
+
+While the folder `_ai/memory/{quest}/` exists, the block additionally holds the files the send's session wrote there (`_ai/memory/{quest}/{session}/*.md`; with a suffix only `facts-<suffix>.md` of the session `default@default`), after the quest folder's and within the same budget, read-only (`readOldSessionMemory`). The handler passes the send's session as the `memorySession` value of the placeholder resolution. The memory tools and the Memory panel do not show those files, and nothing writes them.
 
 ### 5.3 Memory vs compacted history vs trail
 
 | | Raw trail | Compact trail | Compacted history | Memory |
 | --- | --- | --- | --- | --- |
-| Location | `_ai/trail/{subsystem}/{quest}/` | `_ai/quests/{quest}/` | `_ai/memory/{quest}/history/` | `_ai/memory/` |
+| Location | `_ai/trail/{subsystem}/{quest}/` | `_ai/quests/{quest}/` | `_ai/quests/{quest}/history/` | `_ai/quests/{quest}/memory/` |
 | Written by | Every exchange, automatically | Every exchange, automatically | Compaction pipeline | Model tools / LLM extraction / user keywords |
 | Format | One file per event | Accumulated `.md` log | Serialised message array JSON | Free-form markdown |
 | Injected into prompts | No | No | Yes — messages array | Yes — system prompt |
@@ -276,7 +287,7 @@ flowchart LR
     EX --> A["Explicit: model calls\nmemory tool during conversation\ntomAi_memory_save / forget / update"]
     EX --> B["Implicit: local LLM runs\nbackground extraction pass\n(when llm_extract mode active)"]
     EX --> C["Keyword shortcut:\nuser writes 'Remember: ...' or 'Forget: ...'"]
-    A --> MEM["_ai/memory/"]
+    A --> MEM["_ai/quests/{quest}/memory/\n(A, C: curated files; B: candidates.{host}.md)"]
     B --> MEM
     C --> MEM
 ```
@@ -338,7 +349,7 @@ flowchart TD
     OVERFLOW --> COMPACT[Send to local LLM\nwith compaction template]
     COMPACT --> SMSG["Single synthetic message:\n'[Context from earlier]\n• key fact 1\n• key fact 2...'"]
     SMSG --> FINAL[summary message + recent turns]
-    SMSG -.-> MEM["_ai/memory/{quest}/facts.md"]
+    SMSG -.-> MEM["_ai/quests/{quest}/memory/candidates.{host}.md"]
 ```
 
 ### 6.4 `llm_extract` detail
@@ -402,9 +413,9 @@ There are two separate template editing systems with different storage and purpo
 
 | | Global Template Editor (`globalTemplateEditor-handler.ts`) | Reusable Prompt Editor (`reusablePromptEditor-handler.ts`) |
 | --- | --- | --- |
-| Storage | `tom_vscode_extension.json` (config file) | Disk files (`.prompt.md`) in scope-based folders |
+| Storage | `tom_vscode_extension.json` (config file) | Disk files (`*.prompt.md`) in the active quest's `_ai/quests/<quest>/prompt/` |
 | Format | JSON objects with typed fields per category | Plain markdown files |
-| Scopes | Single (workspace config) | Global / Project / Quest / Scan ancestor |
+| Scopes | Single (workspace config) | The active quest |
 | Categories | Todo done notification, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions, assist prompts | Single type: reusable prompt fragments |
 | Use | Invoked by panel/queue machinery as structured config | Pasted into prompts manually or via editor UI |
 | Examples | "Execute TODO" user-message template, Anthropic profiles | Multi-line boilerplate prompt starters |
@@ -889,15 +900,16 @@ The **Memory button** (`🧠 Memory`) in the panel toolbar opens a **dedicated M
 
 ```text
 Memory Panel (webview)
-├── Header: [Quest: vscode_extension] [Session: default@default]
-├── File list (left): facts.md | project-context.md | decisions.md | open-issues.md | custom/...
+├── Header: [Quest: vscode_extension] _ai/quests/vscode_extension/memory
+├── File list (left): the curated files (facts.md | decisions.md | custom/...), then under
+│                     "Candidates": candidates.<host>.md — this host's and other hosts', marked with the host
 ├── Content view (right): rendered markdown, editable
 └── Toolbar: [+ New file] [Save] [Delete file] [Open in editor]
 ```
 
 This is NOT a simple folder reveal — it is a purpose-built viewer because:
 
-- Memory files need to show shared and quest tiers together
+- The curated files and the hosts' candidates files are shown together, each marked as what it is
 - The user should be able to add/edit/delete facts without leaving the chat flow
 - The model may have just written something and the user wants to review/correct it immediately
 
@@ -1043,7 +1055,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
 | `extension.ts` | Register anthropic manager, memory service |
 | `tom_vscode_extension.json` _(schema)_ | Add `anthropic`, `compaction`, `memory` sections; add `trail.raw.paths.anthropic` |
 | `_ai/trail/anthropic/` | **New** subsystem folder (created on first use, same structure as existing subsystems) |
-| `_ai/memory/` | **New** folder tree (created on first use) |
+| `_ai/quests/{quest}/memory/` | **New** folder (created on first write) |
 
 ---
 
@@ -1227,7 +1239,7 @@ gantt
 The following were open during design and have been resolved in this document:
 
 - **Tool approval UX** → inline approval bar (non-blocking), `Allow All / Deny All` session bypass. `tomAi_chatvar_write` exempt.
-- **Memory file granularity** → free-form filenames under `_ai/memory/{scope}/`; model chooses topic file name.
+- **Memory file granularity** → free-form filenames under `_ai/quests/{quest}/memory/`; model chooses topic file name.
 - **Compaction max rounds** → configurable (`compactionMaxRounds`, default 1).
 - **`llm_extract` memory scope** → determined by `memoryExtraction` template's `scope` field.
 - **Shared Ollama/Anthropic history** → deferred to a future `ConversationSession` abstraction; not blocking this release.
@@ -1425,7 +1437,7 @@ Delivers: quest memory read/write; memory tools; Memory Panel webview; history c
 - **Spec:** §5 (memory system overview), §5.1 (quest memory), §5.2 (injection), §11.2 (what the Memory Panel shows — drives the API shape needed)
 - **Read first:** `src/utils/fsUtils.ts` (`safeWriteFile`, `safeReadFile` or equivalent helpers to use); `src/utils/workspacePaths.ts` (how workspace root and `_ai/` path are resolved, to anchor memory paths correctly); `src/managers/chatVariablesStore.ts` (file persistence pattern to mirror)
 - Create `src/services/memory-service.ts` — `TwoTierMemoryService` singleton:
-  - Path: `_ai/memory/${quest}/<session>/`
+  - Path: `_ai/quests/${quest}/memory/`
   - `read(scope, file)` → string or `""`
   - `write(scope, file, content)` — creates folder on first use
   - `append(scope, file, content)`
@@ -1688,7 +1700,7 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 - Add a new section **Choosing a transport** after §2 (configuration):
   - Table: `transport: 'direct'` vs `transport: 'agentSdk'` — auth source, caching, compaction, cost model
   - Note that `apiKeyEnvVar`, `promptCachingEnabled`, `historyMode`, `maxHistoryTokens` are ignored under `agentSdk`
-  - Note that `_ai/memory/` is still written via tools — only the system-prompt memory injection is dropped
+  - Note that the quest memory (`_ai/quests/{quest}/memory/`) is still written via tools — only the system-prompt memory injection is dropped
 - Add a troubleshooting bullet: "Agent SDK dot is red" → install Claude Code CLI and run `claude login` or `claude setup-token`
 
 ---
@@ -1937,13 +1949,13 @@ Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the pro
 | `history/sessions/<session>/rawTurns.json`, `compaction_rounds.json`, `iteration.json` | the rolling tail, the accumulator, a per-iteration session's iteration | ignored |
 | `history/sessions/<session>/<quest>.anthropic.prompts.md`, `.answers.md` | the summary trail pair; rebuild and recreate read it | ignored |
 | `history/sessions/<session>/trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json`, `current_prompt.*.md` | ignored |
-| `_ai/memory/<quest>/<session>/` | the session's quest memory | tracked |
+| `_ai/memory/<quest>/<session>/` | a session's memory folder of the old place (§5.2): read by the memory injection for that session's sends, removed with the session, written by nothing | tracked |
 
 (`history/` is `_ai/quests/<quest>/history/`.) There is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`.
 
-- **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories, and memory extraction's target). Per send, `activateSession` sets the memory service's active session — `${memory}` and the memory tools use that session's quest memory — and the session's own tool trail.
+- **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories; a memory candidate names the session). Per send, `activateSession` sets the session's own tool trail; the quest memory has no session (§5.1).
 - **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.
 - **Based sessions.** A based session reads its base's history (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never clears its base's accumulator after a compaction.
-- **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and quest memory removed with it (`removeSessionStorage`).
+- **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and its memory folder `_ai/memory/<quest>/<session>/` removed with it (`removeSessionStorage`).
 - **Local LLM.** An Anthropic profile on a Local LLM configuration is stored like every Anthropic profile, in its session; only its `last_request.json` dump goes to `_ai/trail/localllm/<quest>/`.
 - **Moving to it.** On a quest's first use in a window (`TwoTierMemoryService.ensureSessionStorage`) the files of the per-quest layout — the history files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `current_prompt.*` and `last_request.json`, which the Logs tab reads there) and `_ai/memory/<quest>/*.md` — become the `default` session's. A machine-local marker, `history/sessions/.storage-version`, makes it run once per quest and machine; a file whose target already exists stays where it is, named in the *Tom AI Compaction and Memory Extraction* output channel.

@@ -20,6 +20,7 @@ import * as path from 'path';
 import Ajv from 'ajv';
 import { parse as parseYaml } from 'yaml';
 import { questScaffoldFiles } from '../questScaffold';
+import { DEFAULT_QUEST_NOTES_FILE, QUEST_NOTES_FOLDER, defaultQuestNotesPath, resolveDefaultQuestNotes } from '../notesFiles';
 import { collectPrefixTodos, pickNextTodoForIteration } from '../queueStep3Utils';
 
 const EXT = path.resolve(__dirname, '..', '..', '..');
@@ -38,9 +39,16 @@ const PAGES = [
 
 describe('the quest tomai_introduction', () => {
     test('IQ-1: the quest files', { skip }, () => {
-        for (const f of questScaffoldFiles('tomai_introduction', 'Tom AI Introduction', new Date())) {
-            assert.ok(fs.existsSync(path.join(QUEST, f.name)), f.name);
+        const notes = `${QUEST_NOTES_FOLDER}/${DEFAULT_QUEST_NOTES_FILE}`;
+        const files = questScaffoldFiles('tomai_introduction', 'Tom AI Introduction', new Date()).map((f) => f.name);
+        assert.ok(files.includes(notes), 'the scaffold has the default notes file');
+        for (const f of files.filter((n) => n !== notes)) {
+            assert.ok(fs.existsSync(path.join(QUEST, f)), f);
         }
+        // The notes: the default notes file, or (interim, utils/notesFiles.ts) the quest's notes at the old
+        // place `quest-notes.<quest>.md`.
+        const defaultNotes = resolveDefaultQuestNotes(defaultQuestNotesPath(QUEST), QUEST, 'tomai_introduction');
+        assert.ok(fs.existsSync(defaultNotes.filePath), `the quest's notes: ${defaultNotes.filePath}`);
         assert.deepEqual(JSON.parse(read('tomai_introduction.code-workspace')).folders, [{ path: '../../..' }]);
         assert.match(read('overview.tomai_introduction.md'), /\*\*Status:\*\* Active/);
         const handler = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'setupWorkspaceFolder-handler.ts'), 'utf8');

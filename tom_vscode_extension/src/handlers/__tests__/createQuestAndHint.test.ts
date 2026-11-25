@@ -65,7 +65,7 @@ import { readTodoFile } from '../../managers/questTodoManager.js';
 after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const FILES = (id: string): string[] => [
-    `${id}.code-workspace`, `overview.${id}.md`, `short_description.${id}.md`, `todos.${id}.todo.yaml`, `quest-notes.${id}.md`, `deferred.${id}.md`,
+    `${id}.code-workspace`, `overview.${id}.md`, `short_description.${id}.md`, `todos.${id}.todo.yaml`, 'notes/quest-notes.md', `deferred.${id}.md`,
     `progress.${id}.md`, `decisions.${id}.md`, `questions.${id}.md`, `open_topics.${id}.md`, `references.${id}.md`,
     `quest_refresh.${id}.md`, `quest_documentation_update.${id}.md`, `extension_config.${id}.yaml`,
 ];
@@ -93,7 +93,13 @@ describe('Create New Quest', () => {
         const folder = path.join(ws, '_ai', 'quests', 'my_quest');
         assert.equal(r.folder, folder);
         assert.deepEqual(r.files, FILES('my_quest'));
-        assert.deepEqual(fs.readdirSync(folder).sort(), FILES('my_quest').sort());
+        const walk = (dir: string, prefix = ''): string[] => fs.readdirSync(dir, { withFileTypes: true })
+            .flatMap((e) => e.isDirectory() ? walk(path.join(dir, e.name), `${prefix}${e.name}/`) : [`${prefix}${e.name}`]);
+        const onDisk = walk(folder);
+        assert.deepEqual(onDisk.sort(), FILES('my_quest').sort());
+        // The notes: the default notes file in the quest's notes folder, the user's own.
+        assert.match(fs.readFileSync(path.join(folder, 'notes', 'quest-notes.md'), 'utf8'), /^# Quest Notes — my_quest\n\nYour own notes\. The assistant does not write here/);
+        assert.equal(fs.existsSync(path.join(folder, 'quest-notes.my_quest.md')), false);
         assert.equal(r.workspaceFile, path.join(folder, 'my_quest.code-workspace'));
         assert.deepEqual(JSON.parse(fs.readFileSync(r.workspaceFile, 'utf8')), { folders: [{ path: '../../..' }], settings: { 'chat.useAgentsMdFile': true } });
         // Headings only: every Markdown file is headings, the quest id line, and fixed preamble text.

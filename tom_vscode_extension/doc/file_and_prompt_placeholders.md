@@ -116,6 +116,8 @@ ${quest-todos}          → _ai/quests/<quest>/todos.<quest>.todo.yaml
 ${quest-references}     → _ai/quests/<quest>/references.<quest>.md
 ```
 
+`${quest-quest-notes}` is the quest's default notes file, `_ai/quests/<quest>/notes/quest-notes.md` (for a quest that keeps its notes in `quest-notes.<quest>.md` in the quest folder and has no `notes/quest-notes.md`: that file).
+
 Requires the `quest` chat variable to be set. Like `${role-description}`, `${quest-description}` is reserved for the active-quest shortcut and is not overridden by this pattern.
 
 ### Arbitrary files
@@ -134,14 +136,16 @@ ${file-doc/design-decisions.md}  → <workspace>/doc/design-decisions.md
 
 ### Memory
 
-The quest memory files (`_ai/memory/<quest>/<session>/*.md`, the running session's; there is no shared memory) are exposed as placeholders so you can put them wherever gives you the best prompt-caching behavior:
+The quest memory (`_ai/quests/<quest>/memory/`, shared by every session; there is no shared memory across quests) is exposed as placeholders so you can put it wherever gives you the best prompt-caching behavior:
 
 | Placeholder | Expands to |
 | --- | --- |
-| `${memory}` | The current quest's memory files, newest first, prefixed by `## Memory`. |
+| `${memory}` | The current quest's memory, prefixed by `## Memory`: the curated files (`facts.md`, …), newest first, each under `### quest/<file>`; then this host's candidates from the automatic extraction under their own heading, `### candidates/candidates.<host>.md — …`, newest first. |
 | `${memory-quest}` | The same as `${memory}`. |
 
-Char budget comes from `anthropic.memory.maxInjectedTokens × 4` (default 3000 tokens → 12000 chars). Files that would push the block past budget are dropped.
+Char budget comes from `anthropic.memory.maxInjectedTokens × 4` (default 3000 tokens → 12000 chars). A curated file that would push the block past budget is left out; of the candidates as many of the newest lines as fit are taken. Other hosts' candidates files are not injected. With a profile's memory suffix the block holds only `facts-<suffix>.md` and this host's candidates meant for that file.
+
+While the folder `_ai/memory/<quest>/` exists, the memory files the send's session wrote there (`_ai/memory/<quest>/<session>/*.md`; with a suffix `facts-<suffix>.md` of the session `default@default`) follow the quest folder's, each under `### quest/<file> (session <session>)`, within the same budget.
 
 **Prompt caching note.** Anthropic's prompt cache matches on a byte-identical prefix; any change to the system prompt invalidates the cache for that session. Memory content changes as the extractor runs → drop `${memory}` into a **user-message template** rather than the profile's system prompt, and the system prefix stays stable so the cache keeps hitting.
 

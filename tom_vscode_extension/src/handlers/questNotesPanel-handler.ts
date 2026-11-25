@@ -1,30 +1,34 @@
 /**
  * QUEST NOTES side panel (vscimpb101): an activity-bar container of its own
  * (`tomAi-info-sidebar`, @TOM INFO) beside @TOM, @TOM WS and @TOM VSC, holding
- * one webview view, `tomAi.questNotesPanel`, on the active quest's notes file
- * (`quest-notes.<quest>.md`, path from `tomAi.notes.questNotesPattern`).
+ * one webview view, `tomAi.questNotesPanel`, on the active quest's notes
+ * files (`_ai/quests/<quest>/notes/*.md`; `quest-notes.md`, named by
+ * `tomAi.notes.questNotesPattern`, is the default).
  *
- * Its page (media/questNotesPanel/) has two tabs: **Edit**, a text area on
- * the file, and **View**, the file rendered by the MD Browser's own scripts
- * (media/markdownBrowser/blocks.js, teamReview.js, main.js) — headings,
- * folding, links, review annotations shown read-only. A button opens the file
- * in an editor.
+ * Its page (media/questNotesPanel/) has a picker of the notes files with a
+ * New notes file button, and two tabs on the file picked: **Edit**, a text
+ * area on the file, and **View**, the file rendered by the MD Browser's own
+ * scripts (media/markdownBrowser/blocks.js, teamReview.js, main.js) —
+ * headings, folding, links, review annotations shown read-only. Buttons open
+ * the file in the MD Browser and in an editor.
  *
- * The file is read and written through the same `NotepadFileStorage` the @TOM
- * QUEST NOTES view uses (sidebarNotes-handler.ts), whose watch (file watcher
+ * Which file is shown, the list and the picker's messages are the
+ * `QuestNotesSession`'s (notepad/questNotesSession.ts), the same host logic
+ * the @TOM QUEST NOTES view uses (sidebarNotes-handler.ts): one choice per
+ * window and quest for both views. The file is read and written through the
+ * session's `NotepadFileStorage`, whose watch (file watcher
  * plus a one-second poll) brings changes made elsewhere: the page reloads the
  * Edit tab unless it holds unsaved edits (then it asks), and the View tab
  * follows. The panel writes the file on the user's behalf only; no agent tool
  * writes it.
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
-import { NotepadFileStorage } from './notepad/notepadFileStorage';
+import type { NotepadFileStorage } from './notepad/notepadFileStorage';
 import { handleNotesFileMessage } from './notepad/notesFileActions';
-import { activeQuestNotesFile, questNotesHeader } from './sidebarNotes-handler';
+import { QuestNotesSession, type QuestNotesPickerState } from './notepad/questNotesSession';
 import { wireQuestHintMessages } from './questHint-handler';
 import { followMdLink, openMarkdownBrowser } from './markdownBrowser-handler';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
@@ -41,8 +45,8 @@ export const VIEW_SCRIPTS = ['shared/mdOverlay.js', 'shared/mdQuestions.js', 'ma
 /** The MD Browser styles the View tab uses. */
 export const VIEW_STYLES = ['shared/mdOverlay.css', 'markdownBrowser/style.css'];
 
-/** What the page is told about the notes. */
-export interface NotesState {
+/** What the page is told about the notes: the file shown and the picker's list. */
+export interface NotesState extends QuestNotesPickerState {
     type: 'notesState';
     hasQuest: boolean;
     questId: string;
@@ -55,43 +59,27 @@ export interface NotesState {
 
 export class QuestNotesPanelProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _storage: NotepadFileStorage | null = null;
-    private _questId = '';
+    private readonly _session: QuestNotesSession;
     private readonly _disposables: vscode.Disposable[] = [];
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
         /** The poll interval of the file watch; tests pass a short one. */
-        private readonly _pollMs?: number,
-    ) {}
+        pollMs?: number,
+    ) {
+        this._session = new QuestNotesSession(_context, (external) => this._sendState(external), pollMs);
+    }
+
+    private get _storage(): NotepadFileStorage | null { return this._session.storage; }
 
     dispose(): void {
-        this._storage?.dispose();
-        this._storage = null;
+        this._session.dispose();
         for (const d of this._disposables.splice(0)) { d.dispose(); }
     }
 
-    /** The storage on the active quest's notes file (created with its header when missing); null without a quest. */
+    /** The storage on the notes file shown (the default is created with its header when missing); null without a quest. */
     load(): NotepadFileStorage | null {
-        const notes = activeQuestNotesFile();
-        if (!notes) {
-            this._storage?.dispose();
-            this._storage = null;
-            this._questId = '';
-            return null;
-        }
-        if (this._storage?.path !== notes.filePath) {
-            this._storage?.dispose();
-            this._storage = new NotepadFileStorage(notes.filePath);
-            this._storage.watch(() => this._sendState(true), this._pollMs);
-        }
-        this._questId = notes.questId;
-        if (!fs.existsSync(notes.filePath)) {
-            this._storage.ensureFile();
-            this._storage.save(questNotesHeader(notes.questId));
-        }
-        this._storage.load();
-        return this._storage;
+        return this._session.load();
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -164,6 +152,10 @@ export class QuestNotesPanelProvider implements vscode.WebviewViewProvider {
             case 'reload':
                 if (this._storage) { this._storage.load(); this._sendState(false); }
                 return;
+            case 'selectNotesFile':
+            case 'newNotesFile':
+                await this._session.handleMessage(msg);
+                return;
             default:
                 // The MD Browser's writing messages (applyEdit, reviewMark, ...) are not taken:
                 // the View tab is read-only; the Edit tab writes the file.
@@ -175,7 +167,7 @@ export class QuestNotesPanelProvider implements vscode.WebviewViewProvider {
         const storage = external ? this._storage : this.load();
         const view = this._view;
         if (!view) { return; }
-        const quest = this._questId;
+        const quest = this._session.questId;
         view.title = quest ? `QUEST NOTES — ${quest}` : 'QUEST NOTES';
         const state: NotesState = {
             type: 'notesState',
@@ -184,6 +176,7 @@ export class QuestNotesPanelProvider implements vscode.WebviewViewProvider {
             filePath: storage?.path ?? '',
             relativePath: storage ? relativeToWorkspace(storage.path) : '',
             content: storage?.content ?? '',
+            ...this._session.pickerState,
             ...(external ? { external: true } : {}),
         };
         void view.webview.postMessage(state);

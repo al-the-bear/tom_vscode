@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
+import { NO_QUEST_PROMPTS_MESSAGE, activeQuestPromptFolder } from '../utils/questPrompts';
 import * as questTodo from '../managers/questTodoManager.js';
 import { SessionTodoStore } from '../managers/sessionTodoStore.js';
 import { PromptQueueManager } from '../managers/promptQueueManager';
@@ -57,8 +58,8 @@ function deleteResult(result: questTodo.TodoMoveResult, todoId: string): { succe
  * AC-18): the scripting API's calls on them are refused with where their content lives now.
  */
 const REMOVED_AI_FOLDER_MESSAGE = (folder: string): string =>
-    `_ai/${folder} is no longer part of the workspace: notes are the quest's (quest-notes.<quest>.md, QUEST NOTES) ` +
-    'or the workspace notes (WORKSPACE NOTES); a document belongs in its quest folder (doc.listQuestDocsVce).';
+    `_ai/${folder} is no longer part of the workspace: notes are the quest's (_ai/quests/<quest>/notes/, QUEST NOTES) ` +
+    'or the workspace notes (_ai/workspaces/<workspace>.notes.md, WORKSPACE NOTES); a document belongs in its quest folder (doc.listQuestDocsVce).';
 
 /**
  * The todo wire contract (`todo.*Vce`, read by tom_vscode_scripting_api's
@@ -578,19 +579,19 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'doc.listPromptsVce': {
-                const promptDir = WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
+                const promptDir = this.questPromptDir();
                 return this.listDocuments(promptDir, params.pattern, false);
             }
 
             case 'doc.readPromptVce': {
-                const promptDir = WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
+                const promptDir = this.questPromptDir();
                 const filePath = path.join(promptDir, params.filename);
                 return this.readDocument(filePath);
             }
 
             case 'doc.createPromptVce': {
-                const promptDir = WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
-                const filename = params.filename || `prompt_${Date.now()}.md`;
+                const promptDir = this.questPromptDir();
+                const filename = params.filename || `prompt_${Date.now()}.prompt.md`;
                 const filePath = path.join(promptDir, filename);
                 await this.writeDocument(filePath, params.content);
                 return { path: filePath };
@@ -653,6 +654,13 @@ export class TomScriptingBridgeHandler {
         }
     }
 
+    /** The saved prompts' folder: the active quest's `prompt/` (utils/questPrompts.ts); refused in a window without a quest. */
+    private questPromptDir(): string {
+        const folder = activeQuestPromptFolder();
+        if (!folder) { throw new Error(NO_QUEST_PROMPTS_MESSAGE); }
+        return folder.dir;
+    }
+
     private getDocFolderPath(folder: string, subfolder?: string): string {
         const wsRoot = layoutWorkspaceFolder() ?? '';
         let basePath: string;
@@ -660,7 +668,7 @@ export class TomScriptingBridgeHandler {
         if (folder === 'notes' || folder.startsWith('clarifications')) { throw new Error(REMOVED_AI_FOLDER_MESSAGE(folder)); }
         switch (folder) {
             case 'prompt':
-                basePath = WsPaths.ai('prompt') || path.join(wsRoot, '_ai', 'prompt');
+                basePath = this.questPromptDir();
                 break;
             case 'answers':
                 basePath = WsPaths.ai('answers') || path.join(wsRoot, '_ai', 'answers');

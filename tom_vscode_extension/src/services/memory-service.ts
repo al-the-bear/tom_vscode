@@ -1,10 +1,14 @@
 /**
- * Memory service for the Anthropic handler and the memory panel (the quest's memory, per session).
+ * Memory service for the Anthropic handler and the memory panel (the quest's memory).
  *
- * Spec: anthropic_sdk_integration.md §5 (memory system), §5.1 (scope
- * split), §5.2 (system-prompt injection), §11.2 (Memory Panel API).
+ * Spec: anthropic_sdk_integration.md §5 (memory system), §5.1 (the quest
+ * memory), §5.2 (system-prompt injection), §11.2 (Memory Panel API).
  *
- * The one tier is the quest's: `_ai/memory/<quest>/<session>/`, per session.
+ * The one tier is the quest's: the folder `_ai/quests/<quest>/memory/`, with
+ * no session level. It holds the curated facts (`facts.md`, a profile's
+ * `facts-<suffix>.md`, any other file) and one candidates file per host
+ * (`candidates.<host>.md`), which the automatic memory extraction writes
+ * (src/services/questMemoryFiles.ts).
  *
  * All write operations are idempotent (a re-run with the same content
  * yields the same file state) and create their parent directory on first
@@ -21,7 +25,21 @@ import { FsUtils } from '../utils/fsUtils';
 import { WsPaths } from '../utils/workspacePaths';
 import { toolLog } from '../utils/toolLog';
 import { logInfo as logStorageInfo } from './compaction-log';
-import { MIGRATION_TARGET_SESSION, migrateDefaultSessionName, migrateQuestToSessionStorage, sessionMemoryFolder } from './sessionStorage';
+import { MIGRATION_TARGET_SESSION, migrateDefaultSessionName, migrateQuestToSessionStorage } from './sessionStorage';
+import {
+    DEFAULT_MEMORY_FILE,
+    buildMemoryBlock,
+    candidateTargetFile,
+    candidatesFileName,
+    formatCandidateText,
+    memoryFileKind,
+    parseCandidateText,
+    questMemoryFolder,
+    readOldSessionMemory,
+    type InjectedMemoryKind,
+    type MemoryFileBody,
+    type MemoryFileKind,
+} from './questMemoryFiles';
 import { DEFAULT_RUN_SESSION, canonicalSessionName } from '../utils/runSessions';
 import { resolveTrailPath } from './trailPathResolver';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
@@ -38,7 +56,7 @@ export { formatHistoryAsMarkdown } from './historySnapshotFormat';
 export type { HistoryMarkdownInput } from './historySnapshotFormat';
 
 /**
- * The memory tier: the quest's, per session (`_ai/memory/<quest>/<session>/`). There is no shared tier: the
+ * The memory tier: the quest's (`_ai/quests/<quest>/memory/`). There is no shared tier: the
  * workspace-wide `_ai/memory/shared/` is no longer part of the `_ai` format (al_the_bear ai_format_migration AC-18).
  */
 export type MemoryScope = 'quest';
@@ -49,6 +67,25 @@ export interface MemoryListEntry {
     file: string;
     bytes: number;
     mtime: number;
+    /** Curated facts, or a host's candidates (`candidates.<host>.md`). */
+    kind: MemoryFileKind;
+}
+
+/** A file of an injected memory block: one of the memory folder, or (old place) one of a session's old folder. */
+export interface MemoryInjectedEntry {
+    scope: MemoryScope;
+    file: string;
+    bytes: number;
+    mtime: number;
+    kind: InjectedMemoryKind;
+}
+
+/** Where a candidate comes from and what it is meant for. */
+export interface CandidateOrigin {
+    /** The session the extraction ran in; empty or undefined when it ran in none. */
+    session?: string;
+    /** The curated file the candidates are meant for (the extraction template's `targetFile`). */
+    targetFile: string;
 }
 
 export interface MemoryInjection {
@@ -57,7 +94,7 @@ export interface MemoryInjection {
     /** Rough token count of `text`. */
     tokens: number;
     /** Files included in this snapshot, in the order they appear in `text`. */
-    included: MemoryListEntry[];
+    included: MemoryInjectedEntry[];
 }
 
 const DEFAULT_MAX_INJECTED_TOKENS = 3000;
@@ -190,47 +227,22 @@ export class TwoTierMemoryService {
         return TwoTierMemoryService._instance;
     }
 
-    /** Absolute path to the memory root (`_ai/memory/`). */
+    /**
+     * OLD PLACE: absolute path to `_ai/memory/`, where the quest memory was
+     * kept per session (`_ai/memory/<quest>/<session>/`). Nothing writes
+     * there; it is read by the injection's interim rule
+     * ({@link readOldSessionMemory}) and removed with a session's storage.
+     */
     memoryRoot(): string {
         const wsRoot = layoutWorkspaceFolder() ?? '';
-        // WsPaths.ai('memory') resolves via the configured AI folder name
-        // (WsPaths.aiFolder, e.g. '_ai'). 'memory' is now in AI_SUBPATHS,
-        // so WsPaths.ai('memory') should always succeed; the fallback uses
-        // WsPaths.aiFolder to avoid hardcoding '_ai'.
         return WsPaths.ai('memory') ?? path.join(wsRoot, WsPaths.aiFolder, 'memory');
     }
 
-    /**
-     * The session whose quest memory the `quest` scope means: the session the
-     * running prompt belongs to, set by the Anthropic handler when it selects
-     * a send's history (and by `withSession`). Every session keeps its own
-     * quest memory, `_ai/memory/<quest>/<session>/`.
-     */
-    private _activeSession: string = MIGRATION_TARGET_SESSION;
-
-    get activeSession(): string { return this._activeSession; }
-
-    /** Make `name` the session the `quest` memory scope means (the handler, per send). */
-    setActiveSession(name: string | undefined): void {
-        this._activeSession = name || MIGRATION_TARGET_SESSION;
-    }
-
-    /**
-     * Run `fn` with `name` as the session the `quest` scope means, then restore
-     * the active session. `fn` must be synchronous (every file operation of
-     * this service is): a send running meanwhile cannot see the swap.
-     */
-    withSession<T>(name: string, fn: () => T): T {
-        const active = this._activeSession;
-        this._activeSession = name || MIGRATION_TARGET_SESSION;
-        try { return fn(); } finally { this._activeSession = active; }
-    }
-
-    /** Absolute path to the folder for the given scope; `session` defaults to the active one. */
-    scopeFolder(_scope: MemoryScope, questId?: string, session?: string): string {
+    /** The quest's memory folder, `_ai/quests/<quest>/memory/`; created by the first write. */
+    scopeFolder(_scope: MemoryScope, questId?: string): string {
         const quest = questId || this.currentQuest() || 'default';
-        this.ensureSessionStorage(quest);
-        return sessionMemoryFolder(this.memoryRoot(), quest, session || this._activeSession);
+        return WsPaths.ai('quests', quest, 'memory')
+            ?? questMemoryFolder(path.join(layoutWorkspaceFolder() ?? '', WsPaths.aiFolder, 'quests'), quest);
     }
 
     /** The quests whose files were checked for the per-quest layout in this window. */
@@ -238,7 +250,8 @@ export class TwoTierMemoryService {
 
     /**
      * Move the quest's files from the per-quest layout (one history, trail
-     * pair, live trail, raw trail and quest memory for chat and queue
+     * pair, live trail, raw trail and — old place, `_ai/memory/<quest>/` —
+     * the flat quest memory files for chat and queue
      * together) into the `default@default` session's storage, once per quest
      * (src/services/sessionStorage.ts). Idempotent: a marker in
      * `history/sessions/` says it is done; a file whose target exists stays.
@@ -480,6 +493,7 @@ export class TwoTierMemoryService {
                 file: rel,
                 bytes: stat?.size ?? 0,
                 mtime: stat?.mtimeMs ?? 0,
+                kind: memoryFileKind(rel),
             };
         });
     }
@@ -497,68 +511,116 @@ export class TwoTierMemoryService {
         return parts.join('\n');
     }
 
+    // ------------------------------------------------------------------------
+    // Candidates (the automatic memory extraction)
+    // ------------------------------------------------------------------------
+
+    /** This host's candidates file, `candidates.<host>.md`. */
+    candidatesFile(): string { return candidatesFileName(HOST_NAME); }
+
+    /**
+     * Add extracted facts (one bullet per line) to this host's candidates
+     * file, each naming the session it was extracted in and the curated file
+     * it is meant for. The curated files are not touched. Same stamping,
+     * dedup and newest-first order as {@link prepend}. Answers the file written.
+     */
+    addCandidates(content: string, origin: CandidateOrigin, questId?: string): string {
+        const file = this.candidatesFile();
+        const targetFile = this.sanitizeFile((origin.targetFile || '').trim() || DEFAULT_MEMORY_FILE);
+        const fresh = this.stampNewLines(content).map((e) => {
+            const parsed = parseCandidateText(e.text);
+            // A line that already carries the prefix keeps what it names.
+            const text = parsed.targetFile !== undefined
+                ? e.text
+                : formatCandidateText({ session: origin.session, targetFile, text: e.text });
+            return { ...e, text };
+        });
+        const existing = parseMemoryEntries(this.read('quest', file, questId));
+        this.write('quest', file, serialiseMemoryEntries(dedupAndSortEntries([...fresh, ...existing])), questId);
+        return file;
+    }
+
+    /** This host's candidates meant for the curated file `targetFile`, newest first. */
+    candidatesFor(targetFile: string, questId?: string): MemoryEntry[] {
+        const target = this.sanitizeFile((targetFile || '').trim() || DEFAULT_MEMORY_FILE);
+        return dedupAndSortEntries(parseMemoryEntries(this.read('quest', this.candidatesFile(), questId)))
+            .filter((e) => candidateTargetFile(e.text) === target);
+    }
+
+    /**
+     * What the extraction already knows about `targetFile` (the template's
+     * `${existingMemory}`): the curated file's content, then this host's
+     * candidates meant for that file as plain stamped bullets.
+     */
+    existingMemoryForExtraction(targetFile: string, questId?: string): string {
+        const curated = this.read('quest', targetFile, questId).trimEnd();
+        const candidates = serialiseMemoryEntries(
+            this.candidatesFor(targetFile, questId).map((e) => ({ ...e, text: parseCandidateText(e.text).text })),
+        ).trimEnd();
+        return [curated, candidates].filter((part) => part.length > 0).join('\n');
+    }
+
     /**
      * Build a memory block for the system prompt, respecting a token
-     * budget: the quest memory files, newest first, until the budget is spent.
+     * budget: the curated files, newest first, then this host's candidates
+     * under their own heading (other hosts' candidates are not injected),
+     * until the budget is spent.
      *
-     * When `suffix` is provided (e.g. 'gemma4'), the file selection is
-     * restricted to `facts-<suffix>.md` only — used by LocalLLM profiles
-     * that want their own isolated memory bucket without sharing files
-     * with other profiles. Default (suffix omitted) preserves the
-     * legacy "inject every file in scope" behaviour.
+     * When `suffix` is provided (e.g. 'gemma4'), the selection is
+     * restricted to `facts-<suffix>.md` and this host's candidates meant for
+     * that file — used by LocalLLM profiles that want their own isolated
+     * memory bucket without sharing files with other profiles.
+     *
+     * `session` is the session the send runs in. It matters only for the old
+     * place: while `_ai/memory/<quest>/` exists, that session's old files
+     * follow the new ones within the same budget (with a suffix: only
+     * `facts-<suffix>.md` of the session `default@default`).
      */
-    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string): MemoryInjection {
-        // A suffix bucket is a Local LLM profile's, and the Local LLM has no
-        // sessions: its quest memory is the `default` session's (where the
-        // per-quest files went). Synchronous, so restoring is safe.
-        if (suffix && this._activeSession !== MIGRATION_TARGET_SESSION) {
-            const active = this._activeSession;
-            this._activeSession = MIGRATION_TARGET_SESSION;
-            try {
-                return this.injectForSystemPrompt(maxTokens, questId, suffix);
-            } finally {
-                this._activeSession = active;
-            }
-        }
+    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string, session?: string): MemoryInjection {
         const budget = Math.max(0, maxTokens);
-        const charBudget = budget * CHARS_PER_TOKEN;
-        const pieces: string[] = [];
-        const included: MemoryListEntry[] = [];
-        let usedChars = 0;
+        const quest = questId || this.currentQuest() || 'default';
+        const suffixFile = suffix ? `facts-${suffix}.md` : undefined;
 
-        const orderedQuest = this.listWithMeta('quest', questId).sort((a, b) => b.mtime - a.mtime);
-        // When a suffix is set, ignore everything except the exact
-        // `facts-<suffix>.md` file. We don't broaden to
-        // any `*-<suffix>.md` because the user spec was precise.
-        const filter = suffix
-            ? (e: MemoryListEntry) => e.file === `facts-${suffix}.md`
-            : () => true;
+        const curated: MemoryFileBody[] = this.listWithMeta('quest', questId)
+            .filter((e) => e.kind === 'curated' && (suffixFile === undefined || e.file === suffixFile))
+            .sort((a, b) => b.mtime - a.mtime)
+            .map((e) => ({ file: e.file, bytes: e.bytes, mtime: e.mtime, body: this.read('quest', e.file, questId) }));
 
-        const add = (entry: MemoryListEntry): boolean => {
-            const body = this.read(entry.scope, entry.file, questId).trim();
-            if (!body) {
-                return false;
-            }
-            const block = `### ${entry.scope}/${entry.file}\n${body}\n`;
-            if (usedChars + block.length > charBudget) {
-                return false;
-            }
-            pieces.push(block);
-            included.push(entry);
-            usedChars += block.length;
-            return true;
-        };
+        const candidatesFile = this.candidatesFile();
+        const candidatesMeta = this.listWithMeta('quest', questId).find((e) => e.file === candidatesFile);
+        const candidateEntries = dedupAndSortEntries(parseMemoryEntries(this.read('quest', candidatesFile, questId)))
+            .filter((e) => suffixFile === undefined || candidateTargetFile(e.text) === suffixFile);
 
-        for (const entry of orderedQuest.filter(filter)) { add(entry); }
-
-        const text = pieces.length > 0
-            ? `## Memory\n\n${pieces.join('\n')}`
-            : '';
+        const block = buildMemoryBlock({
+            curated,
+            candidates: {
+                file: candidatesFile,
+                lines: serialiseMemoryEntries(candidateEntries).split('\n').filter((l) => l.length > 0),
+                bytes: candidatesMeta?.bytes ?? 0,
+                mtime: candidatesMeta?.mtime ?? 0,
+            },
+            oldSession: this.oldSessionMemory(quest, suffix ? MIGRATION_TARGET_SESSION : (session || MIGRATION_TARGET_SESSION), suffix),
+            charBudget: budget * CHARS_PER_TOKEN,
+        });
         return {
-            text,
-            tokens: Math.ceil(text.length / CHARS_PER_TOKEN),
-            included,
+            text: block.text,
+            tokens: Math.ceil(block.text.length / CHARS_PER_TOKEN),
+            included: block.included.map((e) => ({ scope: 'quest' as const, ...e })),
         };
+    }
+
+    /**
+     * OLD PLACE (`_ai/memory/<quest>/<session>/`): the old memory files of
+     * `session`, for the injection only. The memory tools and the Memory
+     * panel do not show them. Goes when the old folder's files are moved.
+     */
+    private oldSessionMemory(quest: string, session: string, suffix?: string): { session: string; files: MemoryFileBody[] } | undefined {
+        try {
+            const files = readOldSessionMemory(this.memoryRoot(), quest, session, suffix);
+            return files.length > 0 ? { session, files } : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -777,7 +839,7 @@ export class TwoTierMemoryService {
         return out;
     }
 
-    /** Reject absolute paths and `..` traversal — file names are scope-relative. */
+    /** Reject absolute paths and `..` traversal — file names are relative to the memory folder. */
     private sanitizeFile(file: string): string {
         const trimmed = file.replace(/^[\\/]+/, '').replace(/\\/g, '/');
         if (trimmed.includes('..')) {

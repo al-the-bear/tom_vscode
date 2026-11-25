@@ -777,8 +777,9 @@ async function editOrCreateAnthropicConfiguration(configId: string | null): Prom
  *
  * Side-effects:
  *   - Writes raw prompts/answers to the trail (same place as normal runs).
- *   - Writes memory entries (prepends them to the extraction template's
- *     memory file) when the mode is `llm_extract` and the memory extraction
+ *   - Writes memory candidates (this host's `candidates.<host>.md` in the
+ *     quest's memory folder, meant for the extraction template's target
+ *     file) when the mode is `llm_extract` and the memory extraction
  *     template returns non-empty output; the button's tooltip and the
  *     completion message say so.
  *   - Does NOT mutate the active Anthropic handler's rolling history.
@@ -829,7 +830,7 @@ async function runCompactionDryRunFor(
         { role: 'user', content: 'Walk me through how the compaction subsystem decides when to run.' },
         { role: 'assistant', content: 'Compaction runs fire-and-forget after every exchange today (anthropic-handler.ts sendMessage). It has no awareness of the model context window; maxHistoryTokens is a static profile value.' },
         { role: 'user', content: 'And what about memory extraction — which modes do that?' },
-        { role: 'assistant', content: 'Only the llm_extract mode. It runs a separate LLM call on the last user/assistant pair and appends the distilled facts via TwoTierMemoryService.append to the target memory file.' },
+        { role: 'assistant', content: 'Only the llm_extract mode. It runs a separate LLM call on the last user/assistant pair and adds the distilled facts as candidates to this host\'s candidates file in the quest memory folder, each naming the curated file it is meant for.' },
         { role: 'user', content: 'Where are the prompts/answers logged?' },
         { role: 'assistant', content: 'Raw prompts and answers are written under _ai/trail/anthropic/<quest>/compaction/ and .../memory/ by TrailService. The compaction-log output channel (new) also indexes every call with the template id, LLM config, turn counts, and memory write targets.' },
     ];
@@ -878,7 +879,7 @@ async function runCompactionDryRunFor(
             onProgress: (m) => logRunBanner('progress', [m]),
         });
         vscode.window.showInformationMessage(
-            `Compaction dry run for "${session}" complete — see the "Tom AI Compaction and Memory Extraction" output channel and history/sessions/${session}/trail/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory files were appended to if extraction produced output.' : ''}`,
+            `Compaction dry run for "${session}" complete — see the "Tom AI Compaction and Memory Extraction" output channel and history/sessions/${session}/trail/compaction/ for details.${mode.value === 'llm_extract' ? ' Memory candidates were added (this host\'s candidates file in the quest memory folder) if extraction produced output.' : ''}`,
         );
     } catch (e) {
         logCompactionError('dry run failed', e);
@@ -2825,7 +2826,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 </select>
             </div>
             <div class="sp-settings-row">
-                <label title="Expose the tomAi_*Memory tools to the main Anthropic agent during its tool-use loop. When off, memory is injected into the system prompt at send time (capped by the next field) and the agent cannot mutate memory on demand.">Memory tools:</label>
+                <label title="Expose the tomAi_*Memory tools to the main Anthropic agent during its tool-use loop. When off, memory is injected into the system prompt at send time (capped by the next field) and the agent cannot mutate memory on demand. The memory is the quest's folder _ai/quests/QUEST/memory/: curated files (facts.md, ...) and one candidates file per host, which the automatic extraction writes.">Memory tools:</label>
                 <select id="sp-mem-memoryToolsEnabled">
                     <option value="true" ${status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Enabled</option>
                     <option value="false" ${!status.anthropicMemory.memoryToolsEnabled ? 'selected' : ''}>Disabled</option>
@@ -2859,7 +2860,7 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
             </div>
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateCompactionSettings">Save Compaction Settings</button>
-                <button class="sp-btn" data-status-action="runCompactionDryRun" title="Run one pass of the history mode you pick (summary, trim_and_summary or llm_extract) against the chosen sessions' rolling history (or a small synthetic one when empty). Writes raw prompts/answers to the trail and a detailed line to the 'Tom AI Compaction and Memory Extraction' output channel. Does NOT change the live history. In llm_extract mode the extracted facts ARE written to the memory file (prepended), as a real extraction would.">🧪 Dry Run</button>
+                <button class="sp-btn" data-status-action="runCompactionDryRun" title="Run one pass of the history mode you pick (summary, trim_and_summary or llm_extract) against the chosen sessions' rolling history (or a small synthetic one when empty). Writes raw prompts/answers to the trail and a detailed line to the 'Tom AI Compaction and Memory Extraction' output channel. Does NOT change the live history. In llm_extract mode the extracted facts ARE written as candidates to this host's candidates file (_ai/quests/QUEST/memory/candidates.HOST.md), as a real extraction would; the curated files are not written.">🧪 Dry Run</button>
             </div>
         </div>
     </div>

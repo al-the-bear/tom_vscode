@@ -148,7 +148,7 @@ describe('questLogLocation', () => {
     const cases: [QuestLogTabId, string][] = [
         ['progress', 'progress.vscode_extension.md'],
         ['overview', 'overview.vscode_extension.md'],
-        ['notes', 'quest-notes.vscode_extension.md'],
+        ['notes', 'notes/quest-notes.md'],
         ['refresh', 'quest_refresh.vscode_extension.md'],
         ['docUpdate', 'quest_documentation_update.vscode_extension.md'],
         ['deferred', 'deferred.vscode_extension.md'],

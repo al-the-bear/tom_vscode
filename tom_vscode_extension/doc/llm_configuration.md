@@ -221,7 +221,7 @@ most recent verbatim user/assistant pairs. Every turn:
 | `rawTurnsKept` | `4` | Number of user/assistant turn *pairs* kept verbatim. Total raw messages = `rawTurnsKept * 2`. |
 | `maxHistoryTokens` | `8000` | Token target for the compactor's output (`${maxHistoryTokens}` placeholder). Also used as the safety token cap in batch summary mode, and as the cap on the raw history every request carries: the newest whole rounds that fit (four characters a token) go out, older ones are left out (`src/services/historyPayloadBound.ts`). |
 | `historyMaxChars` | `24000` | Hard cap on the `${existingSummary}` / `${compactedSummary}` injected into the compactor's *own* prompt. Tail-bounded (newest portion kept). |
-| `memoryMaxChars` | `8000` | Hard cap on `${existingMemory}` injected into the memory-extraction prompt. Head-bounded (newest entries kept — memory files are prepended newest-first). |
+| `memoryMaxChars` | `8000` | Hard cap on `${existingMemory}` injected into the memory-extraction prompt. Head-bounded: the curated target file comes first, then this host's candidates for it, newest first, so the oldest candidates fall off. |
 | `compactionTemplateId` | active id from `compaction.templates[]` | Which template renders the prompt sent to the compactor LLM. |
 | `compactionMaxRounds` | `1` | Tool-call rounds allowed during one compaction pass (Local LLM only — Anthropic compaction is single-shot). |
 | `fullTrailMaxTurns` | `200` | Safety cap on `historyMode: full`. |
@@ -284,9 +284,9 @@ different vocabulary, used by **`runIncrementalMemoryExtraction`**:
 | --- | --- | --- |
 | `${lastTurn}` | string | The exchange that just happened. |
 | `${compactedSummary}` | string | The just-updated running summary, tail-bounded to `historyMaxChars`. |
-| `${existingMemory}` | string | Current memory file content, head-bounded to `memoryMaxChars` (newest entries kept). |
-| `${memoryFilePath}` | string | Absolute path of the target memory file (`facts.md` etc). |
-| `${memoryScope}` | string | `'quest'` / `'shared'` / `'both'`. |
+| `${existingMemory}` | string | What is known already: the content of the template's target file (a curated file of `_ai/quests/<quest>/memory/`), then this host's candidates meant for that file, newest first; head-bounded to `memoryMaxChars`. |
+| `${memoryFilePath}` | string | Absolute path of the template's target file (`facts.md` etc). |
+| `${memoryScope}` | string | Always `'quest'`. |
 | `${historyMaxChars}` | string (int) | Same value passed to the compactor. |
 | `${memoryMaxChars}` | string (int) | Hard cap on existing memory injection. |
 
@@ -772,7 +772,7 @@ behaviour that is genuinely system-wide (e.g. the global kill switch).
 | `rebuildFromLastNPrompts` | `200` | Anthropic — number of trail-file entries used to seed history when no `history.json` exists. Only runs the LLM fold when compaction is enabled (`disabled: false`) or the rebuild was forced via "Recreate History". |
 | `archiveHistoryEveryTurn` | `false` | Debug toggle: write a timestamped `history.json` snapshot per turn. |
 | `templates[]` | — | Compaction prompt templates (id, name, body, targetMode). |
-| `memoryExtractionTemplates[]` | — | Memory-extraction prompt templates. |
+| `memoryExtractionTemplates[]` | — | Memory-extraction prompt templates. A template's `targetFile` is the curated file of the quest memory (`_ai/quests/<quest>/memory/`) its facts are meant for; the extraction writes them as candidates to this host's `candidates.<host>.md` in that folder, each line naming the session and the target file, and never writes the curated file. |
 
 ---
 

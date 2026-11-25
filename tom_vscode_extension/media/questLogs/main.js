@@ -168,7 +168,7 @@ function qlogCreateViewer(cfg) {
         ['trailSummary', 'codicon-list-flat', 'Open the trail summary of session '],
         ['history', 'codicon-file-text', 'Open the rolling history (history.md) of session '],
         ['liveTrail', 'codicon-pulse', 'Open the live trail of session '],
-        ['memory', 'codicon-book', 'Open the memory panel on session '],
+        ['memory', 'codicon-book', 'Open the memory panel: the quest memory (curated files and the candidates files of the hosts), shared by every session'],
         ['clearHistory', 'codicon-clear-all', 'Clear the history of session '],
     ];
     function sessionActionsHtml(selected) {

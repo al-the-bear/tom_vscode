@@ -1,8 +1,8 @@
 /**
  * Folder rules of the workspace walks that remain after the project
  * discovery moved onto buildkit's listing (services/workspaceProjects.ts,
- * vscimpb84): which folders a walk never enters (the `prompt/` folder walk of
- * promptScopes.ts), and the exclude globs (`tomAi.guidelines.excludeGlobs`).
+ * vscimpb84): which folders a walk never enters, and the exclude globs
+ * (`tomAi.guidelines.excludeGlobs`).
  *
  * vscode-free.
  */

@@ -4,8 +4,8 @@
  * written through the shared configuration file, so every window and host
  * shows a list in the same order.
  *
- * List keys: `queueTemplates`, `reusablePrompts:global` /
- * `reusablePrompts:<scope>:<sub>`, `groupPrompts:global:<kind>` /
+ * List keys: `queueTemplates`, `reusablePrompts:quest:<quest>`
+ * (utils/questPrompts.ts), `groupPrompts:global:<kind>` /
  * `groupPrompts:quest:<quest>:<kind>`, `roles`, `roleTypes`, `processes`.
  */
 
@@ -33,5 +33,15 @@ export function moveInStoredOrder(key: string, shownIds: readonly string[], id: 
     const config = loadSendToChatConfig();
     if (!config) { return false; }
     config.editorListOrder = { ...(config.editorListOrder ?? {}), [key]: next };
+    return saveSendToChatConfig(config);
+}
+
+/** Entry `from` of list `key` is called `to` from here on: it keeps its place in a stored order. */
+export function renameInStoredOrder(key: string, from: string, to: string): boolean {
+    const order = storedListOrder(key);
+    if (!order || !order.includes(from)) { return false; }
+    const config = loadSendToChatConfig();
+    if (!config) { return false; }
+    config.editorListOrder = { ...(config.editorListOrder ?? {}), [key]: order.map((id) => (id === from ? to : id)) };
     return saveSendToChatConfig(config);
 }

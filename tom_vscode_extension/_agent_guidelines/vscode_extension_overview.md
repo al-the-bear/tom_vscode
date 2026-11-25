@@ -35,7 +35,8 @@ src/
     trailService.ts               raw trail file writer
     live-trail.ts                 live-trail markdown (rolling 5 blocks)
     tool-trail.ts                 in-memory ring buffer + replay keys
-    memory-service.ts             quest memory (per session) + Agent SDK session id
+    memory-service.ts             quest memory (_ai/quests/<quest>/memory/) + Agent SDK session id
+    questMemoryFiles.ts           the memory folder's file kinds, candidates, injected block
     history-compaction.ts         trim_and_summary, full, summary modes
   tools/                        tools exposed to the model
     tool-executors.ts             dispatcher + write/exec tools
@@ -122,7 +123,7 @@ On the Agent SDK path, tools surface through an MCP server (`mcp__tom-ai__<tool>
 
 ### History + compaction
 
-`trim_and_summary` (default for direct transport) rolls the session's `history/sessions/<session>/history.json` + `history.md` forward each turn (`compacted_history.md` beside them; quest memory per session in `_ai/memory/<quest>/<session>/`; layout in `services/sessionStorage.ts`). SDK-managed mode delegates continuity to the Agent SDK and writes the session id to `_ai/quests/<quest>/history/default.session.json` (gitignored; idempotent — skipped when unchanged). Memory extraction runs as a background job after each direct-transport turn.
+`trim_and_summary` (default for direct transport) rolls the session's `history/sessions/<session>/history.json` + `history.md` forward each turn (`compacted_history.md` beside them; layout in `services/sessionStorage.ts`). The quest memory is `_ai/quests/<quest>/memory/`, shared by every session: curated files and one `candidates.<host>.md` per host (`services/questMemoryFiles.ts`). SDK-managed mode delegates continuity to the Agent SDK and writes the session id to `_ai/quests/<quest>/history/default.session.json` (gitignored; idempotent — skipped when unchanged). Memory extraction runs as a background job after each direct-transport turn and writes this host's candidates file, never a curated file.
 
 ## 6. Bridge and automation
 

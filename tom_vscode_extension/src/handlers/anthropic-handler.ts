@@ -78,6 +78,7 @@ import { findAgentDefinition, listAgentDefinitions, resolveSubagentConfiguration
 import { runWithToolContext } from '../services/tool-execution-context';
 import { ConversationMessage } from '../services/history-compaction';
 import { TwoTierMemoryService } from '../services/memory-service';
+import { memoryFileKind } from '../services/questMemoryFiles';
 import {
     loadCompactionRoundsIn,
     rawTurnsToRounds,
@@ -830,9 +831,8 @@ export class AnthropicHandler {
         logHistoryInfo(`history scope: quest=${quest} session=${name} folder=${scope.folder}${scope.fresh ? ' (fresh)' : ''}${scope.persist ? '' : ' (not saved)'}${iterationKey ? ` iteration=${iterationKey}` : ''}`);
     }
 
-    /** Make `name` the session of everything per session: its quest memory and its tool trail. */
+    /** Make `name` the session of everything per session: its tool trail. */
     private activateSession(name: string): void {
-        TwoTierMemoryService.instance.setActiveSession(name);
         this.toolTrail = this.toolTrailFor(name);
         setActiveToolTrail(this.toolTrail);
     }
@@ -1641,7 +1641,9 @@ export class AnthropicHandler {
     }
 
     /**
-     * Recreate the quest memory file from the trail. Public entry
+     * Recreate memory candidates from a session's trail (this host's
+     * `candidates.<host>.md` in the quest's memory folder; the curated
+     * files are not written). Public entry
      * point for the "Recreate Memory" button. Walks the trail in
      * chunks of `runEveryNRounds − rawTurnsKept` rounds — the same
      * chunk size used by live compaction — and runs memory extraction
@@ -1652,13 +1654,13 @@ export class AnthropicHandler {
      * Existing memory is NOT cleared first. The memory-extraction
      * template is required to read `${existingMemory}` and skip
      * already-recorded facts, so a rebuild against current memory is
-     * idempotent (new facts get appended; duplicates are suppressed
+     * idempotent (new facts become candidates; duplicates are suppressed
      * by the model).
      */
     async recreateMemoryFromTrail(questId?: string, sessionKey: string = DEFAULT_AGENT_SDK_SESSION_KEY): Promise<void> {
         const quest = questId ?? TwoTierMemoryService.instance.currentQuest();
         const cfg = this.getCompactionConfig();
-        // The session's memory, from the session's own trail.
+        // Memory candidates from the session's own trail; each names the session.
         await this.awaitInFlightBackgroundWork();
         this.activateSession(sessionKey);
         if (!cfg.memoryTarget.configId && !cfg.compactionTarget.configId) {
@@ -3959,8 +3961,8 @@ export class AnthropicHandler {
      *      `maxRounds * 2`.
      *   2. If `runMemoryExtractionOnCompaction` is enabled, run a memory
      *      extraction pass over the last turn + current summary +
-     *      existing memory so durable facts move into the quest memory
-     *      file.
+     *      existing memory so durable facts become memory candidates
+     *      (this host's `candidates.<host>.md` in the quest's memory folder).
      *
      * Both promises are stored on the handler so the next sendMessage
      * can await them and show "waiting for history compaction…" /
@@ -4368,6 +4370,7 @@ export class AnthropicHandler {
         const base = unescapePlaceholders(resolveVariables(promptSource, {
             values: {
                 toolHistory: extras?.toolHistory ?? '',
+                memorySession: this.currentSessionName(),
             },
         }));
         if (base) { segments.push(base); }
@@ -4421,9 +4424,12 @@ export class AnthropicHandler {
     }
 
     /**
-     * Remove lines containing `needle` from every quest memory file. Case-
-     * insensitive substring match. Empties left behind are kept as files
-     * so the user sees the history of what was removed.
+     * Remove lines containing `needle` from the files of the quest's
+     * memory folder (`_ai/quests/<quest>/memory/`): the curated files and
+     * this host's candidates file, so a forgotten fact does not come back
+     * as a candidate (another host's candidates file is that host's to
+     * write). Case-insensitive substring match. Empties left behind are
+     * kept as files so the user sees the history of what was removed.
      */
     private forgetFact(needle: string, questId?: string): void {
         const svc = TwoTierMemoryService.instance;
@@ -4432,7 +4438,9 @@ export class AnthropicHandler {
             .split(/\r?\n/)
             .filter((l) => !l.toLowerCase().includes(match))
             .join('\n');
+        const ownCandidates = svc.candidatesFile();
         for (const file of svc.list('quest', questId)) {
+            if (memoryFileKind(file) === 'candidates' && file !== ownCandidates) { continue; }
             const body = svc.read('quest', file, questId);
             if (body && body.toLowerCase().includes(match)) {
                 svc.write('quest', file, strip(body), questId);
@@ -4481,6 +4489,7 @@ export class AnthropicHandler {
                     rawTurns: rawTurnsFormatted,
                     rawTurnCount: String(rawTurns.length),
                     toolHistory,
+                    memorySession: this.currentSessionName(),
                 },
             })
             : options.userText;
@@ -4503,6 +4512,7 @@ export class AnthropicHandler {
                 rawTurns: rawTurnsFormatted,
                 rawTurnCount: String(rawTurns.length),
                 toolHistory,
+                memorySession: this.currentSessionName(),
             },
         }));
     }

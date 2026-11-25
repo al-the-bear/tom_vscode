@@ -11,6 +11,7 @@ import { buildIdPrefix } from '../tools/id-prefix-tools';
 import { decisionsJournalHeader } from './decisionsJournalFormat';
 import { questionsLogHeader } from './questionsLogFormat';
 import { questCodeWorkspaceText } from './workspaceSetup';
+import { DEFAULT_QUEST_NOTES_FILE, QUEST_NOTES_FOLDER } from './notesFiles';
 
 /** Letters, digits and `_`. */
 export const QUEST_ID_PATTERN = /^[A-Za-z0-9_]+$/;
@@ -71,7 +72,7 @@ export function questShortDescriptionContent(id: string, name: string, purpose?:
     return `# ${name} (\`${id}\`)\n\n${what}\n\n**State:** ${state?.trim() || 'New: its first todo defines it with the user.'}\n`;
 }
 
-/** The quest's files: name in the quest folder → content. */
+/** The quest's files: name in the quest folder (with `/` for a file of a subfolder) → content. */
 export function questScaffoldFiles(id: string, name: string, date: Date, purpose?: string): Array<{ name: string; content: string }> {
     const day = isoDate(date);
     const md = (title: string, ...sections: string[]): string =>
@@ -118,7 +119,7 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
             ].join('\n'),
         },
         {
-            name: `quest-notes.${id}.md`,
+            name: `${QUEST_NOTES_FOLDER}/${DEFAULT_QUEST_NOTES_FILE}`,
             content: `# Quest Notes — ${id}\n\nYour own notes. The assistant does not write here — the quest refresh maintains\n\`deferred.${id}.md\` instead.\n`,
         },
         { name: `deferred.${id}.md`, content: md(`Standing notes and deferred items — ${name}`, 'Standing notes', 'Deferred implementation steps') },
@@ -152,7 +153,11 @@ export function createQuestScaffold(questsDir: string, id: string, name: string,
     const folder = path.join(questsDir, id);
     fs.mkdirSync(folder, { recursive: true });
     const files = questScaffoldFiles(id, name, date, purpose);
-    for (const f of files) { fs.writeFileSync(path.join(folder, f.name), f.content); }
+    for (const f of files) {
+        const file = path.join(folder, ...f.name.split('/'));
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, f.content);
+    }
     return {
         folder,
         files: files.map((f) => f.name),

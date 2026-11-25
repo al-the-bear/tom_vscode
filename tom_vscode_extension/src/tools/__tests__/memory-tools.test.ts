@@ -38,9 +38,17 @@ import {
     readMemoryImpl,
     saveMemoryImpl,
     updateMemoryImpl,
+    FORGET_MEMORY_TOOL,
+    LIST_MEMORY_TOOL,
+    MEMORY_TOOLS,
+    READ_MEMORY_TOOL,
+    SAVE_MEMORY_TOOL,
+    UPDATE_MEMORY_TOOL,
     type MemoryScope,
     type MemoryStore,
 } from '../memory-tools.js';
+import { toRawShape } from '../../utils/jsonSchemaToZod.js';
+import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
 // In-memory MemoryStore fake
@@ -143,7 +151,7 @@ describe('saveMemoryImpl', () => {
         ]) {
             const r = JSON.parse(await run());
             assert.equal(r.code, 'noSharedMemory');
-            assert.match(r.error, /There is no shared memory any more/);
+            assert.match(r.error, /^There is no shared memory any more \(_ai\/memory\/shared\/ is no longer part of the workspace\): memory is the quest's, _ai\/quests\/<quest>\/memory\/\. Call without `scope`\.$/);
         }
         assert.equal(store.calls.length, 0, 'nothing read or written');
         const r = JSON.parse(await saveMemoryImpl(store, { content: 'quest fact', scope: 'all' }));
@@ -279,10 +287,7 @@ describe('readMemoryImpl', () => {
             },
         });
         const out = await readMemoryImpl(store, {});
-        assert.match(out, /### quest\/facts\.md/);
-        assert.match(out, /### quest\/prefs\.md/);
-        assert.match(out, /a/);
-        assert.match(out, /b/);
+        assert.equal(out, '### quest/facts.md [curated]\na\n\n### quest/prefs.md [curated]\nb');
     });
 
     test('SUFFIX FILTER: restricts to facts-<suffix>.md only', async () => {
@@ -334,8 +339,7 @@ describe('listMemoryImpl', () => {
         const out = await withTiming('tomAi_listMemory:typical', () =>
             listMemoryImpl(store, {}));
         const lines = out.split('\n');
-        assert.ok(lines.includes('quest/facts.md'));
-        assert.ok(lines.includes('quest/prefs.md'));
+        assert.deepEqual(lines, ['quest/facts.md [curated]', 'quest/prefs.md [curated]']);
         // Should NOT mix in any non-path lines
         for (const l of lines) {
             assert.match(l, /^quest\//);
@@ -351,7 +355,7 @@ describe('listMemoryImpl', () => {
 
     test('scope: all (an older caller) lists the quest memory', async () => {
         store = makeStore({ quest: { 'facts.md': 'f' } });
-        assert.equal(await listMemoryImpl(store, { scope: 'all' }), 'quest/facts.md');
+        assert.equal(await listMemoryImpl(store, { scope: 'all' }), 'quest/facts.md [curated]');
     });
 
     test('SUFFIX FILTER: only facts-<suffix>.md entries surface', async () => {
@@ -363,7 +367,7 @@ describe('listMemoryImpl', () => {
             },
         });
         const out = await listMemoryImpl(store, { suffix: 'gemma4' });
-        assert.equal(out, 'quest/facts-gemma4.md');
+        assert.equal(out, 'quest/facts-gemma4.md [curated]');
     });
 });
 
@@ -379,7 +383,7 @@ describe('memory tools — round-trip', () => {
         // 1) save
         await saveMemoryImpl(store, { content: 'fact body' });
         let listed = (await listMemoryImpl(store, {})).split('\n');
-        assert.deepEqual(listed, ['quest/facts.md']);
+        assert.deepEqual(listed, ['quest/facts.md [curated]']);
 
         // 2) read
         let body = await readMemoryImpl(store, { file: 'facts.md' });
@@ -401,5 +405,101 @@ describe('memory tools — round-trip', () => {
         await forgetMemoryImpl(store, { file: 'facts.md' });
         listed = (await listMemoryImpl(store, {})).split('\n');
         assert.deepEqual(listed, ['(no memory files in quest)']);
+    });
+});
+
+// ===========================================================================
+// Curated files and candidates files (`candidates.<host>.md`)
+// ===========================================================================
+
+const CAND = 'candidates.mbp.local.md';
+const CAND_LINE = '- 2026-06-01T08:45:07.182Z [mbp.local] {session=default@default file=facts.md} The build runs on mbp.';
+
+describe('memory tools — candidates files are addressed by name', () => {
+
+    test('list: curated first, then the candidates files, each with its kind and host', async () => {
+        store = makeStore({ quest: { [CAND]: CAND_LINE, 'candidates.bomber.md': 'x', 'zeta.md': 'z', 'facts.md': 'f' } });
+        assert.deepEqual((await listMemoryImpl(store, {})).split('\n'), [
+            'quest/facts.md [curated]',
+            'quest/zeta.md [curated]',
+            'quest/candidates.bomber.md [candidates of host bomber]',
+            `quest/${CAND} [candidates of host mbp.local]`,
+        ]);
+        // A profile bucket stays exactly its file: no candidates file is listed.
+        store = makeStore({ quest: { [CAND]: CAND_LINE, 'facts-gemma4.md': 'g' } });
+        assert.equal(await listMemoryImpl(store, { suffix: 'gemma4' }), 'quest/facts-gemma4.md [curated]');
+    });
+
+    test('read: a candidates file by its name, and marked in a read of everything', async () => {
+        store = makeStore({ quest: { [CAND]: CAND_LINE, 'facts.md': 'curated fact' } });
+        assert.equal(await readMemoryImpl(store, { file: CAND }), CAND_LINE);
+        assert.equal(await readMemoryImpl(store, {}),
+            `### quest/facts.md [curated]\ncurated fact\n\n### quest/${CAND} [candidates of host mbp.local]\n${CAND_LINE}`);
+    });
+
+    test('save: into a curated file and into a candidates file', async () => {
+        store = makeStore({ quest: { [CAND]: CAND_LINE + '\n' } });
+        const curated = JSON.parse(await saveMemoryImpl(store, { content: 'The build runs on mbp.' }));
+        assert.deepEqual([curated.ok, curated.file, curated.action], [true, 'facts.md', 'appended']);
+        assert.equal(store.raw.get('quest')!.get('facts.md'), 'The build runs on mbp.\n');
+        const cand = JSON.parse(await saveMemoryImpl(store, { file: CAND, content: '- another candidate' }));
+        assert.deepEqual([cand.ok, cand.file], [true, CAND]);
+        assert.equal(store.raw.get('quest')!.get(CAND), CAND_LINE + '\n- another candidate\n');
+    });
+
+    test('update: a section of a curated file and of a candidates file', async () => {
+        store = makeStore({ quest: { [CAND]: CAND_LINE + '\n', 'facts.md': 'f\n' } });
+        for (const file of ['facts.md', CAND]) {
+            const r = JSON.parse(await updateMemoryImpl(store, { file, heading: 'Notes', content: 'checked' }));
+            assert.deepEqual([r.ok, r.action, r.file], [true, 'replaced-section', file]);
+            assert.match(store.raw.get('quest')!.get(file)!, /## Notes\n\nchecked\n/);
+        }
+        assert.match(store.raw.get('quest')!.get(CAND)!, /The build runs on mbp\./, 'the candidates stay');
+    });
+
+    test('forget: a curated file, and a candidates file once its candidates are promoted', async () => {
+        store = makeStore({ quest: { [CAND]: CAND_LINE, 'facts.md': 'f', 'old.md': 'o' } });
+        assert.equal(JSON.parse(await forgetMemoryImpl(store, { file: 'old.md' })).action, 'deleted-file');
+        assert.equal(JSON.parse(await forgetMemoryImpl(store, { file: CAND })).action, 'deleted-file');
+        assert.deepEqual(Array.from(store.raw.get('quest')!.keys()), ['facts.md']);
+    });
+});
+
+// ===========================================================================
+// No `sessions` parameter: the quest memory has no session level
+// ===========================================================================
+
+describe('memory tools — no sessions parameter', () => {
+
+    test('no tool declares `sessions`, and every description says where the memory is', () => {
+        assert.deepEqual(MEMORY_TOOLS.map((t) => t.name),
+            ['tomAi_saveMemory', 'tomAi_updateMemory', 'tomAi_forgetMemory', 'tomAi_readMemory', 'tomAi_listMemory']);
+        for (const tool of [SAVE_MEMORY_TOOL, UPDATE_MEMORY_TOOL, FORGET_MEMORY_TOOL, READ_MEMORY_TOOL, LIST_MEMORY_TOOL]) {
+            const props = (tool.inputSchema as { properties: Record<string, unknown> }).properties;
+            assert.equal('sessions' in props, false, `${tool.name} has no sessions parameter`);
+            assert.match(tool.description, /_ai\/quests\/<quest>\/memory\//, `${tool.name} names the folder`);
+            assert.match(tool.description, /\*\*curated\*\*/);
+            assert.match(tool.description, /`candidates\.<host>\.md`/);
+            assert.doesNotMatch(tool.description, /_ai\/memory\/<quest>|`sessions`|unknownSession/, `${tool.name} names no session level`);
+        }
+    });
+
+    test('a call carrying `sessions` is answered like any call with an unknown parameter: the parameter is dropped', async () => {
+        // The tool surface (MCP server, Agent SDK) parses the arguments with the schema's Zod shape, which drops
+        // a key the schema does not declare; nothing is refused.
+        const args = { content: 'a fact', sessions: ['walk', 'chat'] };
+        assert.deepEqual(z.object(toRawShape(SAVE_MEMORY_TOOL.inputSchema as Record<string, unknown>)).parse(args), { content: 'a fact' });
+        assert.deepEqual(z.object(toRawShape(LIST_MEMORY_TOOL.inputSchema as Record<string, unknown>)).parse({ sessions: 'all' }), {});
+        // A transport that hands the raw arguments on gets the same answer as without it: one write, one file.
+        store = makeStore();
+        const withIt = JSON.parse(await saveMemoryImpl(store, args));
+        const plain = makeStore();
+        const without = JSON.parse(await saveMemoryImpl(plain, { content: 'a fact' }));
+        assert.deepEqual(withIt, without);
+        assert.deepEqual(withIt, { ok: true, action: 'appended', scope: 'quest', file: 'facts.md', bytes: 6 });
+        assert.deepEqual(Array.from(store.raw.get('quest')!.entries()), [['facts.md', 'a fact\n']]);
+        assert.equal(await readMemoryImpl(store, Object.assign({ file: 'facts.md' }, { sessions: 'all' })), 'a fact\n');
+        const listArgs: { suffix?: string; sessions?: unknown } = { sessions: 'nope' };
+        assert.equal(await listMemoryImpl(store, listArgs), 'quest/facts.md [curated]');
     });
 });

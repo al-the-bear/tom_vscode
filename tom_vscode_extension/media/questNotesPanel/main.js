@@ -2,7 +2,12 @@
 // QUEST NOTES side panel (@TOM INFO, view tomAi.questNotesPanel) —
 // src/handlers/questNotesPanel-handler.ts.
 //
-// Edit tab: a text area on the active quest's notes file, saved after a short
+// The bar's picker lists the quest's notes files (the default first); a change
+// saves the text and posts 'selectNotesFile', the New button posts
+// 'newNotesFile' (the host asks for the name). Both wait while the conflict bar
+// asks. Everything else acts on the file picked.
+//
+// Edit tab: a text area on the notes file picked, saved after a short
 // pause in typing and on blur ('save'). The host sends the file as
 // 'notesState' when the view opens and whenever it changes on disk; a change
 // is taken in unless the text area holds unsaved edits, then the conflict bar
@@ -27,6 +32,8 @@
     var bar = document.querySelector('.qnp-bar');
     var empty = document.getElementById('qnpEmpty');
     var fileEl = document.getElementById('qnpFile');
+    var fileSelect = document.getElementById('notesFileSelect');
+    var newFileBtn = document.getElementById('newNotesFileBtn');
     var conflictBar = document.getElementById('conflictBar');
     var editPane = document.getElementById('editPane');
     var viewPane = document.getElementById('viewPane');
@@ -101,10 +108,14 @@
     function askAboutDisk(content) {
         pendingDisk = content;
         conflictBar.hidden = false;
+        fileSelect.disabled = true;
+        newFileBtn.disabled = true;
     }
     function closeConflict() {
         pendingDisk = null;
         conflictBar.hidden = true;
+        fileSelect.disabled = false;
+        newFileBtn.disabled = false;
     }
     document.getElementById('loadDiskBtn').addEventListener('click', function () {
         var content = pendingDisk;
@@ -126,6 +137,28 @@
         vscode.postMessage({ type: 'openInMdBrowser' });
     });
 
+    // ---- The notes files of the quest ----
+    var shownFile = '';       // the path of the file the text area holds
+    function showFiles(files, selected) {
+        fileSelect.textContent = '';
+        (files || []).forEach(function (f) {
+            var o = document.createElement('option');
+            o.value = f.name;
+            o.textContent = f.name;
+            if (f.isDefault) { o.title = 'The default notes file of the quest'; }
+            fileSelect.appendChild(o);
+        });
+        fileSelect.value = selected || '';
+    }
+    fileSelect.addEventListener('change', function () {
+        saveNow();
+        vscode.postMessage({ type: 'selectNotesFile', name: fileSelect.value });
+    });
+    newFileBtn.addEventListener('click', function () {
+        saveNow();
+        vscode.postMessage({ type: 'newNotesFile' });
+    });
+
     window.addEventListener('message', function (e) {
         var msg = e.data || {};
         if (msg.type !== 'notesState') { return; }
@@ -135,8 +168,15 @@
         if (!hasQuest) { closeConflict(); showTab(tab); return; }
         fileEl.textContent = msg.relativePath || msg.filePath || '';
         fileEl.title = msg.filePath || '';
+        showFiles(msg.notesFiles, msg.notesFile);
         var content = typeof msg.content === 'string' ? msg.content : '';
-        if (content === synced) {
+        var otherFile = (msg.filePath || '') !== shownFile;
+        shownFile = msg.filePath || '';
+        if (otherFile) {
+            // Another notes file: its text replaces the one shown (saved before the switch was asked for).
+            closeConflict();
+            setText(content);
+        } else if (content === synced) {
             // Nothing new: unsaved edits stay; a held change is no longer one.
             if (pendingDisk !== null) { closeConflict(); }
         } else if (dirty()) {
