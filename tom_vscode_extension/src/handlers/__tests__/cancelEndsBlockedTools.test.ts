@@ -13,8 +13,6 @@
  *        answers that it was closed unanswered; a denial without a cancel still reads "denied by the user"
  *   CE-5 tomAi_exitPlanMode: a plan closed by the ended prompt answers promptEnded with the note, plan mode stays on;
  *        the chat panel's plan registers its cancel with the owner and unregisters when decided
- *   CE-6 the Copilot answer-file round trip (services/copilotRoundTrip.ts, what tomAi_askCopilot was until
- *        vscimpb108) stops polling once its caller gave up (reason prompt-ended), long before its timeout
  *   CE-7 the direct transport through the real handler (a stub client): a turn blocked in tomAi_askUser ends within
  *        a second of the cancel, its question closes, no further model round is sent, and nothing more happens after
  *        it ended; the Agent SDK path is the same owner (sendMessage hands it the token)
@@ -45,7 +43,6 @@ import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../handler_shared.js';
 import { PROMPT_ENDED_TOOL_RESULT, raceCancellation } from '../../utils/cancelRace.js';
 import { exitPlanModeImpl, enterPlanModeImpl, isPlanModeActive, PLAN_PROMPT_ENDED_NOTE, registerPlanDecider, resetPlanModeForTests } from '../../tools/planning-tools.js';
-import { copilotRoundTripImpl, type CopilotRoundTripDeps } from '../../services/copilotRoundTrip.js';
 import type { SharedToolDefinition } from '../../tools/shared-tool-registry.js';
 
 TrailService.init({} as never);
@@ -178,27 +175,6 @@ describe('a cancelled send ends the tool call it is blocked in', () => {
         const chat = src('handlers', 'chatPanel-handler.ts');
         assert.match(chat, /unregisterOwner = registerAskCancel\(\(\) => settle\(\{ accepted: false, promptEnded: true \}\)\);/);
         assert.match(chat, /settled = true;\s*this\._planProposals\.delete\(id\);\s*unregisterOwner\(\);\s*remove\(decision\.accepted \? 'accepted' : decision\.promptEnded \? 'closed: the prompt ended'/);
-    });
-
-    test('CE-6: the Copilot round trip stops when its caller gave up', async () => {
-        let ended = false;
-        let reads = 0;
-        let t = 0;
-        const deps: CopilotRoundTripDeps = {
-            config: () => ({ answerFileTimeoutMs: 60_000, pollIntervalMs: 100, selectedTemplateId: '__none__', selectedTemplateBody: undefined, answerFileTemplate: '${originalPrompt}' }),
-            opener: { open: async () => undefined },
-            newRequestId: () => 'r1',
-            sinkFor: () => ({ absolutePath: () => '/ws/answer.json', clear: () => undefined, read: () => { reads++; if (reads === 3) { ended = true; } return null; } }),
-            expander: { expand: async (tpl: string) => tpl } as never,
-            clock: { now: () => t, sleep: async (ms: number) => { t += ms; } },
-            promptEnded: () => ended,
-        };
-        const copilot = JSON.parse(await copilotRoundTripImpl(deps, { prompt: 'hi' }));
-        assert.equal(copilot.ok, false);
-        assert.equal(copilot.reason, 'prompt-ended');
-        assert.equal(copilot.cancelled, true);
-        assert.equal(reads, 3, 'no poll after the cancel');
-        assert.ok(t < 1000, 'long before the 60-s timeout');
     });
 
     test('CE-7: the direct transport through the real handler', async () => {

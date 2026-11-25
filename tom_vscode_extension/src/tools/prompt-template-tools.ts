@@ -7,11 +7,9 @@
  *
  * The templates are the user-message templates,
  * `config.anthropic.userMessageTemplates`: an **array of `{ id, name,
- * description?, template, isDefault? }`**. Both transports read them — an
- * Anthropic send and a Copilot send (src/utils/copilotTemplates.ts). `id` is
+ * description?, template, isDefault? }`** (src/utils/userMessageTemplateLookup.ts). `id` is
  * the stable key; `name` is a label that can change freely. Renaming the id
- * (`newId`) moves the identity. The Copilot Queue Wrapper is not a template:
- * it is the `copilot.queueWrapper` setting.
+ * (`newId`) moves the identity.
  *
  * The store lives in the workspace `tom_vscode_extension.json`. Writes go
  * through `saveSendToChatConfig`, which round-trips the full config.
@@ -102,17 +100,16 @@ export async function listPromptTemplatesImpl(store: PromptTemplateStore, _input
 }
 
 export const LIST_PROMPT_TEMPLATES_DESCRIPTION =
-    'List the prompt templates: the one store both transports (Anthropic and ' +
-    'Copilot) read, `anthropic.userMessageTemplates` — `{id, name, ' +
+    'List the prompt templates: the one store, ' +
+    '`anthropic.userMessageTemplates` — `{id, name, ' +
     'description, template, isDefault}`; `id` is the stable key, `name` the ' +
-    'label. **NO category field.** The Copilot Queue Wrapper is a setting ' +
-    '(`copilot.queueWrapper`), not a template.';
+    'label. **NO category field.**';
 
 export const LIST_PROMPT_TEMPLATES_TOOL: SharedToolDefinition<ListPromptTemplatesInput> = {
     name: 'tomAi_listPromptTemplates',
     displayName: 'List Prompt Templates',
     description: LIST_PROMPT_TEMPLATES_DESCRIPTION,
-    tags: ['templates', 'copilot', 'anthropic'],
+    tags: ['templates', 'anthropic'],
     readOnly: true,
     inputSchema: {
         type: 'object',
@@ -164,8 +161,8 @@ export async function createPromptTemplateImpl(store: PromptTemplateStore, input
 }
 
 export const CREATE_PROMPT_TEMPLATE_DESCRIPTION =
-    'Create a prompt template in the one template store (both transports read ' +
-    'it). An existing id is not replaced unless `overwrite: true` (or use ' +
+    'Create a prompt template in the one template store. ' +
+    'An existing id is not replaced unless `overwrite: true` (or use ' +
     '`tomAi_updatePromptTemplate`). Default body `${userMessage}`; `id` ' +
     'defaults to `name`; `isDefault: true` unsets the default flag on every ' +
     'other template. **Placeholder syntax** matches the placeholder engine: ' +
@@ -177,7 +174,7 @@ export const CREATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<CreatePromptTempl
     name: 'tomAi_createPromptTemplate',
     displayName: 'Create Prompt Template',
     description: CREATE_PROMPT_TEMPLATE_DESCRIPTION,
-    tags: ['templates', 'copilot', 'anthropic'],
+    tags: ['templates', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -252,7 +249,7 @@ export const UPDATE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<UpdatePromptTempl
     name: 'tomAi_updatePromptTemplate',
     displayName: 'Update Prompt Template',
     description: UPDATE_PROMPT_TEMPLATE_DESCRIPTION,
-    tags: ['templates', 'copilot', 'anthropic'],
+    tags: ['templates', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -300,7 +297,7 @@ export const DELETE_PROMPT_TEMPLATE_TOOL: SharedToolDefinition<DeletePromptTempl
     name: 'tomAi_deletePromptTemplate',
     displayName: 'Delete Prompt Template',
     description: DELETE_PROMPT_TEMPLATE_DESCRIPTION,
-    tags: ['templates', 'copilot', 'anthropic'],
+    tags: ['templates', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',

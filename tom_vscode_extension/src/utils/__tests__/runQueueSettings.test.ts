@@ -32,7 +32,7 @@ describe('queue settings per run', () => {
         });
         assert.equal(r.start.autoSend, false);
         assert.equal(r.start.autoPause, false);
-        assert.equal(r.start.responseTimeoutMinutes, 5, 'at least 5 minutes');
+        assert.equal('responseTimeoutMinutes' in r.start, false, 'the removed response timeout is not read');
         assert.equal(r.start.walkContinuations, BUILTIN_RUN_QUEUE_SETTINGS.walkContinuations, 'an invalid count is ignored');
         assert.equal(r.start.defaultTransport, 'anthropic');
         assert.equal(r.start.defaultAnthropicProfileId, 'p');
@@ -48,6 +48,7 @@ describe('queue settings per run', () => {
         assert.deepEqual([...r.runs.keys()].sort(), ['Other', 'collab', 'default'], 'names trimmed, an empty one skipped');
         assert.equal(r.runs.get('collab')!.autoSend, false);
         assert.equal(r.runs.get('collab')!.defaultTransport, 'anthropic', 'from the start values');
+        assert.equal(r.runs.get('Other')!.defaultTransport, 'anthropic', 'a stored copilot is read as anthropic');
         assert.equal(r.runs.get('collab')!.defaultAgentSdkSession, 'idea');
         assert.equal(r.runs.get('default')!.autoSend, true);
     });
@@ -67,11 +68,11 @@ describe('queue settings per run', () => {
     test('RS-5: Make default', () => {
         assert.deepEqual([...DEFAULT_SETTING_FIELDS].sort(), [
             'autoContinue', 'autoPause', 'autoSend', 'autoStart', 'defaultAgentSdkSession', 'defaultAnthropicConfigId', 'defaultAnthropicProfileId',
-            'defaultMessageTemplateId', 'defaultRole', 'defaultTransport', 'responseTimeoutMinutes',
+            'defaultMessageTemplateId', 'defaultRole', 'defaultTransport',
         ], 'every per-run setting a tab shows, not the walk continuations');
         const start = { ...BUILTIN_RUN_QUEUE_SETTINGS, defaultMessageTemplateId: 'tOld', walkContinuations: 3 };
         const from = { ...BUILTIN_RUN_QUEUE_SETTINGS, autoSend: false, defaultTransport: 'anthropic' as const, defaultAnthropicProfileId: 'p', walkContinuations: 0 };
-        assert.deepEqual(defaultSettingsDiff(from, start).sort(), ['autoSend', 'defaultAnthropicProfileId', 'defaultMessageTemplateId', 'defaultTransport']);
+        assert.deepEqual(defaultSettingsDiff(from, start).sort(), ['autoSend', 'defaultAnthropicProfileId', 'defaultMessageTemplateId']);
         const next = startWithDefaultsFrom(start, from);
         assert.equal(next.walkContinuations, 3, 'the walk continuations stay');
         assert.equal(next.defaultMessageTemplateId, undefined, 'an unset template is taken unset');

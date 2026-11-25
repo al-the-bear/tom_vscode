@@ -10,8 +10,7 @@
  *   - `tomAi_listProjects`    — the workspace's projects as buildkit
  *                               sees them (`buildkit :projects --all --json`).
  *   - `tomAi_listDocuments`   — walks a workspace document category
- *                               folder (prompts / answers / roles /
- *                               guidelines).
+ *                               folder (prompts / roles / guidelines).
  *
  * ## Why a separate file
  *
@@ -100,10 +99,10 @@ export interface DocumentSource {
     listFilesRecursive(absoluteFolder: string): { exists: boolean; files: string[] };
 }
 
-export type DocumentCategory = 'prompts' | 'answers' | 'roles' | 'guidelines';
+export type DocumentCategory = 'prompts' | 'roles' | 'guidelines';
 
 /** The categories, in the order the tool lists them. */
-export const DOCUMENT_CATEGORIES: readonly DocumentCategory[] = ['prompts', 'answers', 'roles', 'guidelines'];
+export const DOCUMENT_CATEGORIES: readonly DocumentCategory[] = ['prompts', 'roles', 'guidelines'];
 
 // ===========================================================================
 // Inputs
@@ -393,7 +392,6 @@ export const LIST_PROJECTS_TOOL: SharedToolDefinition<ListProjectsInput> = {
 
 const CATEGORY_FOLDER_LABEL: Record<DocumentCategory, string> = {
     prompts:    '_ai/prompt',
-    answers:    '_ai/answers/copilot',
     roles:      '_ai/roles',
     // The workspace folder's guidelines folder (else the root's), under either name.
     guidelines: '_agent_guidelines (or _copilot_guidelines)',
@@ -470,8 +468,7 @@ export async function listDocumentsImpl(docs: DocumentSource, input: ListDocumen
 
 export const LIST_DOCUMENTS_DESCRIPTION =
     'Recursively list files in a workspace document category folder. ' +
-    'Category → folder mapping: `prompts` → `_ai/prompt`, `answers` → ' +
-    '`_ai/answers/copilot`, `roles` → `_ai/roles`, ' +
+    'Category → folder mapping: `prompts` → `_ai/prompt`, `roles` → `_ai/roles`, ' +
     '`guidelines` → the workspace folder\'s guidelines folder (`_agent_guidelines`, ' +
     'or the older `_copilot_guidelines`; else the root\'s; the global guideline ' +
     'tools read both levels). The walk returns **every** file ' +
@@ -496,7 +493,7 @@ export const LIST_DOCUMENTS_TOOL: SharedToolDefinition<ListDocumentsInput> = {
             category: {
                 type: 'string',
                 enum: [...DOCUMENT_CATEGORIES],
-                description: 'prompts → _ai/prompt; answers → _ai/answers/copilot; roles → _ai/roles; guidelines → the workspace folder\'s guidelines folder (_agent_guidelines or _copilot_guidelines).',
+                description: 'prompts → _ai/prompt; roles → _ai/roles; guidelines → the workspace folder\'s guidelines folder (_agent_guidelines or _copilot_guidelines).',
             },
             subPath: {
                 type: 'string',

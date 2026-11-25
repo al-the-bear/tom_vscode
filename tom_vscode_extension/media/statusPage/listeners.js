@@ -78,11 +78,6 @@ function attachStatusPanelListeners(skipEditorInit) {
                     maxWaitMinutes: parseInt((document.getElementById('sp-cq-maxWaitMinutes') || {}).value || '0'),
                     fallbackPrompt: (document.getElementById('sp-cq-fallbackPrompt') || {}).value || ''
                 };
-            } else if (action === 'updateCopilotAnswerFolder') {
-                // The folder Copilot writes its answer files to (copilot.answerFolder): the queue's Copilot stages and scripts read it.
-                msgData.settings = {
-                    copilotAnswerFolder: (document.getElementById('sp-copilot-answerFolder') || {}).value || ''
-                };
             } else if (action === 'saveSchedule') {
                 msgData.schedule = collectAllScheduleData();
             } else if (action === 'saveExecutables') {
@@ -207,8 +202,7 @@ function attachStatusPanelListeners(skipEditorInit) {
                 };
                 msgData.settings = {
                     anthropic: qrPanel('anthropic'),
-                    localLlm: qrPanel('localLlm'),
-                    copilot: qrPanel('copilot')
+                    localLlm: qrPanel('localLlm')
                 };
             }
 

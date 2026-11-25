@@ -13,7 +13,7 @@
  * - **window** — `aspectGuidelines.window` in the per-host
  *   `extension_config.<host>.<quest>.yaml` (machine-local per quest; survives
  *   a reload). The @CHAT panels' sticky choices are kept beside it
- *   (`aspectGuidelines.chat.anthropic` / `.copilot`); a chat send carries them
+ *   (`aspectGuidelines.chat.anthropic`); a chat send carries them
  *   as its item level.
  * - **run** — the run's queue settings (`queue-settings.yaml` `runs.<run>.guidelines`).
  * - **role type / role** — `guidelines:` in `role-type.yaml` / `role-config.yaml`
@@ -36,8 +36,8 @@ import { currentQueueRole, livePromptRole } from './queueRoleContext';
 export const ASPECT_CONFIG_SECTION = 'aspectGuidelines';
 
 /** The @CHAT subpanels with sticky choices. */
-export type AspectChatPanel = 'anthropic' | 'copilot';
-export const ASPECT_CHAT_PANELS: readonly AspectChatPanel[] = ['anthropic', 'copilot'];
+export type AspectChatPanel = 'anthropic';
+export const ASPECT_CHAT_PANELS: readonly AspectChatPanel[] = ['anthropic'];
 
 interface MachineSection {
     window?: AspectChoices;

@@ -1,18 +1,14 @@
 /**
- * The templates of a Copilot send and the Copilot Queue Wrapper
- * (src/utils/copilotTemplates.ts), and the `_ai` format migration's step that
- * removes `copilot.templates` (format version 6).
+ * The user-message templates (src/utils/userMessageTemplateLookup.ts), and the `_ai` format
+ * migration's step that removes `copilot.templates` (format version 6).
  *
- *   CT-1 copilotQueueWrapper: the configured wrapper, else (missing or blank) the default
  *   CT-2 userMessageTemplateBody: by id or name from the one store; none for (None), __none__, the wrapper
  *        id and an unknown id; userMessageTemplateOptions lists id and label (name, else id)
- *   CT-3 fillTemplate fills ${userMessage} and ${originalPrompt}; fillWrapper only ${originalPrompt};
- *        a `$&` in the text stays literal
- *   CT-4 dropCopilotTemplates: templates and defaultTemplate removed, nothing copied; an own Answer
- *        Wrapper becomes queueWrapper (the default one does not; a set queueWrapper is kept); a config
- *        without them is untouched
+ *   CT-3 fillTemplate fills ${userMessage} and ${originalPrompt}; a `$&` in the text stays literal
+ *   CT-4 dropCopilotTemplates: templates and defaultTemplate removed, nothing copied (an own Answer
+ *        Wrapper neither); the section's other keys stay; a config without them is untouched
  *   CT-5 the migration removes them from the workspace config (JSON) and the user overlay (YAML), stamps
- *        format version 6, and lists nothing on a second run
+ *        the format version, and lists nothing on a second run
  */
 
 import test, { describe } from 'node:test';
@@ -24,14 +20,11 @@ import { parse } from 'yaml';
 
 import {
     ANSWER_WRAPPER_ID,
-    DEFAULT_ANSWER_FILE_TEMPLATE,
-    copilotQueueWrapper,
     dropCopilotTemplates,
     fillTemplate,
-    fillWrapper,
     userMessageTemplateBody,
     userMessageTemplateOptions,
-} from '../copilotTemplates.js';
+} from '../userMessageTemplateLookup.js';
 import { migrateAiFormats } from '../aiFormatMigration.js';
 import { AI_FORMAT_VERSION, readAiFormatStamp } from '../aiFormatVersion.js';
 
@@ -44,13 +37,7 @@ const STORE = {
     },
 };
 
-describe('Copilot templates', () => {
-    test('CT-1: the queue wrapper', () => {
-        assert.equal(copilotQueueWrapper(undefined), DEFAULT_ANSWER_FILE_TEMPLATE);
-        assert.equal(copilotQueueWrapper({ copilot: { queueWrapper: '   ' } }), DEFAULT_ANSWER_FILE_TEMPLATE);
-        assert.equal(copilotQueueWrapper({ copilot: { queueWrapper: 'W ${originalPrompt}' } }), 'W ${originalPrompt}');
-    });
-
+describe('User-message templates', () => {
     test('CT-2: the one store', () => {
         assert.equal(userMessageTemplateBody(STORE, 'execute-todo'), 'Do: ${userMessage}');
         assert.equal(userMessageTemplateBody(STORE, 'Execute TODO'), 'Do: ${userMessage}', 'by name');
@@ -66,24 +53,20 @@ describe('Copilot templates', () => {
 
     test('CT-3: filling', () => {
         assert.equal(fillTemplate('a ${userMessage} b ${originalPrompt}', 'X'), 'a X b X');
-        assert.equal(fillWrapper('${userMessage} / ${originalPrompt}', 'X'), '${userMessage} / X');
         assert.equal(fillTemplate('${userMessage}', 'cost $& more'), 'cost $& more');
     });
 
     test('CT-4: dropCopilotTemplates', () => {
         const own = { copilot: { templates: { [ANSWER_WRAPPER_ID]: { template: 'MINE ${originalPrompt}' }, Review: { template: 'r' } }, defaultTemplate: 'Review', answerFolder: 'f' } };
         const done = dropCopilotTemplates(own);
-        assert.deepEqual(own, { copilot: { answerFolder: 'f', queueWrapper: 'MINE ${originalPrompt}' } });
-        assert.equal(done.length, 3);
+        assert.deepEqual(own, { copilot: { answerFolder: 'f' } }, 'the own Answer Wrapper is not copied');
+        assert.equal(done.length, 2);
         assert.match(done.join('\n'), /1 template\(s\), not copied/);
-
-        const stock = { copilot: { templates: { [ANSWER_WRAPPER_ID]: { template: DEFAULT_ANSWER_FILE_TEMPLATE } } } };
-        dropCopilotTemplates(stock);
-        assert.deepEqual(stock, { copilot: {} }, 'the default wrapper is not copied');
+        assert.match(done.join('\n'), /remove copilot\.defaultTemplate/);
 
         const set = { copilot: { queueWrapper: 'SET', templates: { [ANSWER_WRAPPER_ID]: { template: 'OTHER' } } } };
-        dropCopilotTemplates(set);
-        assert.deepEqual(set, { copilot: { queueWrapper: 'SET' } }, 'a set queueWrapper is kept');
+        assert.equal(dropCopilotTemplates(set).length, 1);
+        assert.deepEqual(set, { copilot: { queueWrapper: 'SET' } }, 'another key of the section is kept');
 
         const clean = { copilot: { queueWrapper: 'SET' } };
         assert.deepEqual(dropCopilotTemplates(clean), []);
@@ -102,7 +85,7 @@ describe('Copilot templates', () => {
         assert.ok(run(false).changes.filter((c) => c.step === 'copilot-templates').length >= 3);
         assert.match(fs.readFileSync(cfg, 'utf8'), /"templates"/, 'a dry run writes nothing');
         run(true);
-        assert.deepEqual(JSON.parse(fs.readFileSync(cfg, 'utf8')), { copilot: { queueWrapper: 'MINE ${originalPrompt}' } });
+        assert.deepEqual(JSON.parse(fs.readFileSync(cfg, 'utf8')), { copilot: {} });
         assert.match(fs.readFileSync(cfg, 'utf8'), /^\{\n {2}"copilot"/, 'indentation kept');
         assert.deepEqual(parse(fs.readFileSync(overlay, 'utf8')), { copilot: {} });
         assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);

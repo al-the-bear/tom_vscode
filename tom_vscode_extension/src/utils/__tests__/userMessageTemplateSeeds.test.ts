@@ -23,7 +23,7 @@ import {
     WITH_ASKING_USER_MESSAGE_TEMPLATE_ID, ensureSeededUserMessageTemplates, liveUserMessageTemplateId,
 } from '../userMessageTemplateSeeds.js';
 import { EXPLAIN_TODO_USER_MESSAGE_TEMPLATE_BODY, PREVIOUS_EXPLAIN_TODO_BODIES } from '../explainTodoTemplate.js';
-import { userMessageTemplateBody } from '../copilotTemplates.js';
+import { userMessageTemplateBody } from '../userMessageTemplateLookup.js';
 
 const ASK_TOOLS = ['tomAi_askUser', 'tomAi_askUserPicker', 'tomAi_askInMdBrowser'];
 

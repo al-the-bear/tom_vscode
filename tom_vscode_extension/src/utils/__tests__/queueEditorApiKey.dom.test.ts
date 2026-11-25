@@ -3,9 +3,8 @@
  *
  * finishvsf3, the user's look: the @CHAT panel's profile list marked the
  * key-less direct profiles '(no API key)', the queue editor's pickers did not.
- * The host renders both pickers with the marks (transportPicker.ts), but the
- * editor's script refilled the profile lists from its state on every update,
- * and that state carried only id and name.
+ * The editor's script fills the add form's profile list from its state on
+ * every update, and that state carried only id and name.
  *
  *   QK-1 the state carries `noApiKey` per profile and for the default profile; after a state update the
  *        add-form picker still marks the key-less profiles '(no API key)', and only them (the run's default
@@ -29,12 +28,6 @@ function readMedia(...parts: string[]): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Win = any;
 
-/** The two host-rendered pickers, reduced to the profile selects main.js refills. */
-const PICKERS = {
-    queueDefaultPickerHtml: '<select id="queueDefault-transport-profile"></select>',
-    addFormPickerHtml: '<select id="addForm-transport-profile"></select>',
-};
-
 const PROFILES = [
     { id: 'sonnet-5-5-direct', name: 'Sonnet 5.5 — Direct', noApiKey: true },
     { id: 'opus-5-5-agent-sdk-mm', name: 'Opus 5.5 — Agent SDK SDK-MM', noApiKey: false },
@@ -46,7 +39,7 @@ function setup(t: { after(fn: () => void): void }, state: Record<string, unknown
     const window = dom.window as Win;
     t.after(() => window.close());
     window.acquireVsCodeApi = () => ({ postMessage: () => undefined, setState: () => undefined, getState: () => undefined });
-    window.__INIT__ = { state: { items: [], autoSend: false, ...state }, ...PICKERS };
+    window.__INIT__ = { state: { items: [], autoSend: false, ...state } };
     window.eval([
         readMedia('shared', 'queueEntryUtils.js'),
         readMedia('shared', 'queueEntryRenderFunctions.js'),
@@ -65,7 +58,7 @@ describe('Prompt Queue editor — a missing API key', () => {
         window.dispatchEvent(new window.MessageEvent('message', {
             data: { type: 'state', items: [], anthropicProfiles: PROFILES, defaultProfileNoApiKey: true },
         }));
-        for (const id of ['addForm-transport-profile']) {
+        for (const id of ['addProfile']) {
             assert.deepEqual(optionLabels(window, id), [
                 '(default profile) (no API key)',
                 'Sonnet 5.5 — Direct (sonnet-5-5-direct) (no API key)',

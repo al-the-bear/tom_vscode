@@ -2,13 +2,13 @@
  * Add, edit and delete a prompt template from an editor's template
  * dropdown (queue editor, timed requests editor). There is one template
  * store, the user-message templates (`anthropic.userMessageTemplates`,
- * src/utils/copilotTemplates.ts); adding and editing open it in the
+ * src/utils/userMessageTemplateLookup.ts); adding and editing open it in the
  * global template editor.
  */
 
 import * as vscode from 'vscode';
 import { loadSendToChatConfig, saveSendToChatConfig } from '../utils/sendToChatConfig';
-import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { userMessageTemplateOptions } from '../utils/userMessageTemplateLookup';
 import { openGlobalTemplateEditor } from './globalTemplateEditor-handler';
 
 /** The template to act on: `currentId` when it is one, else the user's pick. */

@@ -144,7 +144,7 @@ function showFatalError(context, err) {
 
 function formatPromptTemplateName(name) {
   if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return 'Answer Wrapper (no template)';
+  if (name === '__answer_file__') return '(None)';
   return promptTemplateLabels[name] || name;
 }
 
@@ -236,13 +236,11 @@ function populateAddFormDropdowns() {
 function submitNewEntry() {
   const text = document.getElementById('addText').value.trim();
   const template = document.getElementById('addTemplate').value || '(None)';
-  const answerWrapper = document.getElementById('addAnswerWrapper').checked;
   const modeRadios = document.querySelectorAll('input[name="addScheduleMode"]');
   let scheduleMode = 'interval';
   modeRadios.forEach(r => { if (r.checked) scheduleMode = r.value; });
   const intervalMinutes = parseInt(document.getElementById('addInterval').value) || 30;
   const sendMaximum = Math.max(0, parseInt(String(document.getElementById('addSendMaximum').value || '0'), 10) || 0);
-  const answerWaitMinutes = Math.max(0, parseInt(String(document.getElementById('addAnswerWait').value || '0'), 10) || 0);
   const repeatCount = Math.max(1, parseInt(String(document.getElementById('addRepeatCount').value || '1'), 10) || 1);
   const repeatPrefix = document.getElementById('addRepeatPrefix').value || '';
   const repeatSuffix = document.getElementById('addRepeatSuffix').value || '';
@@ -263,7 +261,7 @@ function submitNewEntry() {
   clearAddFeedback();
   vscode.postMessage({
     type: 'addEntry',
-    text, template, answerWrapper, scheduleMode, intervalMinutes, sendMaximum, answerWaitMinutes,
+    text, template, scheduleMode, intervalMinutes, sendMaximum,
     intervalWeekdays,
     scheduledTimes: [],
     repeatCount, repeatPrefix, repeatSuffix,
@@ -400,7 +398,6 @@ function render() {
     const isEditable = safeStatus !== 'completed';
     const disabledAttr = isEditable ? '' : ' disabled';
     const lastSent = entry.lastSentAt ? new Date(entry.lastSentAt).toLocaleString() : 'Never';
-    const hasAnswerWrapper = entry.answerWrapper || entry.template === '__answer_file__';
     const displayTemplate = (entry.template === '__answer_file__' || !entry.template || entry.template === '(None)') ? '' : formatPromptTemplateName(entry.template);
 
     let scheduledTimesHtml = '';
@@ -489,8 +486,6 @@ function render() {
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="addPromptTemplate()" title="Add Prompt Template"><span class="codicon codicon-add"></span></button>' +
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="editPromptTemplateByName(\'' + escapeJsSingleQuoted(entry.template || '') + '\')" title="Edit Prompt Template"><span class="codicon codicon-edit"></span></button>' +
             '<button class="ctx-btn-icon"' + disabledAttr + ' onclick="deletePromptTemplateByName(\'' + escapeJsSingleQuoted(entry.template || '') + '\')" title="Delete Prompt Template"><span class="codicon codicon-trash"></span></button>' +
-            '<label style="display:inline;margin:0;"><input type="checkbox"' + (hasAnswerWrapper ? ' checked' : '') +
-              disabledAttr + ' onchange="toggleAnswerWrapper(\'' + entry.id + '\',this.checked)"/> AW</label>' +
             '<button class="ctx-btn-icon" onclick="previewEntry(\'' + entry.id + '\')" title="Preview"><span class="codicon codicon-eye"></span></button>' +
           '</div>' +
           '<label>Schedule</label>' +
@@ -503,7 +498,6 @@ function render() {
           (isInterval
             ? '<div class="schedule-row"><span>Every</span> <input type="number" min="1" value="' + (entry.intervalMinutes || 30) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'intervalMinutes\',parseInt(this.value))"/> <span>min</span>' +
               '<span style="margin-left:8px;">Send max:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.sendMaximum || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'sendMaximum\',Math.max(0,parseInt(this.value||\'0\',10)||0))" title="0 = unlimited"/>' +
-              '<span style="margin-left:8px;">Wait:</span> <input type="number" min="0" value="' + (Math.max(0, parseInt(String(entry.answerWaitMinutes || 0), 10) || 0)) + '" style="width:60px"' + disabledAttr + ' onchange="updateField(\'' + entry.id + '\',\'answerWaitMinutes\',Math.max(0,parseInt(this.value||\'0\',10)||0))" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>' +
               (entry.sentCount ? '<span class="meta" style="margin-left:8px;">(sent ' + entry.sentCount + ')</span>' : '') +
               '</div>' +
               intervalWdHtml
@@ -761,14 +755,10 @@ function updateEntryTemplate(entryId, value) {
   updateField(entryId, 'template', value || '(None)');
 }
 
-function toggleAnswerWrapper(entryId, checked) {
-  updateField(entryId, 'answerWrapper', checked);
-}
-
 function previewEntry(entryId) {
   const entry = entries.find(e => e.id === entryId);
   if (!entry) return;
-  vscode.postMessage({ type: 'previewEntry', id: entryId, text: entry.originalText, template: entry.template, answerWrapper: entry.answerWrapper || false });
+  vscode.postMessage({ type: 'previewEntry', id: entryId, text: entry.originalText, template: entry.template });
 }
 
 function addPromptTemplate() {

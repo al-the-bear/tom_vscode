@@ -119,7 +119,7 @@ export interface DoneNotificationItem {
     /** The todos the item runs (a todo id, `<prefix>*`, or several). */
     todoIdPattern?: string;
     pauseAfter?: boolean;
-    transport?: 'copilot' | 'anthropic';
+    transport?: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     session?: string;
@@ -158,7 +158,7 @@ export interface DoneNotificationPlan {
     text: string;
     /** Insert index in the queue: ahead of every pending item; -1 appends. */
     position: number;
-    transport?: 'copilot' | 'anthropic';
+    transport?: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     session?: string;

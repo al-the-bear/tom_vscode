@@ -172,7 +172,7 @@ export function isRetryDue(retryUntilIso: string | undefined, nowMs: number): bo
  * is deliberate: these two pieces of state answer different questions. The retry
  * fields ask "did the transport accept the send?", which is settled the instant
  * `dispatchStage` returns. The snapshot asks "did this repetition complete?",
- * which for a polled (Copilot) dispatch is not settled until the answer file
+ * which is not settled until the answer
  * arrives. Clearing the snapshot here would drop the rollback for precisely the
  * case it was built for — a prompt that went out fine and then timed out.
  * See the lifetime contract on `InFlightRepetition` for where it *is* cleared.
@@ -270,9 +270,8 @@ export type InFlightStage = 'prePrompt' | 'main' | 'followUp';
  *     belongs to an earlier dispatch.
  *   - `applyCrashRecovery` (`queueCrashRecoveryUtils.ts`) — the crash ended it.
  *
- * The one state in which it deliberately *survives* is a polled dispatch that
- * returned `'dispatched'`: the prompt is with Copilot and unanswered, so the
- * advance is not final. That is why dispatch **success** is not a clear point —
+ * The one state in which it deliberately *survives* is a dispatch whose
+ * answer is not in yet: the advance is not final. That is why dispatch **success** is not a clear point —
  * see `clearRetryBookkeeping`.
  */
 export interface InFlightRepetition {

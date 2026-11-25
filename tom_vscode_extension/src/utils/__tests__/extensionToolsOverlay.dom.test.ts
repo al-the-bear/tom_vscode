@@ -37,7 +37,7 @@ function setup(t: { after(fn: () => void): void }) {
     w.acquireVsCodeApi = () => ({
         postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))),
         setState: () => undefined,
-        getState: () => ({ expanded: ['copilot', 'anthropic'], pinned: [] }),
+        getState: () => ({ expanded: ['anthropic'], pinned: [] }),
     });
     w.__INIT__ = { extensionTools: extensionToolsForWebview() };
     w.eval(read('media', 'chatPanel', 'main.js'));
@@ -47,9 +47,10 @@ function setup(t: { after(fn: () => void): void }) {
 }
 
 describe('the chat panels\' Extension Tools overlay', () => {
-    test('EO-1: both subpanels open it', (t) => {
+    test('EO-1: the chat subpanel opens it', (t) => {
         const s = setup(t);
-        for (const section of ['copilot', 'anthropic']) {
+        assert.equal(s.w.document.querySelector('[data-action="openExtensionTools"][data-id="copilot"]'), null, 'no Copilot subpanel');
+        for (const section of ['anthropic']) {
             const btn = s.w.document.querySelector(`[data-action="openExtensionTools"][data-id="${section}"]`);
             assert.ok(btn, section);
             assert.equal(btn.title, 'Extension Tools');

@@ -286,24 +286,26 @@ describe('Step 3 - Issue 10: repeat decision', () => {
         assert.equal(params, null);
     });
 
-    test('next template iteration params preserve answerWrapper + answerWaitMinutes settings', () => {
+    test('next template iteration params preserve where the item runs (transport, profile, session)', () => {
         // The bug we're fixing surfaces when these inheritable
-        // per-iteration knobs silently drop through the gap. Lock them
+        // per-iteration settings silently drop through the gap. Lock them
         // into a regression test so future refactors don't lose them.
         const params = buildNextTemplateIterationParams(
             {
                 originalText: 'Body',
                 templateRepeatCount: 4,
                 templateRepeatIndex: 1,
-                answerWrapper: true,
-                answerWaitMinutes: 7,
+                transport: 'anthropic',
+                anthropicProfileId: 'prof-7',
+                session: 'work',
             },
             4,
         );
 
         assert.ok(params);
-        assert.equal(params!.answerWrapper, true);
-        assert.equal(params!.answerWaitMinutes, 7);
+        assert.equal(params!.transport, 'anthropic');
+        assert.equal(params!.anthropicProfileId, 'prof-7');
+        assert.equal(params!.session, 'work');
         assert.equal(params!.templateRepeatIndex, 2, 'next iteration index advances by one');
     });
 

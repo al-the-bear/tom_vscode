@@ -27,8 +27,6 @@ import {
     SendToChatConfig,
     loadSendToChatConfig,
     saveSendToChatConfig,
-    getCopilotChatAnswerFolder,
-    getCopilotChatAnswerFolderAbsolute,
 } from '../utils/sendToChatConfig';
 import { debugException, debugLog } from '../utils/debugLogger';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
@@ -40,8 +38,6 @@ export {
     SendToChatConfig,
     loadSendToChatConfig,
     saveSendToChatConfig,
-    getCopilotChatAnswerFolder,
-    getCopilotChatAnswerFolderAbsolute,
 };
 
 // ============================================================================
@@ -218,7 +214,6 @@ export function getConfigPath(): string | undefined {
  *   ${file.content}      — full file content
  *   ${file.selection}    — selection (falls back to full content)
  *   ${configfile}        — extension config file path
- *   ${copilotAnswerFile} — copilot chat answer file path
  *   ${env.VARNAME}       — any environment variable
  *   ${git.branch}        — current git branch
  *   ${{javascript}}      — inline JS expression
@@ -352,61 +347,6 @@ export async function ensureBridgeRunning(
     await restartBridgeHandler(context, showMessages);
 
     return bridgeClient && bridgeClient.isRunning() ? bridgeClient : null;
-}
-
-// ============================================================================
-// Copilot Integration
-// ============================================================================
-
-/**
- * Send a request to Copilot and get the response
- */
-export async function sendCopilotRequest(
-    model: vscode.LanguageModelChat,
-    prompt: string,
-    token: vscode.CancellationToken
-): Promise<string> {
-    try {
-        // Create chat messages
-        const messages = [
-            vscode.LanguageModelChatMessage.User(prompt)
-        ];
-
-        // Send request
-        const response = await model.sendRequest(messages, {}, token);
-
-        // Collect response text
-        let fullResponse = '';
-        for await (const chunk of response.text) {
-            if (token.isCancellationRequested) {
-                throw new Error('Request cancelled');
-            }
-            fullResponse += chunk;
-        }
-
-        return fullResponse;
-
-    } catch (error) {
-        if (error instanceof vscode.LanguageModelError) {
-            console.error('Copilot error:', error.message, error.code);
-
-            // Handle specific error cases
-            if (error.cause instanceof Error) {
-                if (error.cause.message.includes('off_topic')) {
-                    throw new Error('The request was rejected as off-topic');
-                }
-                if (error.cause.message.includes('consent')) {
-                    throw new Error('User consent required for Copilot');
-                }
-                if (error.cause.message.includes('quota')) {
-                    throw new Error('Copilot quota limit exceeded');
-                }
-            }
-
-            throw new Error(`Copilot error: ${error.message}`);
-        }
-        throw error;
-    }
 }
 
 // ============================================================================
@@ -612,7 +552,6 @@ export interface TemplateEditorField {
 }
 
 export interface TemplateEditorConfig {
-    type: 'copilot';
     title: string;
     fields: TemplateEditorField[];
 }
@@ -669,8 +608,7 @@ export async function showTemplateEditorPanel(
 // ============================================================================
 
 /**
- * Shared store for chat answer data (responseValues from copilot answers).
- * Both the TOM AI Panel and Send to Chat systems read/write this store,
+ * Shared store for chat answer data (the responseValues of answers),
  * making `${chat.KEY}` available everywhere.
  */
 const _chatResponseValues: { [key: string]: any } = {};

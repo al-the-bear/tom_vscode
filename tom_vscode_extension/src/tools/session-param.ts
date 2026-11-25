@@ -5,7 +5,7 @@
  * A session name, a list of names, or `"all"` (src/utils/sessionSelection.ts
  * resolveSessionsArg). Without it the tool works on the session the call runs
  * in — the active tool trail's session (the Anthropic transport sets it per
- * send). A caller that runs in no session (Copilot, Local LLM, an MCP client)
+ * send). A caller that runs in no session (Local LLM, an MCP client)
  * gets every session for a read and `default` for a write.
  *
  * vscode-free.

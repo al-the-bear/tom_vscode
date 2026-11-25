@@ -9,15 +9,14 @@
  *        (the other one stays), per window and quest; the ANTHROPIC/LLM subpanel then shows the run's session
  *   CR-3 a send into a non-default run while the window works on `default`: it runs in the run's session, with
  *        the run's chat variables and the run's process position (variables, run); the window's own stay
- *   CR-4 Save to Queue with the panel's target carries the subpanel's run (its session becomes the run's), for
- *        Copilot too; plain Save to Queue / Queue next go to the default run with nothing pinned (vscimpb151); a run
+ *   CR-4 Save to Queue with the panel's target carries the subpanel's run (its session becomes the run's);
+ *        plain Save to Queue / Queue next go to the default run with nothing pinned (vscimpb151); a run
  *        switch in the ANTHROPIC/LLM subpanel selects that run's default session, created when missing
  *   CR-5 the fallback: a run deleted elsewhere is `default` again for the subpanel that was on it, the pick
  *        forgotten, and the webview is told
- *   CR-6 the webview: the Copilot subpanel has a run link; `chatRuns` names the run it is on (its full label in the
- *        tooltip; one not on the PROCESS view's run marked); a click posts `pickChatRun` with its subpanel, and the
- *        host's picker switches the run as `setChatRun` does. The ANTHROPIC/LLM subpanel's run is part of its session
- *        link (`pickChatRunSession`: the run, then the session in it)
+ *   CR-6 the webview: the ANTHROPIC/LLM subpanel's run is part of its session link (`pickChatRunSession`: the
+ *        run, then the session in it); there is no run link of its own; the host's `pickChatRun` picker switches
+ *        the run as `setChatRun` does
  */
 
 /* eslint-disable @typescript-eslint/naming-convention -- chat-variable names */
@@ -131,20 +130,20 @@ describe('the chat panels\' run pickers', () => {
         await new Promise((r) => setTimeout(r, 20));
         provider()._sendChatRuns();
         assert.deepEqual(lastPosted('chatRuns').options.map((o: Json) => o.run), ['default', 'chg1', 'chg2']);
-        assert.deepEqual(lastPosted('chatRuns').selected, { anthropic: 'default', copilot: 'default' });
-        // The ANTHROPIC/LLM subpanel picks chg1; the Copilot one stays.
+        assert.deepEqual(lastPosted('chatRuns').selected, { anthropic: 'default' });
+        // A run the quest does not have is not taken.
+        await provider()._setChatRun('anthropic', 'nope');
+        assert.equal(provider()._chatRun('anthropic'), DEFAULT_RUN);
+        // The ANTHROPIC/LLM subpanel picks chg1.
         await provider()._setChatRun('anthropic', 'chg1');
         provider()._sendChatRuns();
-        assert.deepEqual(lastPosted('chatRuns').selected, { anthropic: 'chg1', copilot: 'default' });
+        assert.deepEqual(lastPosted('chatRuns').selected, { anthropic: 'chg1' });
         // Its session: the run's (a named session — `chat` is shared and stays as it is).
         await setChatSessionFor((context as Json).workspaceState, QUEST, 'work');
         const sessionKey = provider()._chatSessionKey();
         assert.equal(provider()._panelSession(), chatRunSession(sessionKey, 'chg1'));
         provider()._sendChatSession();
         assert.equal(lastPosted('anthropicSession').name, chatRunSession(sessionKey, 'chg1'));
-        // A run the quest does not have is not taken.
-        await provider()._setChatRun('copilot', 'nope');
-        assert.equal(provider()._chatRun('copilot'), DEFAULT_RUN);
         // The handler's messages.
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');
         assert.match(src, /case 'setChatRun': \{\n\s+const section = CHAT_RUN_SECTIONS\.find\(\(x\) => x === message\.section\);\n\s+if \(section && typeof message\.run === 'string'\) \{ await this\._setChatRun\(section, message\.run\); \}/);
@@ -174,19 +173,16 @@ describe('the chat panels\' run pickers', () => {
 
     test('CR-4: Save to Queue carries the run', async () => {
         for (const i of [...queue().items]) { queue().remove(i.id); }
-        await provider()._handleAddToQueue('queued from anthropic', '', '1', 0, { transport: 'anthropic', usePanelTarget: true, anthropicProfileId: 'p' }, { section: 'anthropic' });
+        await provider()._handleAddToQueue('queued from anthropic', '', '1', { transport: 'anthropic', usePanelTarget: true, anthropicProfileId: 'p' }, { section: 'anthropic' });
         const item = queue().items.find((i) => i.originalText === 'queued from anthropic')!;
         assert.equal(item.run, 'chg1');
         assert.equal(item.session, chatRunSession(provider()._chatSessionKey(), 'chg1'), 'the run\'s session');
-        await provider()._handleAddToQueue('plain from anthropic', 'tpl-x', '1', 0, { transport: 'anthropic' }, { section: 'anthropic' });
+        await provider()._handleAddToQueue('plain from anthropic', 'tpl-x', '1', { transport: 'anthropic' }, { section: 'anthropic' });
         const plain = queue().items.find((i) => i.originalText === 'plain from anthropic')!;
         assert.deepEqual([plain.run, plain.session, plain.anthropicProfileId], ['default', undefined, undefined], 'the default run, nothing pinned');
         assert.notEqual(plain.template, 'tpl-x', 'the queue\'s default template, not the panel\'s pick');
-        await provider()._setChatRun('copilot', 'chg2');
-        await provider()._handleAddToQueue('queued from copilot', '', '1', 0, undefined, {});
-        assert.equal(queue().items.find((i) => i.originalText === 'queued from copilot')!.run, 'default', 'plain Save to Queue: the default run');
-        await provider()._handleAddToQueue('copilot with the panel', '', '1', 0, { usePanelTarget: true }, { section: 'copilot' });
-        assert.equal(queue().items.find((i) => i.originalText === 'copilot with the panel')!.run, 'chg2', 'with the panel\'s target: the Copilot subpanel\'s run');
+        await provider()._handleAddToQueue('queued without options', '', '1', undefined, {});
+        assert.equal(queue().items.find((i) => i.originalText === 'queued without options')!.run, 'default', 'plain Save to Queue: the default run');
         // A run switch selects the run's default session (created when missing); the picker stays free.
         await provider()._setChatRun('anthropic', 'chg2');
         assert.equal(provider()._chatSessionKey(), 'default@chg2');
@@ -204,7 +200,6 @@ describe('the chat panels\' run pickers', () => {
         assert.equal(provider()._chatRun('anthropic'), DEFAULT_RUN);
         assert.equal((context as Json).workspaceState.get(`tomAi.chatPanel.run.${QUEST}.anthropic`), undefined, 'the pick is forgotten');
         assert.equal(lastPosted('chatRuns').selected.anthropic, DEFAULT_RUN, 'the webview is told');
-        assert.equal(provider()._chatRun('copilot'), 'chg2', 'the other subpanel keeps its run');
     });
 
     test('CR-6: the webview', () => {
@@ -212,22 +207,17 @@ describe('the chat panels\' run pickers', () => {
         const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Json;
         try {
             const sent: Json[] = [];
-            w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => sent.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic', 'copilot'], pinned: [] }) });
+            w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => sent.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic'], pinned: [] }) });
             w.__INIT__ = {};
             w.eval(fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'main.js'), 'utf8'));
             const sel = (s: string): Json => w.document.getElementById(`${s}-run`);
-            assert.ok(sel('copilot'), 'a run link in the Copilot subpanel');
+            assert.equal(sel('copilot'), null, 'no Copilot subpanel');
             assert.equal(sel('anthropic'), null, 'the ANTHROPIC/LLM run is part of its session link');
             w.dispatchEvent(new w.MessageEvent('message', { data: {
                 type: 'chatRuns', windowRun: 'default',
                 options: [{ run: 'default', label: 'default (PROCESS view)' }, { run: 'chg2', label: 'chg2' }],
-                selected: { anthropic: 'default', copilot: 'chg2' },
+                selected: { anthropic: 'chg2' },
             } }));
-            assert.equal(sel('copilot').textContent, 'chg2', 'the run\'s name, no "Run:" prefix (vscimpb151)');
-            assert.match(sel('copilot').title, /^Run: chg2/, 'the full label in the tooltip');
-            assert.equal(sel('copilot').classList.contains('run-other'), true, 'on another run than the PROCESS view\'s');
-            sel('copilot').click();
-            assert.deepEqual(sent.filter((m) => m.type === 'pickChatRun').at(-1), { type: 'pickChatRun', section: 'copilot' });
             w.document.getElementById('anthropic-session-link').click();
             assert.deepEqual(sent.at(-1), { type: 'pickChatRunSession' });
             const host = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');

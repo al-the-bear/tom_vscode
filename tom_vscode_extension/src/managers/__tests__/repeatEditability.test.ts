@@ -46,19 +46,18 @@ describe('applyRepeatEditToItem', () => {
         assert.equal(item.templateRepeatIndex, 3);
     });
 
-    test('counters mode does NOT apply prefix/suffix/answerWait', () => {
-        const item: RepeatEditTarget = { repeatPrefix: 'a', repeatSuffix: 'b', answerWaitMinutes: 10 };
+    test('counters mode does NOT apply prefix/suffix', () => {
+        const item: RepeatEditTarget = { repeatPrefix: 'a', repeatSuffix: 'b' };
         applyRepeatEditToItem(
             item,
-            { repeatPrefix: 'X', repeatSuffix: 'Y', answerWaitMinutes: 99 },
+            { repeatPrefix: 'X', repeatSuffix: 'Y' },
             'counters',
         );
         assert.equal(item.repeatPrefix, 'a');
         assert.equal(item.repeatSuffix, 'b');
-        assert.equal(item.answerWaitMinutes, 10);
     });
 
-    test('full mode applies every field including prefix/suffix/answerWait (pending fix)', () => {
+    test('full mode applies every field including prefix/suffix (pending fix)', () => {
         const item: RepeatEditTarget = {};
         applyRepeatEditToItem(
             item,
@@ -69,7 +68,6 @@ describe('applyRepeatEditToItem', () => {
                 templateRepeatIndex: 2,
                 repeatPrefix: 'pre',
                 repeatSuffix: 'suf',
-                answerWaitMinutes: 15,
             },
             'full',
         );
@@ -79,7 +77,6 @@ describe('applyRepeatEditToItem', () => {
         assert.equal(item.templateRepeatIndex, 2);
         assert.equal(item.repeatPrefix, 'pre');
         assert.equal(item.repeatSuffix, 'suf');
-        assert.equal(item.answerWaitMinutes, 15);
     });
 
     test('string repeatCount (variable name) is stored and clears the resolved cache', () => {
@@ -107,11 +104,5 @@ describe('applyRepeatEditToItem', () => {
         applyRepeatEditToItem(item, { repeatIndex: -3, templateRepeatIndex: -2 }, 'counters');
         assert.equal(item.repeatIndex, 0);
         assert.equal(item.templateRepeatIndex, 0);
-    });
-
-    test('answerWaitMinutes of 0 clears to undefined in full mode', () => {
-        const item: RepeatEditTarget = { answerWaitMinutes: 20 };
-        applyRepeatEditToItem(item, { answerWaitMinutes: 0 }, 'full');
-        assert.equal(item.answerWaitMinutes, undefined);
     });
 });

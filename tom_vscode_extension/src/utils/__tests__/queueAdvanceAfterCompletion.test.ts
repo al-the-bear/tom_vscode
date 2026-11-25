@@ -90,7 +90,7 @@ describe('every completion path funnels through the one gate', () => {
 
     /**
      * How far past the completion an advance may sit. Generous enough to
-     * cover the widest real tail (the answer-wait timer, ~20 lines) and short
+     * cover the widest real tail (~20 lines) and short
      * enough not to reach the next completion site in the file.
      */
     const WINDOW = 40;
@@ -103,16 +103,17 @@ describe('every completion path funnels through the one gate', () => {
      */
     const ADVANCES = /\b(?:sendNext|delaySendNext)\(/;
 
-    test('the manager has exactly the eight known item-completion sites', () => {
-        // The seventh is the process-move marker moving the process
-        // (_runProcessMoveMarker), the eighth an item marked sent by hand
-        // (changeItemStatus). A ninth would mean a new tail that this
-        // test has not been thought about for — fail loudly rather than
+    test('the manager has exactly the six known item-completion sites', () => {
+        // Four are the dispatch tails (a resumed item, a manual continue, a
+        // sent item, a resend); the fifth is the process-move marker moving
+        // the process (_runProcessMoveMarker), the sixth an item marked sent
+        // by hand (changeItemStatus). A seventh would mean a new tail that
+        // this test has not been thought about for — fail loudly rather than
         // silently stop covering it.
         assert.equal(
             completionLines.length,
-            8,
-            `expected 8 item-completion sites, found ${completionLines.length} `
+            6,
+            `expected 6 item-completion sites, found ${completionLines.length} `
             + `at lines ${completionLines.map(c => c.idx + 1).join(', ')}`,
         );
     });

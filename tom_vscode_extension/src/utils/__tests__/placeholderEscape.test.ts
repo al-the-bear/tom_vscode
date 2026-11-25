@@ -11,8 +11,8 @@
  *   PE-3 the Proceed → queue → send chain: the action template, the queue's repeat pass, the template pass, then
  *        the unescape at the transport — a literal `${repeatTodoId}` arrives; the item the agent then queues
  *        with that text resolves it
- *   PE-4 the unescape is applied at every output: the Anthropic system prompt and user message, the Copilot
- *        dispatch, and tomAi_getProcessState's context
+ *   PE-4 the unescape is applied at every output: the Anthropic system prompt and user message, and
+ *        tomAi_getProcessState's context
  */
 
 import test, { describe } from 'node:test';
@@ -76,8 +76,6 @@ describe('a literal placeholder', () => {
         const user = body('buildUserMessage');
         assert.equal((user.match(/return /g) ?? []).length, (user.match(/return unescapePlaceholders\(/g) ?? []).length,
             'every way the user message is returned');
-        const queue = fs.readFileSync(path.join(SRC, 'managers', 'promptQueueManager.ts'), 'utf8');
-        assert.match(queue, /'workbench\.action\.chat\.open', \{ query: withAspectsForCopilot\(unescapePlaceholders\(expandedText\), liveAspectChoices\(undefined, roleSource\)\) \}/, 'the Copilot dispatch');
 
         const answer = JSON.parse(await getProcessStateImpl({
             activeQuest: () => 'q', state: () => ({}) as never, currentRole: () => '',

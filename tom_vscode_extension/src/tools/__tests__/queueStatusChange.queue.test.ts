@@ -112,8 +112,8 @@ describe('a queue item\'s status and place set by hand', () => {
 
     test('QS-2: the status on a real queue', async () => {
         clear();
-        for (const r of ['s1']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'copilot' }); }
-        const make = async (text: string) => queue().enqueue({ originalText: text, transport: 'copilot', deferSend: true, run: 's1' } as never);
+        for (const r of ['s1']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
+        const make = async (text: string) => queue().enqueue({ originalText: text, transport: 'anthropic', deferSend: true, run: 's1' } as never);
         const err = await make('failed');
         Object.assign(find(err.id), { status: 'error', error: 'overloaded', outOfBudget: { reason: 'x' } });
         assert.deepEqual(queue().changeItemStatus(err.id, 'pending'), { ok: true });
@@ -146,9 +146,9 @@ describe('a queue item\'s status and place set by hand', () => {
 
     test('QS-3: a move', async () => {
         clear();
-        for (const r of ['m1', 'm2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'copilot' }); }
+        for (const r of ['m1', 'm2']) { queue().setRunQueueSettings(r, { autoSend: false, defaultTransport: 'anthropic' }); }
         const make = async (text: string, run: string, extra: Record<string, unknown> = {}) =>
-            queue().enqueue({ originalText: text, transport: 'copilot', deferSend: true, run, ...extra } as never);
+            queue().enqueue({ originalText: text, transport: 'anthropic', deferSend: true, run, ...extra } as never);
         const loop = await make('loop', 'm2', { repeatCount: 3 });
         find(loop.id).status = 'sending';
         const p1 = await make('p1', 'm2');

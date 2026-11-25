@@ -3,12 +3,12 @@
  * label above its value; a value that can be changed is a link — each opens a VS Code picker on the host.
  *
  *   QC-1 the first bar (with the icon buttons): Position, Role, Default role, Guidelines, Variables; the second the
- *        run's defaults: Transport, Model (the Anthropic profile; Anthropic only), Session, Template — the tab's
+ *        run's defaults: Model (the Anthropic profile), Session, Template — the tab's
  *        run's (vscimpb60c); the fields of both bars each a `.ctx-label` over a `.ctx-value` (the two bars the same
  *        height and structure); no Quest, Run or Projects field; every value
  *        but another run's role is a link; there is no separate session row and no transport-picker row
- *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession`, Transport / Profile / Template
- *        `pickQueueDefaultTransport` / `…Profile` / `…Template` with the settings run; a state update refreshes the
+ *   QC-2 clicking Role posts `pickRole`, clicking Session `pickQueueDefaultSession`, Profile / Template
+ *        `pickQueueDefaultProfile` / `…Template` with the settings run; a state update refreshes the
  *        session shown; the host opens a picker for each and writes the run's defaults
  *   QC-3 the Session link names the default session's base and its lifetime when not `continue`; it shows the
  *        session the run's items run in: `default@default` in the `default` run, `default@<run>` in another
@@ -22,8 +22,7 @@
  *        as double icons, Collapse all / Expand all as the todo bar's collapse-all / expand-all icons, each with a
  *        title and its action
  *   QC-6 the item headline's type icon is a button: it posts `openItemLiveTrail` with the item's id, its title names
- *        the session the item runs in; the host opens that session's live trail (the chat panel's liveTrail action),
- *        a Copilot item gets a note instead
+ *        the session the item runs in; the host opens that session's live trail (the chat panel's liveTrail action)
  */
 
 import test, { describe } from 'node:test';
@@ -71,22 +70,22 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.deepEqual(fields(bar), ['Position: (no process)', 'Role: spec_author', 'Default role: default', 'Variables: 0'], 'no Quest, Run or Projects');
         assert.deepEqual(picks(bar), ['position', 'role', 'defaultRole', 'variables']);
         assert.ok(bar.parentElement.querySelector('.ctx-btn-icon'), 'the icon buttons stay with the first bar');
-        assert.deepEqual(bare(defaults), ['Transport: Copilot', 'Session: p2s3r1ss1', 'Template: (none)'], 'no Model on Copilot');
-        assert.deepEqual(picks(defaults), ['transport', 'session', 'template']);
+        assert.deepEqual(bare(defaults), ['Model: (default profile)', 'Session: p2s3r1ss1', 'Template: (none)'], 'no Transport field');
+        assert.deepEqual(picks(defaults), ['profile', 'session', 'template']);
         assert.equal(bar.parentElement.compareDocumentPosition(defaults) & window.Node.DOCUMENT_POSITION_FOLLOWING, window.Node.DOCUMENT_POSITION_FOLLOWING, 'the defaults bar below');
         assert.equal(window.document.getElementById('queueDefaultSessionRow'), null, 'the session moved into the bar');
         assert.equal(window.document.getElementById('queueDefaultPickerSlot'), null, 'no transport-picker row');
         const none = setup(t, { context: { quest: 'q', role: '', activeProjects: [] } }).window.document;
         assert.deepEqual(fields(none.getElementById('contextSummary')), ['Position: (no process)', 'Role: (none)', 'Default role: default', 'Variables: 0']);
-        assert.deepEqual(bare(none.getElementById('runDefaultsSummary')), ['Transport: Copilot', 'Session: default@default', 'Template: (none)']);
-        // An Anthropic run shows its model (the profile, by name) and its template (by name).
+        assert.deepEqual(bare(none.getElementById('runDefaultsSummary')), ['Model: (default profile)', 'Session: default@default', 'Template: (none)']);
+        // A run shows its model (the profile, by name) and its template (by name).
         const anth = setup(t, {
             context: { quest: 'q', role: '', activeProjects: [] }, currentRun: 'default',
             runQueueSettings: { default: { defaultTransport: 'anthropic', defaultAnthropicProfileId: 'opus', defaultMessageTemplateId: 'execute-todo' } },
             anthropicProfiles: [{ id: 'opus', name: 'Opus' }], anthropicUserMessageTemplates: [{ id: 'execute-todo', name: 'Execute TODO' }],
         }).window.document.getElementById('runDefaultsSummary');
-        assert.deepEqual(bare(anth), ['Transport: Anthropic', 'Model: Opus', 'Session: default@default', 'Template: Execute TODO']);
-        assert.deepEqual(picks(anth), ['transport', 'profile', 'session', 'template']);
+        assert.deepEqual(bare(anth), ['Model: Opus', 'Session: default@default', 'Template: Execute TODO']);
+        assert.deepEqual(picks(anth), ['profile', 'session', 'template']);
     });
 
     test('QC-2: the links open the pickers', (t) => {
@@ -96,12 +95,14 @@ describe('Prompt Queue editor — the context bar', () => {
         assert.deepEqual(posted.pop(), { type: 'pickRole' });
         link('session').click();
         assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultSession', run: 'default' });
-        link('transport').click();
-        assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultTransport', run: 'default' });
+        assert.equal(link('transport'), null, 'no transport link');
+        link('profile').click();
+        assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultProfile', run: 'default' });
         link('template').click();
         assert.deepEqual(posted.pop(), { type: 'pickQueueDefaultTemplate', run: 'default' });
         const host = readFileSync(join(__dirname, '..', '..', '..', 'src', 'handlers', 'queueEditor-handler.ts'), 'utf-8');
-        assert.match(host, /case 'pickQueueDefaultTransport':\s*case 'pickQueueDefaultProfile':\s*case 'pickQueueDefaultTemplate':[\s\S]{0,4000}setDefaultTransport\(picked\.value[\s\S]{0,2000}setDefaultMessageTemplate\(picked\.value, run\)/);
+        assert.match(host, /case 'pickQueueDefaultProfile':\s*case 'pickQueueDefaultTemplate':[\s\S]{0,4000}setDefaultTransport\('anthropic', picked\.value[\s\S]{0,2000}setDefaultMessageTemplate\(picked\.value, run\)/);
+        assert.doesNotMatch(host, /pickQueueDefaultTransport/);
         window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'state', items: [], context: { quest: 'q', role: 'spec_author', activeProjects: [] }, queueDefaultSession: 'per-todo' } }));
         assert.equal(link('session').textContent, 'per-todo');
     });

@@ -31,7 +31,7 @@ describe('Prompt Queue editor — the scroll area under the run tabs', () => {
             assert.equal(doc.getElementById(id).parentElement, doc.body);
         }
         assert.equal(scroll.contains(doc.querySelector('h2')), false);
-        for (const id of ['contextSummary', 'runDefaultsSummary', 'copilotDefaultsRow', 'addForm', 'queueList']) {
+        for (const id of ['contextSummary', 'runDefaultsSummary', 'addForm', 'queueList']) {
             assert.ok(scroll.contains(doc.getElementById(id)), `${id} scrolls`);
         }
         assert.ok(scroll.contains(doc.querySelector('.toolbar')), 'the toolbar scrolls');

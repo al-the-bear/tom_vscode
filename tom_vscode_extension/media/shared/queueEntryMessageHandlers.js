@@ -19,7 +19,6 @@ function updateItemRepeat(id, patch) {
     repeatIndex: undefined,
     repeatPrefix: undefined,
     repeatSuffix: undefined,
-    answerWaitMinutes: undefined,
     templateRepeatCount: undefined,
     templateRepeatIndex: undefined,
   };
@@ -41,9 +40,6 @@ function updateItemRepeat(id, patch) {
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatSuffix')) {
     msg.repeatSuffix = String(nextPatch.repeatSuffix || '');
-  }
-  if (Object.prototype.hasOwnProperty.call(nextPatch, 'answerWaitMinutes')) {
-    msg.answerWaitMinutes = Math.max(0, parseInt(String(nextPatch.answerWaitMinutes || '0'), 10) || 0);
   }
   if (Object.prototype.hasOwnProperty.call(nextPatch, 'templateRepeatCount')) {
     var trcVal = String(nextPatch.templateRepeatCount || '').trim();
@@ -139,7 +135,6 @@ function updatePrePromptField(id, index, field, value) {
     var rcNum = parseInt(rcVal, 10);
     msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
   }
-  if (field === 'answerWaitMinutes') msg.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
   vscode.postMessage(msg);
 }
 function updateFollowUpField(id, followUpId, field, value) {
@@ -149,7 +144,6 @@ function updateFollowUpField(id, followUpId, field, value) {
     var rcNum = parseInt(rcVal, 10);
     msg.repeatCount = isNaN(rcNum) ? rcVal : Math.max(0, rcNum);
   }
-  if (field === 'answerWaitMinutes') msg.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
   vscode.postMessage(msg);
 }
 function removePrePrompt(id, index) { vscode.postMessage({ type: 'removePrePrompt', id: id, index: index }); }
@@ -160,11 +154,6 @@ function previewItem(id) {
     id: id,
     text: item.originalText,
     template: item.template || '',
-    answerWrapper: item.answerWrapper || false,
-    // Spec §4.16 — preview applies the template from the effective
-    // transport's store; include the item's pinned transport so the
-    // backend resolver hits the right store.
-    transport: item.transport || 'copilot',
   });
 }
 /* A GROUP item's member list (vscimpb129): one member's box, Select all, Reset to rules. */
@@ -181,14 +170,14 @@ function openEntryFile(id) {
   vscode.postMessage({ type: 'showEntryFile', id: id });
 }
 function editItemTransport(id) {
-  // Spec §4.10 — per-item Advanced override. The backend opens a
-  // QuickPick flow (transport → profile → config) and calls
-  // updateItemTransport when the user confirms.
+  // The per-item profile override: the host opens a QuickPick flow
+  // (profile → configuration) and calls updateItemTransport when the
+  // user confirms.
   vscode.postMessage({ type: 'editItemTransport', id: id });
 }
 function pickItemProfile(id) {
   // The click on an item header's profile: the host opens the profile picker
-  // (every profile, whatever its transport) and gives the item the one chosen.
+  // (every profile) and gives the item the one chosen.
   vscode.postMessage({ type: 'pickItemProfile', id: id });
 }
 function editItemRole(id) {
@@ -201,18 +190,17 @@ function editItemSession(id) {
   vscode.postMessage({ type: 'editItemSession', id: id });
 }
 function applyQueueDefaultTransport(id) {
-  // Header-bar "adopt queue settings" button. Copies the queue-level
-  // default transport + Anthropic profile (the dropdowns above the queue)
-  // onto this item. Works in any status; for a repeating item the next
-  // repetition uses the new transport/profile.
+  // Header-bar "adopt queue settings" button. Copies the run's default
+  // Anthropic profile onto this item. Works in any status; for a repeating
+  // item the next repetition uses the new profile.
   vscode.postMessage({ type: 'applyQueueDefaultTransport', id: id });
 }
 function editPrePromptTransport(id, index) {
-  // Spec §4.10 — per-stage Advanced override for a pre-prompt.
+  // The per-stage profile override for a pre-prompt.
   vscode.postMessage({ type: 'editPrePromptTransport', id: id, index: index });
 }
 function editFollowUpTransport(id, followUpId) {
-  // Spec §4.10 — per-stage Advanced override for a follow-up.
+  // The per-stage profile override for a follow-up.
   vscode.postMessage({ type: 'editFollowUpTransport', id: id, followUpId: followUpId });
 }
 function queueAnswerMarkdown(id, mode) {
@@ -249,7 +237,5 @@ function previewFollowUp(id, followUpId) {
     followUpId: followUpId,
     text: follow.originalText || '',
     template: follow.template || '',
-    // Spec §4.16 — stage-level transport wins, falls back to item-level.
-    transport: follow.transport || item.transport || 'copilot',
   });
 }

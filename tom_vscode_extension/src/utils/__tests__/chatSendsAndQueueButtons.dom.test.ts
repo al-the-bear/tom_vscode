@@ -15,8 +15,7 @@
  *        Logs actions go to the chat panel's runSessionAction
  *   CB-14 the action rows (vscimpb151): ANTHROPIC/LLM — Save to Queue and Queue next (the default run) before the
  *        Session and Run fields (label above, value a link), Send, Stop and the two panel-target queue buttons after them; the new
- *        "Queue next with this panel's session and run" posts addToQueue with next and usePanelTarget; Copilot —
- *        Save to Queue before its Run select, Send and Save to Queue in this panel's run after it; every action
+ *        "Queue next with this panel's session and run" posts addToQueue with next and usePanelTarget; every action
  *        button an icon button; the Run select narrow, its options without a "Run:" prefix
  *   CB-15 the host's run switch (vscimpb151): switching the ANTHROPIC/LLM run selects Run default, that run's
  *        default session, created when missing
@@ -38,18 +37,18 @@
  *        run and session chips; the headline colour class `chat-kind` (`running` while it runs); collapse / expand
  *        per item and Collapse / Expand all; no move, edit, reminder, pause-after, transport, stage / pending,
  *        preview or resend controls; Delete stays
- *   CB-12 the icon toggles (vscimpb130): Keep, Fresh, Copilot's Keep and Wrap and each subpanel's queue mode are
+ *   CB-12 the icon toggles (vscimpb130): Keep, Fresh and the queue mode are
  *        buttons with aria-pressed (keyboard: buttons, focusable), switched by a click with a `change`; the queue mode
  *        sits right before Save to Queue, pressed (pending) by default; its tooltip and icon name the mode; Save to
  *        Queue posts `initialStatus` pending / staged as it is (Queue next stays pending); kept in the webview state
- *        and saved with the drafts (`queuePending`), restored from either; Copilot's Keep posts setKeepContent
+ *        and saved with the drafts (`queuePending`), restored from either
  *   CB-16 the status bar below each input: the quest folder (revealQuestFolder) first, then Open Prompt Queue and the
  *        Status Page, then the others; no Open Queue Editor in the action bars above the inputs; the model dropdowns
- *        replaced by one button opening the Available models overlay (the API's and VS Code LM's lists, or why a list
+ *        replaced by one button opening the Available models overlay (the API's list, or why it
  *        is empty); a template field asks the host for the lists again (refreshChoices) and opens the picker over the
  *        fresh options once they came (choicesRefreshed); the host's revealQuestFolder and refreshChoices cases
  *   CB-7 Keep per prompt slot: checked by default; an unchecked slot is cleared once the send started
- *        (anthropicSendStarted) and after the host confirms a queue add (only that slot; the Copilot text is untouched); the flag follows the
+ *        (anthropicSendStarted) and after the host confirms a queue add (only that slot); the flag follows the
  *        slot, is saved with the drafts (slotKeep) and restored from them
  */
 
@@ -167,7 +166,7 @@ describe('chat sends and the queue buttons', () => {
 
     test('CB-5: the hosts', () => {
         const panel = src('handlers', 'chatPanel-handler.ts');
-        assert.match(panel, /transport === 'anthropic' && panelTarget\s*\?\s*\{[\s\S]{0,200}isRunDefaultChoice\(transportOpts\?\.anthropicProfileId\) \? \{\} : \{ anthropicProfileId: transportOpts\?\.anthropicProfileId, anthropicConfigId: transportOpts\?\.anthropicConfigId \}\),\s*\.\.\.\(isRunDefaultChoice\(this\._chatSessionChoice\(\)\) \? \{\} : \{ session: this\._chatSessionKey\(\) \}\)/,
+        assert.match(panel, /\.\.\.\(panelTarget\s*\?\s*\{[\s\S]{0,200}isRunDefaultChoice\(transportOpts\?\.anthropicProfileId\) \? \{\} : \{ anthropicProfileId: transportOpts\?\.anthropicProfileId, anthropicConfigId: transportOpts\?\.anthropicConfigId \}\),\s*\.\.\.\(isRunDefaultChoice\(this\._chatSessionChoice\(\)\) \? \{\} : \{ session: this\._chatSessionKey\(\) \}\)/,
             'the panel\'s profile and session with its target, Queue next too; Run default sets neither');
         assert.match(panel, /const run = panelTarget \? this\._chatRun\(section\) : DEFAULT_RUN;/, 'the default run unless the panel\'s target');
         assert.match(panel, /const queueTemplate = queue\.runQueueSettings\(DEFAULT_RUN\)\.defaultMessageTemplateId \|\| undefined;/);
@@ -223,14 +222,12 @@ describe('chat sends and the queue buttons', () => {
         fire({ type: 'anthropicSendStarted', slot: 2 });
         assert.equal(text.value, '', 'then cleared');
         fire({ type: 'anthropicResult', toolCallCount: 0 });
-        // A queue add clears the slot it came from once the host confirms — not the Copilot text.
+        // A queue add clears the slot it came from once the host confirms.
         text.value = 'queued';
         doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]').click();
         assert.equal(text.value, 'queued', 'not before the host confirms');
-        doc.getElementById('copilot-text').value = 'copilot stays';
         fire({ type: 'queueAdded', count: 1, section: 'anthropic', slot: 2 });
         assert.equal(text.value, '');
-        assert.equal(doc.getElementById('copilot-text').value, 'copilot stays');
         // Checking the box on slot 1 sets slot 1 only, and the drafts carry the map.
         doc.querySelector('.slot-btn[data-id="anthropic"][data-slot="1"]').click();
         keep.checked = false;
@@ -406,7 +403,7 @@ describe('chat sends and the queue buttons', () => {
         const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
         open.push(w);
         const posted: Array<Record<string, unknown>> = [];
-        let saved: Record<string, unknown> = { expanded: ['anthropic', 'copilot'], pinned: [], queuePending: { copilot: false } };
+        let saved: Record<string, unknown> = { expanded: ['anthropic'], pinned: [], queuePending: {} };
         w.acquireVsCodeApi = () => ({
             postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))),
             setState: (v: Record<string, unknown>) => { saved = JSON.parse(JSON.stringify(v)); },
@@ -416,7 +413,7 @@ describe('chat sends and the queue buttons', () => {
         w.eval(media('chatPanel', 'main.js'));
         const doc = w.document;
         const fire = (data: Record<string, unknown>): void => { w.dispatchEvent(new w.MessageEvent('message', { data })); };
-        for (const id of ['anthropic-keep-slot', 'anthropic-fresh-session', 'copilot-keep-content', 'copilot-wrap', 'anthropic-queue-pending', 'copilot-queue-pending']) {
+        for (const id of ['anthropic-keep-slot', 'anthropic-fresh-session', 'anthropic-queue-pending']) {
             const b = doc.getElementById(id);
             assert.equal(b?.tagName, 'BUTTON', `${id} is a button`);
             assert.equal(b.type, 'button');
@@ -427,17 +424,12 @@ describe('chat sends and the queue buttons', () => {
             assert.notEqual(b.tabIndex, -1, `${id} is reached by Tab`);
         }
         assert.equal(doc.querySelectorAll('#container input[type="checkbox"]').length, 0, 'no checkbox left in the action bars');
-        // The queue mode: before Save to Queue in each subpanel; pending by default; copilot staged from the webview state.
+        // The queue mode: before Save to Queue; pending by default.
         const aq = doc.getElementById('anthropic-queue-pending');
-        const cq = doc.getElementById('copilot-queue-pending');
         assert.equal(aq.nextElementSibling, doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]'));
-        assert.equal(cq.nextElementSibling, doc.querySelector('[data-action="addToQueue"][data-id="copilot"]'));
         assert.equal(aq.getAttribute('aria-pressed'), 'true', 'pending: today\'s behaviour');
         assert.match(aq.title, /adds the prompt pending/);
         assert.ok(aq.querySelector('.codicon-play'));
-        assert.equal(cq.getAttribute('aria-pressed'), 'false', 'from the webview state');
-        assert.match(cq.title, /adds the prompt staged/);
-        assert.ok(cq.querySelector('.codicon-debug-pause'));
         fire({ type: 'draftsLoaded', sections: {} });
         // Save to Queue sends the mode.
         doc.getElementById('anthropic-text').value = 'a';
@@ -447,7 +439,8 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(aq.getAttribute('aria-pressed'), 'false');
         assert.ok(!aq.classList.contains('pressed'));
         assert.match(aq.title, /adds the prompt staged/);
-        assert.deepEqual(saved.queuePending, { copilot: false, anthropic: false }, 'kept in the webview state');
+        assert.deepEqual(saved.queuePending, { anthropic: false }, 'kept in the webview state');
+        assert.ok(aq.querySelector('.codicon-debug-pause'));
         pauseOver(w);
         doc.getElementById('anthropic-text').value = 'b';
         doc.querySelector('[data-action="addToQueuePanelTarget"][data-id="anthropic"]').click();
@@ -458,28 +451,14 @@ describe('chat sends and the queue buttons', () => {
         const nextMsg = posted.filter((m) => m.type === 'addToQueue').pop() as Record<string, unknown>;
         assert.equal(nextMsg.next, true);
         assert.equal(nextMsg.initialStatus, undefined, 'Queue next stays pending');
-        doc.getElementById('copilot-text').value = 'cp';
-        doc.querySelector('[data-action="addToQueue"][data-id="copilot"]').click();
-        assert.equal(posted.filter((m) => m.type === 'addToQueue').pop()?.initialStatus, 'staged');
         // Saved with the drafts, and restored from them.
         await new Promise((r) => setTimeout(r, 1100));
         const drafts = (posted.filter((m) => m.type === 'saveDrafts').pop() as { drafts: Record<string, { queuePending: boolean }> }).drafts;
         assert.equal(drafts.anthropic.queuePending, false);
-        assert.equal(drafts.copilot.queuePending, false);
-        fire({ type: 'draftsLoaded', sections: { anthropic: { queuePending: true }, copilot: { queuePending: true } } });
+        assert.equal(drafts.copilot, undefined, 'no Copilot draft');
+        fire({ type: 'draftsLoaded', sections: { anthropic: { queuePending: true } } });
         assert.equal(aq.getAttribute('aria-pressed'), 'true');
-        assert.equal(cq.getAttribute('aria-pressed'), 'true');
-        assert.deepEqual(saved.queuePending, { copilot: true, anthropic: true });
-        // Copilot's Keep posts setKeepContent; the host's keepContent sets it.
-        const ck = doc.getElementById('copilot-keep-content');
-        ck.click();
-        assert.deepEqual(posted.filter((m) => m.type === 'setKeepContent').pop(), { type: 'setKeepContent', value: true });
-        fire({ type: 'keepContent', value: false });
-        assert.equal(ck.getAttribute('aria-pressed'), 'false');
-        // Wrap: the preview posts it as it is.
-        doc.getElementById('copilot-wrap').click();
-        doc.querySelector('[data-action="preview"][data-id="copilot"]').click();
-        assert.equal(posted.filter((m) => m.type === 'preview').pop()?.wrap, true);
+        assert.deepEqual(saved.queuePending, { anthropic: true });
         // A keyboard user: Enter on a focused button is its click (the browser's default action), so the same handler runs.
         const fresh = doc.getElementById('anthropic-fresh-session');
         fresh.focus();
@@ -522,7 +501,7 @@ describe('chat sends and the queue buttons', () => {
     });
 
     test('CB-14: the action rows', () => {
-        const { w, posted } = chatPanel(['anthropic', 'copilot']);
+        const { w, posted } = chatPanel(['anthropic']);
         const actions = (section: string): string[] => [...w.document.querySelectorAll(`[data-section="${section}"] .toolbar [data-action], #${section}-run`)]
             .filter((el: Win) => el.closest('[data-action]') === el || el.id === `${section}-run`)
             .map((el: Win) => (el.id === `${section}-run` ? 'RUN' : el.getAttribute('data-action')));
@@ -534,10 +513,9 @@ describe('chat sends and the queue buttons', () => {
         assert.equal(at('RUN'), -1, 'no run field of its own: run and session are one link');
         assert.ok(at('addToQueue') < at('pickChatRunSession') && at('addToQueueNext') < at('pickChatRunSession'), 'the default-run buttons first');
         for (const x of ['send', 'cancel', 'addToQueuePanelTarget', 'addToQueueNextPanelTarget']) { assert.ok(at(x) > at('pickChatRunSession'), `${x} after the session`); }
-        const c = actions('copilot');
-        assert.ok(c.indexOf('addToQueue') < c.indexOf('RUN') && c.indexOf('RUN') < c.indexOf('send') && c.indexOf('send') < c.indexOf('addToQueuePanelTarget'), c.join(', '));
+        assert.equal(w.document.querySelector('[data-section="copilot"]'), null, 'no Copilot subpanel');
         // Every action button an icon button.
-        for (const section of ['anthropic', 'copilot']) {
+        for (const section of ['anthropic']) {
             const plain = [...w.document.querySelectorAll(`[data-section="${section}"] .toolbar button[data-action]`)].filter((b: Win) => !b.classList.contains('icon-btn') && !b.closest('.modal-popup') && b.getAttribute('data-action') !== 'switchSlot');
             assert.deepEqual(plain.map((b: Win) => b.getAttribute('data-action')), [], section);
         }
@@ -547,33 +525,18 @@ describe('chat sends and the queue buttons', () => {
         w.document.querySelector('[data-action="addToQueueNextPanelTarget"][data-id="anthropic"]').click();
         const m = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
         assert.deepEqual([m.next, m.usePanelTarget, m.anthropicProfileId, m.transport, m.section], [true, true, 'opus-direct', 'anthropic', 'anthropic']);
-        // Copilot's Save to Queue in this panel's run.
-        pauseOver(w);
-        w.document.getElementById('copilot-text').value = 'Copilot here';
-        w.document.querySelector('[data-action="addToQueuePanelTarget"][data-id="copilot"]').click();
-        const cm = posted.filter((x) => x.type === 'addToQueue').pop() as Record<string, unknown>;
-        assert.deepEqual([cm.usePanelTarget, cm.section, cm.transport], [true, 'copilot', undefined]);
-        // Session and Run: a field each, its label above, its value a link; the run's name, its full label in the
-        // tooltip, marked when it is not the PROCESS view's run; a click asks the host for VS Code's run picker.
+        // The session: a field, its label above, its value a link naming the session and its run.
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { anthropic: 'collab' }, windowRun: 'default' } }));
         assert.equal(w.document.getElementById('anthropic-run'), null, 'the ANTHROPIC/LLM run is part of its session link');
-        const runLink = w.document.getElementById('copilot-run');
-        assert.equal(runLink.tagName, 'A');
-        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'chatRuns', options: [{ run: 'default', label: 'default' }, { run: 'collab', label: 'collab — the subject' }], selected: { copilot: 'collab' }, windowRun: 'default' } }));
-        assert.equal(runLink.textContent, 'collab');
-        assert.match(runLink.title, /^Run: collab — the subject/);
-        assert.ok(runLink.classList.contains('run-other'), 'another run than the PROCESS view\'s');
         const fieldOf = (el: Win): [string, string] => [el.parentElement.className, el.parentElement.querySelector('.chat-field-label').textContent];
-        assert.deepEqual(fieldOf(runLink), ['chat-field', 'Run']);
         assert.deepEqual(fieldOf(w.document.getElementById('anthropic-session-link')), ['chat-field', 'Session']);
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'anthropicSession', name: 'work@collab', label: 'work@collab', tooltip: 'Session work@collab' } }));
         assert.equal(w.document.getElementById('anthropic-session-name').textContent, 'work@collab', 'one text: the session and its run');
         assert.match(w.document.getElementById('anthropic-session-link').title, /click to pick the run, then the session in it/);
         posted.length = 0;
         w.document.getElementById('anthropic-session-link').click();
-        runLink.click();
-        assert.deepEqual(posted.map((m: Win) => m.type === 'pickChatRun' ? [m.type, m.section] : [m.type]), [['pickChatRunSession'], ['pickChatRun', 'copilot']]);
-        assert.equal(w.document.querySelector('select#anthropic-run, select#copilot-run'), null, 'no run dropdowns');
+        assert.deepEqual(posted.map((m: Win) => [m.type]), [['pickChatRunSession']]);
+        assert.equal(w.document.querySelector('select#anthropic-run, #copilot-run'), null, 'no run dropdown, no run link of its own');
         assert.match(media('chatPanel', 'style.css'), /\.chat-link \{ color: var\(--vscode-textLink-foreground\); text-decoration: underline; cursor: pointer;/, 'marked clickable');
         assert.match(src('handlers', 'chatPanel-handler.ts'), /case 'pickChatRun':[\s\S]{0,800}showQuickPick\([\s\S]{0,600}this\._setChatRun\(section, picked\.run\)/, 'the host picks and switches');
         // The session link's flow: the run, then the session in that run, both set together.
@@ -592,8 +555,8 @@ describe('chat sends and the queue buttons', () => {
     });
 
     test('CB-16: the status bar, the models overlay, a fresh template picker', () => {
-        const { w, posted } = chatPanel(['anthropic', 'copilot']);
-        for (const section of ['anthropic', 'copilot']) {
+        const { w, posted } = chatPanel(['anthropic']);
+        for (const section of ['anthropic']) {
             const bar = [...w.document.querySelectorAll(`[data-section="${section}"] .status-bar-actions [data-action]`)].map((b: Win) => b.getAttribute('data-action'));
             assert.deepEqual(bar.slice(0, 5), ['revealQuestFolder', 'openQueueEditor', 'openStatusPage', 'openChatVariablesEditor', 'openProcessEditor'], `${section}: ${bar.join(', ')}`);
             assert.equal(w.document.querySelectorAll(`[data-section="${section}"] [data-action="openQueueEditor"]`).length, 1, `${section}: one Prompt Queue button`);
@@ -624,7 +587,7 @@ describe('chat sends and the queue buttons', () => {
         w.document.querySelector('#anthropic-userMessage-field .chat-field-value').click();
         const ask = posted.at(-1) as Record<string, unknown>;
         assert.equal(ask.type, 'refreshChoices', 'no picker before the lists came again');
-        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'profiles', anthropic: [], anthropicUserMessageTemplates: ['brand-new'], copilotTemplates: [] } }));
+        w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'profiles', anthropic: [], anthropicUserMessageTemplates: ['brand-new'] } }));
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'choicesRefreshed', requestId: ask.requestId } }));
         const pick = posted.at(-1) as Record<string, unknown>;
         assert.equal(pick.type, 'pickFromSelect');
@@ -633,9 +596,6 @@ describe('chat sends and the queue buttons', () => {
         assert.ok((pick.items as Array<{ value: string }>).some((i) => i.value === 'brand-new'), 'the template just added is offered');
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'pickFromSelectResult', requestId: ask.requestId, value: 'brand-new' } }));
         assert.equal(w.document.getElementById('anthropic-userMessage').value, 'brand-new');
-        posted.length = 0;
-        w.document.querySelector('#copilot-template-field .chat-field-value').click();
-        assert.equal((posted.at(-1) as Record<string, unknown>).type, 'refreshChoices', 'Copilot\'s template too');
         // The host.
         const handler = src('handlers', 'chatPanel-handler.ts');
         assert.match(handler, /case 'refreshChoices': \{[\s\S]{0,400}this\._sendProfiles\(\);\s*void this\._view\?\.webview\.postMessage\(\{ type: 'choicesRefreshed', requestId: message\.requestId \}\);/);

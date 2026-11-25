@@ -9,7 +9,7 @@ src/
   extension.ts       activation + top-level command registration
   config/            JSON Schema + project type definitions
   handlers/          command + webview providers (chat panel, ws panel, editors, bridge)
-  managers/          volatile session state (queue, timer, reminders, chat vars, session todos)
+  managers/          volatile session state (queue, timer, chat vars, session todos)
   services/          persistence (trails, history, memory, tool trail, live trail)
   tools/             everything exposed to AI models (dispatchers + domain modules)
   utils/             config, paths, variable resolution, logging, webview helpers
@@ -49,7 +49,7 @@ Any change to the config shape must update both `sendToChatConfig.ts` and the JS
 `@CHAT` (`tomAi.chatPanel`):
 
 1. Anthropic
-2. Copilot
+2. Logs
 
 `@WS` (`tomAi.wsPanel`):
 

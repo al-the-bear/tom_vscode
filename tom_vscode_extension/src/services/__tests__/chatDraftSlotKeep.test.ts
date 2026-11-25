@@ -44,9 +44,9 @@ describe('Keep per prompt slot', () => {
         await saveChatDrafts({ anthropic: { text: 't', fresh: true } });
         assert.equal((await loadChatDrafts()).anthropic?.fresh, true);
         assert.equal((await loadChatDrafts()).anthropic?.queuePending, true, 'the queue mode: pending unless set');
-        await saveChatDrafts({ anthropic: { text: 't', queuePending: false }, copilot: { text: 'c', queuePending: false } });
+        await saveChatDrafts({ anthropic: { text: 't', queuePending: false } });
         assert.equal((await loadChatDrafts()).anthropic?.queuePending, false, 'staged, kept');
-        assert.equal((await loadChatDrafts()).copilot?.queuePending, false);
+        assert.deepEqual(Object.keys(await loadChatDrafts()), ['anthropic'], 'the one chat subpanel');
         await saveChatDrafts({ anthropic: { text: 't' } });
         assert.equal((await loadChatDrafts()).anthropic?.fresh, false, 'off unless set');
     });

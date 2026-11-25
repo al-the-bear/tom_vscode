@@ -2,20 +2,14 @@
  * Turn a *final LLM answer* into the chat-variable updates the prompt queue
  * applies after every completed exchange.
  *
- * Both transports funnel their final answer through here so a repeating or
- * multi-stage queue item propagates responseValues for EVERY stage — each
- * pre-prompt, the main prompt, every repeat, and every follow-up — rather than
- * only the last one:
- *
- *   - **Copilot** — `PromptQueueManager.onAnswerFileChanged` reads the answer
- *     file's structured `responseValues` and calls `propagateAnswerResponseValues`
- *     once per answer file.
- *   - **Anthropic** — `PromptQueueManager.dispatchStage` extracts responseValues
- *     from the direct answer text ({@link analyzeAnswerText}) and propagates them
- *     once per direct send.
+ * Every final answer goes through here so a repeating or multi-stage queue
+ * item propagates responseValues for EVERY stage — each pre-prompt, the main
+ * prompt, every repeat, and every follow-up — rather than only the last one:
+ * `PromptQueueManager.dispatchStage` extracts responseValues from the answer
+ * text ({@link analyzeAnswerText}) and propagates them once per send.
  *
  * The built-in / custom split lives here (rather than inline in the queue) so it
- * is unit-testable and identical for both transports.
+ * is unit-testable.
  */
 
 import { extractResponseValuesFromText } from './responseValues';

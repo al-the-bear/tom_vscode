@@ -4,7 +4,7 @@ The Local LLM is reached through **Anthropic profiles** whose configuration is a
 
 ## Local LLM configurations
 
-The `localLlm` section holds `configurations` and nothing else; the removed panel's top-level keys are dropped by the format migration (version 7, `dropLocalLlmPanelKeys` in `src/utils/localLlmProfileMigration.ts`), and `tools` — the settings of the removed tools `tomAi_askCopilot` / `tomAi_askBigBrother` — with their names in every tool list (version 8, `src/utils/removedAskTools.ts`).
+The `localLlm` section holds `configurations` and nothing else; the removed panel's top-level keys are dropped by the format migration (version 7, `dropLocalLlmPanelKeys` in `src/utils/localLlmProfileMigration.ts`), and `tools` — settings under the names `tomAi_askCopilot` / `tomAi_askBigBrother`, which name no tool — with those names in every tool list (version 8, `src/utils/removedAskTools.ts`).
 
 Each entry of `localLlm.configurations` names an endpoint (`ollamaUrl`), a model, its sampling and tool settings (`temperature`, `keepAlive`, `toolsEnabled`, `enabledTools`, `maxRounds`, `historyMode`, the per-configuration compaction overrides). They are edited in the Status Page's **LLM Configurations** section. Field reference: [../doc/llm_configuration.md §5](../doc/llm_configuration.md#5-local-llm-configuration-localllm-section).
 

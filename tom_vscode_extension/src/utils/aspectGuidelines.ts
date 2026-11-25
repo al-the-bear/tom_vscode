@@ -16,8 +16,7 @@
  *   aspect, whatever is above, the default included) or a choice.
  * - **The text**: each effective choice's text (placeholders resolved by the
  *   caller), the `system` aspects as one segment of the system prompt, the
- *   `user` aspects before the prompt text. Copilot has no system prompt of
- *   its own: there both go before the prompt text.
+ *   `user` aspects before the prompt text.
  *
  * Code identifiers keep their older names (`AspectSection`, `options`,
  * `sectionDefault`): they are not user-visible; the stored field
@@ -461,14 +460,12 @@ export function sortAspectSections<T extends { id: string; order?: number }>(sec
 }
 
 /** The transports a prompt is sent on. */
-export type AspectTransport = 'direct' | 'agentSdk' | 'vscodeLm' | 'localLlm' | 'copilot';
+export type AspectTransport = 'direct' | 'agentSdk' | 'vscodeLm' | 'localLlm';
 
 /**
- * Places the aspect text in a prompt. On the Anthropic transports (direct,
- * Agent SDK, VS Code LM, Local LLM) the system part is one more segment of
- * the system prompt and the user part goes before the user content. Copilot
- * has no system prompt of its own: the system part and then the user part go
- * before the prompt text. Nothing to add: the prompt unchanged.
+ * Places the aspect text in a prompt: the system part is one more segment of
+ * the system prompt and the user part goes before the user content. Nothing
+ * to add: the prompt unchanged.
  */
 export function placeAspects(
     transport: AspectTransport,
@@ -479,9 +476,6 @@ export function placeAspects(
         const head = parts.filter((p) => p).join('\n\n');
         return head ? `${head}\n\n---\n\n${text}` : text;
     };
-    if (transport === 'copilot') {
-        return { systemSegments: [...prompt.systemSegments], userContent: before([assembled.system, assembled.user], prompt.userContent) };
-    }
     return {
         systemSegments: assembled.system ? [...prompt.systemSegments, assembled.system] : [...prompt.systemSegments],
         userContent: before([assembled.user], prompt.userContent),

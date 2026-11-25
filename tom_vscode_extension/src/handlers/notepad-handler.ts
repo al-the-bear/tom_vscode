@@ -11,6 +11,7 @@ import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
+import { dispatchToLlm } from './sendToChatRouter';
 
 const WS_NOTEPAD_VIEW_ID = 'tomAi.notepad';
 const TOM_NOTEPAD_VIEW_ID = 'tomAi.vscodeNotes';
@@ -71,9 +72,8 @@ class NotepadViewProvider implements vscode.WebviewViewProvider {
                     // Send selected text if provided, otherwise full content
                     const textToSend = message.selectedText || message.content;
                     if (textToSend.trim()) {
-                        await vscode.commands.executeCommand('workbench.action.chat.open', {
-                            query: textToSend
-                        });
+                        // As if typed into the ANTHROPIC/LLM panel (its profile and session).
+                        await dispatchToLlm(this._context, textToSend);
                     }
                     break;
                 case 'copyToClipboard':

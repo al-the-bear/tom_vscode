@@ -28,7 +28,6 @@
 
 | Key | Command | Description |
 | --- | --- | --- |
-| `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot menu |
 | `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to Anthropic/LLM menu (`l` selection, `s` default template, `t` pick template) |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute menu |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites menu |
@@ -61,8 +60,8 @@
 - QUEST NOTES — <quest> (`tomAi.questNotesPanel`): Edit tab (text area, saved as you type; asks when the file changed while you have unsaved text), View tab (rendered as in the MD Browser: folding, +/− per level, search, links; read-only), Open in MD Browser, Open in Editor
 - RUNS (`tomAi.runsOverview`): every run of every window on this machine, one folding tile per window (expanded while a run waits for you; collapsed, its runs' state badges in the headline, alphabetical) — run, subject, process › position, state badge (waiting for user / interrupted / waiting for event / waiting on task / running / paused / idle) with what it waits for; click this window's run to select it, another window's for its details
 - Prompt Queue headline: 🌙 night mode (the window-wide chat variable `night-mode`; this window or every window) — the `night_mode` aspect: no asking, decisions recorded as `ND-…` question blocks for the morning
-- Prompt Queue editor: 📌 **Make default** in the first context bar (with chat variables, reminders, templates); 💬 `chatOnlyBtn` in the toolbar: only the items queued from the @CHAT panel and its chat sends
-- @CHAT input row: 📂 quest folder in the Explorer, Prompt Queue, Status Page, then the others; 🤖 **Available models** overlay (API and VS Code LM lists, or why empty); the Template fields pick from a fresh list
+- Prompt Queue editor: 📌 **Make default** in the first context bar (with chat variables, templates); 💬 `chatOnlyBtn` in the toolbar: only the items queued from the @CHAT panel and its chat sends
+- @CHAT input row: 📂 quest folder in the Explorer, Prompt Queue, Status Page, then the others; 🤖 **Available models** overlay (the Anthropic API's list, or why empty); the Template field picks from a fresh list
 - Prompt Queue editor, a waiting item: the `tomAi_waitFor` and background-work panels have **Message** (a text area in the item; Send goes to the item's own turn, the agent reads it and waits on; the messages and their answers are listed under the panel); an item whose turn asks shows an ask panel — a question's choices and text area, a picker's items, an MD Browser ask's buttons — answered right there, **Open question** for the full panel; Continue offers **Message…** and **Type an answer…**
 - Answers (`@T: Answers`, `tomAi.showAnswers`): the answers agents gave with `tomAi_answerUser` — list on the left (unread bold; time, quest, run), the answer on the right with **Add todo** per suggested todo and **Copy** per suggested prompt; Delete read / Delete all; stored per `_ai` folder on this machine, outside git; opens when an answer arrives and from its row in USER NOTIFICATIONS
 - USER NOTIFICATIONS (`tomAi.userNotifications`): everything directed at you, from every window on this machine, the open ones on top under a header that does not scroll — asks (questions, pickers, MD Browser asks, plans, tool approvals) shown open with how long until answered, then answered with the answer; tomAi_notifyUser messages; suggested subprocesses; process decisions waiting; todos for you (decision-needed, your action); the queue holding (decision-needed, error, needs attention, a run paused); one row each, newest first; click for the details (an open ask of this window opens too); Dismiss / Dismiss answered hide rows here only; badge: the open asks
@@ -117,7 +116,6 @@
 
 ## Core AI Commands
 
-- `tomAi.sendToCopilot`, `tomAi.sendToCopilot.standard`, `tomAi.sendToCopilot.template`
 - `tomAi.sendToLlm`, `tomAi.sendToLlm.standard`, `tomAi.sendToLlm.template` (to the @CHAT ANTHROPIC/LLM panel's current profile and session)
 - `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (follow-tail mode for the live trail)
 
@@ -219,22 +217,11 @@
 | Section | Icon | Description |
 | --- | --- | --- |
 | ANTHROPIC/LLM | `codicon-sparkle` | Anthropic SDK / Agent SDK / VS Code LM / Local LLM configuration with profile and session picker; the action row: Save to Queue and Queue next (sent next — between a running loop's iterations) into the default run with the queue's profile, session `default@default` and default template; then the **Session** and **Run** fields (switching the run selects *Run default*, the run's default session, created when missing), the **Role** (the role of the panel's sends; *Run default*) and the guideline button (the sends' guideline choices; a dot and the hover help) — every choice of the action bar (Model, Template, Session, Run, Role, the reusable prompt's Prompt type, project or quest and Prompt file) is a field, its label above and its value a link below, at most 110px wide, a click opening VS Code's picker; the profile, template and session pickers start with *Run default* (the run's, looked up at Send; nothing of the panel's own on an item it queues), the template's next entry *No template*; then Send (the picked session), Save to Queue with the panel's session, run, profile and template, and Queue next with the panel's session and run; Keep per prompt slot (keep or clear the text after Send / queue), Fresh (Send in a one-prompt session based on the panel's session, deleted once answered) and the queue mode (Save to Queue adds pending, the default, or staged); Keep, Fresh and the queue mode are icon toggle buttons. Trail, history, memory and Clear are in the @CHAT Logs section behind the session switch |
-| Copilot | `codicon-copilot` | Copilot integration with R/W action bar; Wrap, Keep and the queue mode (pending / staged) as icon toggle buttons; Save to Queue (the default run, the queue's default template), then the **Run** field (VS Code's picker) and the guideline button, then Send and Save to Queue in this panel's run; the **Template** and the reusable prompt's choices are fields too (label above, value a link), the template's starting with *Run default* |
 | Logs | `codicon-output` | One session's files, with a session switch — see [Logs sub-tabs](#logs-sub-tabs) |
 
-The tools button (`codicon-tools`) of the ANTHROPIC/LLM and Copilot subpanels opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.
+The tools button (`codicon-tools`) of the ANTHROPIC/LLM subpanel opens **Extension Tools**: an open button for every editor and page, in the Status Page's four groups, up to four columns wide.
 
 Editors with a list on the left have **Up / Down** (↑ ↓) for the selected entry: configuration entries (profiles, templates) move in the configuration, so the pickers follow; file-based lists (queue templates, reusable prompts, group prompts, roles, role types, processes) keep their order in the configuration's `editorListOrder`. The todo panel's search field has an **×** that clears it.
-
-#### Copilot Action Bar Fields
-
-| Field | Width | Description |
-| --- | --- | --- |
-| R | 24px | Repeat count (number of times to send prompt) |
-| W | 24px | Answer wait minutes (0 = wait for answer file, >0 = auto-advance after N minutes) |
-| Auto-hide | dropdown | Close the side bar Copilot Chat runs in after a send: Off, 3s, 5s, 10s, 20s (kept for this window) |
-| Wrap / Keep | toggle | Send inside the Copilot Queue Wrapper; keep the text after a send or queue add |
-| Queue mode | toggle | Pressed (▶, default): the queue button adds pending; not pressed (⏸): staged |
 
 #### Logs sub-tabs
 
@@ -265,7 +252,7 @@ A session without the file yet shows a line saying so.
 
 | Section | Icon | Description |
 | --- | --- | --- |
-| Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
+| Guidelines | `book` | Guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Sub-tabs: **Documents** (the document editor) and the quest's own documents — see [Documentation sub-tabs](#documentation-sub-tabs) |
 | Settings | `settings-gear` | Embedded status page and configuration |
 | Issues | `issues` | Issue tracking |
@@ -324,7 +311,7 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | --- | --- | --- |
 | Restart Queue | `codicon-debug-restart` | Reset stuck `sending` items to pending |
 | Stop | `codicon-debug-stop` | Cancel the running prompt, revert it to Staged |
-| Interrupt for continuation | `codicon-debug-disconnect` | Soft first: hold the next tool result (the turn goes on when auto-send is re-enabled); a hard interrupt after 15 s without one. A second click (`codicon-watch`) waits for the hold point without a limit; a third click or one once held (`codicon-debug-stop`), the item panel's **Hard interrupt now**, or a Copilot prompt: the hard interrupt; **Cancel interruption** lets the turn go on — the repetition is resent with a note |
+| Interrupt for continuation | `codicon-debug-disconnect` | Soft first: hold the next tool result (the turn goes on when auto-send is re-enabled); a hard interrupt after 15 s without one. A second click (`codicon-watch`) waits for the hold point without a limit; a third click or one once held (`codicon-debug-stop`), or the item panel's **Hard interrupt now**: the hard interrupt; **Cancel interruption** lets the turn go on — the repetition is resent with a note |
 
 ### Queue Entry Statuses
 
@@ -332,7 +319,7 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | --- | --- | --- |
 | Staged | Red | Editable, waiting to be queued |
 | Pending | Green | In queue, waiting to send |
-| Sending | Animated | Sent to Copilot, waiting for answer |
+| Sending | Animated | Sent, waiting for answer |
 | Sent | Gray | Completed |
 | Error | Red | Failed |
 | Waiting | Violet | Parked on a rate limit, retries automatically |
@@ -346,7 +333,6 @@ Open: `Ctrl+Shift+6` or `@T: Open Prompt Queue`
 | --- | --- | --- |
 | Normal | `codicon-comment` | Manual queue add |
 | Timed | `codicon-watch` | Fired by timer engine |
-| Reminder | `codicon-bell` | Generated by reminder system |
 
 ### Queue Storage
 
@@ -368,14 +354,12 @@ Open: `Ctrl+Shift+7` or `@T: Open Timed Requests`
 | Repeat count | Times to repeat each fire (min 1) |
 | Repeat prefix/suffix | Text affixes with placeholders `${repeatNumber}`, `${repeatIndex}`, `${repeatCount}` |
 | Send maximum | Max total fires before auto-pause (interval mode) |
-| Answer wait (min) | Auto-advance timeout (0 = classic answer file wait) |
-| Reminder | Template, timeout, enabled |
 
 ## Output Channels
 
 | Channel | Purpose |
 | --- | --- |
-| Tom Prompt Queue | Queue state, sends, answer detection, watchdog |
+| Tom Prompt Queue | Queue state, sends, watchdog |
 | Tom Timed Requests | Ticks, fire decisions, schedule evaluation |
 | Tom Extension Debug Log | General debug across all categories |
 | Tom Tests | Test output |
@@ -400,7 +384,7 @@ View in the @TOM WS sidebar showing all open @Tom windows with per-subsystem sta
 | Surface | Path | Written by | Notes |
 | --- | --- | --- | --- |
 | Session storage (Anthropic) | `_ai/quests/<quest>/history/sessions/<session>/` — one per session, `chat` (the ANTHROPIC/LLM panel) and `default` (the queue) included | Anthropic handler, `TrailService`, `LiveTrailWriter` | `compacted_history.md`, `history.json` / `history.md` (snapshot) and `live-trail.md` are tracked; `rawTurns.json`, `compaction_rounds.json`, `iteration.json`, the pair `<quest>.anthropic.prompts.md` / `.answers.md` and `trail/` are ignored. `trail/` holds the raw per-call files (`*_prompt_*.userprompt.md`, `*_payload_*.payload.md`, `*_answer_*.answer.json`, `*_tool_request_*.json`, `*_tool_answer_*.json`), `compaction/` and `memory/`, `tool_results/t<n>.json` (keys continue past what is stored and past what was pruned) and `current_prompt.*.md`. **Retention:** the pair `<quest>.anthropic.prompts.md` / `.answers.md` keeps the newest `trail.compact.maxEntries` prompt / answer turns (default 2000; the oldest beyond it dropped on every write, on the Status Page (Trail) as *Compact trail — turns per file*); the raw per-call files of `trail/`, `compaction/` and `memory/` keep at most `trail.raw.maxRawFiles` each (default 1000, the oldest deleted on every write; the flat `trail.maxRawFiles` of older configs is read when it is unset); the stored tool results are pruned after each send to `trail.toolResultsMaxAgeDays` (default 30 days) and `trail.toolResultsMaxPerSession` (default 1000, the newest kept), 0 switching a limit off — both on the Status Page (Trail). `tool_results/.retention.json` records every key up to which results were pruned, so `tomAi_readPastToolResult` answers such a key *pruned by retention*. `rawTurns.json` and `compaction_rounds.json` are the live conversation state, bounded by compaction |
-| Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` | `TrailService`, `lastRequestDump` | Copilot, LM API, MCP; the quest-level `last_request.json` of `_ai/trail/anthropic/<quest>/` and, for Anthropic profiles on Local LLM configurations, of `_ai/trail/localllm/<quest>/` |
+| Raw trail (other subsystems) | `_ai/trail/<subsystem>/<quest>/` | `TrailService`, `lastRequestDump` | LM API, MCP; the quest-level `last_request.json` of `_ai/trail/anthropic/<quest>/` and, for Anthropic profiles on Local LLM configurations, of `_ai/trail/localllm/<quest>/` |
 | Live trail | `history/sessions/<session>/live-trail.md` | `LiveTrailWriter` | Rolling window: last 5 prompt blocks. Stream thinking / tool_use / tool_result / assistant text |
 | Quest memory | `_ai/memory/<quest>/<session>/` per session (no shared memory) | memory service, memory tools, background extraction | `${memory}` injects the running session's quest memory |
 | Sessions | `_ai/quests/<quest>/history/<name>.session.json` (`chat` panel, `default` queue, named sessions) | Anthropic handler, session pickers, `tomAi_createSession` | `chat.session.json` and `default.session.json` are gitignored, a named session's file is tracked. Holds the Agent SDK session id (SDK-managed mode) and, for a named session, `basedOn`, `mode` (`continue` / `per-prompt` / `per-iteration`; `fork-from-base` = `per-prompt`), `profileId` and `model`, and a per-iteration session's current `iteration` |

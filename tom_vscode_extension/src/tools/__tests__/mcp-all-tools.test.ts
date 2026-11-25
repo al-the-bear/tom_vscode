@@ -24,15 +24,13 @@
  *        a step entered again continues at its next iteration, and the state file holds the record
  *   MA-6 tomAi_addQueueItem's default (deferSend) creates a staged item, which auto-send leaves alone;
  *        deferSend: false creates a pending one — against the real queue manager
- *   MA-7 the queue's answer watcher failing (EMFILE when the machine runs out of watch handles) is handled:
- *        no uncaught exception, the watcher is dropped and polling carries on
  *   MA-8 the tools that need what a window provides do their work in the sandbox: an issue tracker in a file
  *        (issues and tests), the tool trail of the run (past-tool access), a sub-agent spawner, a Tom AI Chat
  *        todo session, a task and a launch configuration, a notebook, and a language server's answers (symbols,
  *        definitions, references, a code action, a rename), the window's output channels — each read back
  *   MA-9 an item queued on a direct-API profile whose key variable is unset is queued with a `warning` naming
  *        the stages it affects; on the Agent SDK profile, or with the key set, there is none — the real manager;
- *        the queue editor's profile picker marks that profile '(no API key)'
+ *        the profile pickers' list marks that profile as having no API key
  *   MA-10 an item queued with a session is listed by tomAi_listQueue with that session — the live projection
  *        of the real manager's item, which once left the field out
  *   MA-11 a send that fails because the direct transport has no key goes to `error` at once — not `retry` —
@@ -221,8 +219,8 @@ import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { answersDir, configureAnswersStore } from '../../services/userAnswersStore.js';
 import { readAnswers } from '../../utils/userAnswers.js';
 import { setExtensionLogUri } from '../../utils/outputChannelLogs.js';
-import { renderTransportPicker } from '../../utils/transportPicker.js';
-import { ANTHROPIC_CLIENT_UNAVAILABLE } from '../../utils/anthropicApiKeyCheck.js';
+import { loadSendToChatConfig } from '../../utils/sendToChatConfig.js';
+import { ANTHROPIC_CLIENT_UNAVAILABLE, profileKeyStates } from '../../utils/anthropicApiKeyCheck.js';
 
 const KEY_ENV = 'TOM_MCP_ALL_TOOLS_KEY';
 const env = { [KEY_ENV]: 'all-tools-secret' };
@@ -891,18 +889,16 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.equal(sdk.warning, undefined);
         const byDefault = await call('tomAi_addQueueItem', { text: 'the default profile', transport: 'anthropic' });
         assert.equal(byDefault.warning, undefined, 'the default profile is the Agent SDK one');
-        const copilot = await call('tomAi_addQueueItem', { text: 'to Copilot' });
-        assert.equal(copilot.warning, undefined);
+        const plain = await call('tomAi_addQueueItem', { text: 'no transport named' });
+        assert.equal(plain.warning, undefined, 'no transport named: anthropic, on the default profile');
         // A stage that overrides the item's profile is judged by its own.
         const pre = await call('tomAi_addQueuePrePrompt', { queueItemId: sdk.id, text: 'first', transport: 'anthropic', anthropicProfileId: 'direct-p' });
         assert.match(pre.warning, /^pre-prompt 1: /);
         assert.deepEqual(manager.missingApiKeyWarnings(direct.id, { [NO_SUCH_KEY]: 'sk-set' }), [], 'with the key set there is nothing to say');
-        for (const item of [direct, sdk, byDefault, copilot]) { manager.remove(item.id); }
-        // The queue editor's profile picker marks the profile that cannot send.
-        const picker = renderTransportPicker({ idPrefix: 'qd', context: 'queue-default', value: { transport: 'anthropic' }, showTargets: true, onChangeEvent: 'x' });
-        assert.match(picker, /<option value="direct-p">direct-p \(no API key\)<\/option>/);
-        assert.match(picker, /<option value="sdk-p">sdk-p<\/option>/);
-        assert.match(picker, /<option value="" selected>\(default profile\)<\/option>/, 'the default is the Agent SDK profile');
+        for (const item of [direct, sdk, byDefault, plain]) { manager.remove(item.id); }
+        // What the profile pickers list marks the profile that cannot send.
+        const states = profileKeyStates(loadSendToChatConfig()?.anthropic, process.env);
+        assert.deepEqual(states.map((k) => [k.id, k.noApiKey, k.isDefault]), [['direct-p', true, false], ['sdk-p', false, true]], 'the default is the Agent SDK profile');
     });
 
     test('MA-10: tomAi_listQueue shows the session an item was queued with', async () => {
@@ -1027,17 +1023,6 @@ describe('every tool over MCP, in a sandbox', () => {
             await call('tomAi_deleteQuestTodos', { questId: QUEST, todoIds: created.filter((id) => !id.endsWith('-done')) });
             await call('tomAi_archiveQuestTodos', { questId: QUEST, todoIds: created.filter((id) => id.endsWith('-done')) });
         }
-    });
-
-    test('MA-7: the queue\'s answer watcher failing is not an uncaught exception', () => {
-        const manager = PromptQueueManager.instance as unknown as { _answerWatcher?: import('fs').FSWatcher; setupAnswerWatcher(): void };
-        // A fresh watcher: on a machine short of watch handles the first one may already have failed (and been dropped).
-        manager.setupAnswerWatcher();
-        const watcher = manager._answerWatcher;
-        assert.ok(watcher, 'the answer watcher runs');
-        const failure = Object.assign(new Error('EMFILE: too many open files, watch'), { code: 'EMFILE' });
-        assert.doesNotThrow(() => watcher.emit('error', failure), 'an error listener takes it');
-        assert.equal(manager._answerWatcher, undefined, 'the failed watcher is dropped; polling finds the answers');
     });
 
     test('MA-5: the process store remembers a step\'s iteration when it is left', async () => {

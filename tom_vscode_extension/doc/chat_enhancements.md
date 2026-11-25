@@ -4,9 +4,9 @@
 **Created:** 17 February 2026
 **Status:** Draft — awaiting review (historical design spec; implementation has since shipped and evolved)
 
-> **Note:** This is the original design spec. The editor's sends are now one command per target — **Send to Copilot** opens Copilot Chat, **Send to LLM** goes to the ANTHROPIC/LLM panel. See [copilot_chat_tools.md → Send to Copilot and Send to LLM](copilot_chat_tools.md#send-to-copilot-and-send-to-llm) for the current behaviour.
+> **Note:** This is the original design spec; it does not describe the extension as it is. The extension has one transport: every send — the @CHAT panel, the prompt queue, the timed requests — goes through an Anthropic profile (direct API, Agent SDK, VS Code LM or a Local LLM configuration). The editor's send commands are **@T: Send to Anthropic/LLM** (`tomAi.sendToLlm`), **(Default Template)** (`tomAi.sendToLlm.standard`) and **(Pick Template)** (`tomAi.sendToLlm.template`), also in the chord menu `Ctrl+Shift+L`; they send to the ANTHROPIC/LLM panel's profile. The Copilot subpanel, the answer files and the reminders of this spec are not part of the extension.
 >
-> The Context & Settings popup and editor described below no longer exist: the quest, role, projects and todo are chat variables (Chat Variables Editor), the reminder alive check and the default reminder template are on the Status Page (Queue & Timer, **Alive check**), the reminder templates are in the Prompt Template Editor (category Reminder), and auto-hide is the **Auto-hide** dropdown in the Copilot subpanel's action bar (Off, 3s, 5s, 10s, 20s) — see [user_guide.md](user_guide.md).
+> The Context & Settings popup and editor described below are not part of it either: the quest, role, projects and todo are chat variables (Chat Variables Editor) — see [user_guide.md](user_guide.md).
 
 ---
 

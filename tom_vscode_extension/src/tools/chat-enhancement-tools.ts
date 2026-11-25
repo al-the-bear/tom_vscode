@@ -682,10 +682,6 @@ const livePromptQueueAccess: PromptQueueAccess = {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.autoSendEnabled;
     },
-    responseFileTimeoutMinutes() {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return require('../managers/promptQueueManager.js').PromptQueueManager.instance.responseFileTimeoutMinutes;
-    },
     pendingCount() {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.pendingCount;
@@ -693,11 +689,6 @@ const livePromptQueueAccess: PromptQueueAccess = {
     getById(id) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const item = require('../managers/promptQueueManager.js').PromptQueueManager.instance.getById(id);
-        return item ? projectItem(item) : undefined;
-    },
-    getByRequestId(requestId) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const item = require('../managers/promptQueueManager.js').PromptQueueManager.instance.getByRequestId(requestId);
         return item ? projectItem(item) : undefined;
     },
     async enqueue(input): Promise<QueueItemSnapshot> {
@@ -735,7 +726,7 @@ const livePromptQueueAccess: PromptQueueAccess = {
         return require('../managers/promptQueueManager.js').PromptQueueManager.instance.setStatus(id, status);
     },
     async updateText(id, text) { await (await getQueueManager()).updateText(id, text); },
-    async updateItemTemplateAndWrapper(id, opts) { await (await getQueueManager()).updateItemTemplateAndWrapper(id, opts); },
+    async updateItemTemplate(id, opts) { await (await getQueueManager()).updateItemTemplate(id, opts); },
     updateItemRepetition(id, opts) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require('../managers/promptQueueManager.js').PromptQueueManager.instance.updateItemRepetition(id, opts);
@@ -937,9 +928,7 @@ export const liveQuestSendAccess: QuestSendAccess = {
     },
     sender: () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getWindowId } = require('../services/copilotAnswerService') as typeof import('../services/copilotAnswerService');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return { windowId: getWindowId(), host: require('os').hostname() as string };
+        return { windowId: answerWindowId(), host: require('os').hostname() as string };
     },
     deliver: (workspace, item) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -978,8 +967,6 @@ const liveQuestWindowStatusAccess: QuestWindowStatusAccess = {
         const { loadAllWindowStates } = require('../handlers/windowStatusPanel-handler') as typeof import('../handlers/windowStatusPanel-handler');
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { profileKeyStates } = require('../utils/anthropicApiKeyCheck') as typeof import('../utils/anthropicApiKeyCheck');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getWindowId } = require('../services/copilotAnswerService') as typeof import('../services/copilotAnswerService');
         const section = loadSendToChatConfig()?.anthropic;
         return {
             states: loadAllWindowStates() as unknown as import('../utils/questWindowStatus').WindowStateInput[],
@@ -990,7 +977,7 @@ const liveQuestWindowStatusAccess: QuestWindowStatusAccess = {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             thisHost: require('os').hostname() as string,
             thisMachine: vscode.env.machineId.substring(0, 8),
-            thisWindowId: getWindowId(),
+            thisWindowId: answerWindowId(),
             nowMs: Date.now(),
         };
     },
@@ -1031,12 +1018,12 @@ import {
 function projectTimedEntry(e: any): TimedEntrySnapshot {
     return {
         id: e.id, status: e.status, enabled: !!e.enabled,
-        template: e.template, answerWrapper: !!e.answerWrapper,
+        template: e.template,
         originalText: e.originalText ?? '',
         scheduleMode: e.scheduleMode,
         intervalMinutes: e.intervalMinutes, scheduledTimes: e.scheduledTimes,
         repeatCount: e.repeatCount, repeatPrefix: e.repeatPrefix, repeatSuffix: e.repeatSuffix,
-        sendMaximum: e.sendMaximum, answerWaitMinutes: e.answerWaitMinutes,
+        sendMaximum: e.sendMaximum,
         lastSentAt: e.lastSentAt,
     };
 }
@@ -1225,7 +1212,7 @@ export const DELETE_TODO_TOOL: SharedToolDefinition<DeleteQuestTodoInput> = {
 // Impls and tool defs live in `quest-introspection-tools.ts` (entry #23).
 // Bridges below wire the vscode-bound sources:
 //   - liveProjectSource runs `buildkit :projects --all --json` (services/workspaceProjects.ts).
-//   - liveDocumentSource resolves WsPaths.ai('prompt'|'answersCopilot'|'roles')
+//   - liveDocumentSource resolves WsPaths.ai('prompt'|'roles')
 //     and WsPaths.guidelines() for the `guidelines` category.
 //   - liveQuestSource was wired further up where DETERMINE_QUEST_TOOL is exported.
 // ============================================================================
@@ -1241,7 +1228,6 @@ const liveProjectSource: ProjectSource = {
 function categoryFolder(category: DocumentCategory): string | undefined {
     switch (category) {
         case 'prompts':    return WsPaths.ai('prompt');
-        case 'answers':    return WsPaths.ai('answersCopilot');
         case 'roles':      return WsPaths.ai('roles');
         case 'guidelines': return WsPaths.guidelines();
     }
@@ -1249,7 +1235,6 @@ function categoryFolder(category: DocumentCategory): string | undefined {
 
 const CATEGORY_RELATIVE: Record<Exclude<DocumentCategory, 'guidelines'>, string> = {
     prompts:    '_ai/prompt',
-    answers:    '_ai/answers/copilot',
     roles:      '_ai/roles',
 };
 

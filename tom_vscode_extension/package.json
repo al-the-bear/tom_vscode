@@ -1,7 +1,7 @@
 {
   "name": "tom-ai-extension",
   "displayName": "@Tom",
-  "description": "AI-powered workspace automation with Copilot, Local LLM, and AI Chat integration",
+  "description": "AI-powered workspace automation with Anthropic, Local LLM, and AI Chat integration",
   "version": "0.1.0",
   "publisher": "peter-nicolai-alexis-kyaw",
   "repository": {
@@ -90,24 +90,6 @@
       ]
     },
     "commands": [
-      {
-        "command": "tomAi.sendToCopilot",
-        "title": "@T: Send to Copilot",
-        "category": "@Tom",
-        "shortTitle": "Send to Copilot"
-      },
-      {
-        "command": "tomAi.sendToCopilot.template",
-        "title": "@T: Send to Copilot (Pick Template)",
-        "category": "@Tom",
-        "shortTitle": "Send to Copilot (Pick Template)"
-      },
-      {
-        "command": "tomAi.sendToCopilot.standard",
-        "title": "@T: Send to Copilot (Default Template)",
-        "category": "@Tom",
-        "shortTitle": "Send to Copilot (Default Template)"
-      },
       {
         "command": "tomAi.sendToLlm",
         "title": "@T: Send to Anthropic/LLM",
@@ -724,11 +706,6 @@
         "key": "ctrl+shift+x"
       },
       {
-        "command": "tomAi.chordMenu.copilot",
-        "key": "ctrl+shift+c",
-        "when": "!tomAi.chordMenuOpen"
-      },
-      {
         "command": "tomAi.chordMenu.llm",
         "key": "ctrl+shift+l",
         "when": "!tomAi.chordMenuOpen"
@@ -824,19 +801,6 @@
         }
       ],
       "editor/context": [
-        {
-          "command": "tomAi.sendToCopilot.standard",
-          "group": "copilot@1"
-        },
-        {
-          "command": "tomAi.sendToCopilot.template",
-          "group": "copilot@2"
-        },
-        {
-          "command": "tomAi.sendToCopilot",
-          "when": "editorHasSelection",
-          "group": "copilot@3"
-        },
         {
           "command": "tomAi.sendToLlm.standard",
           "group": "llm@1"

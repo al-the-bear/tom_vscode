@@ -5,19 +5,18 @@
 //
 // Host-scope script: it declares the page globals (currentItems, vscode,
 // detailsExpanded, editorMode, render, …) consumed by the
-// component partials (queueEntryUtils/RenderFunctions/MessageHandlers.js) and
-// transportPicker.js, and it calls the functions those partials define — so
-// no-undef is disabled. Component scripts load BEFORE this one (their globals
-// exist when init runs); transportPicker.js + fallback.js load AFTER.
+// component partials (queueEntryUtils/RenderFunctions/MessageHandlers.js),
+// and it calls the functions those partials define — so no-undef is disabled.
+// Component scripts load BEFORE this one (their globals exist when init
+// runs); fallback.js loads AFTER.
 //
 // Two changes vs the original inline script:
 //   1. First-paint data now arrives via the loader's window.__INIT__ instead of
 //      a #__initial_state__ JSON block (state under __INIT__.state).
-//   2. The codicons stylesheet and the add form's transport picker are
-//      injected at runtime from __INIT__ (codiconsUri / addFormPickerHtml) —
-//      see index.html for why (no node_modules placeholder, picker rendered
-//      host-side). The run's default transport, profile and template are links
-//      in the context bar (host pickers).
+//   2. The codicons stylesheet is injected at runtime from __INIT__
+//      (codiconsUri) — see index.html for why (no node_modules placeholder).
+//      The run's default profile and template are links in the context bar
+//      (host pickers).
 
 // ── Bootstrap watchdog (was the first inline <script>) ──
 (function() {
@@ -137,7 +136,7 @@ let runQueueSettings = (__INITIAL__.runQueueSettings && typeof __INITIAL__.runQu
 // The start values (queue-settings.yaml's top-level keys): what a run without settings of its own starts from (vscimpb60g).
 let startQueueSettings = (__INITIAL__.startQueueSettings && typeof __INITIAL__.startQueueSettings === 'object') ? __INITIAL__.startQueueSettings : null;
 /* The settings Make default copies (utils/runQueueSettings.ts DEFAULT_SETTING_FIELDS): every per-run setting a tab shows. */
-const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue', 'responseTimeoutMinutes',
+const DEFAULT_SETTING_FIELDS = ['autoSend', 'autoStart', 'autoPause', 'autoContinue',
   'defaultTransport', 'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'];
 
 /** The shown settings in which the tab's run differs from the start values ([] = Make default has nothing to write). */
@@ -166,7 +165,7 @@ function renderMakeDefault() {
 /** The run of the selected tab: its items, its toolbar and its settings. */
 function settingsRun() { return selectedRun || currentRun; }
 
-/** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults, Copilot timeout). */
+/** Take the settings run's values into the toolbar's state (auto-send, Auto-Start / -Pause / -Continue, defaults). */
 function applyRunSettings() {
   const s = runQueueSettings[settingsRun()];
   if (!s) { return; }
@@ -174,8 +173,6 @@ function applyRunSettings() {
   autoStart = s.autoStart === true;
   autoPause = s.autoPause !== false;
   autoContinue = s.autoContinue === true;
-  responseTimeoutMinutes = s.responseTimeoutMinutes || 60;
-  queueDefaultTransport = s.defaultTransport || 'copilot';
   queueDefaultSessionLabel = s.defaultAgentSdkSession || 'default';
   queueDefaultAnthropicProfileId = s.defaultAnthropicProfileId || '';
   queueDefaultMessageTemplateId = s.defaultMessageTemplateId || '';
@@ -197,7 +194,7 @@ function runQueueSessionName(queueDefault, run) {
 /** How a session is shown: the `default` run's queue session `default` as `default@default`, like every run's `default@<run>`. */
 function sessionDisplayName(name) { return name === 'default' ? 'default@default' : name; }
 
-/** Tell the host which run the toolbar's settings are for (the transport picker's messages carry none). */
+/** Tell the host which run the toolbar's settings are for. */
 function postSettingsRun() { vscode.postMessage({ type: 'setSettingsRun', run: settingsRun() }); }
 // Pending items whose prompt is open for editing: item id -> the draft text.
 // The host holds the queue for them (beginTextEdit) until Save or Cancel.
@@ -206,11 +203,8 @@ let autoSend = __INITIAL__.autoSend !== undefined ? __INITIAL__.autoSend : true;
 let autoStart = __INITIAL__.autoStart !== undefined ? __INITIAL__.autoStart : false;
 let autoPause = __INITIAL__.autoPause !== undefined ? __INITIAL__.autoPause : true;
 let autoContinue = __INITIAL__.autoContinue !== undefined ? __INITIAL__.autoContinue : false;
-let responseTimeoutMinutes = __INITIAL__.responseTimeoutMinutes !== undefined ? __INITIAL__.responseTimeoutMinutes : 60;
 let promptTemplates = __INITIAL__.promptTemplates || [];
-// Multi-transport UI state (spec §4.10). Populated from the state
-// payload so the queue editor's Add form can show a profile +
-// config picker when Anthropic transport is selected.
+// The Anthropic profiles, from the state payload: the Add form's profile picker.
 let anthropicProfiles = __INITIAL__.anthropicProfiles || [];
 // The default profile's key is missing too (the pickers mark it, as the host does).
 let defaultProfileNoApiKey = __INITIAL__.defaultProfileNoApiKey === true;
@@ -223,7 +217,6 @@ function profileOptionLabel(p) {
 }
 let anthropicConfigs = __INITIAL__.anthropicConfigs || [];
 let anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
-let queueDefaultTransport = __INITIAL__.queueDefaultTransport || 'copilot';
 // The queue's default Agent SDK session, as shown on items without their own.
 let queueDefaultSessionLabel = __INITIAL__.queueDefaultSession || 'default';
 // Base and lifetime per session name ({basedOn?, mode}), from the host.
@@ -282,7 +275,6 @@ function showFatalError(context, err) {
   list.innerHTML = '<div class="empty" style="color:var(--vscode-errorForeground,#f85149);">Queue render error (' + escapeHtml(context) + '): ' + escapeHtml(message) + '</div>';
 }
 
-/* ---- Inject transport-picker fragments (rendered host-side, spec §4.15) ---- */
 // The context bar's links act on the tab's run: Role and Session open VS Code pickers on the host, Position
 // opens the run's process state file, Variables the Chat Variables editor for the run (vscimpb60c).
 // Both context bars: the run's context and its defaults.
@@ -300,28 +292,11 @@ function showFatalError(context, err) {
       : pick === 'position' ? { type: 'openRunStateFile', run: settingsRun() }
       : pick === 'variables' ? { type: 'openChatVariablesEditor', run: settingsRun() }
       : pick === 'defaultRole' ? { type: 'pickQueueDefaultRole', run: settingsRun() }
-      : pick === 'transport' ? { type: 'pickQueueDefaultTransport', run: settingsRun() }
       : pick === 'profile' ? { type: 'pickQueueDefaultProfile', run: settingsRun() }
       : pick === 'template' ? { type: 'pickQueueDefaultTemplate', run: settingsRun() }
       : { type: 'pickQueueDefaultSession', run: settingsRun() });
   });
 });
-var __afSlot = document.getElementById('addTransportRow');
-if (__afSlot && __INIT.addFormPickerHtml) { __afSlot.innerHTML = __INIT.addFormPickerHtml; }
-if (__afSlot) { __afSlot.addEventListener('change', function () { syncCopilotOnlyFields(); }); }
-
-/**
- * The Copilot-only setting (the answer timeout): shown only while the queue's
- * default transport is Copilot.
- */
-function syncCopilotOnlyFields() {
-  var bar = document.getElementById('copilotQueueSettings');
-  if (bar) { bar.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
-  // The defaults row holding them goes with them.
-  var row = document.getElementById('copilotDefaultsRow');
-  if (row) { row.style.display = queueDefaultTransport === 'copilot' ? '' : 'none'; }
-}
-
 /* Night mode (services/nightMode.ts): the button shows the window's night-mode chat variable; a click asks the host. */
 function renderNightMode(on) {
   const btn = document.getElementById('nightModeBtn');
@@ -392,13 +367,11 @@ window.addEventListener('message', e => {
       autoStart = msg.autoStart !== undefined ? msg.autoStart : false;
       autoPause = msg.autoPause !== undefined ? msg.autoPause : true;
       autoContinue = msg.autoContinue !== undefined ? msg.autoContinue : false;
-      responseTimeoutMinutes = msg.responseTimeoutMinutes || 60;
       promptTemplates = msg.promptTemplates || [];
       anthropicProfiles = msg.anthropicProfiles || [];
       defaultProfileNoApiKey = msg.defaultProfileNoApiKey === true;
       anthropicConfigs = msg.anthropicConfigs || [];
       anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
-      queueDefaultTransport = msg.queueDefaultTransport || 'copilot';
       queueDefaultSessionLabel = msg.queueDefaultSession || 'default';
       sessionInfo = msg.sessionInfo || {};
       queueDefaultAnthropicProfileId = msg.queueDefaultAnthropicProfileId || '';
@@ -446,11 +419,11 @@ function showAddFeedback(text, cls) {
  * The two context bars of the tab's run, one field per setting: its label above, its value below
  * (`.ctx-field`: `.ctx-label` over `.ctx-value`).
  *   - #contextSummary (with the icon buttons): Position, Role, Default role, Guidelines, Variables.
- *   - #runDefaultsSummary: the defaults the run's items take — Transport, Model (the Anthropic
+ *   - #runDefaultsSummary: the defaults the run's items take — Model (the Anthropic
  *     profile; Anthropic only), Session, Template — built the same way: label above value, so both
  *     bars have the same height and structure.
  * A value that can be changed is a link (`.ctx-link`, `data-pick`): a click opens a VS Code picker
- * on the host (role, default role, transport, profile, session, template), the guideline picker,
+ * on the host (role, default role, profile, session, template), the guideline picker,
  * the run's state file or its chat variables. Quest and run are not shown: the window's title and
  * the run tabs show them.
  */
@@ -527,21 +500,16 @@ function updateContextSummary() {
   field(el, 'Variables', link('variables', String(names.length),
     'The chat variables of run ' + run + (names.length ? ': ' + names.map(function(k) { return k + '=' + vars[k]; }).join(', ') : ' (none of its own)') + ' — click to open them'), 'variables');
 
-  // The run's defaults for its items: transport, model (the Anthropic profile), session, template — labelled
+  // The run's defaults for its items: model (the Anthropic profile), session, template — labelled
   // fields like the first bar's, so the two bars have the same height and structure.
-  const transport = settings.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
-  field(defaultsEl, 'Transport', link('transport', transport === 'anthropic' ? 'Anthropic' : 'Copilot',
-    'The transport run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'transport');
-  if (transport === 'anthropic') {
-    const pid = settings.defaultAnthropicProfileId || '';
-    const profile = (anthropicProfiles || []).find(function(p) { return p && p.id === pid; });
-    field(defaultsEl, 'Model', link('profile', pid ? (profile && profile.name ? profile.name : pid) : '(default profile)',
-      'The Anthropic profile (its model and configuration) run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'profile');
-  }
+  const pid = settings.defaultAnthropicProfileId || '';
+  const profile = (anthropicProfiles || []).find(function(p) { return p && p.id === pid; });
+  field(defaultsEl, 'Model', link('profile', pid ? (profile && profile.name ? profile.name : pid) : '(default profile)',
+    'The Anthropic profile (its model and configuration) run ' + run + '\'s items are sent with unless they name their own — click to choose'), 'profile');
   const sessionName = runQueueSessionName(queueDefaultSessionLabel, run);
   const session = describeQueueSession(sessionName, sessionInfo[sessionName]);
   field(defaultsEl, 'Session', link('session', sessionDisplayName(sessionName) + session.based,
-    session.tooltip + ' — Anthropic items run in it unless they name their own. Click to pick another or create one'), 'session');
+    session.tooltip + ' — items run in it unless they name their own. Click to pick another or create one'), 'session');
   const tplId = settings.defaultMessageTemplateId || '';
   const tpl = (anthropicUserMessageTemplates || []).find(function(t) { return t && t.id === tplId; });
   field(defaultsEl, 'Template', link('template', tplId ? (tpl && tpl.name ? tpl.name : tplId) : '(none)',
@@ -585,11 +553,6 @@ function render() {
     apBtn.title = autoPause ? 'Auto-Pause ON (pauses when queue empties)' : 'Auto-Pause OFF (keeps running when empty)';
     apBtn.style.opacity = autoPause ? '1' : '0.5';
   }
-
-  // The answer timeout acts on Copilot answer files only: shown when the queue sends on Copilot.
-  syncCopilotOnlyFields();
-  const timeoutSel = document.getElementById('responseTimeout');
-  if (timeoutSel) timeoutSel.value = String(responseTimeoutMinutes || 60);
 
 
   renderRunTabs();
@@ -643,8 +606,7 @@ function render() {
     + (blocked > 0 ? '  |  Decision needed: ' + blocked : '')
     + (todoBlocked > 0 ? '  |  Blocked: ' + todoBlocked : '')
     + (interrupted > 0 ? '  |  Interrupted: ' + interrupted : '')
-    + (chatRunning > 0 ? '  |  Chat: running' : '')
-    + '  |  Timeout: ' + (responseTimeoutMinutes || 60) + 'm';
+    + (chatRunning > 0 ? '  |  Chat: running' : '');
 
   renderAddRun();
   const list = document.getElementById('queueList');
@@ -917,7 +879,7 @@ function openMoveItemsOverlay() {
     const why = moveBlockedReason(item);
     const text = String(item.originalText || item.expandedText || '');
     const first = (text.split('\n').find(function(l) { return l.trim(); }) || '(empty)').trim();
-    const meta = [item.status, item.transport || '', item.session ? 'session ' + item.session : '', item.role ? 'role ' + item.role : '',
+    const meta = [item.status, item.session ? 'session ' + item.session : '', item.role ? 'role ' + item.role : '',
       item.template && item.template !== '(None)' ? 'template ' + item.template : ''].filter(Boolean);
     return '<label class="move-item' + (why ? ' disabled' : '') + '"' + (why ? ' title="' + escapeHtml(why) + '"' : '') + '>' +
       '<input type="checkbox" data-move-id="' + escapeHtml(item.id) + '"' + (why ? ' disabled' : '') + '>' +
@@ -980,7 +942,6 @@ function restartQueue() { vscode.postMessage({ type: 'restartQueue', run: settin
 function stopActiveItem() { vscode.postMessage({ type: 'stopActiveItem', run: settingsRun() }); }
 function interruptActiveForContinuation() { vscode.postMessage({ type: 'interruptActiveForContinuation', run: settingsRun() }); }
 function sendAllStaged() { vscode.postMessage({ type: 'sendAllStaged', run: settingsRun() }); }
-function setResponseTimeout(minutes) { vscode.postMessage({ type: 'setResponseTimeout', minutes: parseInt(minutes || '60', 10) || 60, run: settingsRun() }); }
 function setItemStatus(id, status) { vscode.postMessage({ type: 'setItemStatus', id, status }); }
 function clearSent() { vscode.postMessage({ type: 'clearSent', run: settingsRun() }); }
 function clearAll() { vscode.postMessage({ type: 'clearAll', run: settingsRun() }); }
@@ -1080,21 +1041,9 @@ function addPrompt() {
   if (inputRepeatSuffix && inputRepeatSuffix.value) {
     msg.repeatSuffix = inputRepeatSuffix.value;
   }
-  // Transport picker (spec §4.10 / §4.15). Read from the shared helper's
-  // generated selects. The Config dropdown was replaced by a per-
-  // transport Template dropdown (anthropic user-msg OR copilot msg).
-  var tSel = document.getElementById('addForm-transport-t');
-  if (tSel && tSel.value === 'anthropic') {
-    msg.transport = 'anthropic';
-    var pSel = document.getElementById('addForm-transport-profile');
-    var tplA = document.getElementById('addForm-transport-tpl-anthropic');
-    if (pSel && pSel.value) { msg.anthropicProfileId = pSel.value; }
-    if (tplA && tplA.value) { msg.messageTemplateId = tplA.value; }
-  } else if (tSel && tSel.value === 'copilot') {
-    msg.transport = 'copilot';
-    var tplC = document.getElementById('addForm-transport-tpl-copilot');
-    if (tplC && tplC.value) { msg.messageTemplateId = tplC.value; }
-  }
+  // The profile it runs with (none: the run's default profile).
+  var pSel = document.getElementById('addProfile');
+  if (pSel && pSel.value) { msg.anthropicProfileId = pSel.value; }
   // The selected tab's run: the item belongs to it.
   msg.run = settingsRun();
   vscode.postMessage(msg);
@@ -1136,172 +1085,40 @@ function cancelAdd() {
 }
 
 function populateAddForm() {
-  // Populate prompt template dropdown. Spec §4.16: when the effective
-  // transport for this new item is Anthropic, filter the list to the
-  // Anthropic user-message templates store; otherwise show the
-  // Copilot templates. Changing the transport in the add form clears
-  // the selection (see wireAddFormTemplateFilter below).
-  const tplSel = document.getElementById('addTemplate');
-  if (tplSel) {
-    populateAddFormTemplateList();
-  }
-  // Populate the Anthropic profile + config dropdowns inside every
-  // renderTransportPicker instance on the page (spec §4.10 queue-level
-  // default + add-form override). Helpers emit selects with IDs of
-  // the form {prefix}-transport-profile and {prefix}-transport-config.
-  var PICKER_PREFIXES = ['queueDefault', 'addForm'];
-  PICKER_PREFIXES.forEach(function(prefix) {
-    var pSel = document.getElementById(prefix + '-transport-profile');
-    if (pSel) {
-      var prev = pSel.value;
-      pSel.innerHTML = '';
-      var defOpt = document.createElement('option');
-      defOpt.value = '';
-      defOpt.textContent = '(default profile)' + (defaultProfileNoApiKey ? NO_API_KEY_LABEL : '');
-      pSel.appendChild(defOpt);
-      (anthropicProfiles || []).forEach(function(p) {
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = profileOptionLabel(p);
-        pSel.appendChild(opt);
-      });
-      if (prefix === 'queueDefault' && queueDefaultAnthropicProfileId) {
-        pSel.value = queueDefaultAnthropicProfileId;
-      } else if (prev) {
-        pSel.value = prev;
-      }
-    }
-    // Per-transport template dropdowns: the picker renders two
-    // selects (anthropic user-message and copilot) and shows the one
-    // matching the current transport. Repopulate both here from the
-    // live config payload so switching transport finds a fresh list.
-    var tplAnth = document.getElementById(prefix + '-transport-tpl-anthropic');
-    if (tplAnth) {
-      var prevTplA = tplAnth.value;
-      tplAnth.innerHTML = '<option value="">(none)</option>';
-      (anthropicUserMessageTemplates || []).forEach(function(t) {
-        if (!t || !t.id) { return; }
-        var opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.name ? (t.name + ' (' + t.id + ')') : t.id;
-        tplAnth.appendChild(opt);
-      });
-      if (prefix === 'queueDefault' && queueDefaultTransport === 'anthropic' && queueDefaultMessageTemplateId) {
-        tplAnth.value = queueDefaultMessageTemplateId;
-      } else if (prevTplA) {
-        tplAnth.value = prevTplA;
-      }
-    }
-    var tplCop = document.getElementById(prefix + '-transport-tpl-copilot');
-    if (tplCop) {
-      var prevTplC = tplCop.value;
-      tplCop.innerHTML = '<option value="">(none)</option>';
-      (promptTemplates || []).forEach(function(name) {
-        var opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        tplCop.appendChild(opt);
-      });
-      if (prefix === 'queueDefault' && queueDefaultTransport === 'copilot' && queueDefaultMessageTemplateId) {
-        tplCop.value = queueDefaultMessageTemplateId;
-      } else if (prevTplC) {
-        tplCop.value = prevTplC;
-      }
-    }
-    var tSelX = document.getElementById(prefix + '-transport-t');
-    var targetsX = document.getElementById(prefix + '-transport-targets');
-    var pWrapX = document.getElementById(prefix + '-transport-profile-wrap');
-    if (tSelX) {
-      if (prefix === 'queueDefault') {
-        tSelX.value = queueDefaultTransport;
-      }
-      var isA = tSelX.value === 'anthropic';
-      var isC = tSelX.value === 'copilot';
-      if (targetsX) { targetsX.style.display = (isA || isC) ? '' : 'none'; }
-      if (pWrapX) { pWrapX.style.display = isA ? '' : 'none'; }
-      if (tplAnth) { tplAnth.style.display = isA ? '' : 'none'; }
-      if (tplCop) { tplCop.style.display = isC ? '' : 'none'; }
-    }
-  });
-  // Remove the old single-prefix population below — still kept as a
-  // fallback when the loop above didn't find the element (shouldn't
-  // happen, but harmless).
-  var profSel = document.getElementById('addForm-transport-profile');
-  if (profSel) {
-    var prevProf = profSel.value;
-    profSel.innerHTML = '';
-    var defProf = document.createElement('option');
-    defProf.value = '';
-    defProf.textContent = '(default profile)' + (defaultProfileNoApiKey ? NO_API_KEY_LABEL : '');
-    profSel.appendChild(defProf);
+  populateAddFormTemplateList();
+  // The profile the new item runs with: none (the run's default profile) or one of the Anthropic profiles.
+  var pSel = document.getElementById('addProfile');
+  if (pSel) {
+    var prev = pSel.value;
+    pSel.innerHTML = '';
+    var defOpt = document.createElement('option');
+    defOpt.value = '';
+    defOpt.textContent = '(default profile)' + (defaultProfileNoApiKey ? NO_API_KEY_LABEL : '');
+    pSel.appendChild(defOpt);
     (anthropicProfiles || []).forEach(function(p) {
       var opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = profileOptionLabel(p);
-      profSel.appendChild(opt);
+      pSel.appendChild(opt);
     });
-    if (prevProf) { profSel.value = prevProf; }
-  }
-  var cfgSel = document.getElementById('addForm-transport-config');
-  if (cfgSel) {
-    var prevCfg = cfgSel.value;
-    cfgSel.innerHTML = '<option value="">(profile default)</option>';
-    (anthropicConfigs || []).forEach(function(c) {
-      var opt = document.createElement('option');
-      opt.value = c.id;
-      var prefix = '[direct]';
-      if (c.transport === 'agentSdk') { prefix = '[agentSdk]'; }
-      else if (c.transport === 'vscodeLm') { prefix = '[vscodeLm]'; }
-      else if (c.transport === 'localLlm') { prefix = '[localLlm]'; }
-      opt.textContent = prefix + ' ' + (c.name ? (c.name + ' (' + c.id + ')') : c.id);
-      cfgSel.appendChild(opt);
-    });
-    if (prevCfg) { cfgSel.value = prevCfg; }
-  }
-  // Spec §4.7 + §4.16 — when the add-form's transport flips to
-  // Anthropic, repopulate the template dropdown from the
-  // Anthropic user-message templates store, blanking the current
-  // selection (spec §5 edge case).
-  var tSel = document.getElementById('addForm-transport-t');
-  if (tSel) {
-    var apply = function() {
-      populateAddFormTemplateList();
-    };
-    tSel.addEventListener('change', apply);
-    apply();
+    if (prev) { pSel.value = prev; }
   }
 }
 
+/** The add form's prompt template dropdown: the user-message templates; a selection still there is kept. */
 function populateAddFormTemplateList() {
-  // Spec §4.16: queue-editor add-form template dropdown filters by
-  // the effective transport; both read the one template store,
-  // config.anthropic.userMessageTemplates (Copilot via the
-  // promptTemplates ids). Selection is blanked on
-  // every repopulate so the user sees a clean picker matching the
-  // transport they just picked (spec §5 edge case).
   var tplSel = document.getElementById('addTemplate');
   if (!tplSel) { return; }
-  var tSel = document.getElementById('addForm-transport-t');
-  var transport = tSel ? tSel.value : 'copilot';
-  var isAnthropic = transport === 'anthropic';
+  var prev = tplSel.value;
   tplSel.innerHTML = '<option value="">(None)</option>';
-  if (isAnthropic) {
-    (anthropicUserMessageTemplates || []).forEach(function(t) {
-      var opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name || t.id;
-      tplSel.appendChild(opt);
-    });
-  } else {
-    (promptTemplates || []).forEach(function(name) {
-      var opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = formatPromptTemplateName(name);
-      tplSel.appendChild(opt);
-    });
-  }
-  // Blank the selection (spec §5) so users can't accidentally
-  // submit with a template name that lives in a different store.
+  (anthropicUserMessageTemplates || []).forEach(function(t) {
+    if (!t || !t.id) { return; }
+    var opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name || t.id;
+    tplSel.appendChild(opt);
+  });
+  if (prev) { tplSel.value = prev; }
 }
 
 // Fallback: also request state via message in case embedded state was stale

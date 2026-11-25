@@ -21,9 +21,7 @@
  * - a held run (Pause per run) starts nothing; its sending item stops before
  *   its next prompt, as with auto-send off;
  * - two prompts never share a conversation: an item does not start while
- *   another sending item runs in its session (Anthropic transport), and the
- *   Copilot transport — one chat, one answer file at a time — has one item
- *   sending at most, whatever its lane;
+ *   another sending item runs in its session;
  * - chat sends (`chat` items) are outside the lanes: they never send through
  *   the queue.
  *
@@ -74,8 +72,8 @@ export function laneSendingItem<T extends LaneItem>(items: readonly T[], lane: s
     return items.find((i) => i.status === 'sending' && laneOf(i, perRun) === lane);
 }
 
-/** How an item would run: its session on the Anthropic transport, `copilot` on the Copilot one. */
-export type LaneTarget = { transport: 'anthropic'; session: string } | { transport: 'copilot' };
+/** How an item would run: its session. */
+export type LaneTarget = { session: string };
 
 /**
  * Why `item` cannot start now beside the items already sending (and those
@@ -98,10 +96,7 @@ export function laneConflict<T extends LaneItem>(
     for (const s of sending) {
         if (s.id === item.id || s.processMove) { continue; }
         const other = targetOf(s);
-        if (target.transport === 'copilot' && other.transport === 'copilot') {
-            return `the Copilot chat is busy with ${s.id}`;
-        }
-        if (target.transport === 'anthropic' && other.transport === 'anthropic' && target.session === other.session) {
+        if (target.session === other.session) {
             return `session ${target.session} is busy with ${s.id}`;
         }
     }

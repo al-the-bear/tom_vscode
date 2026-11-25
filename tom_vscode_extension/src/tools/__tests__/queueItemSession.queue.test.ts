@@ -74,7 +74,7 @@ function clear(): void { for (const i of [...queue().items]) { queue().remove(i.
 describe('the session of a queue item', () => {
     test('QIS-1: a pending item changes its session', async () => {
         clear();
-        const item = await queue().enqueue({ originalText: 'a pending item', transport: 'copilot', deferSend: true });
+        const item = await queue().enqueue({ originalText: 'a pending item', transport: 'anthropic', deferSend: true });
         item.status = 'pending';
         assert.equal(queue().updateItemSession(item.id, 'op5'), true);
         assert.equal(queue().getById(item.id)?.session, 'op5');
@@ -83,7 +83,7 @@ describe('the session of a queue item', () => {
 
     test('QIS-2: a staged item too, and back to the default', async () => {
         clear();
-        const item = await queue().enqueue({ originalText: 'a staged item', transport: 'copilot', deferSend: true, initialStatus: 'staged' });
+        const item = await queue().enqueue({ originalText: 'a staged item', transport: 'anthropic', deferSend: true, initialStatus: 'staged' });
         assert.equal(item.status, 'staged');
         assert.equal(queue().updateItemSession(item.id, 'op5'), true);
         assert.equal(queue().getById(item.id)?.session, 'op5');
@@ -94,7 +94,7 @@ describe('the session of a queue item', () => {
     test('QIS-3: sending, sent and error items keep their session', async () => {
         for (const status of ['sending', 'sent', 'error'] as const) {
             clear();
-            const item = await queue().enqueue({ originalText: `a ${status} item`, transport: 'copilot', deferSend: true });
+            const item = await queue().enqueue({ originalText: `a ${status} item`, transport: 'anthropic', deferSend: true });
             queue().updateItemSession(item.id, 'before');
             item.status = status;
             assert.equal(queue().updateItemSession(item.id, 'after'), false, status);

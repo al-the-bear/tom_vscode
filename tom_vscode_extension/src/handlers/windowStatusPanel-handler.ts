@@ -53,7 +53,7 @@ export interface SubsystemStatus {
     status: 'prompt-sent' | 'answer-received';
     /**
      * Subsystem identifier. The window-status panel renders a fixed line
-     * of three dots for 'queue', 'anthropic', and 'copilot'; other
+     * of two dots for 'queue' and 'anthropic'; other
      * identifiers (e.g. 'localLlm') may be written but are not shown.
      */
     subsystem: string;
@@ -514,7 +514,7 @@ export function setWindowSubsystemActive(
  *
  * The panel lists one card per `*.window-state.json` file. Those files are
  * otherwise created lazily — only the first time a subsystem reports status
- * (queue/anthropic/copilot prompt) or the AI conversation toggles — so an
+ * (queue/anthropic prompt) or the AI conversation toggles — so an
  * open-but-idle window would never show up. Called at activation to register
  * an idle entry (no subsystem status, conversation inactive).
  *

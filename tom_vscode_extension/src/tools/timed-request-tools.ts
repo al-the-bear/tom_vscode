@@ -45,8 +45,8 @@
  *     day. The model should not rely on "exactly N fires per day"
  *     guarantees during periods of intermittent activity.
  *   - **Overlapping fires** (e.g. interval=1 but the entry's prompt
- *     takes 90 s to answer): the engine awaits each fire's answer (or
- *     `answerWaitMinutes` timeout) before scheduling the next one.
+ *     takes 90 s to answer): the engine awaits each fire's answer
+ *     before scheduling the next one.
  *     No parallel fires per entry.
  */
 
@@ -71,7 +71,6 @@ export interface TimedEntrySnapshot {
     status: TimedEntryStatus;
     enabled: boolean;
     template?: string;
-    answerWrapper?: boolean;
     originalText: string;
     scheduleMode: TimedScheduleMode;
     intervalMinutes?: number;
@@ -80,14 +79,12 @@ export interface TimedEntrySnapshot {
     repeatPrefix?: string;
     repeatSuffix?: string;
     sendMaximum?: number;
-    answerWaitMinutes?: number;
     lastSentAt?: number;
 }
 
 export interface AddTimedEntryInput {
     text: string;
     template?: string;
-    answerWrapper?: boolean;
     enabled?: boolean;
     /** Default `interval`. */
     scheduleMode?: TimedScheduleMode;
@@ -99,7 +96,6 @@ export interface AddTimedEntryInput {
     repeatPrefix?: string;
     repeatSuffix?: string;
     sendMaximum?: number;
-    answerWaitMinutes?: number;
 }
 
 // ===========================================================================
@@ -142,7 +138,6 @@ function compactEntry(e: TimedEntrySnapshot): Record<string, unknown> {
         status: e.status,
         enabled: !!e.enabled,
         template: e.template,
-        answerWrapper: !!e.answerWrapper,
         scheduleMode: e.scheduleMode,
         intervalMinutes: e.intervalMinutes ?? null,
         scheduledTimes: e.scheduledTimes ?? [],
@@ -173,7 +168,6 @@ export async function addTimedRequestImpl(access: TimerEngineAccess, input: AddT
         const entry = access.addEntry({
             enabled: input.enabled ?? false,
             template: input.template ?? '(None)',
-            answerWrapper: input.answerWrapper,
             originalText: input.text,
             scheduleMode,
             intervalMinutes: scheduleMode === 'interval' ? Math.max(1, input.intervalMinutes ?? 30) : undefined,
@@ -182,7 +176,6 @@ export async function addTimedRequestImpl(access: TimerEngineAccess, input: AddT
             repeatPrefix: input.repeatPrefix,
             repeatSuffix: input.repeatSuffix,
             sendMaximum: input.sendMaximum,
-            answerWaitMinutes: input.answerWaitMinutes,
         });
         return ok({
             id: entry.id,
@@ -213,14 +206,13 @@ export const ADD_TIMED_REQUEST_DESCRIPTION =
     '`timer.timerActivated` (controlled by `tomAi_setTimerEngineState`) must ' +
     'be true. Response surfaces a `warning` when you set `enabled: true` ' +
     'while the global engine is off. Supports per-entry `repeatCount` ' +
-    '(count/prefix/suffix), `sendMaximum` (auto-pause after N sends), and ' +
-    '`reminder*` config.';
+    '(count/prefix/suffix) and `sendMaximum` (auto-pause after N sends).';
 
 export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedEntryInput> = {
     name: 'tomAi_addTimedRequest',
     displayName: 'Add Timed Request',
     description: ADD_TIMED_REQUEST_DESCRIPTION,
-    tags: ['timed', 'queue', 'copilot', 'tom-ai-chat'],
+    tags: ['timed', 'queue', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -228,7 +220,6 @@ export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedEntryInput> = 
         properties: {
             text: { type: 'string' },
             template: { type: 'string', description: 'A prompt template (tomAi_listPromptTemplates) the prompt is wrapped by each time the entry fires. Default none.' },
-            answerWrapper: { type: 'boolean' },
             enabled: { type: 'boolean', description: 'Per-entry switch. Default false. AND-ed with `timer.timerActivated`.' },
             scheduleMode: { type: 'string', enum: ['interval', 'scheduled'], description: 'Default `interval`.' },
             intervalMinutes: { type: 'number', description: 'For `interval` mode. Min 1, default 30.' },
@@ -248,7 +239,6 @@ export const ADD_TIMED_REQUEST_TOOL: SharedToolDefinition<AddTimedEntryInput> = 
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
             sendMaximum: { type: 'number', description: 'Auto-pause after N sends; 0 = no cap.' },
-            answerWaitMinutes: { type: 'number' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -280,8 +270,8 @@ export async function listTimedRequestsImpl(access: TimerEngineAccess, input: Li
 }
 
 export const LIST_TIMED_REQUESTS_DESCRIPTION =
-    'List timed-request entries with status, enabled flag, schedule, and ' +
-    'reminder metadata. Response opens with **`timerActivated`** (the global ' +
+    'List timed-request entries with status, enabled flag and schedule. ' +
+    'Response opens with **`timerActivated`** (the global ' +
     'engine state) so you can tell at a glance whether any entries will ' +
     'actually fire — an enabled entry with `timerActivated: false` is ' +
     'effectively paused. Default excludes `completed` entries; pass ' +
@@ -291,7 +281,7 @@ export const LIST_TIMED_REQUESTS_TOOL: SharedToolDefinition<ListTimedRequestsInp
     name: 'tomAi_listTimedRequests',
     displayName: 'Timed List',
     description: LIST_TIMED_REQUESTS_DESCRIPTION,
-    tags: ['timed', 'copilot', 'tom-ai-chat'],
+    tags: ['timed', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
         type: 'object',
@@ -311,7 +301,6 @@ export interface UpdateTimedRequestInput {
     patch: {
         enabled?: boolean;
         template?: string;
-        answerWrapper?: boolean;
         originalText?: string;
         scheduleMode?: TimedScheduleMode;
         intervalMinutes?: number;
@@ -320,7 +309,6 @@ export interface UpdateTimedRequestInput {
         repeatPrefix?: string;
         repeatSuffix?: string;
         sendMaximum?: number;
-        answerWaitMinutes?: number;
     };
 }
 
@@ -359,7 +347,7 @@ export const UPDATE_TIMED_REQUEST_DESCRIPTION =
     '`scheduledTimes` as appropriate when switching. HH:MM slots are ' +
     'validated against `^([01]\\d|2[0-3]):[0-5]\\d$`; date slots against ' +
     '`^\\d{4}-\\d{2}-\\d{2}$`. Setting `enabled: true` while the global ' +
-    'engine is off surfaces the same warning as add. **Repeat/wait/reminder/' +
+    'engine is off surfaces the same warning as add. **Repeat and ' +
     'sendMaximum** fields are independent of the schedule and persist across ' +
     'mode switches.';
 
@@ -367,7 +355,7 @@ export const UPDATE_TIMED_REQUEST_TOOL: SharedToolDefinition<UpdateTimedRequestI
     name: 'tomAi_updateTimedRequest',
     displayName: 'Timed Update Entry',
     description: UPDATE_TIMED_REQUEST_DESCRIPTION,
-    tags: ['timed', 'copilot', 'tom-ai-chat'],
+    tags: ['timed', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -379,7 +367,6 @@ export const UPDATE_TIMED_REQUEST_TOOL: SharedToolDefinition<UpdateTimedRequestI
                 properties: {
                     enabled: { type: 'boolean' },
                     template: { type: 'string', description: 'A prompt template (tomAi_listPromptTemplates) the prompt is wrapped by each time the entry fires. Default none.' },
-                    answerWrapper: { type: 'boolean' },
                     originalText: { type: 'string' },
                     scheduleMode: { type: 'string', enum: ['interval', 'scheduled'] },
                     intervalMinutes: { type: 'number' },
@@ -398,7 +385,6 @@ export const UPDATE_TIMED_REQUEST_TOOL: SharedToolDefinition<UpdateTimedRequestI
                     repeatPrefix: { type: 'string' },
                     repeatSuffix: { type: 'string' },
                     sendMaximum: { type: 'number' },
-                    answerWaitMinutes: { type: 'number' },
                 },
             },
         },
@@ -434,7 +420,7 @@ export const REMOVE_TIMED_REQUEST_TOOL: SharedToolDefinition<RemoveTimedRequestI
     name: 'tomAi_removeTimedRequest',
     displayName: 'Timed Remove Entry',
     description: REMOVE_TIMED_REQUEST_DESCRIPTION,
-    tags: ['timed', 'copilot', 'tom-ai-chat'],
+    tags: ['timed', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -487,7 +473,7 @@ export const SET_TIMER_ENGINE_STATE_TOOL: SharedToolDefinition<SetTimerEngineSta
     name: 'tomAi_setTimerEngineState',
     displayName: 'Timed Set Engine State',
     description: SET_TIMER_ENGINE_STATE_DESCRIPTION,
-    tags: ['timed', 'copilot', 'tom-ai-chat'],
+    tags: ['timed', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',

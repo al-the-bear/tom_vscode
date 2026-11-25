@@ -71,14 +71,14 @@ describe('Prompt Queue editor — the item header', () => {
     });
 
     test('QH-2: without one, an icon button — replaced by the name once a profile is chosen', (t) => {
-        const { w, doc } = setup(t, [item('a', 'staged', { profileView: DEFAULT }), item('c', 'pending', { profileView: { own: false, transport: 'copilot', canPick: true } })]);
+        const { w, doc } = setup(t, [item('a', 'staged', { profileView: DEFAULT }), item('c', 'pending', { profileView: { own: false, transport: 'anthropic', canPick: true } })]);
         const btn = header(doc, 'a').querySelector('.queue-profile-btn');
         assert.ok(btn.classList.contains('codicon'), 'an icon');
         assert.equal(btn.textContent, '');
         assert.match(btn.getAttribute('title'), /^No profile of its own: it runs with Sonnet API \(claude-sonnet · direct API\) .*Click to choose a profile for this item\.$/);
         assert.match(btn.getAttribute('onclick'), /pickItemProfile\('a'\)/);
         assert.equal(header(doc, 'a').querySelector('.queue-profile-chip'), null);
-        assert.match(header(doc, 'c').querySelector('.queue-profile-btn').getAttribute('title'), /it runs with Copilot /);
+        assert.match(header(doc, 'c').querySelector('.queue-profile-btn').getAttribute('title'), /it runs with the default profile /);
         w.dispatchEvent(new w.MessageEvent('message', { data: { type: 'state', items: [item('a', 'staged', { transport: 'anthropic', anthropicProfileId: 'opus-sdk', profileView: OWN })], autoSend: false, processRuns: ['default'], currentRun: 'default' } }));
         assert.equal(header(doc, 'a').querySelector('.queue-profile-btn'), null, 'the button is gone');
         assert.equal(header(doc, 'a').querySelector('.queue-profile-chip').textContent, 'Opus SDK');

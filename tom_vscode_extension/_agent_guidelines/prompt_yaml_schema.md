@@ -1,6 +1,6 @@
 # Prompt Queue YAML Schema
 
-This document specifies the YAML schema for prompt queue entries and templates. The schema enables modeling complex multi-prompt flows with gates, follow-ups, decisions, and reminders.
+This document specifies the YAML schema for prompt queue entries and templates. The schema enables modeling complex multi-prompt flows with gates, follow-ups, and decisions.
 
 ## File Extensions
 
@@ -17,14 +17,15 @@ This document specifies the YAML schema for prompt queue entries and templates. 
 Queue entry files are stored in a configurable folder with fallback `${ai}/queue`:
 
 ```
-<full-timestamp>_<quest-id>.<subsystem>.entry.queue.yaml
+<hostname>_<workspace>_<timestamp>[-<token>]_<quest-id>.<type>.entry.queue.yaml
 ```
 
-- **Timestamp**: Full timestamp (`YYYYMMDD_HHMMSSmmm`) for chronological ordering
+- **Hostname / workspace**: The machine and the workspace the entry was queued on
+- **Timestamp**: `YYMMDD_HHMMSS` for chronological ordering; the optional token keeps entries of the same second apart
 - **Quest ID**: From active `.code-workspace` file, or `default` if none
-- **Subsystem**: Currently only `copilot`
+- **Type**: The item's type: `prompt`, or `timed` for an item a timed request queued
 
-Example: `20260305_143022123_vscode_extension.copilot.entry.queue.yaml`
+Example: `mbp_tom_agent_container_260305_143022-a1b2c3_vscode_extension.prompt.entry.queue.yaml`
 
 **Window Sharing**: VS Code windows with the same quest (same `.code-workspace` file) share the same queue.
 
@@ -82,8 +83,7 @@ prompt-queue:
 | `file` | string | Path to file to execute (mutually exclusive with `prompt-text`) |
 | `template` | string | Template name for main/initial prompt |
 | `answer-template` | string | Template name for final answer prompt |
-| `use-answer-wrapper` | boolean | Whether to use answer wrapper |
-| `llm-profile` | string | `copilot` or an LLM configuration name |
+| `llm-profile` | string | An LLM configuration name |
 
 ### Metadata (Per-Prompt)
 
@@ -95,15 +95,6 @@ prompt-queue:
 | `metadata.description` | string | Description override |
 | `metadata.template-name` | string | Template name if this file is a template |
 | `metadata.*` | any | Additional UI state attributes (extensible) |
-
-### Reminder Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `reminder-template` | string | Template name for reminder prompt |
-| `reminder-wait-time` | duration | Time to wait before sending reminder |
-| `reminder-repeat` | integer | Number of times to repeat reminder |
-| `reminder-enabled` | boolean | Enable/disable reminder |
 
 ### Reference Fields
 
@@ -199,7 +190,7 @@ prompt-queue:
       prompt-text: |
         Analyze the component structure and identify
         refactoring opportunities.
-      llm-profile: copilot
+      llm-profile: claude-sonnet
       gate-ref: gate-validate
       follow-ups:
         - implement-changes
@@ -219,9 +210,6 @@ prompt-queue:
       type: followup
       prompt-text: |
         Implement the identified refactoring changes.
-      reminder-template: gentle-nudge
-      reminder-wait-time: 5m
-      reminder-enabled: true
 ```
 
 ### Decision Flow

@@ -31,23 +31,23 @@ const SCHEMA_FILE = path.resolve(EXT_ROOT, '..', '..', '..', '_ai', 'schemas', '
 const AT = '2026-11-15T10:00:00.000Z';
 
 const prePrompt: Required<QueuedPrePrompt> = {
-    text: 'before', template: 'T', status: 'sent', repeatCount: 2, resolvedRepeatCount: 2, repeatIndex: 1, answerWaitMinutes: 3,
+    text: 'before', template: 'T', status: 'sent', repeatCount: 2, resolvedRepeatCount: 2, repeatIndex: 1,
     transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c', answerText: 'pre answer',
 };
 
 const followUp: Required<QueuedFollowUpPrompt> = {
     id: 'fu-1', originalText: 'after', template: 'T',
-    repeatCount: 'count', resolvedRepeatCount: 3, repeatIndex: 0, answerWaitMinutes: 1, createdAt: AT,
+    repeatCount: 'count', resolvedRepeatCount: 3, repeatIndex: 0, createdAt: AT,
     transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c', answerText: 'fu answer',
 };
 
 /** An item with every field set: a new field of QueuedPrompt does not compile until it is set here. */
 const ITEM: Required<QueuedPrompt> = {
-    id: 'item-1', template: 'T', answerWrapper: true, originalText: 'do ${repeatTodoId}', expandedText: 'do x1_a', status: 'sending', type: 'timed',
+    id: 'item-1', template: 'T', originalText: 'do ${repeatTodoId}', expandedText: 'do x1_a', status: 'sending', type: 'timed',
     timedEntryId: 'te-1', chatSource: 'panel', chatWindowId: 'w-1', fromChatPanel: 'anthropic', createdAt: AT, sentAt: AT, error: 'an error',
-    requestId: 'req-1', expectedRequestId: 'req-2', prePrompts: [prePrompt], followUps: [followUp], followUpIndex: 1,
+    prePrompts: [prePrompt], followUps: [followUp], followUpIndex: 1,
     repeatCount: 'x*', resolvedRepeatCount: 3, repeatIndex: 1, repeatTodoId: 'x1_a', repeatPrefix: 'pre', repeatSuffix: 'suf',
-    templateRepeatCount: 2, templateRepeatIndex: 1, answerWaitMinutes: 4,
+    templateRepeatCount: 2, templateRepeatIndex: 1,
     backgroundWaitLimitMinutes: 30,
     backgroundWait: { since: AT, limitMinutes: 30, limitFrom: AT, unlimited: true, items: [{ id: 'b1', kind: 'bash', description: 'build', command: 'make', outputFile: '/tmp/o' }] } as never,
     answerBackgroundLeft: true,

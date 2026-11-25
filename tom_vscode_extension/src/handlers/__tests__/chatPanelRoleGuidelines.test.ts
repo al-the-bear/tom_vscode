@@ -10,14 +10,13 @@
  *        carries the roles, the panel's role, the picker state and each subpanel's run and own choices; a picker
  *        choice at level `chat` sets the subpanel's sticky choices (Don't add, Remove) and posts fresh data
  *   CG-3 an ANTHROPIC/LLM send runs as the panel's role (the item role, ahead of the chat variable, which stays)
- *        with the panel's choices at the item level; Default role leaves the role to the chat variable; a Copilot
- *        send carries the Copilot subpanel's choices
- *   CG-4 queued sends carry them: Save to Queue with the panel's target (role and choices; Copilot choices only),
+ *        with the panel's choices at the item level; Default role leaves the role to the chat variable
+ *   CG-4 queued sends carry them: Save to Queue with the panel's target (role and choices),
  *        a send into a busy session queued; plain Save to Queue carries neither
  *   CG-5 the webview: the role dropdown (Run default, the roles, the panel's selected; a change posts
- *        setChatRole) in ANTHROPIC/LLM only; a guideline button in both subpanels (dot when the panel chose,
+ *        setChatRole); a guideline button in the subpanel (dot when the panel chose,
  *        the effective selection on hover, no list); its popup posts aspectChoose at level chat with the
- *        subpanel; the session, run, model (profile), template, role and reusable-prompt choices each a field (label
+ *        subpanel; the session, model (profile), template, role and reusable-prompt choices each a field (label
  *        above, value a link, width limited; the select hidden; a click posts pickFromSelect, its answer is a
  *        change); No template;
  *        the role editor icon posts openRoleEditor; the page loads the picker's script and style
@@ -146,27 +145,25 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
         assert.equal((context as Json).workspaceState.get(roleKey), undefined, 'and forgotten');
         await setRole('reviewer');
         setChatPanelChoices('anthropic', undefined);
-        setChatPanelChoices('copilot', undefined);
         provider().postChatAspects();
         const msg = lastPosted('chatAspects');
         assert.deepEqual(msg.roles, ['reviewer', 'writer']);
         assert.equal(msg.role, 'reviewer');
         assert.deepEqual(msg.aspects.sections.map((s: Json) => s.id), ['answer', 'night']);
-        assert.deepEqual(msg.panels, { anthropic: { run: {}, item: {} }, copilot: { run: {}, item: {} } });
+        assert.deepEqual(msg.panels, { anthropic: { run: {}, item: {} } });
 
         // A picker choice at level chat: the subpanel's sticky choices, then fresh data.
         const before = posted.length;
         assert.deepEqual(await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'night', value: 'on' }), { handled: true, changed: true });
         assert.deepEqual(await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'logs', section: 'night', value: 'on' }), { handled: true, changed: false }, 'an unknown panel is refused');
         await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'answer', value: 'remove' });
-        await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'copilot', section: 'answer', value: 'brief' });
+        assert.deepEqual(await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'copilot', section: 'answer', value: 'brief' }), { handled: true, changed: false }, 'the removed Copilot subpanel is refused');
         assert.deepEqual(chatPanelChoices('anthropic'), { night: 'on', answer: 'remove' });
-        assert.deepEqual(chatPanelChoices('copilot'), { answer: 'brief' });
         await handleAspectPickerMessage({ type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'answer', value: '' });
         assert.deepEqual(chatPanelChoices('anthropic'), { night: 'on' }, 'Don\'t add drops the panel\'s choice');
         assert.ok(posted.slice(before).some((m) => m.type === 'chatAspects'), 'the panel is redrawn');
         assert.deepEqual(lastPosted('chatAspects').panels.anthropic.item, { night: 'on' });
-        assert.deepEqual(lastPosted('chatAspects').panels.copilot.item, { answer: 'brief' });
+        assert.deepEqual(Object.keys(lastPosted('chatAspects').panels), ['anthropic']);
 
         // The handler's messages.
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');
@@ -196,22 +193,17 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
         assert.equal(seen[1].role.role, 'writer', 'Default role: the chat variable');
         assert.notEqual(seen[1].role.from, 'item');
         assert.equal(chat.getRaw('role'), 'writer', 'the run\'s chat variable is untouched');
-        // Copilot: its own subpanel's choices (no role).
         const src = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');
-        assert.match(src, /chatSendAspectChoices\('copilot', this\._chatRun\('copilot'\)\)/);
         assert.match(src, /runWithQueueRole\(chatRoleSource\(this\._chatRole\(\), chatPanelChoices\('anthropic'\)\), \(\) => AnthropicHandler\.instance\.sendMessage\(/);
     });
 
     test('CG-4: queued sends carry them', async () => {
         for (const i of [...queue().items]) { queue().remove(i.id); }
         await setRole('reviewer');
-        await provider()._handleAddToQueue('anthropic with the panel', '', '1', 0, { transport: 'anthropic', usePanelTarget: true, anthropicProfileId: 'p' }, { section: 'anthropic' });
+        await provider()._handleAddToQueue('anthropic with the panel', '', '1', { transport: 'anthropic', usePanelTarget: true, anthropicProfileId: 'p' }, { section: 'anthropic' });
         const a = queue().items.find((i) => i.originalText === 'anthropic with the panel')!;
         assert.deepEqual([a.role, a.guidelines], ['reviewer', { night: 'on' }]);
-        await provider()._handleAddToQueue('copilot with the panel', '', '1', 0, { usePanelTarget: true }, { section: 'copilot' });
-        const c = queue().items.find((i) => i.originalText === 'copilot with the panel')!;
-        assert.deepEqual([c.role, c.guidelines], [undefined, { answer: 'brief' }], 'Copilot: no role');
-        await provider()._handleAddToQueue('plain', '', '1', 0, { transport: 'anthropic' }, { section: 'anthropic' });
+        await provider()._handleAddToQueue('plain', '', '1', { transport: 'anthropic' }, { section: 'anthropic' });
         const p = queue().items.find((i) => i.originalText === 'plain')!;
         assert.deepEqual([p.role, p.guidelines], [undefined, undefined], 'plain Save to Queue: the queue\'s own settings');
 
@@ -237,7 +229,7 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
         const w = new JSDOM(html.replace(/<script[\s\S]*?<\/script>/g, ''), { runScripts: 'outside-only' }).window as Json;
         try {
             const sent: Json[] = [];
-            w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => sent.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic', 'copilot'], pinned: [] }) });
+            w.acquireVsCodeApi = () => ({ postMessage: (m: Json) => sent.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic'], pinned: [] }) });
             w.__INIT__ = {};
             w.eval(fs.readFileSync(path.join(EXT, 'media', 'shared', 'aspectPicker.js'), 'utf8'));
             w.eval(fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'main.js'), 'utf8'));
@@ -253,7 +245,6 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.ok($('anthropic-session-name').closest('.chat-link'), 'the session (with its run): a link');
             // Run default first (the panel's run's template), then No template.
             assert.deepEqual([...$('anthropic-userMessage').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
-            assert.deepEqual([...$('copilot-template').options].slice(0, 2).map((o: Json) => [o.value, o.textContent]), [['__run_default__', 'Run default (no template)'], ['', 'No template']]);
             const toolbar = $('anthropic-role').parentElement;
             assert.equal([...toolbar.querySelectorAll('label')].filter((l: Json) => /Profile|User Prompt/.test(l.textContent)).length, 0, 'no Profile / User Prompt labels');
             const css = fs.readFileSync(path.join(EXT, 'media', 'chatPanel', 'style.css'), 'utf8');
@@ -262,17 +253,18 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             // Every choice of the action bar is a field: its label above, its value a link; the select behind it is hidden.
             const field = (id: string): [string, string] => { const f = $(id).closest('.chat-field'); return [f.querySelector('.chat-field-label').textContent, f.querySelector('.chat-link').textContent]; };
             assert.deepEqual(field('anthropic-session-name'), ['Session', 'chat']);
-            assert.deepEqual(field('copilot-run'), ['Run', 'default']);
             const linked = (id: string): [string, string] => [$(id + '-field').querySelector('.chat-field-label').textContent, $(id + '-field').querySelector('.chat-link').textContent];
-            for (const [id, label] of [['anthropic-profile', 'Model'], ['anthropic-userMessage', 'Template'], ['anthropic-role', 'Role'], ['copilot-template', 'Template'],
-                ['anthropic-reusable-type', 'Prompt type'], ['anthropic-reusable-file', 'Prompt file'], ['copilot-reusable-type', 'Prompt type'], ['copilot-reusable-file', 'Prompt file']]) {
+            for (const [id, label] of [['anthropic-profile', 'Model'], ['anthropic-userMessage', 'Template'], ['anthropic-role', 'Role'],
+                ['anthropic-reusable-type', 'Prompt type'], ['anthropic-reusable-file', 'Prompt file']]) {
                 assert.ok($(id).classList.contains('linked-select'), `${id}: hidden behind its field`);
                 assert.equal(linked(id)[0], label, `${id}: labelled ${label}`);
                 assert.equal(linked(id)[1], $(id).options[$(id).selectedIndex]?.textContent ?? '(none)', `${id}: shows the selected option`);
             }
             assert.equal(linked('anthropic-reusable-type')[1], 'global');
             assert.match(css, /\.linked-select, \.linked-label \{ display: none !important; \}/);
-            // The role dropdown: ANTHROPIC/LLM only.
+            // The one chat subpanel: ANTHROPIC/LLM.
+            assert.ok($('anthropic-text'), 'the ANTHROPIC/LLM prompt');
+            assert.equal($('copilot-text'), null, 'no Copilot subpanel');
             assert.equal($('copilot-role'), null);
             w.dispatchEvent(new w.MessageEvent('message', { data: {
                 type: 'chatAspects', roles: ['reviewer', 'writer'], role: 'reviewer',
@@ -283,7 +275,7 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
                     ],
                     problems: [], roles: {},
                 },
-                panels: { anthropic: { run: {}, item: { night: 'on' } }, copilot: { run: {}, item: {} } },
+                panels: { anthropic: { run: {}, item: { night: 'on' } } },
             } }));
             assert.deepEqual([...$('anthropic-role').options].map((o: Json) => o.textContent), ['Run default', 'reviewer', 'writer']);
             assert.equal($('anthropic-role').value, 'reviewer');
@@ -296,12 +288,11 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.equal($('anthropic-role').value, 'writer');
             assert.equal(linked('anthropic-role')[1], 'writer');
             assert.deepEqual(sent.filter((m) => m.type === 'setChatRole').at(-1), { type: 'setChatRole', role: 'writer' });
-            // The guideline buttons: both subpanels, a dot when the panel chose, hover help only.
+            // The guideline button: a dot when the panel chose, hover help only.
             const aBtn = $('anthropic-aspects-btn');
-            const cBtn = $('copilot-aspects-btn');
-            assert.ok(aBtn && cBtn, 'a guideline button in each subpanel');
+            assert.ok(aBtn, 'a guideline button in the subpanel');
+            assert.equal($('copilot-aspects-btn'), null);
             assert.ok(aBtn.querySelector('.tom-aspect-dot'), 'a dot: the panel chose');
-            assert.equal(cBtn.querySelector('.tom-aspect-dot'), null);
             assert.match(aBtn.title, /^Guidelines of this panel's sends: Answer: full · Night: on\nChosen here: Night: on/);
             assert.equal($('anthropic-aspects-slot').textContent.trim(), '', 'no list beside it');
             // Its popup posts the choice at level chat with its subpanel.
@@ -310,9 +301,10 @@ describe('@CHAT: role dropdown and guideline buttons', () => {
             assert.ok(popup, 'the popup opens');
             popup.querySelector('.tom-aspect-option[data-section="answer"][data-choice="brief"]').click();
             assert.deepEqual(sent.filter((m) => m.type === 'aspectChoose').at(-1), { type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'answer', value: 'brief' });
-            $('copilot-aspects-btn').click();
+            // A checked choice keeps the popup open; Remove closes it.
             $('tomAspectPopup').querySelector('.tom-aspect-option[data-section="night"][data-value="remove"]').click();
-            assert.deepEqual(sent.filter((m) => m.type === 'aspectChoose').at(-1), { type: 'aspectChoose', level: 'chat', panel: 'copilot', section: 'night', value: 'remove' });
+            assert.deepEqual(sent.filter((m) => m.type === 'aspectChoose').at(-1), { type: 'aspectChoose', level: 'chat', panel: 'anthropic', section: 'night', value: 'remove' });
+            assert.equal($('tomAspectPopup'), null, 'closed by the choice');
             // The role editor icon.
             $('anthropic-role-editor-btn').click();
             assert.ok(sent.some((m) => m.type === 'openRoleEditor'));

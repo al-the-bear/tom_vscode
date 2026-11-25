@@ -2,7 +2,7 @@
  * The Logs section in @CHAT (moved from @WS): the chat panel's webview (media/chatPanel/) hosts the session logs
  * viewer (media/questLogs/main.js) with the HTML and config the host hands over in its init data.
  *
- *   CL-1 the chat panel has a Logs section after Copilot and Anthropic/LLM, holding the logs viewer's HTML; the viewer
+ *   CL-1 the chat panel has a Logs section after Anthropic/LLM, holding the logs viewer's HTML; the viewer
  *        script, loaded after the panel's, finds its config and asks the host for the session's MD Trail once the
  *        section is open
  *   CL-2 opening and closing sections (the panel's saveState) keeps the viewer's saved state (`qlog_logs`): the
@@ -58,7 +58,7 @@ describe('@CHAT Logs section', () => {
     test('CL-1: the section and its viewer', async () => {
         const { w, posted } = chatPanel({ expanded: ['logs'], pinned: [] });
         const ids = [...w.document.querySelectorAll('.accordion-section')].map((s: Win) => s.getAttribute('data-section'));
-        assert.deepEqual(ids, ['copilot', 'anthropic', 'logs']);
+        assert.deepEqual(ids, ['anthropic', 'logs']);
         const section = w.document.querySelector('[data-section="logs"]');
         assert.match(section.querySelector('.title').textContent, /Logs/);
         assert.ok(section.querySelector('#qlog-sessions'), 'the session switch');

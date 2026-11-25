@@ -19,8 +19,8 @@ export type AspectPickerLevel = 'window' | 'allWindows' | 'run' | 'item' | 'todo
 export const ASPECT_PICKER_LEVELS: readonly AspectPickerLevel[] = ['window', 'allWindows', 'run', 'item', 'todo', 'chat', 'questDefault', 'workspace'];
 
 /** The @CHAT subpanels with sticky choices. */
-export type AspectPickerChatPanel = 'anthropic' | 'copilot';
-export const ASPECT_PICKER_CHAT_PANELS: readonly AspectPickerChatPanel[] = ['anthropic', 'copilot'];
+export type AspectPickerChatPanel = 'anthropic';
+export const ASPECT_PICKER_CHAT_PANELS: readonly AspectPickerChatPanel[] = ['anthropic'];
 
 /** One choice of the picker. */
 export interface AspectChoiceRequest {

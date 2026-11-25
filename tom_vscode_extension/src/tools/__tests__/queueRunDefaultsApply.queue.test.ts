@@ -85,7 +85,7 @@ const DEFAULTS: RunDefaultsSource = {
 
 describe('apply run defaults to all items', () => {
     test('RDA-1: the helper', () => {
-        const item: RunDefaultsTarget = { transport: 'copilot', template: 'other', session: 'mine', sessionCreate: { name: 'mine' }, role: 'writer' };
+        const item: RunDefaultsTarget = { template: 'other', session: 'mine', sessionCreate: { name: 'mine' }, role: 'writer' };
         assert.deepEqual(applyRunDefaultsToItem(item, DEFAULTS, 'collab', ['profile', 'template', 'session', 'role'], 'set'), ['profile', 'template', 'session', 'role']);
         assert.deepEqual(item, { transport: 'anthropic', anthropicProfileId: 'opus', anthropicConfigId: 'cfg', template: 'execute-todo', session: 'work@collab', role: 'reviewer' });
         assert.deepEqual(applyRunDefaultsToItem(item, DEFAULTS, 'collab', ['profile', 'role'], 'set'), [], 'already the defaults');
@@ -95,7 +95,7 @@ describe('apply run defaults to all items', () => {
         assert.deepEqual(item, { template: '(Run default)' }, 'clear removes the item\'s own profile and session');
         const plain: RunDefaultsTarget = {};
         applyRunDefaultsToItem(plain, {}, 'default', ['profile', 'template', 'session', 'role'], 'set');
-        assert.deepEqual(plain, { transport: 'copilot', template: NO_TEMPLATE, session: 'default@default' }, 'a run without defaults');
+        assert.deepEqual(plain, { transport: 'anthropic', template: NO_TEMPLATE, session: 'default@default' }, 'a run without defaults');
         assert.deepEqual(runDefaultFieldsOf(['role', 'bogus', 'profile', 'role', undefined]), ['profile', 'role']);
     });
 
@@ -103,7 +103,7 @@ describe('apply run defaults to all items', () => {
         assert.deepEqual(runDefaultPickerEntries(DEFAULTS, 'collab').map((e) => [e.field, e.description]), [
             ['profile', 'Anthropic · opus · cfg'], ['template', 'execute-todo'], ['session', 'work@collab'], ['role', 'reviewer'],
         ]);
-        assert.deepEqual(runDefaultPickerEntries({}, 'default').map((e) => e.description), ['Copilot', 'no template', 'default@default', 'no default role']);
+        assert.deepEqual(runDefaultPickerEntries({}, 'default').map((e) => e.description), ['Anthropic · default profile', 'no template', 'default@default', 'no default role']);
         assert.equal(runDefaultsApplySummary({ run: 'collab', mode: 'set', fields: ['profile', 'role'], changed: 3, unchanged: 1, notEditable: 2, refused: [] }),
             'Run collab\'s defaults (profile, role) set on 3 items; 1 item already matched; 2 items that already started left as they are.');
         assert.equal(runDefaultsApplySummary({ run: 'default', mode: 'clear', fields: ['session'], changed: 1, unchanged: 0, notEditable: 0, refused: [{ id: 'x', reason: 'No.' }] }),
@@ -112,13 +112,13 @@ describe('apply run defaults to all items', () => {
 
     test('RDA-3: on a real queue', async () => {
         clear();
-        queue().setRunQueueSettings('collab', { defaultTransport: 'copilot', defaultRole: 'reviewer', defaultMessageTemplateId: '' });
-        const a = await queue().enqueue({ originalText: 'first', transport: 'copilot', deferSend: true, run: 'collab', role: 'writer', template: 'other' } as never);
-        const b = await queue().enqueue({ originalText: 'second', transport: 'copilot', deferSend: true, run: 'collab' } as never);
+        queue().setRunQueueSettings('collab', { defaultTransport: 'anthropic', defaultRole: 'reviewer', defaultMessageTemplateId: '' });
+        const a = await queue().enqueue({ originalText: 'first', transport: 'anthropic', deferSend: true, run: 'collab', role: 'writer', template: 'other' } as never);
+        const b = await queue().enqueue({ originalText: 'second', transport: 'anthropic', deferSend: true, run: 'collab' } as never);
         b.status = 'pending';
-        const started = await queue().enqueue({ originalText: 'started', transport: 'copilot', deferSend: true, run: 'collab', role: 'writer' } as never);
+        const started = await queue().enqueue({ originalText: 'started', transport: 'anthropic', deferSend: true, run: 'collab', role: 'writer' } as never);
         started.status = 'sending';
-        const other = await queue().enqueue({ originalText: 'other run', transport: 'copilot', deferSend: true, run: 'another', role: 'writer' } as never);
+        const other = await queue().enqueue({ originalText: 'other run', transport: 'anthropic', deferSend: true, run: 'another', role: 'writer' } as never);
 
         const set = await queue().applyRunDefaultsToItems('collab', ['role', 'template'], 'set');
         assert.deepEqual([set.changed, set.unchanged, set.notEditable, set.refused.length], [2, 0, 1, 0]);
@@ -139,9 +139,9 @@ describe('apply run defaults to all items', () => {
 
     test('RDA-4: move items to another run', async () => {
         clear();
-        queue().setRunQueueSettings('target', { defaultTransport: 'copilot', defaultMessageTemplateId: '' });
+        queue().setRunQueueSettings('target', { defaultTransport: 'anthropic', defaultMessageTemplateId: '' });
         const a = await queue().enqueue({ originalText: 'move me', transport: 'anthropic', anthropicProfileId: 'opus', deferSend: true, run: 'collab', role: 'writer', template: 'other', session: 'mine@collab' } as never);
-        const started = await queue().enqueue({ originalText: 'started', transport: 'copilot', deferSend: true, run: 'collab' } as never);
+        const started = await queue().enqueue({ originalText: 'started', transport: 'anthropic', deferSend: true, run: 'collab' } as never);
         started.status = 'sending';
         const r = await queue().moveItemsToRun([a.id, started.id, 'nope'], 'target');
         const find = (id: string) => queue().items.find((i) => i.id === id)!;

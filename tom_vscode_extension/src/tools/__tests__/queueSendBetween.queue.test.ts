@@ -1,8 +1,8 @@
 /**
  * "Send between iterations" through the real queue manager (src/utils/
- * queueSendBetween.ts, PromptQueueManager), under the vscode stub on the
- * Copilot transport, so nothing reaches a model: a Copilot send only opens
- * the (stubbed) chat and waits for an answer file.
+ * queueSendBetween.ts, PromptQueueManager), under the vscode stub. Only the
+ * transport is a stub, so nothing reaches a model: a turn that is sent stays
+ * running (its item `sending`) until the test answers it.
  *
  *   SBQ-1 Send next on the pending item under a running loop marks it (the editor state flags it
  *         `canSendBetween`); a second click unmarks it; an item further down cannot be marked
@@ -30,7 +30,15 @@ const WS = path.join(SANDBOX, 'ws');
 const HOME = path.join(SANDBOX, 'home');
 const QUEST = 'q1';
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
-for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'], ['.tom/tom_vscode_extension.json', '{}\n']]) {
+/* eslint-disable @typescript-eslint/naming-convention -- config keys */
+const CONFIG = JSON.stringify({
+    anthropic: {
+        apiKeyEnvVar: 'TOM_TEST_ANTHROPIC_KEY',
+        profiles: [{ id: 'sdk', name: 'SDK', systemPrompt: '', configurationId: 'c-sdk' }],
+        configurations: [{ id: 'c-sdk', name: 'Agent SDK', model: 'claude-test', transport: 'agentSdk' }],
+    },
+}, null, 2);
+for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'], ['.tom/tom_vscode_extension.json', CONFIG]]) {
     const abs = path.join(WS, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text);
@@ -38,6 +46,7 @@ for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
 process.env.USERPROFILE = HOME;
+process.env.TOM_TEST_ANTHROPIC_KEY = 'test-key';
 
 import { installVscodeStub } from './_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
@@ -49,6 +58,7 @@ import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueu
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
 import { runningLoopAbove } from '../../utils/queueSendBetween.js';
+import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -70,7 +80,20 @@ const subscriptions: Array<{ dispose(): void }> = [];
     TimerEngine.init(context);
     PromptQueueManager.init(context);
 })();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Json = any;
+const handler = AnthropicHandler.instance as Json;
+const originalSend = handler.sendMessage;
+/** The turns sent (their text) and the ones running; a turn ends when the test answers it. */
+const sent: string[] = [];
+const running: Array<() => void> = [];
+handler.sendMessage = (opts: Json) => new Promise((resolve) => {
+    const text = String(opts.userText);
+    sent.push(text);
+    running.push(() => resolve({ text: `done: ${text.slice(0, 30)}`, turnsUsed: 1, toolCallCount: 0 }));
+});
 after(() => {
+    handler.sendMessage = originalSend;
     for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
         try { stop(); } catch { /* not started */ }
     }
@@ -82,25 +105,41 @@ after(() => {
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const ids = (): string[] => queue().items.map((i) => i.id);
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** The oldest running turn answers. */
+async function answer(): Promise<void> {
+    const next = running.shift();
+    assert.ok(next, 'a turn is running');
+    next();
+    await wait(250);
+}
 // The dispatcher is private: the test drives one iteration boundary itself.
 const boundary = (item: QueuedPrompt): Promise<string> =>
     (queue() as unknown as { dispatchNextStageForSendingItem(i: QueuedPrompt): Promise<string> }).dispatchNextStageForSendingItem(item);
 
-function clear(): void { for (const i of [...queue().items]) { queue().remove(i.id); } }
+function clear(): void {
+    for (const i of [...queue().items]) { queue().remove(i.id); }
+    sent.length = 0;
+    running.length = 0;
+}
 
-/** A Copilot loop of three iterations with its first iteration sent, plus two pending items under it. */
+/** A loop of three iterations with its first iteration sent, plus two pending items under it. */
 async function loopWithOneIterationDone(): Promise<{ loop: QueuedPrompt; a: QueuedPrompt; b: QueuedPrompt }> {
     clear();
-    const loop = await queue().enqueue({ originalText: 'iteration', repeatCount: 3, transport: 'copilot', deferSend: true });
-    const a = await queue().enqueue({ originalText: 'between', transport: 'copilot', deferSend: true });
-    const b = await queue().enqueue({ originalText: 'later', transport: 'copilot', deferSend: true });
+    const loop = await queue().enqueue({ originalText: 'iteration', repeatCount: 3, transport: 'anthropic', deferSend: true });
+    const a = await queue().enqueue({ originalText: 'between', transport: 'anthropic', deferSend: true });
+    const b = await queue().enqueue({ originalText: 'later', transport: 'anthropic', deferSend: true });
     loop.status = 'sending';
     loop.repeatIndex = 1;
-    loop.lastDispatched = { kind: 'main', expandedText: 'iteration', transport: 'copilot', dispatchedAt: new Date().toISOString() } as QueuedPrompt['lastDispatched'];
+    loop.lastDispatched = { kind: 'main', expandedText: 'iteration', transport: 'anthropic', dispatchedAt: new Date().toISOString() } as QueuedPrompt['lastDispatched'];
     return { loop, a, b };
 }
 
 describe('send between iterations', () => {
+    test('setup', () => {
+        queue().autoSendEnabled = false;
+        queue().setDefaultTransport('anthropic', 'sdk');
+    });
+
     test('SBQ-1: marking and unmarking', async () => {
         const { a, b } = await loopWithOneIterationDone();
         assert.ok(runningLoopAbove(queue().items, a.id), 'the editor offers it on the item under the loop');
@@ -121,15 +160,16 @@ describe('send between iterations', () => {
             assert.deepEqual(ids(), [a.id, loop.id, b.id], 'the marked item moved in front of the loop');
             assert.equal(loop.status, 'pending');
             assert.equal(loop.repeatIndex, 1, 'counters kept');
-            await wait(50);
+            await wait(250);
             const sentA = queue().getById(a.id)!;
             assert.equal(sentA.status, 'sending', 'the marked item is sent');
+            assert.ok(sent.some((t) => t.includes('between')), 'its prompt went out');
+            assert.ok(!sent.some((t) => t.includes('iteration')), 'the loop\'s next iteration did not');
             assert.equal(sentA.sendBetween, undefined, 'its mark is cleared');
             assert.equal(queue().getById(loop.id)?.status, 'pending', 'the loop waits behind it');
             // The marked item's answer arrives: it is done; the queue goes on.
-            sentA.status = 'sent';
-            await queue().sendNext();
-            await wait(50);
+            await answer();
+            assert.equal(queue().getById(a.id)?.status, 'sent', 'the marked item is done');
             const resumed = queue().getById(loop.id)!;
             assert.equal(resumed.status, 'sending', 'the loop resumes');
             assert.equal(resumed.repeatIndex, 2, 'with iteration 2, not iteration 1 again');
@@ -175,9 +215,9 @@ describe('send between iterations', () => {
         // Nothing sending: in front of the pending items, no mark.
         clear();
         queue().autoSendEnabled = false;
-        const staged = await queue().enqueue({ originalText: 'staged', transport: 'copilot', deferSend: true, initialStatus: 'staged' });
-        const pending = await queue().enqueue({ originalText: 'pending', transport: 'copilot', deferSend: true });
-        const first = await queue().enqueueNext({ originalText: 'first', transport: 'copilot', deferSend: true });
+        const staged = await queue().enqueue({ originalText: 'staged', transport: 'anthropic', deferSend: true, initialStatus: 'staged' });
+        const pending = await queue().enqueue({ originalText: 'pending', transport: 'anthropic', deferSend: true });
+        const first = await queue().enqueueNext({ originalText: 'first', transport: 'anthropic', deferSend: true });
         assert.deepEqual(ids(), [staged.id, first.id, pending.id]);
         assert.equal(queue().getById(first.id)?.sendBetween, undefined);
         clear();
@@ -191,12 +231,12 @@ describe('send between iterations', () => {
         queue().autoSendEnabled = true;
         try {
             assert.equal(await boundary(loop), 'paused', 'the loop steps aside for the marked item');
-            await wait(50);
+            await wait(250);
             assert.equal(queue().getById(a.id)?.status, 'pending', 'held: it is being edited');
             assert.equal(queue().getById(loop.id)?.status, 'pending', 'the loop waits behind it');
             assert.equal(ids().indexOf(a.id), 0, 'it keeps its place');
             await queue().endTextEdit(a.id, 'between, edited');
-            await wait(50);
+            await wait(250);
             const sent = queue().getById(a.id)!;
             assert.equal(sent.originalText, 'between, edited', 'saved');
             assert.equal(sent.status, 'sending', 'and sent once saved');
@@ -206,7 +246,7 @@ describe('send between iterations', () => {
         }
         // Cancel keeps the text; closing the editor (no id) ends every open edit.
         clear();
-        const p = await queue().enqueue({ originalText: 'keep me', transport: 'copilot', deferSend: true });
+        const p = await queue().enqueue({ originalText: 'keep me', transport: 'anthropic', deferSend: true });
         assert.equal(queue().beginTextEdit(p.id), true);
         await queue().endTextEdit(p.id);
         assert.equal(queue().getById(p.id)?.originalText, 'keep me');

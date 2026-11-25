@@ -101,7 +101,7 @@ import {
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
 import { LEGACY_DEFAULT_SESSION } from './runSessions';
 import { renameExplainTemplate } from './explainTodoTemplate';
-import { dropCopilotTemplates } from './copilotTemplates';
+import { dropCopilotTemplates } from './userMessageTemplateLookup';
 import { convertTemplateText } from './templateExpression';
 import { defaultLocalLlmConfigId, dropLocalLlmPanelKeys, dropRemovedPanelSections, localLlmProfileToAnthropic, removedPanelPaths, REMOVED_PANELS_FORMAT_VERSION, type LocalLlmProfileEntry } from './localLlmProfileMigration';
 import { migrateDefaultRunProcess } from './defaultRunMigration';

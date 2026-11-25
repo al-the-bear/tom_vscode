@@ -15,8 +15,8 @@ export interface ItemProfileView {
     /** The item names its own profile (the clickable name); else it runs with the default (the icon button). */
     own: boolean;
     /** The transport its prompt is sent on. */
-    transport: 'copilot' | 'anthropic';
-    /** The profile it runs with (its own, else the session's or the queue default's); absent on Copilot. */
+    transport: 'anthropic';
+    /** The profile it runs with (its own, else the session's or the queue default's). */
     id?: string;
     name?: string;
     /** That profile's model and how it is reached, e.g. `claude-opus-4 · Agent SDK`. */
@@ -60,7 +60,6 @@ export function itemProfileView(input: {
 }): ItemProfileView {
     const canPick = !FINISHED.has(input.status);
     const own = input.ownTransport === 'anthropic' && !!input.ownProfileId;
-    if (input.resolved.transport !== 'anthropic') { return { own: false, transport: 'copilot', canPick }; }
     const wanted = own ? input.ownProfileId : input.resolved.anthropicProfileId;
     const profile = input.profiles.find((p) => p.id === wanted)
         ?? (own ? undefined : input.profiles.find((p) => p.isDefault === true) ?? input.profiles[0]);

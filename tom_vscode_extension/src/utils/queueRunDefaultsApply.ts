@@ -33,7 +33,7 @@ export const NO_TEMPLATE = '(None)';
 
 /** The run defaults read (a subset of utils/runQueueSettings.ts RunQueueSettings). */
 export interface RunDefaultsSource {
-    defaultTransport?: 'copilot' | 'anthropic';
+    defaultTransport?: 'anthropic';
     defaultAnthropicProfileId?: string;
     defaultAnthropicConfigId?: string;
     defaultAgentSdkSession?: string;
@@ -43,7 +43,7 @@ export interface RunDefaultsSource {
 
 /** The item fields written (a subset of the queue's QueuedPrompt). */
 export interface RunDefaultsTarget {
-    transport?: 'copilot' | 'anthropic';
+    transport?: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     template?: string;
@@ -71,7 +71,7 @@ function trimmed(value: string | undefined): string | undefined {
 /** The value the run's default gives a field, as the item would store it. */
 export function runDefaultValues(defaults: RunDefaultsSource, run: string | undefined): Required<Pick<RunDefaultsTarget, 'transport' | 'template' | 'session'>> & Pick<RunDefaultsTarget, 'anthropicProfileId' | 'anthropicConfigId' | 'role'> {
     return {
-        transport: defaults.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
+        transport: 'anthropic',
         anthropicProfileId: trimmed(defaults.defaultAnthropicProfileId),
         anthropicConfigId: trimmed(defaults.defaultAnthropicConfigId),
         template: trimmed(defaults.defaultMessageTemplateId) ?? NO_TEMPLATE,
@@ -142,9 +142,7 @@ export interface RunDefaultPickerEntry {
 /** The picker's lines for the four fields, each naming the run's current default. */
 export function runDefaultPickerEntries(defaults: RunDefaultsSource, run: string | undefined): RunDefaultPickerEntry[] {
     const v = runDefaultValues(defaults, run);
-    const profile = v.transport === 'anthropic'
-        ? `Anthropic · ${v.anthropicProfileId ?? 'default profile'}${v.anthropicConfigId ? ` · ${v.anthropicConfigId}` : ''}`
-        : 'Copilot';
+    const profile = `Anthropic · ${v.anthropicProfileId ?? 'default profile'}${v.anthropicConfigId ? ` · ${v.anthropicConfigId}` : ''}`;
     return [
         { field: 'profile', label: '$(server-process) Profile', description: profile },
         { field: 'template', label: '$(file-code) Template', description: v.template === NO_TEMPLATE ? 'no template' : v.template },

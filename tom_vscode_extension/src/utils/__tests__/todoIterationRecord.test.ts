@@ -26,7 +26,7 @@ import { TODO_YAML_INTRO, todoForStage, todoRecordForPrompt, todoYamlBlock, with
 import { resolveVariables, unescapePlaceholders } from '../variableResolver.js';
 import { resolveTemplate } from '../../handlers/promptTemplate.js';
 import { escapePlaceholders } from '../placeholderEscape.js';
-import { fillTemplate } from '../copilotTemplates.js';
+import { fillTemplate } from '../userMessageTemplateLookup.js';
 
 const TODO: Record<string, unknown> = {
     id: 'dsa7_akeq-fix-it',

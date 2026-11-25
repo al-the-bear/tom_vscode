@@ -28,7 +28,7 @@ function escapeJsSingleQuoted(s) {
 // store; `anthropicUserMessageTemplates` is the editor's global list).
 function formatPromptTemplateName(name) {
   if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return 'Answer Wrapper (no template)';
+  if (name === '__answer_file__') return '(None)';
   var list = typeof anthropicUserMessageTemplates !== 'undefined' ? anthropicUserMessageTemplates : [];
   var match = (list || []).find(function(t) { return t && t.id === name; });
   return match && match.name ? match.name : name;

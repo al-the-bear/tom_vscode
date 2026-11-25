@@ -146,9 +146,9 @@ describe('a run does not pause itself', () => {
         const before = settingsFile();
         before['runs-by-quest'].q1.team = { 'auto-send-enabled': true };
         fs.writeFileSync(path.join(getQueueFolder()!, 'queue-settings.yaml'), YAML.stringify(before));
-        queue().setRunQueueSettings('default', { responseTimeoutMinutes: 42 });
+        queue().setRunQueueSettings('default', { walkContinuations: 7 });
         const file = settingsFile();
-        assert.equal(file['runs-by-quest'].q1.default['response-timeout-minutes'], 42, 'the change is written');
+        assert.equal(file['runs-by-quest'].q1.default['walk-continuations'], 7, 'the change is written');
         assert.equal(file['runs-by-quest'].q1.elsewhere['auto-send-enabled'], true, 'a run held off here is not written off');
         assert.equal(file['runs-by-quest'].q1.team['auto-send-enabled'], true, 'what another window wrote stays');
         assert.deepEqual(file['runs-by-quest'].q2, { default: { 'auto-send-enabled': false, 'auto-start-enabled': false }, collab: { 'auto-send-enabled': true } }, 'another quest untouched');

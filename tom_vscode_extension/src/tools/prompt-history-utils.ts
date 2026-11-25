@@ -216,7 +216,6 @@ function previewSlice(body: string, max: number): string {
  * where `subsystem` is one of:
  *
  *   - `anthropic`
- *   - `copilot`
  *   - `localllm-<configName>`
  *   - `lm-api-<modelName>`
  *

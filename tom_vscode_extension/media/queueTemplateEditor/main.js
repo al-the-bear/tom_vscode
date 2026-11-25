@@ -188,8 +188,6 @@ var __updateItemTemplate = updateItemTemplate;
 updateItemTemplate = function(id, template) {
   if (currentItems.length > 0 && currentItems[0].id === id) {
     currentItems[0].template = template || '(None)';
-    // Auto-set answerWrapper based on template selection
-    currentItems[0].answerWrapper = !!(template && template !== '(None)');
   }
   __updateItemTemplate(id, template);
 };
@@ -210,9 +208,6 @@ updateItemRepeat = function(id, patch) {
     }
     if (Object.prototype.hasOwnProperty.call(localPatch, 'repeatSuffix')) {
       currentItems[0].repeatSuffix = String(localPatch.repeatSuffix || '');
-    }
-    if (Object.prototype.hasOwnProperty.call(localPatch, 'answerWaitMinutes')) {
-      currentItems[0].answerWaitMinutes = Math.max(0, parseInt(String(localPatch.answerWaitMinutes || '0'), 10) || 0);
     }
     if (Object.prototype.hasOwnProperty.call(localPatch, 'templateRepeatCount')) {
       currentItems[0].templateRepeatCount = localPatch.templateRepeatCount;
@@ -316,7 +311,6 @@ updatePrePromptField = function(id, index, field, value) {
         var rcStr = String(value || '').trim();
         pp.repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
       }
-      if (field === 'answerWaitMinutes') pp.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
     }
   }
   __updatePrePromptField(id, index, field, value);
@@ -331,7 +325,6 @@ updateFollowUpField = function(id, followUpId, field, value) {
         var rcStr = String(value || '').trim();
         fu.repeatCount = /^[0-9]+$/.test(rcStr) ? Math.max(0, parseInt(rcStr, 10)) : rcStr;
       }
-      if (field === 'answerWaitMinutes') fu.answerWaitMinutes = Math.max(0, parseInt(String(value || '0'), 10) || 0);
     }
   }
   __updateFollowUpField(id, followUpId, field, value);

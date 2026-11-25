@@ -21,18 +21,17 @@ Reference for the shortcut surface. Canonical tables (with descriptions) live in
 
 | Key | Command | Menu |
 | --- | --- | --- |
-| `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot shortcuts |
 | `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to Anthropic/LLM: `l` the selection, `s` with the default template, `t` with a picked template |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execute shortcuts |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites |
 
 ## Command groups
 
-- **Copilot** — send / template / slot / answer-file commands.
+- **Chat answer values** — `tomAi.showAnswerValues`, `tomAi.clearAnswerValues`.
 - **Send to Anthropic/LLM** — `tomAi.sendToLlm` (the selection), `tomAi.sendToLlm.standard` (the selection or the file, default template), `tomAi.sendToLlm.template` (picked template): the editor's text goes to the @CHAT ANTHROPIC/LLM panel's current profile and session (`src/handlers/sendToLlm-handler.ts`), in the editor context menu and the `Ctrl+Shift+L` chord menu. Profile, session and model selection live on the subpanel action bar (a Local LLM is used through an Anthropic profile on a Local LLM configuration).
 - **Markdown Browser** — `tomAi.openInMdBrowser`, `tomAi.openInMdBrowserLive` (live-mode follow-tail for the live trail).
 - **Bridge + CLI + Telegram + Process Monitor** — lifecycle commands; fail-soft when subsystems aren't available.
-- **Editors** — queue, timed requests, prompt templates, reusable prompts, chat variables, raw / summary trail viewer. The window's quest, role, projects and todo are chat variables (Chat Variables Editor); the reminder alive check and the default reminder template are on the Status Page (Queue & Timer).
+- **Editors** — queue, timed requests, prompt templates, reusable prompts, chat variables, raw / summary trail viewer. The window's quest, role, projects and todo are chat variables (Chat Variables Editor).
 - **Layout** — reset / maximize / toggle / window state flow.
 - **Notes + todos + status + config** — sidebar focus commands (`tomAi.tomSidebar.focus` opens @TOM, the quest's views; `tomAi.tomWsSidebar.focus` opens @TOM WS, the workspace's; `tomAi.tomVscSidebar.focus` opens @TOM VSC, this window's resources; `tomAi.tomInfoSidebar.focus` opens @TOM INFO, the quest notes on their own and the runs of every window; `tomAi.tomTodoSidebar.focus` opens @TOM TODO, the todo panel on its own across quests) and the status / settings pair.
 

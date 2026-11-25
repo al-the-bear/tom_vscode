@@ -19,11 +19,24 @@ import {
     loadTrailSet,
 } from './trailEditor-handler.js';
 import { gotoWorkspaceTodo } from './trailViewer-handler.js';
-import { getTrailFolder, getCopilotSummaryTrailPaths } from './chatPanel-handler.js';
+import { WsPaths } from '../utils/workspacePaths';
+import { questTrailFolder } from '../utils/questPaths.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { parseTodoRef, dedupeTodoRefs, extractTodoRefsFromVariables } from '../utils/todoLogRefs.js';
 import { todoLogTrailSets } from '../utils/todoLogTrailSets.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
+
+/**
+ * The folder the quest's summary trails are in: its `history/` subfolder
+ * (questTrailFolder); '' without a workspace or a quest folder.
+ */
+function getTrailFolder(): string {
+    const aiRoot = WsPaths.aiRoot;
+    if (!aiRoot) { return ''; }
+    const questId = WsPaths.getWorkspaceQuestId();
+    const questFolder = WsPaths.ai('quests', questId) || path.join(aiRoot, 'quests', questId);
+    return fs.existsSync(questFolder) ? questTrailFolder(questFolder) : '';
+}
 
 // ============================================================================
 // View IDs
@@ -141,10 +154,6 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
                 await vscode.commands.executeCommand('tomAi.editor.rawTrailViewer');
                 break;
             }
-            case 'openTrailFiles': {
-                await this._openTrailFiles();
-                break;
-            }
             case 'openAnswerInTrailEditor': {
                 await this._openAnswerInTrailEditor(String(msg.session || ''), String(msg.requestId || ''));
                 break;
@@ -155,26 +164,6 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
     // ──────────────────────────────────────────────────────────────────────
     // Data — reads combined *.prompts.md / *.answers.md trail files
     // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * Open the trail custom editor (tomAi.trailViewer) for the current workspace's prompts trail file.
-     */
-    private async _openTrailFiles(): Promise<void> {
-        const summaryPaths = getCopilotSummaryTrailPaths();
-        if (!summaryPaths) {
-            vscode.window.showWarningMessage('No trail folder found');
-            return;
-        }
-
-        if (!fs.existsSync(summaryPaths.promptsPath)) {
-            vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
-            return;
-        }
-
-        // Open with the custom trail editor
-        const uri = vscode.Uri.file(summaryPaths.promptsPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-    }
 
     /**
      * Open the trail editor for the answers file and focus on a specific entry.

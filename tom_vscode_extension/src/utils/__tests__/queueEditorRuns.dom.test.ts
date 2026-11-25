@@ -10,11 +10,10 @@
  *        (`setSettingsRun`); the tab is kept in the view state over a reload, a tab that is gone falls back to the
  *        window's run
  *   QR-3 the tab's toolbar posts its run: Add, auto-send, Auto-Start / -Pause / -Continue, Restart, Stop, Interrupt,
- *        Send all staged, Retry / Delete errors, Clear sent / all, the Copilot timeout, the default
+ *        Send all staged, Retry / Delete errors, Clear sent / all, the default
  *        session picker; Collapse / Expand act on the tab's items
  *   QR-4 gone: the run filter, Group by run, the Queue per run checkbox, the lane strip, the add form's run picker;
- *        the add form names the tab's run; the Copilot defaults row shows only while the run's default transport is
- *        Copilot
+ *        the add form names the tab's run and picks a profile; no answer timeout, no transport picker
  *   QR-5 the host: every toolbar action passes the message's run to the manager (handler source)
  *   QR-6 the context bar shows the tab's run (vscimpb60c): its name, position, role and chat variables, which change
  *        with the tab; Position, Variables and the Chat Variables button post the tab's run; the role of another run
@@ -98,9 +97,9 @@ const listedText = (w: Win): string => w.document.getElementById('queueList').te
 const runChips = (w: Win): string[] => [...w.document.querySelectorAll('#queueList .queue-run-chip')].map((c: Win) => c.dataset.run);
 const clickTab = (w: Win, run: string): void => { w.document.querySelector(`#runTabs .run-tab[data-run="${run}"]`).click(); };
 const SETTINGS = {
-    default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 60, defaultTransport: 'copilot' },
-    chg1: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, responseTimeoutMinutes: 30, defaultTransport: 'anthropic' },
-    chg2: { autoSend: false, autoStart: true, autoPause: false, autoContinue: true, responseTimeoutMinutes: 120, defaultTransport: 'copilot' },
+    default: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, defaultTransport: 'anthropic' },
+    chg1: { autoSend: true, autoStart: false, autoPause: true, autoContinue: false, defaultTransport: 'anthropic' },
+    chg2: { autoSend: false, autoStart: true, autoPause: false, autoContinue: true, defaultTransport: 'anthropic' },
 };
 
 describe('Prompt Queue editor — one tab per run', () => {
@@ -112,7 +111,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.ok(shared.compareDocumentPosition(row) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the shared models above the tabs');
         assert.ok(w.document.querySelector('h2').compareDocumentPosition(shared) & w.Node.DOCUMENT_POSITION_FOLLOWING);
         assert.ok(row.compareDocumentPosition(w.document.querySelector('.toolbar')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'the toolbar is the tab\'s');
-        assert.ok(row.compareDocumentPosition(w.document.getElementById('copilotDefaultsRow')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'so is the Copilot defaults row');
+        assert.ok(row.compareDocumentPosition(w.document.getElementById('runDefaultsBar')) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'so is the run defaults bar');
         assert.deepEqual(tabs(w), ['default 4', 'chg1 (this window) 1', 'chg2 2'], 'default first, the window\'s marked, open items counted (a running chat send too)');
         const states = [...row.querySelectorAll('.run-tab')].map((b: Win) => [b.dataset.run, b.dataset.state, b.classList.contains('active')]);
         assert.deepEqual(states, [['default', 'sending', false], ['chg1', 'waiting', true], ['chg2', 'paused', false]], 'the window\'s run selected first');
@@ -137,7 +136,7 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.equal(state().queueTab, 'chg2', 'kept in the view state');
         assert.match(w.document.getElementById('autoSendBtn').title, /OFF/, 'the run\'s own settings');
         assert.match(w.document.getElementById('autoStartBtn').title, /ON/);
-        assert.equal(w.document.getElementById('responseTimeout').value, '120');
+        assert.equal(w.document.getElementById('responseTimeout'), null, 'no answer timeout');
         assert.match(w.document.getElementById('countLabel').textContent, /Pending: 2 /);
         // A reload: the kept tab is selected again.
         const again = setup(t, ITEMS, state(), { runQueueSettings: SETTINGS });
@@ -153,11 +152,11 @@ describe('Prompt Queue editor — one tab per run', () => {
         posted.length = 0;
         for (const fn of ['toggleAutoSend', 'toggleAutoStart', 'toggleAutoPause', 'toggleAutoContinue', 'restartQueue', 'stopActiveItem',
             'interruptActiveForContinuation', 'sendAllStaged', 'retryAllErrors', 'clearErrors', 'clearSent', 'clearAll']) { w[fn](); }
-        w.setResponseTimeout('30');
+        assert.equal(typeof w.setResponseTimeout, 'undefined', 'no answer timeout to set');
         assert.deepEqual(posted.map((m) => [m.type, m.run]), [
             ['toggleAutoSend', 'chg2'], ['toggleAutoStart', 'chg2'], ['toggleAutoPause', 'chg2'], ['toggleAutoContinue', 'chg2'],
             ['restartQueue', 'chg2'], ['stopActiveItem', 'chg2'], ['interruptActiveForContinuation', 'chg2'], ['sendAllStaged', 'chg2'],
-            ['retryAllErrors', 'chg2'], ['clearErrors', 'chg2'], ['clearSent', 'chg2'], ['clearAll', 'chg2'], ['setResponseTimeout', 'chg2'],
+            ['retryAllErrors', 'chg2'], ['clearErrors', 'chg2'], ['clearSent', 'chg2'], ['clearAll', 'chg2'],
         ]);
         posted.length = 0;
         w.document.getElementById('addText').value = 'new prompt';
@@ -176,15 +175,14 @@ describe('Prompt Queue editor — one tab per run', () => {
 
     test('QR-4: what is gone, and the add form', (t) => {
         const { w } = setup(t, ITEMS, {}, { runQueueSettings: SETTINGS });
-        for (const id of ['runFilter', 'groupByRun', 'queuePerRun', 'laneStrip', 'addRun', 'settingsRunLabel']) {
+        for (const id of ['runFilter', 'groupByRun', 'queuePerRun', 'laneStrip', 'addRun', 'settingsRunLabel', 'copilotDefaultsRow', 'addTransportRow']) {
             assert.equal(w.document.getElementById(id), null, `no #${id}`);
         }
         assert.equal(w.document.querySelectorAll('.run-group-head').length, 0);
         assert.equal(w.document.getElementById('addRunLabel').textContent, 'Run: chg1 (this window\'s)');
-        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, 'none', 'chg1 sends on Anthropic: no Copilot defaults');
+        assert.ok(w.document.getElementById('addProfile'), 'the add form picks a profile');
         clickTab(w, 'chg2');
         assert.equal(w.document.getElementById('addRunLabel').textContent, 'Run: chg2');
-        assert.equal(w.document.getElementById('copilotDefaultsRow').style.display, '', 'chg2 on Copilot: its answer timeout');
     });
 
     test('QR-5: the host passes the run of every toolbar action', () => {
@@ -195,7 +193,6 @@ describe('Prompt Queue editor — one tab per run', () => {
             /qm\.stopActiveItem\(typeof msg\.id === 'string' && msg\.id \? msg\.id : undefined, tabRunOf\(msg\)\)/,
             /qm\.interruptActiveItemForContinuation\(msg\.type === 'interruptForContinuation' \? msg\.id : undefined, tabRunOf\(msg\)\)/,
             /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\)/,
-            /qm\.setRunQueueSettings\(settingsRunOf\(msg\), \{ responseTimeoutMinutes:/,
             /\.\.\.\(typeof msg\.run === 'string' && msg\.run \? \{ run: addFormRun\(msg\.run\) \} : \{\}\)/,
         ]) { assert.match(host, call); }
     });
@@ -274,7 +271,8 @@ describe('Prompt Queue editor — one tab per run', () => {
         assert.equal(posted.filter((m) => m.type === 'makeRunSettingsDefault').length, 0, 'nothing to write, nothing posted');
         clickTab(w, 'chg2');
         assert.equal(btn.disabled, false, 'chg2 differs');
-        assert.match(btn.title, /autoSend, autoStart, autoPause, autoContinue, responseTimeoutMinutes/);
+        assert.match(btn.title, /autoSend, autoStart, autoPause, autoContinue/);
+        assert.doesNotMatch(btn.title, /responseTimeoutMinutes/);
         assert.match(btn.getAttribute('onclick'), /^makeRunSettingsDefault\(\)$/);
         posted.length = 0;
         w.makeRunSettingsDefault();

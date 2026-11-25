@@ -10,7 +10,6 @@
  *     `extension_config.<quest>.yaml` and the role types' tool selections —
  *     also the old reference names `tom_askCopilot` / `tom_askBigBrother`.
  *
- * The Copilot answer-file round trip of scripts stays (services/copilotRoundTrip.ts).
  * vscode-free.
  */
 

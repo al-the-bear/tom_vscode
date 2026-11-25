@@ -2,7 +2,7 @@
  * Queue settings per process run (vscimpb60a): every run has its own queue
  * settings — auto-send, Auto-Start, Auto-Pause, Auto-Continue, the walk
  * continuations, the defaults new items take (transport, Anthropic profile and
- * configuration, session, prompt template) and the Copilot answer timeout.
+ * configuration, session, prompt template).
  * The queue always runs one lane per run
  * (utils/queueLanes.ts): a run whose auto-send is off starts nothing.
  *
@@ -22,7 +22,8 @@ import { DEFAULT_RUN, normalizeRun } from './processRuns';
 import { DEFAULT_WALK_CONTINUATIONS, validContinuations } from './walkCompletionCheck';
 import { normalizeAspectChoices } from './aspectChoices';
 
-export type RunQueueTransport = 'copilot' | 'anthropic';
+/** The one transport; a stored `copilot` (older files) is read as `anthropic`. */
+export type RunQueueTransport = 'anthropic';
 
 export interface RunQueueSettings {
     autoSend: boolean;
@@ -36,8 +37,6 @@ export interface RunQueueSettings {
     autoResumeHeld: boolean;
     /** Continuations a walk iteration gets while its todo is not completed. */
     walkContinuations: number;
-    /** Copilot: minutes until an answer file is overdue. */
-    responseTimeoutMinutes: number;
     defaultTransport: RunQueueTransport;
     defaultAnthropicProfileId?: string;
     defaultAnthropicConfigId?: string;
@@ -70,8 +69,7 @@ export const BUILTIN_RUN_QUEUE_SETTINGS: Readonly<RunQueueSettings> = Object.fre
     autoContinue: false,
     autoResumeHeld: true,
     walkContinuations: DEFAULT_WALK_CONTINUATIONS,
-    responseTimeoutMinutes: 60,
-    defaultTransport: 'copilot',
+    defaultTransport: 'anthropic',
     defaultRole: DEFAULT_RUN_ROLE,
 });
 
@@ -83,7 +81,6 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     autoContinue: 'auto-continue-enabled',
     autoResumeHeld: 'auto-resume-held',
     walkContinuations: 'walk-continuations',
-    responseTimeoutMinutes: 'response-timeout-minutes',
     defaultTransport: 'default-transport',
     defaultAnthropicProfileId: 'default-anthropic-profile-id',
     defaultAnthropicConfigId: 'default-anthropic-config-id',
@@ -112,8 +109,6 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
     }
     const continuations = validContinuations(r[k.walkContinuations]);
     if (continuations !== undefined) { out.walkContinuations = continuations; }
-    if (typeof r[k.responseTimeoutMinutes] === 'number') { out.responseTimeoutMinutes = Math.max(5, r[k.responseTimeoutMinutes] as number); }
-    if (r[k.defaultTransport] === 'copilot' || r[k.defaultTransport] === 'anthropic') { out.defaultTransport = r[k.defaultTransport] as RunQueueTransport; }
     for (const key of OPTIONAL_TEXT) {
         const v = r[k[key]];
         if (typeof v === 'string') {
@@ -144,7 +139,7 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
  * The settings "Make default" copies from a run into the top-level keys: every
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
  * / -Continue, the default transport, profile, configuration, session, role and
- * prompt template and the Copilot answer timeout. The walk
+ * prompt template. The walk
  * continuations and the auto-resume after a hold (not shown in a tab) keep their top-level value; the run's
  * guideline choices stay the run's own (the quest default is their shared
  * level, gsel4).

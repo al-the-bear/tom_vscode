@@ -59,8 +59,6 @@ export function setQueueStorageDebug(enabled: boolean): void {
 
 /** Execution state tracked at runtime. */
 export interface QueueExecutionState {
-    'request-id'?: string | null;
-    'expected-request-id'?: string | null;
     'sent-at'?: string | null;
     error?: string | null;
     'follow-up-index'?: number;
@@ -131,7 +129,6 @@ export interface QueuePromptYaml {
     file?: string;
     template?: string;
     'answer-template'?: string;
-    'answer-wrapper'?: boolean;
     'repeat-count'?: number | string;
     'repeat-index'?: number;
     /** TODO ITERATION (`prefix*`): id of the quest todo the last dispatch took. */
@@ -143,7 +140,6 @@ export interface QueuePromptYaml {
     'repeat-suffix'?: string;
     'template-repeat-count'?: number | string;
     'template-repeat-index'?: number;
-    'answer-wait-minutes'?: number;
     'llm-profile'?: string;
     'gate-ref'?: string;
     'pre-prompt-refs'?: QueuePromptRef[];
@@ -154,9 +150,7 @@ export interface QueuePromptYaml {
     metadata?: Record<string, unknown>;
     execution?: QueueExecutionState;
     // Multi-transport fields — multi_transport_prompt_queue_revised.md
-    // §4.1 / §4.14. Additive-optional so existing queue YAMLs load
-    // unchanged (absent fields resolve to `undefined` → queue default
-    // → 'copilot' → byte-identical prior behaviour).
+    // §4.1 / §4.14. A stored `copilot` (older files) is read as `anthropic`.
     transport?: 'copilot' | 'anthropic';
     'anthropic-profile-id'?: string;
     'anthropic-config-id'?: string;
@@ -185,7 +179,7 @@ export interface QueuePromptYaml {
     /** A chat send shown in the queue: where it came from and the window that ran it. */
     'chat-source'?: string;
     'chat-window-id'?: string;
-    /** Queued with a queue button of the @CHAT panel: its subpanel (`anthropic`, `copilot`). */
+    /** Queued with a queue button of the @CHAT panel: its subpanel (`anthropic`). */
     'from-chat-panel'?: string;
     /** The todos the item runs: a todo id, `<prefix>*`, or several separated by commas. */
     'todo-id-pattern'?: string;
@@ -365,7 +359,6 @@ export interface QueueSettings {
     'queue-per-run'?: boolean;
     /** Old shape (a paused run is one whose auto-send is off); ignored. */
     'held-runs'?: string[];
-    'response-timeout-minutes'?: number;
     'auto-send-enabled'?: boolean;
     'auto-start-enabled'?: boolean;
     'auto-pause-enabled'?: boolean;
@@ -385,10 +378,9 @@ export interface QueueSettings {
     /** The queue-level default Agent SDK session. */
     'default-agent-sdk-session'?: string;
     /**
-     * Queue-level default message-wrapping template. Transport-scoped
-     * semantics: copilot template name for copilot, userMessageTemplate
-     * id for anthropic. Stamped onto main prompts when a queue template
-     * is dispatched into the queue.
+     * Queue-level default message-wrapping template (a userMessageTemplate
+     * id). Stamped onto main prompts when a queue template is dispatched
+     * into the queue.
      */
     'default-message-template-id'?: string;
 }

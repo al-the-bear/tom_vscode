@@ -10,7 +10,7 @@ Activated on VS Code startup. Contributes:
 - Bottom-panel webviews: `@CHAT` (`tomAi.chatPanel`) and `@WS` (`tomAi.wsPanel`).
 - `@TOM` sidebar (the quest: process, quest notes, quest and session todos) and `@TOM WS` sidebar (the workspace: VS Code and workspace notes, workspace todos, todo log, window status).
 - Custom editors: `questTodo.editor`, trail viewer, Markdown Browser, and several specialised editors (trail, templates, context, queue, timed requests, raw/summary trails, etc.).
-- AI toolchain: chat subsystems Anthropic (direct SDK, Agent SDK, VS Code LM, Local LLM configurations) and Copilot, plus a shared MCP/tool registry.
+- AI toolchain: the Anthropic chat subsystem (direct SDK, Agent SDK, VS Code LM, Local LLM configurations), plus a shared MCP/tool registry.
 - Bridge/CLI/process-monitor integrations (optional; fail-soft).
 
 ## 2. Source layout
@@ -19,7 +19,7 @@ Activated on VS Code startup. Contributes:
 src/
   extension.ts                  activation, command registration
   handlers/                     UI entry points + webview providers
-    chatPanel-handler.ts          @CHAT webview: 2 chat subpanels + Logs
+    chatPanel-handler.ts          @CHAT webview: ANTHROPIC/LLM subpanel + Logs
     anthropic-handler.ts          direct-SDK Anthropic loop, profiles, live trail
     agent-sdk-transport.ts        @anthropic-ai/claude-agent-sdk bridge
     localLlm-handler.ts           LocalLlmManager: Local LLM client (Ollama / OpenAI-compatible)
@@ -30,7 +30,7 @@ src/
     trailViewer-handler.ts        *.prompts.md / *.answers.md viewer
     [globalTemplateEditor, issuesPanel, memoryPanel,
      queueEditor, timedRequests-editor, sidebarNotes, etc.]
-  managers/                     session state (queue, todos, reminders, variables)
+  managers/                     session state (queue, todos, timer, variables)
   services/                     persistence
     trailService.ts               raw trail file writer
     live-trail.ts                 live-trail markdown (rolling 5 blocks)
@@ -52,16 +52,13 @@ Layer rule: handlers talk to services/managers; services own persistence; tools 
 
 ### `@CHAT` (`tomAi.chatPanel`)
 
-One webview, accordion layout, two chat subpanels and the **Logs** section (described under `@WS` below, with the Documentation viewer it shares its engine with). See [anthropic_chat.md](anthropic_chat.md) for routing details.
+One webview, accordion layout, the chat subpanel and the **Logs** section (described under `@WS` below, with the Documentation viewer it shares its engine with). See [anthropic_chat.md](anthropic_chat.md) for routing details.
 
 | Subpanel | Transport | Config key | Backing handler |
 | --- | --- | --- | --- |
 | Anthropic | Direct Anthropic SDK, Agent SDK, VS Code LM or a Local LLM configuration (per profile) | `anthropic` (+ `localLlm.configurations`) | `anthropic-handler.ts` (+ `agent-sdk-transport.ts`, `localLlm-handler.ts`) |
-| Copilot | VS Code Copilot Chat (via answer file) | `copilot` | `chatPanel-handler.ts` + copilot helpers |
 
-Shared features: document picker, prompt-queue side panel, config buttons, shortcut chords (see [keybindings_and_commands.md](keybindings_and_commands.md)). Accordion/pin/rotate behavior lives in [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).
-
-Both subpanels are queue-compatible.
+Features: document picker, queue buttons, config buttons, shortcut chords (see [keybindings_and_commands.md](keybindings_and_commands.md)). Accordion/pin/rotate behavior lives in [bottom_panel_accordion.md](bottom_panel_accordion.md) and [tab_navigation.md](tab_navigation.md).
 
 ### `@WS` (`tomAi.wsPanel`)
 

@@ -13,13 +13,12 @@
  *      routing, and sendQueuedPrompt as the one way to send are all
  *      documented up front.
  *   b) Ambiguities — covered:
- *        - id resolution (queueItemId vs requestId — both work, with
- *          queueItemId preferred)
+ *        - id resolution (by queueItemId)
  *        - status enum (5 values: staged / pending / sending / sent /
  *          error; only staged↔pending settable manually)
  *        - resendQueueItem semantics (reuses id, replays last stage,
  *          NOT a new item)
- *        - transport defaults + per-stage overrides
+ *        - the one transport (anthropic) + per-stage profile overrides
  *   c) Round-trip every operation against the in-memory fake.
  *   d) Timing — every tool gets a `withTiming('tomAi_*:typical', …)`
  *      assertion for audit coverage.
@@ -70,7 +69,6 @@ interface FakeAccess extends PromptQueueAccess {
     _nextSeq: number;
     _nextFollowUpSeq: number;
     _autoSendEnabled: boolean;
-    _responseFileTimeoutMinutes: number;
 }
 
 function makeAccess(): FakeAccess {
@@ -86,19 +84,13 @@ function makeAccess(): FakeAccess {
         set _nextFollowUpSeq(v: number) { nextFollowUpSeq = v; },
         get _autoSendEnabled() { return autoSendEnabled; },
         set _autoSendEnabled(v: boolean) { autoSendEnabled = v; },
-        _responseFileTimeoutMinutes: 5,
 
         items() { return items.map((i) => structuredClone(i)); },
         autoSendEnabled() { return autoSendEnabled; },
-        responseFileTimeoutMinutes() { return access._responseFileTimeoutMinutes; },
         pendingCount() { return items.filter((i) => i.status === 'pending').length; },
 
         getById(id) {
             const i = items.find((x) => x.id === id);
-            return i ? structuredClone(i) : undefined;
-        },
-        getByRequestId(requestId) {
-            const i = items.find((x) => x.requestId === requestId);
             return i ? structuredClone(i) : undefined;
         },
 
@@ -110,14 +102,12 @@ function makeAccess(): FakeAccess {
                 status: input.initialStatus ?? 'pending',
                 originalText: input.originalText,
                 template: input.template,
-                answerWrapper: input.answerWrapper,
                 createdAt: Date.now(),
                 repeatCount: input.repeatCount,
                 repeatPrefix: input.repeatPrefix,
                 repeatSuffix: input.repeatSuffix,
                 templateRepeatCount: input.templateRepeatCount,
-                answerWaitMinutes: input.answerWaitMinutes,
-                transport: input.transport ?? 'copilot',
+                transport: input.transport ?? 'anthropic',
                 anthropicProfileId: input.anthropicProfileId,
                 anthropicConfigId: input.anthropicConfigId,
                 ...(typeof input.session === 'string' || input.session === undefined
@@ -152,11 +142,10 @@ function makeAccess(): FakeAccess {
             const i = items.find((x) => x.id === id);
             if (i) { i.originalText = text; }
         },
-        async updateItemTemplateAndWrapper(id, opts) {
+        async updateItemTemplate(id, opts) {
             const i = items.find((x) => x.id === id);
             if (!i) { return; }
             if (opts.template !== undefined) { i.template = opts.template; }
-            if (opts.answerWrapper !== undefined) { i.answerWrapper = opts.answerWrapper; }
         },
         updateItemRepetition(id, opts) {
             const i = items.find((x) => x.id === id);
@@ -165,7 +154,6 @@ function makeAccess(): FakeAccess {
             if (opts.repeatPrefix !== undefined) { i.repeatPrefix = opts.repeatPrefix; }
             if (opts.repeatSuffix !== undefined) { i.repeatSuffix = opts.repeatSuffix; }
             if (opts.templateRepeatCount !== undefined) { i.templateRepeatCount = opts.templateRepeatCount; }
-            if (opts.answerWaitMinutes !== undefined) { i.answerWaitMinutes = opts.answerWaitMinutes; }
         },
         updateItemTransport(id, opts) {
             const i = items.find((x) => x.id === id);
@@ -218,7 +206,7 @@ function makeAccess(): FakeAccess {
             if (!i.followUps) { i.followUps = []; }
             const follow: FollowUpItem = {
                 id: `f-${nextFollowUpSeq++}`,
-                ...(opts as Omit<FollowUpSpec, 'repeatCount' | 'answerWaitMinutes'>),
+                ...(opts as Omit<FollowUpSpec, 'repeatCount'>),
             } as FollowUpItem;
             i.followUps.push(follow);
             return structuredClone(follow);
@@ -243,19 +231,16 @@ function makeAccess(): FakeAccess {
         },
 
         async sendQueuedPrompt(selector) {
-            // Match by id first (preferred), then by requestId, then any pending
+            // Match by id, else any pending
             let i: QueueItemSnapshot | undefined;
             if (selector.id) {
                 i = items.find((x) => x.id === selector.id && (x.status === 'staged' || x.status === 'pending'));
-            } else if (selector.requestId) {
-                i = items.find((x) => x.requestId === selector.requestId && (x.status === 'staged' || x.status === 'pending'));
             } else {
                 i = items.find((x) => x.status === 'pending');
             }
             if (!i) { return null; }
-            // Manager-managed lifecycle entry: mark sending, generate requestId
+            // Manager-managed lifecycle entry: mark sending
             i.status = 'sending';
-            i.requestId = `req-${Math.floor(Math.random() * 1e9)}`;
             return structuredClone(i);
         },
         _dispatch(id) {
@@ -321,7 +306,7 @@ describe('addQueueItemImpl + listQueueImpl', () => {
         assert.equal(listR.totalCount, 1);
         assert.equal(listR.items[0].id, 'q-1');
         assert.equal(listR.items[0].status, 'staged');
-        assert.equal(listR.items[0].transport, 'copilot');
+        assert.equal(listR.items[0].transport, 'anthropic');
     });
 
     test('a todo prefix ending in a digit is refused; digits inside a prefix are fine', async () => {
@@ -430,7 +415,7 @@ describe('addQueueItemImpl + listQueueImpl', () => {
 
 describe('send variants — the key distinction', () => {
 
-    test('sendQueuedPrompt → manager run loop (status: sending, requestId stamped)', async () => {
+    test('sendQueuedPrompt → manager run loop (status: sending)', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'lifecycle', deferSend: false }));
         const raw = await withTiming('tomAi_sendQueuedPrompt:typical', () =>
             sendQueuedPromptImpl(access, { queueItemId: added.id }));
@@ -438,21 +423,13 @@ describe('send variants — the key distinction', () => {
         assert.equal(r.ok, true);
         assert.equal(r.id, 'q-1');
         assert.equal(r.status, 'sending', 'manager run-loop entry → status sending');
-        assert.match(r.requestId, /^req-/, 'requestId is stamped on lifecycle entry');
+        assert.equal('requestId' in r, false, 'no request id: an item is named by its queueItemId');
     });
 
     test('sendQueuedPrompt no-match → error pointing at how to select', async () => {
         const r = JSON.parse(await sendQueuedPromptImpl(access, { queueItemId: 'q-nope' }));
         assert.match(r.error, /No pending queued prompt matched/);
-        assert.match(r.error, /queueItemId.*preferred/);
-    });
-
-    test('sendQueuedPrompt by requestId (alternative selector)', async () => {
-        const a = JSON.parse(await addQueueItemImpl(access, { text: 'x', deferSend: false }));
-        // Stamp a requestId so the requestId selector matches
-        access._items.find((i) => i.id === a.id)!.requestId = 'rid-1';
-        const r = JSON.parse(await sendQueuedPromptImpl(access, { requestId: 'rid-1' }));
-        assert.equal(r.ok, true);
+        assert.match(r.error, /Provide the queueItemId of a staged or pending item/);
     });
 
     test('resendQueueItem REUSES the same id, replays last stage', async () => {
@@ -559,11 +536,9 @@ describe('updateQueueItemImpl', () => {
                 queueItemId: added.id,
                 text: 'updated',
                 template: 'mytemplate',
-                answerWrapper: true,
                 repeatCount: 3,
                 repeatPrefix: 'P',
                 repeatSuffix: 'S',
-                answerWaitMinutes: 5,
                 transport: 'anthropic',
                 anthropicProfileId: 'p1',
             }));
@@ -572,9 +547,10 @@ describe('updateQueueItemImpl', () => {
         const stored = access._items.find((i) => i.id === added.id)!;
         assert.equal(stored.originalText, 'updated');
         assert.equal(stored.template, 'mytemplate');
-        assert.equal(stored.answerWrapper, true);
         assert.equal(stored.repeatCount, 3);
+        assert.deepEqual([stored.repeatPrefix, stored.repeatSuffix], ['P', 'S']);
         assert.equal(stored.transport, 'anthropic');
+        assert.equal(stored.anthropicProfileId, 'p1');
     });
 
     test('unknown id → structured error', async () => {
@@ -631,14 +607,13 @@ describe('pre-prompt tools', () => {
         const updRaw = await withTiming('tomAi_updateQueuePrePrompt:typical', () =>
             updateQueuePrePromptImpl(access, {
                 queueItemId: added.id, index: 0,
-                text: 'updated setup', repeatCount: 2, answerWaitMinutes: 3,
+                text: 'updated setup', repeatCount: 2,
             }));
         r = JSON.parse(updRaw);
         assert.equal(r.ok, true);
         const stored = access._items[0].prePrompts![0] as PrePromptSpec;
         assert.equal(stored.text, 'updated setup');
         assert.equal(stored.repeatCount, 2);
-        assert.equal(stored.answerWaitMinutes, 3);
 
         // remove
         const rmRaw = await withTiming('tomAi_removeQueuePrePrompt:typical', () =>
@@ -672,22 +647,20 @@ describe('follow-up tools', () => {
     test('add → update by id → remove — round-trip (id-based, not index)', async () => {
         const added = JSON.parse(await addQueueItemImpl(access, { text: 'main' }));
 
-        // add — note that the manager uses `repeatCount`/`answerWaitMinutes` via internal updateFollowUp call
+        // add — note that the manager takes `repeatCount` via an internal updateFollowUp call
         const addRaw = await withTiming('tomAi_addQueueFollowUp:typical', () =>
             addQueueFollowUpImpl(access, {
                 queueItemId: added.id,
                 text: 'follow-1',
                 repeatCount: 2,
-                answerWaitMinutes: 4,
             }));
         let r = JSON.parse(addRaw);
         assert.equal(r.ok, true);
         const fuId = r.followUpId;
         assert.match(fuId, /^f-/);
         const storedFu = access._items[0].followUps![0] as FollowUpItem;
-        // updateFollowUp was called internally so repeatCount + answerWaitMinutes are present
+        // updateFollowUp was called internally so repeatCount is present
         assert.equal((storedFu as unknown as { repeatCount: number }).repeatCount, 2);
-        assert.equal((storedFu as unknown as { answerWaitMinutes: number }).answerWaitMinutes, 4);
 
         // update by id (not index)
         const updRaw = await withTiming('tomAi_updateQueueFollowUp:typical', () =>
@@ -706,16 +679,6 @@ describe('follow-up tools', () => {
         r = JSON.parse(rmRaw);
         assert.equal(r.ok, true);
         assert.equal(access._items[0].followUps!.length, 0);
-    });
-
-    test('add by requestId (alternative selector to queueItemId)', async () => {
-        const added = JSON.parse(await addQueueItemImpl(access, { text: 'x' }));
-        access._items[0].requestId = 'rid-42';
-        const r = JSON.parse(await addQueueFollowUpImpl(access, {
-            requestId: 'rid-42', text: 'follow-via-requestId',
-        }));
-        assert.equal(r.ok, true);
-        assert.equal(r.queueItemId, added.id);
     });
 
     test('add with no item-matching selector → error', async () => {
@@ -763,7 +726,7 @@ describe('canonical workflow', () => {
         assert.equal(f1.followUpCount, 1);
         assert.equal(f2.followUpCount, 2);
 
-        // 3. listQueue confirms 1 staged item with 2 follow-ups, transport: copilot
+        // 3. listQueue confirms 1 staged item with 2 follow-ups
         const list = JSON.parse(await listQueueImpl(access, {}));
         assert.equal(list.totalCount, 1);
         assert.equal(list.items[0].status, 'staged');

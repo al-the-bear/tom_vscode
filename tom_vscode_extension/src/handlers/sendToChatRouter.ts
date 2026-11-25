@@ -1,9 +1,6 @@
 /**
  * Where an editor or script prompt goes.
  *
- *   - **Copilot** — the "Send to Copilot" commands (`tomAi.sendToCopilot`,
- *     `.standard`, `.template`) always open Copilot Chat with the prompt
- *     ({@link openCopilotChat}); the template commands wrap it first.
  *   - **ANTHROPIC/LLM** — the "Send to LLM" commands ({@link dispatchToLlm})
  *     handle the prompt exactly as if it had been typed into the panel: same
  *     active profile, its configuration, the default user-message template,
@@ -11,20 +8,15 @@
  *     runs in a session, a second send into that session is **rejected** (the
  *     prompt queue owns queuing); sends in other sessions run beside it.
  *   - **Scripts** — {@link sendToChatForScript}, the scripting API's
- *     `sendToChatVce`, sends to the ANTHROPIC/LLM panel's profile unless the
- *     call names `target: 'copilot'`, and returns the answer for both.
- *
- * Each command does what its name says: there is no configured "Send to Chat
- * target" any more.
+ *     `sendToChatVce`, sends to the ANTHROPIC/LLM panel's profile and
+ *     returns the answer.
  */
 
 import { resolveBusySession } from './busySessionChoice';
 import * as vscode from 'vscode';
-import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { resolveAnthropicTargets } from '../utils/resolveAnthropicTargets';
 import { resolveProfileTools } from '../tools/tool-executors';
-import { askCopilotForScript } from '../services/copilotRoundTrip';
 import type { SharedToolDefinition } from '../tools/shared-tool-registry';
 import {
     AnthropicHandler,
@@ -43,7 +35,7 @@ import { trackChatSend, isRunningChatItem } from './chatQueueTracking';
 import { runInProcessPosition, type ProcessRun } from '../services/processRunContext';
 import { needsRunContext } from '../utils/chatPanelRuns';
 
-export type SendToChatTarget = 'anthropic' | 'copilot';
+export type SendToChatTarget = 'anthropic';
 
 export interface SendToChatOutcome {
     /** Which transport handled the prompt. */
@@ -56,7 +48,7 @@ export interface SendToChatOutcome {
     refused?: boolean;
     /** With `rejected`: the session a chat send already runs in. */
     busySession?: string;
-    /** The transport's answer (Anthropic transport text, or Copilot answer-file). */
+    /** The transport's answer text. */
     answer?: string;
     /** Failure reason when `ok` is false. */
     error?: string;
@@ -66,17 +58,15 @@ export interface SendToChatOutcome {
     chatItemId?: string;
 }
 
-/** The target a script names (`sendToChatVce`'s `target`): `copilot` when it says so, else the ANTHROPIC/LLM panel. */
+/**
+ * The target a script names (`sendToChatVce`'s `target`): the ANTHROPIC/LLM
+ * panel. `copilot`, the target of older scripts, is refused.
+ */
 export function scriptSendTarget(target: unknown): SendToChatTarget {
-    return target === 'copilot' ? 'copilot' : 'anthropic';
-}
-
-/** Open Copilot Chat with `prompt` (the Send to Copilot commands). */
-export async function openCopilotChat(prompt: string): Promise<void> {
-    const refusal = chatSendRefusal();
-    if (refusal) { void vscode.window.showWarningMessage(`Not sent: ${refusal}`); return; }
-    // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(prompt) });
+    if (target === 'copilot') {
+        throw new Error('sendToChatVce: the target `copilot` is gone; leave `target` out to send to the ANTHROPIC/LLM panel\'s profile.');
+    }
+    return 'anthropic';
 }
 
 /**
@@ -280,10 +270,7 @@ export async function dispatchToLlm(
 
 /**
  * Scripting-API entry (`sendToChatVce`). Sends to the ANTHROPIC/LLM panel's
- * profile, or with `target: 'copilot'` to Copilot, and returns the answer for
- * both, so a script sees the same shape either way:
- *   - copilot   → the Copilot answer-file round trip (services/copilotRoundTrip.ts).
- *   - anthropic → the Anthropic transport's answer text.
+ * profile and returns the transport's answer text.
  */
 export async function sendToChatForScript(
     context: vscode.ExtensionContext,
@@ -292,11 +279,5 @@ export async function sendToChatForScript(
 ): Promise<SendToChatOutcome> {
     const refusal = chatSendRefusal();
     if (refusal) { return { target, ok: false, refused: true, error: refusal }; }
-    if (target === 'copilot') {
-        // The Copilot answer-file round trip (services/copilotRoundTrip.ts):
-        // the prompt in the Copilot Queue Wrapper, then its answer file.
-        const answer = await askCopilotForScript({ prompt });
-        return { target: 'copilot', ok: true, answer };
-    }
     return runAnthropicSend(context, prompt, { source: 'script' });
 }

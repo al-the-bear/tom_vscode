@@ -37,7 +37,7 @@ graph TB
         
         subgraph "UI Layer"
             EXP["Explorer Sidebar<br/>8 webview views"]
-            T2["@CHAT Bottom Panel<br/>Accordion: ANTHROPIC/LLM/Copilot/Logs"]
+            T2["@CHAT Bottom Panel<br/>Accordion: ANTHROPIC/LLM/Logs"]
             T3["@WS Bottom Panel<br/>Accordion: Guidelines/Docs/Settings/Issues/Tests/QuestTodo"]
             CE["Custom Editors<br/>Quest TODO, Trail Viewer"]
             WP["Standalone Webview Panels<br/>8 editors + Status Page + MD Browser"]
@@ -45,7 +45,7 @@ graph TB
         
         subgraph "Command Layer"
             CMD["77 Commands"]
-            CHORD["4 Chord Menus"]
+            CHORD["3 Chord Menus"]
             SM["State Machines"]
             COMB["Combined Commands"]
         end
@@ -54,13 +54,12 @@ graph TB
             CVS["ChatVariablesStore"]
             PQM["PromptQueueManager"]
             TE["TimerEngine"]
-            RS["ReminderSystem"]
             QTM["QuestTodoManager"]
             WSTS["WindowSessionTodoStore"]
         end
         
         subgraph "Tool Layer"
-            LMT["47 Language Model Tools"]
+            LMT["tomAi_ Tools"]
             CVR["5 Chat Variable Resolvers"]
             STR["SharedToolRegistry"]
         end
@@ -88,13 +87,12 @@ graph TB
         OLLAMA["Ollama Server"]
         GH["GitHub API"]
         TGAPI["Telegram Bot API"]
-        COPILOT["VS Code Copilot"]
         LMAPI["VS Code LM API"]
     end
     
     EXT --> CMD & CHORD & SM & COMB
     EXT --> EXP & T2 & T3 & CE & WP
-    EXT --> CVS & PQM & TE & RS
+    EXT --> CVS & PQM & TE
     EXT --> LMT & CVR
     
     T2 --> PT & TRAIL
@@ -106,7 +104,6 @@ graph TB
     BRIDGE --> DART
     TELE --> TGAPI
     LMT --> OLLAMA
-    LMT --> COPILOT
     LMT --> LMAPI
     CMD --> GH
 ```
@@ -126,7 +123,7 @@ flowchart TD
     D -->|Yes| E["FULL MODE"]
     E --> F["Initialize Bridge Client"]
     F --> G["Register Commands"]
-    G --> H["Register Chord Menus (4)"]
+    G --> H["Register Chord Menus (3)"]
     H --> I["Register Commandline Commands"]
     I --> J["Register Combined Commands"]
     J --> K["Register State Machine Commands"]
@@ -140,11 +137,10 @@ flowchart TD
     R --> S["Auto-start Bridge"]
     S --> T["Auto-start CLI Server (if configured)"]
     T --> U["Auto-start Telegram (if configured)"]
-    U --> V["Init CopilotTemplatesManager"]
-    V --> W["Init LocalLlmManager"]
+    U --> W["Init LocalLlmManager"]
     W --> Y["Init ChatVariablesStore<br/>Init WindowSessionTodoStore"]
-    Y --> Z["Init PromptQueueManager<br/>Init TimerEngine<br/>Init ReminderSystem"]
-    Z --> AA["Register LM Tools (47)<br/>Initialize Tool Descriptions"]
+    Y --> Z["Init PromptQueueManager<br/>Init TimerEngine"]
+    Z --> AA["Initialize Tool Descriptions"]
     AA --> AB["Register Chat Variable Resolvers (5)"]
 ```
 
@@ -187,7 +183,6 @@ flowchart TD
 | `handler_shared.ts` | 990 | Shared utilities (bridge, config, templates) |
 | `reusablePromptEditor-handler.ts` | 950 | Reusable prompt .md editor |
 | `commandline-handler.ts` | 929 | Custom CLI commandlines |
-| `copilotTemplates-handler.ts` | 799 | Template-based send-to-chat |
 | `windowStatusPanel-handler.ts` | 693 | Window status sidebar panel |
 
 ### Manager Files
@@ -197,7 +192,6 @@ flowchart TD
 | `promptQueueManager.ts` | 1216 | Ordered prompt queue with auto-send |
 | `questTodoManager.ts` | 922 | CST-preserving YAML todo CRUD |
 | `timerEngine.ts` | ~400 | Timed request scheduling |
-| `reminderSystem.ts` | ~300 | Reminder notifications |
 | `chatVariablesStore.ts` | ~250 | Chat variable persistence |
 | `windowSessionTodoStore.ts` | ~200 | Window-scoped session todos |
 
@@ -228,7 +222,7 @@ Handler: `chatPanel-handler.ts`
 | Section | Icon | Purpose |
 |---------|------|---------|
 | ANTHROPIC/LLM | `sparkle` | Anthropic profiles (direct, Agent SDK, VS Code LM, Local LLM configuration) |
-| Copilot | `copilot` | Copilot integration with templates |
+| Logs | `output` | The active quest's log files and the running prompt (`questLogs-handler.ts`) |
 
 ### @WS Panel (`tomAi.wsPanel`)
 
@@ -236,7 +230,7 @@ Handler: `wsPanel-handler.ts`
 
 | Section | Icon | Purpose |
 |---------|------|---------|
-| Guidelines | `book` | Copilot guidelines browser with project/quest dropdowns |
+| Guidelines | `book` | Guidelines browser with project/quest dropdowns |
 | Documentation | `note` | Project documentation browser |
 | Logs | `output` | Active quest's log files plus the running prompt — thirteen sub-tabs (MD Trail, Trail, Prompts, Answers, Progress, Overview, Notes, Refresh, DocUpdate, Deferred, Questions, Decisions, Current Prompt) via `questLogs-handler.ts` |
 | Settings | `settings-gear` | Embedded status page and configuration |
@@ -281,9 +275,6 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 
 | Command | Purpose |
 |---------|---------|
-| `tomAi.sendToCopilot` | Send to Copilot |
-| `tomAi.sendToCopilot.standard` | Send with default template |
-| `tomAi.sendToCopilot.template` | Send with template picker |
 | `tomAi.sendToLlm` | Send the selection to the @CHAT ANTHROPIC/LLM panel's profile |
 | `tomAi.sendToLlm.standard` | Send to Anthropic/LLM with the default template |
 | `tomAi.sendToLlm.template` | Send to Anthropic/LLM with a template picker |
@@ -318,7 +309,6 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 
 | Key | Command | Menu |
 |-----|---------|------|
-| `Ctrl+Shift+C` | `tomAi.chordMenu.copilot` | Copilot operations |
 | `Ctrl+Shift+L` | `tomAi.chordMenu.llm` | Send to Anthropic/LLM |
 | `Ctrl+Shift+E` | `tomAi.chordMenu.execute` | Execution commands |
 | `Ctrl+Shift+X` | `tomAi.chordMenu.favorites` | Favorites |
@@ -357,7 +347,6 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 | PromptQueueManager | `promptQueueManager.ts` | Prompt queue with file-per-entry storage |
 | QuestTodoManager | `questTodoManager.ts` | CST-preserving YAML todo operations |
 | TimerEngine | `timerEngine.ts` | Scheduled timed requests |
-| ReminderSystem | `reminderSystem.ts` | Reminder notifications |
 | ChatVariablesStore | `chatVariablesStore.ts` | Persisted chat variables |
 | WindowSessionTodoStore | `windowSessionTodoStore.ts` | Window-scoped session todos |
 
@@ -365,9 +354,9 @@ Commands are registered with `@T:` prefix and `@Tom` category.
 
 ## 12. LM Tools & Chat Variables
 
-### Language Model Tools (47 total)
+### Tools
 
-Tools are registered with `tomAi_` prefix.
+Tools carry the `tomAi_` prefix.
 
 | Category | Tools |
 |----------|-------|
@@ -379,7 +368,7 @@ Tools are registered with `tomAi_` prefix.
 | Queue | `tomAi_queue_list`, `tomAi_queue_update_item`, `tomAi_queue_remove_item`, `tomAi_queue_update_followup`, `tomAi_queue_remove_followup`, `tomAi_queue_send_now`, `tomAi_queue_set_status` |
 | Timed | `tomAi_timed_list`, `tomAi_timed_update_entry`, `tomAi_timed_remove_entry`, `tomAi_timed_set_engine_state` |
 | Integration | `tomAi_fetchWebpage`, `tomAi_webSearch`, `tomAi_notifyUser` |
-| Advanced | `tomAi_reminders_manage`, `tomAi_templates_manage`, `tomAi_readGuideline`, `tomAi_readLocalGuideline` |
+| Advanced | `tomAi_templates_manage`, `tomAi_readGuideline`, `tomAi_readLocalGuideline` |
 
 ### Chat Variable Resolvers (5)
 

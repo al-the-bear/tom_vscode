@@ -166,7 +166,7 @@ export function formatDateTime(date: Date = new Date()): string {
 const PATH_VARIABLE_KEYS = new Set([
     'workspaceFolder', 'tomRoot', 'home', 'file', 'fileFolder', 'configfile',
     'configfile-workspace', 'configfile-user', 'configfile-vscode',
-    'workspace-file', 'copilotAnswerFile', 'copilotAnswerFolder', 'tmpdir', 'shell',
+    'workspace-file', 'tmpdir', 'shell',
 ]);
 
 /**
@@ -222,50 +222,6 @@ function getConfigFilePath(): string {
         setting: setting ?? '',
     });
     return configPath;
-}
-
-/**
- * The Copilot answer file of a request: `<requestId>_answer.json` in the
- * configurable `copilot.answerFolder` (default: _ai/answers/copilot) — what
- * the Copilot Queue Wrapper's `${copilotAnswerFile}` names. Without a request
- * id, the window's file (session and machine id prefixes).
- */
-export function getCopilotAnswerFile(requestId?: string): string {
-    const folder = _getCopilotChatAnswerFolderAbsolute();
-    if (requestId && requestId.trim().length > 0) {
-        return path.join(folder, `${requestId.trim()}_answer.json`);
-    }
-    const session = vscode.env.sessionId.substring(0, 8);
-    const machine = vscode.env.machineId.substring(0, 8);
-    return path.join(folder, `${session}_${machine}_answer.json`);
-}
-
-/**
- * Local helper to get the copilot chat answer folder (workspace-relative).
- * Reads config lazily to avoid circular dependency with handler_shared.
- */
-function _getCopilotChatAnswerFolder(): string {
-    try {
-        // Lazy import to break circular dependency
-        const { loadSendToChatConfig } = require('../handlers/handler_shared');
-        const config = loadSendToChatConfig();
-        if (config?.copilot?.answerFolder) {
-            return config.copilot.answerFolder;
-        }
-    } catch { /* fallback */ }
-    return WsPaths.aiRelative('answersCopilot');
-}
-
-/**
- * Local helper to get the absolute copilot chat answer folder.
- * Falls back to ~/.tom/copilot-chat-answers/ when no workspace is open.
- */
-function _getCopilotChatAnswerFolderAbsolute(): string {
-    const wsRoot = layoutWorkspaceFolder();
-    if (wsRoot) {
-        return path.join(wsRoot, _getCopilotChatAnswerFolder());
-    }
-    return WsPaths.home('copilotChatAnswers');
 }
 
 // ============================================================================
@@ -330,10 +286,6 @@ export function buildVariableMap(options?: ResolveOptions): Record<string, strin
         'configfile-user':       configPath,
         'configfile-vscode':     configPath,
         'workspace-file':        configPath,
-
-        // Answer file (Copilot chat)
-        copilotAnswerFolder: _getCopilotChatAnswerFolder(),
-        copilotAnswerFile: getCopilotAnswerFile(requestId),
 
         // VS Code meta (Tier 7)
         'vscode.version':     vscode.version,
@@ -563,8 +515,7 @@ function buildContextInfoBlock(values: Record<string, string>): string {
         'quest', 'role', 'activeProjects', 'todo', 'todoFile',
         'workspaceFolder', 'tomRoot', 'workspace', 'requestId', 'datetime',
         'windowId', 'machineId', 'os', 'arch', 'locale',
-        'copilotAnswerFile', 'copilotAnswerFolder',
-        'configfile', 'chatAnswerFolder',
+        'configfile',
         'git.branch', 'git.commit', 'git.dirty',
     ];
     const obj: Record<string, string> = {};
@@ -573,9 +524,6 @@ function buildContextInfoBlock(values: Record<string, string>): string {
         let val = values[`chat.${key}`] ?? values[key] ?? '';
         if (!val && key.startsWith('git.')) {
             val = gitValues[key.substring(4)] ?? '';
-        }
-        if (!val && key === 'chatAnswerFolder') {
-            val = values['copilotAnswerFolder'] ?? '';
         }
         obj[key] = val || 'not set';
     }
@@ -1248,8 +1196,6 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${machineId}</code> – VS Code machine ID<br>
 <code>\${configfile}</code> – Extension config file path<br>
 <code>\${configfile-workspace}</code> / <code>\${configfile-user}</code> / <code>\${configfile-vscode}</code> – Config variants<br>
-<code>\${copilotAnswerFile}</code> – Copilot chat answer file path (absolute)<br>
-<code>\${copilotAnswerFolder}</code> – Copilot chat answer folder (workspace-relative)<br>
 <code>\${config.KEY}</code> – Any VS Code setting value<br>
 <br>
 <em>Workspace Folders:</em><br>
@@ -1293,21 +1239,21 @@ export const PLACEHOLDER_HELP = `<strong>Available Placeholders:</strong><br>
 <code>\${chat.todoFile}</code> – Same as \${todoFile}<br>
 <br>
 <em>Chat Variables (custom):</em><br>
-<code>\${custom.KEY}</code> – User-defined custom variable (set via Chat Variables Editor or answer files)<br>
+<code>\${custom.KEY}</code> – User-defined custom variable (set via Chat Variables Editor or an answer's response values)<br>
 <code>\${KEY}</code> – Alias for custom/session variable keys when no built-in variable with that name exists<br>
 Custom variables are created from two sources:<br>
 &nbsp;&nbsp;1. <strong>Manually</strong> via the Chat Variables Editor "+ Add" button<br>
-&nbsp;&nbsp;2. <strong>Automatically</strong> from Copilot answer file <code>responseValues</code> — when a prompt queue answer<br>
+&nbsp;&nbsp;2. <strong>Automatically</strong> from an answer's <code>responseValues</code> — when a prompt queue answer<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;contains <code>"responseValues": {"key": "value"}</code>, each non-built-in key is stored<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;as <code>custom.key</code> in the persistent chat variables store.<br>
 Custom variables persist across window reloads. Delete them via the Chat Variables Editor.<br>
 <br>
 <em>Chat Response Values (session-scoped):</em><br>
-<code>\${chat.KEY}</code> – Also resolves response values from the current session's answer files<br>
+<code>\${chat.KEY}</code> – Also resolves response values from the current session's answers<br>
 <code>\${custom.KEY}</code> / <code>\${KEY}</code> – Also available as aliases for non-built-in response values<br>
-These are populated from Copilot answer files, send-to-chat answer files, and local-LLM bridge tool answers.<br>
+These are populated from the answers of queue items and chat sends.<br>
 Session response values are <strong>not persisted</strong> across window reloads — they exist only for the current session.<br>
-Use <code>#key=description</code> notation in prompts to request specific response values from Copilot.<br>
+Use <code>#key=description</code> notation in prompts to request specific response values.<br>
 <br>
 <em>Composite Blocks:</em><br>
 <code>\${chatVariables}</code> – All chat variables as a formatted JSON code block<br>

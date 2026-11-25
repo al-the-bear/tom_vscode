@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-The bottom panel's @CHAT has two subpanels: **Anthropic** and **Copilot**. The ANTHROPIC/LLM subpanel is driven by the Anthropic handler, which reaches a model through one of four transports chosen by the profile's configuration:
+The bottom panel's @CHAT has the **ANTHROPIC/LLM** subpanel and the **Logs** section. The ANTHROPIC/LLM subpanel is driven by the Anthropic handler, which reaches a model through one of four transports chosen by the profile's configuration:
 
 - **Anthropic SDK** (`@anthropic-ai/sdk`, `transport: 'direct'`) and the **Claude Agent SDK** (`agentSdk`), with a model dropdown populated live from the Anthropic API (empty if the API is unreachable — no fallback)
 - **VS Code LM API** (`vscodeLm`)
@@ -37,7 +37,6 @@ This specification also covers:
 graph TD
     subgraph Panel["Bottom Panel (chatPanel-handler.ts)"]
         PA[ANTHROPIC section]
-        PC[Copilot section]
     end
 
     subgraph Handlers
@@ -49,7 +48,6 @@ graph TD
     PA -->|sendAnthropic| AH
     AH -->|agentSdk| SDK
     AH -->|localLlm| LH
-    PC -.->|answer file| COPILOT[(Copilot Chat)]
 
     AH -.->|direct| ANTHROPIC[(Anthropic API)]
     SDK -.-> ANTHROPIC
@@ -65,7 +63,6 @@ graph TD
 graph TD
     subgraph Panel["Bottom Panel"]
         PA[ANTHROPIC]
-        PC[Copilot]
     end
 
     subgraph Handlers
@@ -138,12 +135,6 @@ The raw trail already uses a subsystem-per-folder structure rooted at `_ai/trail
 
 ```text
 _ai/trail/
-    copilot/{quest}/               ← existing
-        YYYYMMDD_HHMMSSmmm_prompt_{requestId}.userprompt.md
-        YYYYMMDD_HHMMSSmmm_answer_{requestId}.answer.json
-        YYYYMMDD_HHMMSSmmm_tool_request_{windowId}.json
-        YYYYMMDD_HHMMSSmmm_tool_answer_{windowId}.json
-
     localllm/{quest}/              ← existing (one subfolder per config name variant)
         YYYYMMDD_HHMMSSmmm_prompt_{requestId}.userprompt.md
         ...
@@ -174,9 +165,6 @@ name encodes the provider:
 
 ```text
 _ai/quests/vscode_extension/history/
-    vscode_extension.copilot.prompts.md                       ← existing
-    vscode_extension.copilot.answers.md
-
     vscode_extension.anthropic.prompts.md                     ← all Anthropic, per quest only
     vscode_extension.anthropic.answers.md                     ← model/config recorded in entry metadata
 
@@ -192,7 +180,6 @@ Rationale for not naming the Anthropic compact trail by model: model names chang
 // trailLogging.ts
 export type TrailType =
     | 'local'          // Ollama → _ai/trail/localllm/{quest}/ raw + quest compact
-    | 'copilot'        // Copilot → _ai/trail/copilot/{quest}/ raw + quest compact
     | 'conversation'
     | 'tomai'
     | 'anthropic'      // ✨ Anthropic → _ai/trail/anthropic/{quest}/ raw + quest compact
@@ -220,7 +207,7 @@ Two purpose-built viewer UIs exist for the trail tiers. Both are extended transp
 **What it shows:** Per-exchange inspection of raw files — subsystem and quest dropdowns, exchanges grouped by `requestId`, side-by-side prompt/answer display, tool request/result files, TODO references extracted from response metadata.
 **Discovery:** Scans `_ai/trail/` for all subsystem folders and their quest subfolders. The `anthropic` subsystem appears automatically once the first exchange is logged.
 
-Panel button: **Trail** (icon: `codicon-list-flat`) — present on LOCAL LLM, Copilot, Conversation, and (new) ANTHROPIC sections.
+Panel button: **Trail** (icon: `codicon-list-flat`) — on the ANTHROPIC/LLM section.
 
 #### Summary Trail Editor (`trailEditor-handler.ts`)
 
@@ -229,18 +216,18 @@ Panel button: **Trail** (icon: `codicon-list-flat`) — present on LOCAL LLM, Co
 **What it shows:** Quest dropdown, chronological entry list parsed from `=== PROMPT/ANSWER ... ===` markers, markdown rendering of selected entry, metadata panel (templateName, comments, references, responseValues).
 **Discovery:** Scans `_ai/quests/*/history/` for `*.prompts.md` / `*.answers.md` pairs, so `{quest}.anthropic.prompts.md` and `{quest}.anthropic.answers.md` appear automatically.
 
-Panel button: **Trail Files** (icon: `codicon-history`) — present on LOCAL LLM, Copilot, and (new) ANTHROPIC sections, opens the compact trail file for the current quest/subsystem.
+Panel button: **Trail Files** (icon: `codicon-history`) — on the ANTHROPIC/LLM section, opens the compact trail file for the current quest/subsystem.
 
 #### Panel button pattern
 
-Every provider section follows this two-button convention:
+The ANTHROPIC/LLM section's two trail buttons:
 
 | Button label | Icon | Handler action | Opens |
 | --- | --- | --- | --- |
 | Trail | `codicon-list-flat` | `tomAi.editor.rawTrailViewer` | Raw Trail Viewer |
 | Trail Files | `codicon-history` | `vscode.openWith(uri, 'tomAi.trailViewer')` | Summary Trail Editor |
 
-The ANTHROPIC/LLM panel follows the same pattern (see §11.3).
+Their place in the panel's toolbar: §11.3.
 
 ---
 
@@ -418,7 +405,7 @@ There are two separate template editing systems with different storage and purpo
 | Storage | `tom_vscode_extension.json` (config file) | Disk files (`.prompt.md`) in scope-based folders |
 | Format | JSON objects with typed fields per category | Plain markdown files |
 | Scopes | Single (workspace config) | Global / Project / Quest / Scan ancestor |
-| Categories | Copilot queue wrapper, reminder, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions | Single type: reusable prompt fragments |
+| Categories | Todo done notification, timed requests, Anthropic profiles, Anthropic user messages, compaction, memory extraction, transport retry, interactive questions, assist prompts | Single type: reusable prompt fragments |
 | Use | Invoked by panel/queue machinery as structured config | Pasted into prompts manually or via editor UI |
 | Examples | "Execute TODO" user-message template, Anthropic profiles | Multi-line boilerplate prompt starters |
 
@@ -586,7 +573,7 @@ The `${userMessage}` placeholder is the raw text the user typed. It is a **unive
 
 ### 7.4 Placeholder additions for compaction and memory templates
 
-The existing placeholder system (`variableResolver.ts`) is rich but lacks compaction-specific context values. These are added as caller-provided `options.values` overrides at compaction time, following the same pattern as `${originalPrompt}` in copilot templates:
+The existing placeholder system (`variableResolver.ts`) is rich but lacks compaction-specific context values. These are added as caller-provided `options.values` overrides at compaction time, following the same pattern as `${originalPrompt}` in user-message templates:
 
 **Compaction template placeholders** (in addition to all existing universal placeholders):
 
@@ -627,7 +614,7 @@ Resolution rules:
 - If `quest` is empty or the overview file does not exist, `${quest-description}` resolves to `""`.
 - If the quest has no process (or its definition is invalid), `${process-context}` resolves to `""`.
 - Files are read synchronously at variable-map build time (same as all other built-in placeholders).
-- These placeholders are available in **all** prompt template contexts — system prompts, compaction templates, memory extraction templates, copilot answer templates, etc.
+- These placeholders are available in **all** prompt template contexts — system prompts, compaction templates, memory extraction templates, user-message templates, etc.
 
 Typical usage in a system prompt template:
 
@@ -1168,7 +1155,6 @@ type AnthropicProfile = AnthropicProfileTemplate;
   "enabled": true,
   "paths": {
     "localLlm": "${ai}/trail/localllm/${quest}",
-    "copilot":  "${ai}/trail/copilot/${quest}",
     "lmApi":    "${ai}/trail/lm-api/${quest}",
     "anthropic": "${ai}/trail/anthropic/${quest}"
   }
@@ -1294,7 +1280,7 @@ Delivers: Anthropic subsystem in trail, tool registry ready, basic send loop, to
 - Add `'anthropic'` to the `TrailSubsystem` union type
 - Add path template in `getSubsystemPath()` (around line 224): `'${ai}/trail/anthropic/${quest}'`
 - Flip raw trail default in `isEnabled()`: change `getRawConfig().enabled === true` to `getRawConfig().enabled !== false`
-- Extend `cleanupOldTrailFiles()` in `chatPanel-handler.ts` to also scan and delete files under `_ai/trail/anthropic/` — it currently only handles `localllm`, `copilot`, and `lm-api` subsystem folders
+- Extend `cleanupOldTrailFiles()` in `chatPanel-handler.ts` to also scan and delete files under `_ai/trail/anthropic/` — it currently only handles `localllm` and `lm-api` subsystem folders
 
 ---
 
@@ -1937,7 +1923,7 @@ A **queue iteration** is one round of an item's repeat count or one todo of a `<
 
 **Profile and model.** Which profile a prompt runs with: the queue stage's or item's own, else the session's `profileId`, else the queue default. A conversation lives in one place — an Agent SDK session (`sdk-managed`) or our own history files — so a profile of the other kind cannot continue it: the queue refuses such an item when it is queued or its session changes (`sessionTransportMismatch`; `chat` and `default` hold both and are never refused, and a session without a conversation yet takes any profile). An unknown profile id is refused wherever a session is created with one. `describeSession`, `tomAi_listSessions` and `tomAi_createSession` show the profile and model.
 
-**Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?}`. When the item is dispatched on the Anthropic transport and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.
+**Creating a missing session.** A queue item's `session` is a name or a spec `{name, basedOn?, mode?, profile?}`. When the item is dispatched and the session does not exist, it is created before the first send (`ensureSession`): from the spec — its missing base first, as a plain `continue` session; its profile the spec's, else the item's own — or, for a bare name, as a fresh `continue` session. A process definition's session spec takes the same fields and is created the same way when its Proceed prompt is queued. A malformed spec is refused when the item is queued.
 
 ### 18.13 Per-session storage
 

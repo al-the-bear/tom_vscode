@@ -6,8 +6,7 @@
  * left column with template list, right column with multi-field editor.
  *
  * Categories:
- *   1. Copilot — Queue Wrapper       — config.copilot.queueWrapper (one item)
- *   1b. Todo — Done Notification     — config.todoPanel.doneNotificationTemplate (one item)
+ *   1. Todo — Done Notification      — config.todoPanel.doneNotificationTemplate (one item)
  *   3. Timed Requests                — config.timedRequests
  *   4. Anthropic — Profiles          — config.anthropic.profiles
  *   5. Anthropic — User Message      — config.anthropic.userMessageTemplates
@@ -18,13 +17,7 @@
  *  10. Assist Prompts                — config.assistPrompts.templates (which one each use
  *                                      runs is chosen on the Status Page)
  *
- * The category dropdown at the top of the editor is the user-facing
- * per-transport switcher mandated by multi_transport_prompt_queue_revised.md
- * §4.16. `Anthropic — User Message` is the one template store both
- * transports read from; `Copilot — Queue Wrapper` is the wrapper that goes
- * around the Copilot sends waiting for an answer (src/utils/copilotTemplates.ts). No separate `renderTransportPicker`
- * control is mounted here because this dropdown already does the job
- * and covers the larger set of stores the editor manages.
+ * `Anthropic — User Message` is the one template store every send reads.
  */
 
 import { DEFAULT_CORE_TOOLS } from '../utils/toolSelection';
@@ -38,14 +31,11 @@ import { AVAILABLE_LLM_TOOLS } from '../utils/constants';
 import { categorizeTools } from '../utils/toolCategories';
 import { moveById, moveDirection, type MoveDirection } from '../utils/listOrder';
 import { READ_ONLY_TOOLS } from '../tools/tool-executors';
-import { copilotQueueWrapper, DEFAULT_ANSWER_FILE_TEMPLATE } from '../utils/copilotTemplates';
 import { parseToolApprovalMode } from '../utils/agentSdkPermissionMode';
 import { ASSIST_PROMPT_INFO, ASSIST_PROMPT_USES, assistPromptsHelp } from '../utils/assistPrompts';
 import { ALWAYS_ON_TOOLS } from '../utils/roleTypes';
 import { TODO_DONE_NOTIFICATION_PLACEHOLDERS, todoDoneNotificationTemplate } from '../utils/todoDoneNotification';
 
-/** The one item of the Copilot — Queue Wrapper category. */
-const QUEUE_WRAPPER_ITEM_ID = 'queueWrapper';
 /** The one item of the Todo — Done Notification category. */
 const TODO_DONE_NOTIFICATION_ITEM_ID = 'todoDoneNotification';
 
@@ -54,7 +44,6 @@ const TODO_DONE_NOTIFICATION_ITEM_ID = 'todoDoneNotification';
 // ============================================================================
 
 export type TemplateCategory =
-    | 'copilotQueueWrapper'
     | 'todoDoneNotification'
     | 'timedRequests'
     | 'anthropicProfiles'
@@ -66,7 +55,6 @@ export type TemplateCategory =
     | 'assistPrompts';
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
-    copilotQueueWrapper: 'Copilot — Queue Wrapper',
     todoDoneNotification: 'Todo — Done Notification',
     timedRequests: 'Timed Requests',
     anthropicProfiles: 'Anthropic — Profiles',
@@ -106,7 +94,7 @@ let _context: vscode.ExtensionContext | undefined;
 // Stash the most recent (category, itemId) that `openGlobalTemplateEditor`
 // was asked to land on. The webview's 'ready' handshake arrives AFTER we
 // try to push the right category, so without this pin the ready handler
-// would always fall back to 'copilot' and wipe the target. Cleared once
+// would always fall back to the first category and wipe the target. Cleared once
 // the webview acks the initial allData push.
 let _pendingInitialCategory: TemplateCategory | undefined;
 let _pendingInitialItemId: string | undefined;
@@ -195,7 +183,7 @@ function bindGlobalTemplateEditorPanel(
 
     // Stash the target category/itemId so the 'ready' handshake (which
     // arrives async from the webview after HTML loads) lands on the same
-    // pair instead of defaulting to 'copilot'.
+    // pair instead of defaulting to the first category.
     _pendingInitialCategory = options?.category;
     _pendingInitialItemId = options?.itemId;
 
@@ -239,8 +227,6 @@ export function registerGlobalTemplateEditorCommand(ctx: vscode.ExtensionContext
 
 function _getItemsForCategory(config: SendToChatConfig, category: TemplateCategory): TemplateItem[] {
     switch (category) {
-        case 'copilotQueueWrapper':
-            return [{ id: QUEUE_WRAPPER_ITEM_ID, label: 'Copilot Queue Wrapper' }];
         case 'todoDoneNotification':
             return [{ id: TODO_DONE_NOTIFICATION_ITEM_ID, label: 'Todo Done Notification' }];
         case 'timedRequests':
@@ -277,13 +263,6 @@ function _getFieldsForItem(config: SendToChatConfig, category: TemplateCategory,
     const fields: Array<{ name: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'number' | 'select' | 'multi-checkbox'; value: string; readonly?: boolean; help?: string; options?: Array<{ value: string; label: string; readOnly?: boolean }>; optionGroups?: Array<{ category: string; tools: Array<{ value: string; label: string; readOnly?: boolean }> }>; disabledWhen?: { field: string; equals: string }; lockedOptions?: string[] }> = [];
 
     switch (category) {
-        case 'copilotQueueWrapper': {
-            if (itemId !== QUEUE_WRAPPER_ITEM_ID) break;
-            fields.push(
-                { name: 'template', label: 'Wrapper', type: 'textarea', value: copilotQueueWrapper(config), help: PLACEHOLDER_HELP + '<br><br>Goes around every Copilot send that waits for an answer: queue items, the todo buttons, scripts sending to Copilot, and the Copilot panel\'s Send when its Wrap box is on. <strong>Use ${originalPrompt}</strong> for the prompt (after its template), <code>${copilotAnswerFile}</code> and <code>${requestId}</code> for the answer file Copilot writes. Saving it empty, or Delete, returns it to the default.' },
-            );
-            break;
-        }
         case 'todoDoneNotification': {
             if (itemId !== TODO_DONE_NOTIFICATION_ITEM_ID) { break; }
             const placeholders = TODO_DONE_NOTIFICATION_PLACEHOLDERS.map(([p, what]) => `<code>${p}</code> ${what}`).join('<br>');
@@ -607,15 +586,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
     if (!config) return;
 
     switch (category) {
-        case 'copilotQueueWrapper': {
-            const body = values.template ?? '';
-            if (!body.trim() || body === DEFAULT_ANSWER_FILE_TEMPLATE) {
-                if (config.copilot) { delete config.copilot.queueWrapper; }
-            } else {
-                config.copilot = { ...(config.copilot ?? {}), queueWrapper: body };
-            }
-            break;
-        }
         case 'todoDoneNotification': {
             const body = values.template ?? '';
             if (!body.trim()) {
@@ -908,10 +878,6 @@ async function _saveItem(category: TemplateCategory, itemId: string, values: Rec
 }
 
 async function _addItem(category: TemplateCategory): Promise<void> {
-    if (category === 'copilotQueueWrapper') {
-        vscode.window.showInformationMessage('There is one Copilot Queue Wrapper: edit it. Templates are added under Anthropic — User Message.');
-        return;
-    }
     if (category === 'todoDoneNotification') {
         vscode.window.showInformationMessage('There is one Todo Done Notification: edit it.');
         return;
@@ -1053,7 +1019,6 @@ function _uniqueIdFromBase(base: string, existingIds: Set<string>): string {
  */
 function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, category: TemplateCategory): Set<string> {
     switch (category) {
-        case 'copilotQueueWrapper':   return new Set([QUEUE_WRAPPER_ITEM_ID]);
         case 'todoDoneNotification':  return new Set([TODO_DONE_NOTIFICATION_ITEM_ID]);
         case 'timedRequests':         return new Set(((config as any).timedRequests ?? []).map((r: any) => r.id));
         case 'anthropicProfiles':     return new Set((config.anthropic?.profiles ?? []).map((p) => p.id));
@@ -1075,7 +1040,7 @@ function _listIds(config: NonNullable<ReturnType<typeof loadSendToChatConfig>>, 
  * every category except `selfTalk` (fixed-slot Person A / Person B).
  */
 async function _copyItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'copilotQueueWrapper' || category === 'todoDoneNotification') { return; }
+    if (category === 'todoDoneNotification') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1187,7 +1152,7 @@ async function _copyItem(category: TemplateCategory, itemId: string): Promise<vo
  * display label follows the rename) unless it was already distinct.
  */
 async function _renameItem(category: TemplateCategory, itemId: string): Promise<void> {
-    if (category === 'copilotQueueWrapper' || category === 'todoDoneNotification') { return; }
+    if (category === 'todoDoneNotification') { return; }
     const config = loadSendToChatConfig();
     if (!config) return;
 
@@ -1341,9 +1306,6 @@ async function _deleteItem(category: TemplateCategory, itemId: string): Promise<
     if (!config) return;
 
     switch (category) {
-        case 'copilotQueueWrapper':
-            if (config.copilot) { delete config.copilot.queueWrapper; }
-            break;
         case 'todoDoneNotification':
             if (config.todoPanel) { delete config.todoPanel.doneNotificationTemplate; }
             break;

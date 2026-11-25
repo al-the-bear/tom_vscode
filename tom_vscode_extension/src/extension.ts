@@ -29,14 +29,15 @@ import * as os from 'os';
 import { DartBridgeClient } from './vscode-bridge';
 
 // Command handlers
-import { bridgeLog, reportException, getBridgeClient, initializeBridgeClient, sendToChatHandler, SendToChatAdvancedManager, executeInTomAiBuildHandler, executeAsScriptHandler, restartBridgeHandler, switchBridgeProfileHandler, runTestsHandler, reloadWindowHandler, startCliServerHandler, startCliServerCustomPortHandler, stopCliServerHandler, startProcessMonitorHandler, toggleBridgeDebugLoggingHandler, printConfigurationHandler, showHelpHandler, LocalLlmManager, setLocalLlmManager, registerChordMenuCommands, registerCommandlineCommands, registerCombinedCommands, registerStateMachineCommands, registerDsNotesViews, registerChatPanel, registerWsPanel, registerChatVariablesEditorCommand, registerQueueEditorCommand, registerTimedRequestsEditorCommand, registerGlobalTemplateEditorCommand, registerRolesEditorCommands, registerReusablePromptEditorCommand, registerQueueTemplateEditorCommand, telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, initTelegramCommands, disposeTelegramStandalone, readEffectiveTelegramRaw, showStatusPageHandler, registerStatusPageSerializer, toggleTrailHandler, getConfigPath, registerTrailViewerCommands, setExtensionPath } from './handlers';
+import { bridgeLog, reportException, getBridgeClient, initializeBridgeClient, executeInTomAiBuildHandler, executeAsScriptHandler, restartBridgeHandler, switchBridgeProfileHandler, runTestsHandler, reloadWindowHandler, startCliServerHandler, startCliServerCustomPortHandler, stopCliServerHandler, startProcessMonitorHandler, toggleBridgeDebugLoggingHandler, printConfigurationHandler, showHelpHandler, LocalLlmManager, setLocalLlmManager, registerChordMenuCommands, registerCommandlineCommands, registerCombinedCommands, registerStateMachineCommands, registerDsNotesViews, registerChatPanel, registerWsPanel, registerChatVariablesEditorCommand, registerQueueEditorCommand, registerTimedRequestsEditorCommand, registerGlobalTemplateEditorCommand, registerRolesEditorCommands, registerReusablePromptEditorCommand, registerQueueTemplateEditorCommand, telegramTestHandler, telegramToggleHandler, telegramConfigureHandler, initTelegramCommands, disposeTelegramStandalone, readEffectiveTelegramRaw, showStatusPageHandler, registerStatusPageSerializer, toggleTrailHandler, getConfigPath, registerTrailViewerCommands, setExtensionPath } from './handlers';
 
 import { registerQuestTodoCustomEditor } from './handlers/questTodoEditor-handler';
 import { registerMarkdownBrowser } from './handlers/markdownBrowser-handler';
 import { registerTrailCustomEditor } from './handlers/trailEditor-handler';
 import { registerTodoLogView } from './handlers/todoLogPanel-handler';
 import { registerWindowStatusView, deleteCurrentWindowState, cleanupStaleWindowStates, ensureWindowStateRegistered, writeWindowHeartbeat } from './handlers/windowStatusPanel-handler';
-import { getWorkspaceName } from './services/copilotTrailService';
+import { getWorkspaceName } from './utils/panelYamlStore';
+import { getChatResponseValues, clearChatResponseValues } from './handlers/handler_shared';
 import { registerMinimalModePanels } from './handlers/minimalMode-handler';
 import { getLayout, registerLayoutTracking, layoutWorkspaceFolder, onDidChangeLayout } from './utils/workspaceLayout';
 import { recordWindowQuestWorkspaceFolder } from './services/aiWorkspaceLive';
@@ -124,9 +125,6 @@ import { initAnswersPanel } from './handlers/answersPanel-handler';
 import { applyAspectChoiceRequest, applyAspectRenameRequest, registerAspectChoiceCommands } from './handlers/aspectChoiceCommands';
 import { initNightMode, setNightMode } from './services/nightMode';
 import { registerAspectSectionEditorCommand } from './handlers/aspectSectionEditor-handler';
-
-// Global manager instance for SendToChatAdvanced
-let sendToChatAdvancedManager: SendToChatAdvancedManager | undefined;
 
 // Global manager instance for Prompt Expander
 let localLlmManager: LocalLlmManager | undefined;
@@ -813,12 +811,23 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // Initialize Send to Chat Advanced manager
-    stepStart = performance.now();
-    sendToChatAdvancedManager = new SendToChatAdvancedManager(context, DartBridgeClient.outputChannel);
-    await sendToChatAdvancedManager.initialize();
-    context.subscriptions.push({ dispose: () => sendToChatAdvancedManager?.dispose() });
-    timeStep('sendToChatAdvancedManager', stepStart);
+    // The chat answer values (`${chat.<key>}`, the responseValues of answers): show and clear.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tomAi.showAnswerValues', () => {
+            const channel = DartBridgeClient.outputChannel;
+            if (!channel) { return; }
+            const data = getChatResponseValues();
+            channel.show();
+            channel.appendLine('=== Chat Answer Values ===');
+            channel.appendLine(Object.keys(data).length === 0 ? '(No chat answer values stored)' : JSON.stringify(data, null, 2));
+            channel.appendLine('=========================');
+        }),
+        vscode.commands.registerCommand('tomAi.clearAnswerValues', () => {
+            const keyCount = Object.keys(getChatResponseValues()).length;
+            clearChatResponseValues();
+            vscode.window.showInformationMessage(`Cleared ${keyCount} chat answer value(s)`);
+        }),
+    );
 
     // Initialize Local LLM manager
     // NOTE: Even if this fails, ensureLocalLlmManager() in the handlers
@@ -1081,14 +1090,6 @@ function registerCommands(context: vscode.ExtensionContext) {
     // Send to Anthropic/LLM - the @CHAT Anthropic panel's current profile and session
     registerSendToLlmCommands(context);
 
-    // Send to Chat command - sends selected text to Copilot Chat
-    const sendToChatCmd = vscode.commands.registerCommand(
-        'tomAi.sendToCopilot',
-        async () => {
-            await sendToChatHandler(context);
-        }
-    );
-
     // Execute Dart file in D4rt (executeFile)
     const executeInTomAiBuildCmd = vscode.commands.registerCommand(
         'tomAi.executeFile',
@@ -1146,9 +1147,6 @@ function registerCommands(context: vscode.ExtensionContext) {
             TomAiConfiguration.instance.reload();
         } catch {
             // Singleton not initialized yet — nothing to reload.
-        }
-        if (sendToChatAdvancedManager) {
-            await sendToChatAdvancedManager.loadConfig();
         }
         if (notify) {
             vscode.window.showInformationMessage('Tom AI configuration reloaded');
@@ -1447,7 +1445,6 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     // Add all commands to subscriptions
     context.subscriptions.push(
-        sendToChatCmd,
         executeInTomAiBuildCmd,
         executeAsScriptInTomAiBuildCmd,
         restartBridgeCmd,
@@ -1504,7 +1501,10 @@ function checkTestReinstallMarker(): void {
             if (ageMinutes < 5) {
                 // Show reminder after a brief delay to let extension fully activate
                 setTimeout(() => {
-                    vscode.commands.executeCommand('workbench.action.chat.open', { query: '!!!Reload finished' });
+                    // Queued at the front of the window's run and sent, as the configured reload prompt is.
+                    void Promise.all([PromptQueueManager.whenReady(), ProcessStateStore.ready])
+                        .then(([manager]) => manager.queueReloadPrompt('!!!Reload finished'))
+                        .catch((error) => bridgeLog(`Reload-finished prompt could not be queued: ${error instanceof Error ? error.message : String(error)}`, 'ERROR'));
                     try {
                         fs.unlinkSync(markerPath);
                     } catch (e) {
@@ -1533,7 +1533,7 @@ function scheduleConfiguredReloadPromptSend(): void {
             return;
         }
 
-        // Not straight into Copilot Chat (vscimpb109): once the queue is
+        // Not sent directly (vscimpb109): once the queue is
         // restored (items loaded, crash recovery done) and the window's run is
         // known, the prompt is queued at the front of that run's queue with its
         // defaults and sent as Continue sends it, also while the run is paused.

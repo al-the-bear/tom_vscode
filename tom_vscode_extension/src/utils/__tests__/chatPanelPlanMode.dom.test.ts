@@ -29,7 +29,7 @@ function setup(t: { after(fn: () => void): void }) {
     w.acquireVsCodeApi = () => ({
         postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))),
         setState: () => undefined,
-        getState: () => ({ expanded: ['copilot'], pinned: [] }),
+        getState: () => ({ expanded: ['logs'], pinned: [] }),
     });
     w.__INIT__ = {};
     w.eval(media('chatPanel', 'main.js'));

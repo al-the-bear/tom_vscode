@@ -1,6 +1,6 @@
 /**
  * Shared extraction of TODO / response-value references from free-form answer
- * text. Both the Copilot answer path and the Anthropic answer path emit these
+ * text. Answers emit these
  * references so the extension can mark `*.todo.yaml` entries done and link back
  * to the source (see CLAUDE.md → "Reporting completed TODOs").
  *

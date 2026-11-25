@@ -3912,7 +3912,7 @@ export class AnthropicHandler {
         // Parse any `#TODO=` / responseValues references the model emitted in
         // its answer text and pass them through as metadata, so the trail loader
         // and todo-log panel can mark the referenced `*.todo.yaml` entries done
-        // — the same way the Copilot answer path does (Bug 1).
+        // (Bug 1).
         const responseValues = extractTodoResponseValues(text);
         TrailService.instance.writeSummaryAnswer(
             this.trailSubsystem(),

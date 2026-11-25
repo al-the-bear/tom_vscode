@@ -333,7 +333,7 @@ function qtNavPush(todoId) {
     var btnOpenExt = document.getElementById('qt-btn-open-ext');
     var templateSelect = document.getElementById('qt-template-select');
     var addQueueBtn = document.getElementById('qt-btn-add-queue');
-    var sendCopilotBtn = document.getElementById('qt-btn-send-copilot');
+    var sendChatBtn = document.getElementById('qt-btn-send-chat');
     // The search field's clear button (x): shown while the field holds text; a click empties it and the filter.
     var searchClear = document.getElementById('qt-search-clear');
     function qtSyncSearchClear() { if (searchClear && searchInput) { searchClear.hidden = searchInput.value === ''; } }
@@ -425,9 +425,9 @@ function qtNavPush(todoId) {
     if (addQueueBtn) addQueueBtn.addEventListener('click', function() { qtQueueFromBar(addQueueBtn, false); });
     var addQueueDefaultBtn = document.getElementById('qt-btn-add-queue-default');
     if (addQueueDefaultBtn) addQueueDefaultBtn.addEventListener('click', function() { qtQueueFromBar(addQueueDefaultBtn, true); });
-    if (sendCopilotBtn) sendCopilotBtn.addEventListener('click', function() {
-        if (sendCopilotBtn.disabled) return;
-        qtPauseButton(sendCopilotBtn);
+    if (sendChatBtn) sendChatBtn.addEventListener('click', function() {
+        if (sendChatBtn.disabled) return;
+        qtPauseButton(sendChatBtn);
         var tplId = qtSelectedTemplateId();
         // Stacked todos win: all stacked todos combine into a SINGLE prompt.
         if (qtStack.length) {
@@ -446,7 +446,7 @@ function qtNavPush(todoId) {
         }
         var effectiveTodoId = (qtDetailTodo && qtDetailTodo.id) ? qtDetailTodo.id : qtSelectedTodoId;
         vscode.postMessage({
-            type: 'qtSendCurrentTodoToCopilot',
+            type: 'qtSendCurrentTodoToChat',
             questId: qtCurrentQuestId,
             file: qtCurrentFile,
             todoId: effectiveTodoId,
@@ -4282,14 +4282,6 @@ function qtHandleMessage(msg) {
                 if (templateSel.value !== selected) templateSel.value = '__none__';
                 qtCurrentTemplate = templateSel.value || '__none__';
                 qtRenderTemplateButton();
-            }
-            // Label the send button after the prompt queue's transport (Bug 3).
-            var sendBtn = document.getElementById('qt-btn-send-copilot');
-            if (sendBtn) {
-                var isAnthropic = msg.transport === 'anthropic';
-                var sendLabel = isAnthropic ? 'Send to Anthropic' : 'Send to Copilot';
-                sendBtn.title = sendLabel;
-                if (sendBtn.textContent && sendBtn.textContent.trim()) sendBtn.textContent = sendLabel;
             }
             break;
         }

@@ -30,7 +30,6 @@ var vscode = acquireVsCodeApi();
 // e.g. completion.js) reuse it — acquireVsCodeApi() may be called only once.
 window.__tomVscodeApi = vscode;
 var sectionsConfig = [
-    { id: 'copilot', icon: '<span class="codicon codicon-copilot"></span>', title: 'Copilot' },
     { id: 'anthropic', icon: '<span class="codicon codicon-sparkle"></span>', title: 'Anthropic/LLM' },
     { id: 'logs', icon: '<span class="codicon codicon-output"></span>', title: 'Logs' }
 ];
@@ -53,16 +52,13 @@ var claudeCliVisible = false; // true when any config uses transport: 'agentSdk'
 var anthropicSending = false;
 var anthropicSessionTurns = 0;
 var anthropicLastToolCalls = 0;
-var copilotTemplateEntries = [];
 var reusablePromptModel = { scopes: { project: [], quest: [], scan: [] }, files: { global: [], project: {}, quest: {}, scan: {} } };
 var pendingReusableCopySection = '';
 var reusablePreferredQuestId = '';
 var reusablePreferredProjectId = '';
 var reusablePreferredScanId = '';
 var reusablePromptState = {};
-var copilotHasAnswer = false;
-var copilotAnswerSlot = 0;
-var slotEnabledSections = ['copilot', 'anthropic'];
+var slotEnabledSections = ['anthropic'];
 var sectionSlotState = {};
 var delegatedUiHandlersAttached = false;
 
@@ -158,9 +154,6 @@ function switchPanelSlot(sectionId, slot) {
     }
     updateSlotButtonsUI(sectionId);
     updateSlotKeepUI(sectionId);
-    if (sectionId === 'copilot') {
-        refreshCopilotAnswerToolbarVisibility();
-    }
     saveDrafts();
 }
 
@@ -169,17 +162,7 @@ function updateSlotButtonsUI(sectionId) {
     document.querySelectorAll('.slot-btn[data-id="' + sectionId + '"]').forEach(function(btn) {
         var slotNo = parseInt(btn.dataset.slot || '0', 10);
         btn.classList.toggle('active', slotNo === sectionState.activeSlot);
-        if (sectionId === 'copilot') {
-            btn.classList.toggle('answer-ready', copilotHasAnswer && slotNo === copilotAnswerSlot);
-        }
     });
-}
-
-function refreshCopilotAnswerToolbarVisibility() {
-    var toolbar = document.getElementById('copilot-answers-toolbar');
-    if (!toolbar) {return;}
-    var activeSlot = ensureSlotState('copilot').activeSlot;
-    toolbar.style.display = (copilotHasAnswer && activeSlot === copilotAnswerSlot) ? 'flex' : 'none';
 }
 
 function getPlaceholderPopupHtml() {
@@ -267,7 +250,7 @@ function initToggleButtons() {
         })(buttons[i]);
     }
     // The queue mode: from the webview state, then saved there and with the drafts on every change.
-    ['anthropic', 'copilot'].forEach(function(sectionId) {
+    ['anthropic'].forEach(function(sectionId) {
         var btn = document.getElementById(sectionId + '-queue-pending');
         if (!btn) { return; }
         btn.checked = !(state.queuePending && state.queuePending[sectionId] === false);
@@ -397,7 +380,7 @@ function wantedSelectValue(sel) {
 }
 /** Keep the "Run default" labels current (the run or its defaults changed). */
 function updateRunDefaultOptions() {
-    [['anthropic-profile', 'anthropic', 'profile'], ['anthropic-userMessage', 'anthropic', 'template'], ['copilot-template', 'copilot', 'template']].forEach(function(t) {
+    [['anthropic-profile', 'anthropic', 'profile'], ['anthropic-userMessage', 'anthropic', 'template']].forEach(function(t) {
         var sel = document.getElementById(t[0]);
         var opt = sel ? sel.querySelector('option[value="' + RUN_DEFAULT_CHOICE + '"]') : null;
         if (opt) { opt.textContent = runDefaultOptionText(t[1], t[2]); }
@@ -405,7 +388,7 @@ function updateRunDefaultOptions() {
 }
 /** The Run links: the run's name (marked when it is not the PROCESS view's run), its full label in the tooltip. */
 function renderChatRunSelects() {
-    ['anthropic', 'copilot'].forEach(function(section) {
+    ['anthropic'].forEach(function(section) {
         var link = document.getElementById(section + '-run');
         if (!link) { return; }
         var current = chatRunsState.selected[section] || 'default';
@@ -476,7 +459,7 @@ function renderChatRoleSelect() {
 }
 function renderChatAspectButtons() {
     var p = chatAspectPicker();
-    ['anthropic', 'copilot'].forEach(function(section) {
+    ['anthropic'].forEach(function(section) {
         var slot = document.getElementById(section + '-aspects-slot');
         if (!slot) { return; }
         var v = chatAspectView(section);
@@ -507,68 +490,6 @@ function openChatAspectPicker(section) {
 
 function getSectionContent(id) {
     var contents = {
-        copilot: getPromptEditorComponent({
-            sectionId: 'copilot',
-            selectorKind: 'template',
-            selectorLabel: 'Template',
-            selectorOptions: '<option value="">No template</option>',
-            selectorClass: 'compact-select',
-            selectorTitle: 'Template',
-            toolbarClass: 'copilot-compact-toolbar',
-            prefixButtons:
-                '<button class="icon-btn" data-action="openExtensionTools" data-id="copilot" title="Extension Tools"><span class="codicon codicon-tools"></span></button>',
-            manageButtons:
-                '<button class="icon-btn" data-action="addTemplate" data-id="copilot" title="Add Template"><span class="codicon codicon-add"></span></button>' +
-                '<button class="icon-btn" data-action="editTemplate" data-id="copilot" title="Edit Template"><span class="codicon codicon-edit"></span></button>' +
-                '<button class="icon-btn danger" data-action="deleteTemplate" data-id="copilot" title="Delete Template"><span class="codicon codicon-trash"></span></button>',
-            // The action row (vscimpb151): the button that queues in the default run comes before the run select;
-            // the buttons that use the panel's run come after it.
-            actionButtons:
-                '<button class="icon-btn" data-action="preview" data-id="copilot" title="Preview"><span class="codicon codicon-eye"></span></button>' +
-                toggleButtonHtml('copilot-wrap', 'codicon-word-wrap', 'Wrap', 'Wrap the send in the Copilot Queue Wrapper, so Copilot writes an answer file', false) +
-                toggleButtonHtml('copilot-keep-content', 'codicon-pin', 'Keep', 'Keep the text after Send or adding to the queue (not pressed: the text is cleared)', false) +
-                '<label class="checkbox-label compact-keep" title="Queue repeats"><span style="opacity:0.8;">R</span><input type="text" id="copilot-repeat-count" value="1" style="width:24px"></label>' +
-                '<label class="checkbox-label compact-keep" title="Answer wait minutes (0 = wait for answer file)"><span style="opacity:0.8;">W</span><input type="text" id="copilot-answer-wait" value="0" style="width:24px"></label>' +
-                queueModeToggleHtml('copilot') +
-                '<button class="icon-btn" data-action="addToQueue" data-id="copilot" title="Save to Queue — in the default run, with the prompt queue&#39;s settings and default template"><span class="codicon codicon-add"></span><span class="codicon codicon-list-ordered"></span></button>' +
-                // The run this subpanel is on (vscimpb48): its sends resolve as that run, its queued items carry it.
-                // A link (click: VS Code's run picker, pickChatRun).
-                '<span class="chat-field"><span class="chat-field-label">Run</span><a href="#" id="copilot-run" class="chat-link run-link" data-action="pickChatRun" data-id="copilot" data-run-section="copilot" title="The process run this subpanel works on — click to pick another">default</a></span>' +
-                // The guideline button (gsel6): the item level of this subpanel's sends, sticky until changed.
-                '<span id="copilot-aspects-slot" class="chat-aspects-slot"></span>' +
-                '<button class="icon-btn primary" id="copilot-send-btn" data-action="send" data-id="copilot" title="Send to Copilot"><span class="codicon codicon-send"></span></button>' +
-                '<button class="icon-btn" data-action="addToQueuePanelTarget" data-id="copilot" title="Save to Queue in this panel&#39;s run, with its template"><span class="codicon codicon-account"></span><span class="codicon codicon-list-ordered"></span></button>' +
-                '<button class="icon-btn" data-action="saveAsTimedRequest" data-id="copilot" title="Save as Timed Request"><span class="codicon codicon-save"></span></button>' +
-                '<button class="icon-btn" data-action="openTimedRequestsEditor" data-id="copilot" title="Timed Requests"><span class="codicon codicon-watch"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailRawFiles" data-id="copilot" title="Open Raw Trail Files Viewer"><span class="codicon codicon-history"></span></button>' +
-                '<button class="icon-btn" data-action="openTrailSummaryViewer" data-id="copilot" title="Open Trail Summary Viewer"><span class="codicon codicon-list-flat"></span></button>' +
-                '<label class="checkbox-label compact-keep" title="Auto-hide: close the side bar Copilot Chat runs in this long after a send (Off: keep it open). Kept for this window."><span style="opacity:0.8;">Auto-hide</span><select id="copilot-autohide" class="compact-select"><option value="0">Off</option><option value="3000">3s</option><option value="5000">5s</option><option value="10000">10s</option><option value="20000">20s</option></select></label>' +
-                '<button class="icon-btn" data-action="clearText" data-id="copilot" title="Clear text"><span class="codicon codicon-clear-all"></span></button>',
-            afterToolbarHtml:
-                '<div class="toolbar answers-toolbar" id="copilot-answers-toolbar" style="display:none;">' +
-                '<span id="copilot-answer-indicator" class="answer-indicator">Answer Ready</span>' +
-                '<button class="icon-btn" data-action="showAnswerViewer" data-id="copilot" title="View Answer"><span class="codicon codicon-eye"></span></button>' +
-                '<button class="icon-btn" data-action="extractAnswer" data-id="copilot" title="Extract to Markdown"><span class="codicon codicon-file-symlink-file"></span></button>' +
-                '</div>',
-            // Context + Settings overlay no longer lives in this section;
-            // it is rendered once at container level by render() so that
-            // collapsing the Copilot section does not hide the popup when
-            // another section invokes it.
-            infoId: 'copilot-templateInfo',
-            placeholder: 'Enter your prompt...',
-            helpTitle: '',
-            afterEditorHtml:
-                '<div class="status-bar"><span id="copilot-context-summary" class="context-summary"></span>' +
-                '<span class="status-bar-actions">' +
-                // The quest folder first, then the Prompt Queue and the Status Page; the others as before.
-                '<button class="icon-btn" data-action="revealQuestFolder" data-id="copilot" title="Show the quest folder (_ai/quests/&lt;quest&gt;) in the Explorer side bar"><span class="codicon codicon-folder-opened"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueEditor" data-id="copilot" title="Open Prompt Queue"><span class="codicon codicon-inbox"></span></button>' +
-                '<button class="icon-btn" data-action="openStatusPage" data-id="copilot" title="Open Extension Status Page"><span class="codicon codicon-dashboard"></span></button>' +
-                '<button class="icon-btn" data-action="openChatVariablesEditor" title="Chat Variables Editor"><span class="codicon codicon-symbol-key"></span></button>' +
-                '<button class="icon-btn" data-action="openProcessEditor" title="Process Editor — the processes a quest can follow (_ai/processes)"><span class="codicon codicon-type-hierarchy"></span></button>' +
-                '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="copilot" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
-                '</span></div>',
-        }),
         anthropic: getPromptEditorComponent({
             sectionId: 'anthropic',
             selectorKind: 'profile',
@@ -726,13 +647,12 @@ var LINKED_SELECT_LABELS = {
     'anthropic-profile': 'Model',
     'anthropic-userMessage': 'Template',
     'anthropic-role': 'Role',
-    'copilot-template': 'Template',
 };
 var pendingSelectPicks = {};
 var selectPickSeq = 0;
 function linkChatSelects() {
     Object.keys(LINKED_SELECT_LABELS).forEach(function(id) { linkSelect(document.getElementById(id), LINKED_SELECT_LABELS[id]); });
-    ['anthropic', 'copilot'].forEach(function(section) {
+    ['anthropic'].forEach(function(section) {
         linkSelect(document.getElementById(section + '-reusable-type'), 'Prompt type');
         var scopeLabel = document.getElementById(section + '-reusable-scope-label');
         linkSelect(document.getElementById(section + '-reusable-scope'), function() {
@@ -792,7 +712,7 @@ function linkSelect(sel, labelFor, labelSource) {
     sync();
 }
 /** The selects whose options are asked for again before their picker opens: the templates. */
-var FRESH_CHOICE_SELECTS = { 'anthropic-userMessage': true, 'copilot-template': true };
+var FRESH_CHOICE_SELECTS = { 'anthropic-userMessage': true };
 /** VS Code's picker over the select of request `requestId`, its options as they are now. */
 function postSelectPick(requestId) {
     var sel = pendingSelectPicks[requestId];
@@ -981,7 +901,7 @@ function stopResize() { /* legacy */ }
 function handleAction(action, id, slot) {
     switch(action) {
         case 'send': { var text = document.getElementById(id + '-text'); text = text ? text.value : ''; if (!text.trim()) {return;} var profile = document.getElementById(id + '-profile'); profile = profile ? profile.value : ''; var template = document.getElementById(id + '-template'); template = template ? template.value : ''; var anthropicUserMessage = document.getElementById('anthropic-userMessage'); anthropicUserMessage = anthropicUserMessage ? anthropicUserMessage.value : ''; var slotNo = ensureSlotState(id).activeSlot; if (id === 'anthropic' && !anthropicSending) { anthropicSending = true; updateAnthropicSendButton(); setAnthropicStatus('Sending…'); } var freshCb = id === 'anthropic' ? document.getElementById('anthropic-fresh-session') : null; vscode.postMessage({ type: 'send' + id.charAt(0).toUpperCase() + id.slice(1), text: text, profile: profile, template: template, model: '', config: '', userMessageTemplate: anthropicUserMessage, slot: slotNo, fresh: !!(freshCb && freshCb.checked) }); break; }
-        case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl, wrap: id === 'copilot' && !!(document.getElementById('copilot-wrap') || {}).checked }); break; }
+        case 'preview': { var prvText = document.getElementById(id + '-text'); prvText = prvText ? prvText.value : ''; var prvTpl = document.getElementById(id + '-template'); prvTpl = prvTpl ? prvTpl.value : ''; vscode.postMessage({ type: 'preview', section: id, text: prvText, template: prvTpl }); break; }
         case 'clearText': {
             if (!id) {break;}
             var clearTextArea = document.getElementById(id + '-text');
@@ -1000,10 +920,7 @@ function handleAction(action, id, slot) {
         case 'addNote': vscode.postMessage({ type: 'addNote' }); break;
         case 'addProfile': vscode.postMessage({ type: 'addProfile', section: id }); break;
         case 'editProfile': { var epSel = document.getElementById(id + '-profile'); vscode.postMessage({ type: 'editProfile', section: id, name: epSel ? epSel.value : '' }); break; }
-        case 'addTemplate': vscode.postMessage({ type: 'addTemplate', section: id }); break;
-        case 'editTemplate': { var etSel = document.getElementById(id + '-template'); var etVal = etSel ? etSel.value : ''; vscode.postMessage({ type: 'editTemplate', section: id, name: etVal }); break; }
         case 'deleteProfile': confirmDelete('profile', id); break;
-        case 'deleteTemplate': { var dtSel = document.getElementById(id + '-template'); var dtVal = dtSel ? dtSel.value : ''; if (!dtVal) { vscode.postMessage({ type: 'showMessage', message: 'Please select a template to delete.' }); return; } confirmDelete('template', id); break; }
         case 'editAnthropicProfile': {
             var epaSel = document.getElementById('anthropic-profile');
             vscode.postMessage({ type: 'editAnthropicProfile', name: epaSel ? epaSel.value : '' });
@@ -1068,10 +985,6 @@ function handleAction(action, id, slot) {
             vscode.postMessage({ type: 'openReusablePromptInExternalApp', reusableId: reusableToExternal });
             break;
         }
-        case 'showAnswerViewer': vscode.postMessage({ type: 'showAnswerViewer' }); break;
-        case 'extractAnswer': vscode.postMessage({ type: 'extractAnswer' }); break;
-        case 'openPromptsFile': vscode.postMessage({ type: 'openPromptsFile' }); break;
-        case 'openAnswersFile': vscode.postMessage({ type: 'openAnswersFile' }); break;
         case 'openExtensionTools': openExtensionTools(); break;
         case 'closeExtensionTools': closeExtensionTools(); break;
         case 'openExtensionTool':
@@ -1079,24 +992,14 @@ function handleAction(action, id, slot) {
             closeExtensionTools();
             break;
         case 'cancel': vscode.postMessage({ type: 'cancel', section: id || '' }); break;
-        case 'addToQueue':
-            if (id === 'anthropic') { addAnthropicToQueue(false); }
-            else { addCopilotToQueue(); }
-            break;
-        case 'addToQueuePanelTarget':
-            if (id === 'anthropic') { addAnthropicToQueue(true); }
-            else { addCopilotToQueue(true); }
-            break;
+        case 'addToQueue': addAnthropicToQueue(false); break;
+        case 'addToQueuePanelTarget': addAnthropicToQueue(true); break;
         case 'addToQueueNext': addAnthropicToQueue(false, true); break;
         case 'addToQueueNextPanelTarget': addAnthropicToQueue(true, true); break;
         case 'openQueueEditor': vscode.postMessage({ type: 'openQueueEditor' }); break;
-        case 'openTimedRequestsEditor': vscode.postMessage({ type: 'openTimedRequestsEditor' }); break;
-        case 'openTrailRawFiles': vscode.postMessage({ type: 'openTrailRawFiles', section: id || '' }); break;
-        case 'openTrailSummaryViewer': vscode.postMessage({ type: 'openTrailSummaryViewer', section: id || '' }); break;
         case 'pickAnthropicSession': vscode.postMessage({ type: 'pickAnthropicSession' }); break;
         case 'pickChatRunSession': vscode.postMessage({ type: 'pickChatRunSession' }); break;
         case 'pickChatRun': vscode.postMessage({ type: 'pickChatRun', section: id }); break;
-        case 'saveAsTimedRequest': { var trText = document.getElementById('copilot-text'); trText = trText ? trText.value : ''; if (!trText.trim()) {return;} var trTpl = document.getElementById('copilot-template'); trTpl = trTpl ? trTpl.value : ''; vscode.postMessage({ type: 'saveAsTimedRequest', text: trText, template: trTpl }); break; }
         case 'openChatVariablesEditor': vscode.postMessage({ type: 'openChatVariablesEditor' }); break;
         case 'openProcessEditor': vscode.postMessage({ type: 'openProcessEditor' }); break;
         case 'openRoleEditor': vscode.postMessage({ type: 'openRoleEditor' }); break;
@@ -1274,7 +1177,6 @@ function confirmDelete(itemType, sectionId) {
 }
 
 function populateDropdowns() {
-    populateCopilotTemplates();
     // The run pickers are part of the sections: fill them again after a render.
     renderChatRunSelects();
     // So are the role dropdown and the guideline buttons (gsel6).
@@ -1309,7 +1211,7 @@ function populateDropdowns() {
     if (anthropicProfileSel && anthropicProfileSel.value) {
         vscode.postMessage({ type: 'anthropicProfileSelected', profileId: anthropicProfileSel.value });
     }
-    ['copilot', 'anthropic'].forEach(function(sectionId) {
+    ['anthropic'].forEach(function(sectionId) {
         populateReusablePromptSelectors(sectionId);
     });
 }
@@ -1558,18 +1460,6 @@ function escapeAttr(v) {
     return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// The Copilot template dropdown: No template and the user-message templates, the
-// one template store. A saved selection that is gone falls back to No template.
-function populateCopilotTemplates() {
-    var sel = document.getElementById('copilot-template');
-    if (!sel) {return;}
-    var cur = wantedSelectValue(sel);
-    sel.innerHTML = runDefaultOptionHtml('copilot', 'template') + '<option value="">No template</option>' + copilotTemplateEntries.map(function(t) {
-        return '<option value="' + escapeAttr(t.id) + '">' + escapeAttr(t.name || t.id) + '</option>';
-    }).join('');
-    sel.value = (cur === RUN_DEFAULT_CHOICE || copilotTemplateEntries.some(function(t) { return t.id === cur; })) ? cur : '';
-}
-
 function populateEntitySelect(id, options, defaultLabel) {
     var sel = document.getElementById(id);
     if (!sel) {return;}
@@ -1595,7 +1485,6 @@ window.addEventListener('message', function(e) {
     // component (its own message listener), not here.
     if (msg.type === 'profiles') {
         profiles = { anthropic: msg.anthropic || [] };
-        copilotTemplateEntries = Array.isArray(msg.copilotTemplates) ? msg.copilotTemplates : [];
         anthropicConfigurations = msg.anthropicConfigurations || [];
         anthropicProfileEntries = msg.anthropicProfileEntries || [];
         anthropicUserMessageTemplates = msg.anthropicUserMessageTemplates || [];
@@ -1702,7 +1591,7 @@ window.addEventListener('message', function(e) {
         reusablePreferredQuestId = msg.preferredQuestId || '';
         reusablePreferredProjectId = msg.preferredProjectId || '';
         reusablePreferredScanId = msg.preferredScanId || '';
-        ['copilot', 'anthropic'].forEach(function(sectionId) {
+        ['anthropic'].forEach(function(sectionId) {
             populateReusablePromptSelectors(sectionId);
         });
     } else if (msg.type === 'reusablePromptContent') {
@@ -1719,75 +1608,12 @@ window.addEventListener('message', function(e) {
                 saveDrafts();
             }
         }
-    } else if (msg.type === 'answerFileStatus') {
-        copilotHasAnswer = !!msg.hasAnswer;
-        copilotAnswerSlot = msg.answerSlot || 0;
-        updateSlotButtonsUI('copilot');
-        refreshCopilotAnswerToolbarVisibility();
-        var indicator = document.getElementById('copilot-answer-indicator');
-        if (indicator && msg.hasAnswer) {
-            var slotNo = msg.answerSlot || 1;
-            indicator.innerHTML = 'Answer Ready <span class="answer-slot-badge">' + slotNo + '</span>';
-        }
-    } else if (msg.type === 'autoHideDelay') {
-        var select = document.getElementById('copilot-autohide');
-        if (select) {select.value = String(msg.value || 0);}
-    } else if (msg.type === 'keepContent') {
-        var cb = document.getElementById('copilot-keep-content');
-        if (cb) {cb.checked = msg.value;}
-    } else if (msg.type === 'clearCopilotText') {
-        var ta = document.getElementById('copilot-text');
-        if (ta) {
-            ta.value = '';
-            setSlotText('copilot', ensureSlotState('copilot').activeSlot, '');
-            saveDrafts();
-        }
-    } else if (msg.type === 'contextSummary') {
-        var summaryEl = document.getElementById('copilot-context-summary');
-        if (summaryEl) {summaryEl.textContent = msg.text || '';}
     } else if (msg.type === 'queueAdded' && msg.section === 'anthropic') {
         // The ANTHROPIC slot the prompt was queued from: cleared unless it keeps its text.
         var queuedSlot = parseInt(String(msg.slot || ensureSlotState('anthropic').activeSlot), 10);
         if (queuedSlot >= 1 && queuedSlot <= 9) { clearSlotUnlessKept('anthropic', queuedSlot); }
-    } else if (msg.type === 'queueAdded') {
-        // Clear textarea after successful queue add (respecting keep checkbox)
-        var keepCb = document.getElementById('copilot-keep-content');
-        if (!keepCb || !keepCb.checked) {
-            var ta = document.getElementById('copilot-text');
-            if (ta) {
-                ta.value = '';
-                setSlotText('copilot', ensureSlotState('copilot').activeSlot, '');
-            }
-        }
-        // Flash the send button green briefly
-        var sendBtn = document.getElementById('copilot-send-btn');
-        if (sendBtn) {
-            sendBtn.style.background = 'var(--vscode-charts-green, #388a34)';
-            setTimeout(function() { sendBtn.style.background = ''; }, 600);
-        }
     } else if (msg.type === 'draftsLoaded') {
         var secs = msg.sections || {};
-        ['copilot'].forEach(function(s) {
-            var d = secs[s];
-            if (!d) {return;}
-            var sectionState = ensureSlotState(s);
-            if (d.slots && typeof d.slots === 'object') {
-                sectionState.slots = d.slots;
-            }
-            if (d.activeSlot && d.activeSlot >= 1 && d.activeSlot <= 9) {
-                sectionState.activeSlot = d.activeSlot;
-            }
-            var ta = document.getElementById(s + '-text');
-            if (ta) {
-                var slotText = getSlotText(s, sectionState.activeSlot);
-                ta.value = slotText || d.text || '';
-            }
-            var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
-            var sel = document.getElementById(profileId);
-            if (sel && d.profile) { sel.value = d.profile; sel.setAttribute('data-want', d.profile); }
-            restoreQueueMode(s, d);
-            updateSlotButtonsUI(s);
-        });
         // Restore Anthropic-specific state
         var da = secs['anthropic'];
         if (da) {
@@ -1808,7 +1634,6 @@ window.addEventListener('message', function(e) {
             updateSlotButtonsUI('anthropic');
             updateSlotKeepUI('anthropic');
         }
-        refreshCopilotAnswerToolbarVisibility();
         _draftsLoaded = true;
     }
 });
@@ -1824,17 +1649,6 @@ function restoreQueueMode(sectionId, draft) {
     saveState();
 }
 
-function sendCopilotPrompt() {
-    var text = document.getElementById('copilot-text');
-    text = text ? text.value : '';
-    if (!text.trim()) {return;}
-    var template = document.getElementById('copilot-template');
-    template = template ? template.value : '';
-    var wrapEl = document.getElementById('copilot-wrap');
-    var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'sendCopilot', text: text, template: template, slot: slot, wrap: !!(wrapEl && wrapEl.checked) });
-}
-
 // Normalize a repeat-count input value for the queue. Purely-numeric input
 // becomes an integer (min 1); any other non-empty string (a chat-variable
 // name, or a `prefix*` pattern like `tod*`) is preserved verbatim so it
@@ -1846,24 +1660,6 @@ function normalizeRepeatField(raw) {
     if (v === '') { return 1; }
     if (/^[0-9]+$/.test(v)) { return Math.max(1, parseInt(v, 10)); }
     return v;
-}
-
-/** Copilot's Save to Queue: the default run with the queue's template, or (usePanelTarget) this panel's run and template. */
-function addCopilotToQueue(usePanelTarget) {
-    var text = document.getElementById('copilot-text');
-    text = text ? text.value : '';
-    if (!text.trim()) {return;}
-    var template = document.getElementById('copilot-template');
-    template = template ? template.value : '';
-    var repeatEl = document.getElementById('copilot-repeat-count');
-    var repeatCount = normalizeRepeatField(repeatEl ? repeatEl.value : '1');
-    var waitEl = document.getElementById('copilot-answer-wait');
-    var answerWaitMinutes = Math.max(0, parseInt(String(waitEl ? waitEl.value : '0'), 10) || 0);
-    var slot = ensureSlotState('copilot').activeSlot;
-    vscode.postMessage({ type: 'addToQueue', text: text, template: template, repeatCount: repeatCount, answerWaitMinutes: answerWaitMinutes, section: 'copilot', slot: slot, initialStatus: queueInitialStatus('copilot'), ...(usePanelTarget ? { usePanelTarget: true } : {}) });
-    // Reset the repeat count to 1 so the next simple prompt isn't accidentally
-    // queued again with a leftover (high) repeat count.
-    if (repeatEl) { repeatEl.value = '1'; }
 }
 
 function addAnthropicToQueue(usePanelTarget, next) {
@@ -1942,23 +1738,8 @@ document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape' && overlay && overlay.style.display !== 'none') { closeExtensionTools(); }
 });
 
-function initCopilotSection() {
-    var autohideSelect = document.getElementById('copilot-autohide');
-    if (autohideSelect) {
-        autohideSelect.addEventListener('change', function() {
-            vscode.postMessage({ type: 'setAutoHideDelay', value: parseInt(this.value, 10) });
-        });
-    }
-    var keepContentCb = document.getElementById('copilot-keep-content');
-    if (keepContentCb) {
-        keepContentCb.addEventListener('change', function() {
-            vscode.postMessage({ type: 'setKeepContent', value: this.checked });
-        });
-    }
-}
-
 function initReusablePromptSelectors() {
-    ['copilot', 'anthropic'].forEach(function(sectionId) {
+    ['anthropic'].forEach(function(sectionId) {
         var typeSel = document.getElementById(sectionId + '-reusable-type');
         if (typeSel) {
             typeSel.addEventListener('change', function() {
@@ -1995,16 +1776,11 @@ function initReusablePromptSelectors() {
 loadState();
 render();
 initToggleButtons();
-initCopilotSection();
 initReusablePromptSelectors();
 vscode.postMessage({ type: 'getProfiles' });
 // The role dropdown and the guideline buttons (gsel6).
 vscode.postMessage({ type: 'getChatAspects' });
 vscode.postMessage({ type: 'getReusablePrompts' });
-vscode.postMessage({ type: 'getAutoHideDelay' });
-vscode.postMessage({ type: 'getKeepContent' });
-vscode.postMessage({ type: 'checkAnswerFile' });
-vscode.postMessage({ type: 'getContextSummary' });
 // Last: the host may now show tool-approval requests (it re-sends the open ones).
 vscode.postMessage({ type: 'approvalUiReady' });
 vscode.postMessage({ type: 'loadDrafts' });
@@ -2019,22 +1795,6 @@ function saveDrafts() {
     clearTimeout(_draftSaveTimer);
     _draftSaveTimer = setTimeout(function() {
         var drafts = {};
-        ['copilot'].forEach(function(s) {
-            var ta = document.getElementById(s + '-text');
-            var profileId = s === 'copilot' ? s + '-template' : s + '-profile';
-            var sel = document.getElementById(profileId);
-            var sectionState = ensureSlotState(s);
-            if (ta) {
-                setSlotText(s, sectionState.activeSlot, ta.value || '');
-            }
-            drafts[s] = {
-                text: ta ? ta.value : '',
-                profile: sel ? sel.value : '',
-                activeSlot: sectionState.activeSlot,
-                slots: sectionState.slots,
-                queuePending: queueInitialStatus(s) === 'pending',
-            };
-        });
         // Anthropic section — save Anthropic-specific dropdowns in addition to the standard fields
         var anthrTa = document.getElementById('anthropic-text');
         var anthrSectionState = ensureSlotState('anthropic');
@@ -2055,11 +1815,11 @@ function saveDrafts() {
     }, 1000);
 }
 // Attach save to all textareas and dropdowns
-['copilot-text', 'anthropic-text'].forEach(function(id) {
+['anthropic-text'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('input', saveDrafts);}
 });
-['copilot-template', 'anthropic-profile'].forEach(function(id) {
+['anthropic-profile'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {el.addEventListener('change', saveDrafts);}
 });
@@ -2068,7 +1828,7 @@ function saveDrafts() {
     if (el) {el.addEventListener('change', saveDrafts);}
 });
 // A pick replaces the value restored from the drafts (wantedSelectValue).
-['copilot-template', 'anthropic-profile', 'anthropic-userMessage'].forEach(function(id) {
+['anthropic-profile', 'anthropic-userMessage'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) { el.addEventListener('change', function() { el.removeAttribute('data-want'); }); }
 });

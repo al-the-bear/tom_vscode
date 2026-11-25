@@ -84,7 +84,7 @@ export interface NotificationUser {
 /** Who did it. */
 export interface NotificationWho {
     kind: 'agent' | 'user' | 'extension';
-    /** An agent's transport (anthropic, mcp, copilot, …). */
+    /** An agent's transport (anthropic, mcp, …). */
     transport?: string;
     profile?: string;
     session?: string;

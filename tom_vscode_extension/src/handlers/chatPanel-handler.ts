@@ -8,7 +8,7 @@
  * 
  * Sections:
  * - Anthropic
- * - Copilot
+ * - Logs
  */
 
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
@@ -18,12 +18,10 @@ import { agentSdkAvailable } from '../services/providerRuntime';
 import { locateAgentSdkCli } from '../services/agentSdkCli';
 import { wireQuestHintMessages } from './questHint-handler';
 import { ApprovalRelay } from '../utils/approvalRelay';
-import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody, userMessageTemplateOptions } from '../utils/copilotTemplates';
 import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { pickSessions } from './sessionSelectionPicker';
 import * as vscode from 'vscode';
-import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
-import { chatPanelChoices, chatSendAspectChoices, liveAspectChoices } from '../services/aspectChoiceLevels';
+import { chatPanelChoices, chatSendAspectChoices } from '../services/aspectChoiceLevels';
 import { aspectPickerState } from '../services/aspectPickerState';
 import { runWithQueueRole } from '../services/queueRoleContext';
 import { handleAspectPickerMessage } from './aspectPickerMessages';
@@ -33,7 +31,8 @@ import { windowWorkspaceQuests } from '../services/aiWorkspaceLive';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, updateChatResponseValues, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { loadSendToChatConfig, saveSendToChatConfig, showPreviewPanel, reportException, escapeHtml, openInExternalApplication } from './handler_shared';
+import { getWorkspaceName } from '../utils/panelYamlStore';
 import { openGlobalTemplateEditor, TemplateCategory } from './globalTemplateEditor-handler';
 import { openReusablePromptEditor } from './reusablePromptEditor-handler';
 import { debugLog } from '../utils/debugLogger';
@@ -71,43 +70,6 @@ import { saveChatDrafts, loadChatDrafts } from '../services/chatDraftService';
 import { wireCompletionMessages } from '../utils/completionWiring';
 import { NO_API_KEY_LABEL, directApiKeyEnvVar, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 
-// ============================================================================
-// Answer File Utilities (for Copilot answer file feature)
-//
-// Extracted to `../services/copilotAnswerService.ts` as part of Wave 3.2.
-// Imports below keep the short in-file names used throughout this
-// handler unchanged so existing call sites stay readable.
-// ============================================================================
-
-import {
-    getWindowId,
-    getAnswerFilePath,
-    isAnswerJsonFilename,
-    generateRequestId,
-    answerFileExists,
-    deleteAnswerFile,
-    readAnswerFile,
-    getCopilotAnswersMdPath,
-    logCopilotPrompt,
-} from '../services/copilotAnswerService';
-
-// ============================================================================
-// Trail Logging System
-//
-// Extracted to `../services/copilotTrailService.ts` as part of Wave 3.2.
-// Re-exports preserve the external surface (todoLogPanel imports
-// `getTrailFolder` / `getCopilotSummaryTrailPaths` from this module).
-// ============================================================================
-
-import {
-    getTrailFolder,
-    getIndividualTrailFolder,
-    getTrailFilePrefix,
-    getCopilotSummaryTrailPaths,
-    getWorkspaceName,
-    writePromptTrail,
-    writeAnswerTrail,
-} from '../services/copilotTrailService';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { getQuestLogsClientConfig, getQuestLogsHtmlFragment, handleQuestLogsMessage } from './questLogs-handler';
 import { isPlanModeActive, leavePlanModeByUser, onPlanModeChanged, registerPlanDecider, type PlanDecision } from '../tools/planning-tools';
@@ -118,37 +80,14 @@ import { runInProcessPosition, type ProcessRun } from '../services/processRunCon
 import { DEFAULT_RUN } from '../utils/processRuns';
 import type { LiveTrailTokenCounts } from '../services/live-trail';
 import { assistProgress } from '../services/assistProgress';
-import { AUTO_HIDE_STATE_KEY, normalizeAutoHideDelay } from '../utils/copilotAutoHide';
 import { registerAskCancel } from '../services/askOwners';
 import { extensionToolsForWebview, openExtensionTool } from '../utils/extensionToolsCatalog';
 
-// Re-export the trail helpers that external modules (todoLogPanel,
-// windowStatusPanel) import from this module today. Keeps their
-// imports working without a cross-file rename.
-export {
-    getTrailFolder,
-    getIndividualTrailFolder,
-    getTrailFilePrefix,
-    getCopilotSummaryTrailPaths,
-};
-
 const VIEW_ID = 'tomAi.chatPanel';
-
-/** How often the chat panel checks the answer file when its watcher failed. */
-const ANSWER_POLL_MS = 3000;
 
 class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
-    private _answerFileWatcher?: fs.FSWatcher;
-    /** Checks the answer file when the watcher failed (see _setupAnswerFileWatcher). */
-    private _answerPollTimer?: ReturnType<typeof setInterval>;
-    private _autoHideDelay: number = 0; // 0 = keep open, otherwise ms
-    private _keepContentAfterSend: boolean = false;
-    private _lastLoggedAnswerId: string = ''; // Track last logged answer to avoid duplicates
-    private _lastSentCopilotSlot: number = 1;
-    private _currentAnswerSlot: number = 1;
-    private _copilotRequestSlotMap: Map<string, number> = new Map();
     /**
      * Active cancellation-token sources keyed by section. Created when a send
      * starts, cancelled from the panel's stop button, disposed on completion.
@@ -187,9 +126,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             if (!active) { this._settlePlanProposals({ accepted: true }, run); }
         });
         context.subscriptions.push({ dispose: () => { stopPlanFollow(); registerPlanDecider(undefined); } });
-        this._autoHideDelay = normalizeAutoHideDelay(context.workspaceState.get(AUTO_HIDE_STATE_KEY, 0));
-        this._keepContentAfterSend = context.workspaceState.get('copilotKeepContent', false);
-        this._setupAnswerFileWatcher();
         this._registerChatProviders();
         // Why here and not at the first panel send: a queue item's tool can
         // ask for approval before the panel ever sent anything.
@@ -352,96 +288,14 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             },
         });
 
-        // Copilot — no non-default hooks today, but the registration
-        // keeps the section discoverable and documents that it uses
-        // the default fallbacks (send-via-Copilot, no extras, no
-        // cancel primitive — Copilot writes to a file and waits).
-        chatProviders.register('copilot', {});
     }
 
-    private _setupAnswerFileWatcher(): void {
-        const answerDir = path.dirname(getAnswerFilePath());
-        // Ensure directory exists
-        if (!fs.existsSync(answerDir)) {
-            fs.mkdirSync(answerDir, { recursive: true });
-        }
-        
-        // Watch the directory for changes
-        this._answerFileWatcher = fs.watch(answerDir, (_eventType, filename) => {
-            const expectedFile = path.basename(getAnswerFilePath());
-            const filenameStr = typeof filename === 'string' ? filename : undefined;
-            if (!filenameStr || filenameStr === expectedFile || isAnswerJsonFilename(filenameStr)) {
-                this._notifyAnswerFileStatus();
-            }
-        });
-        // A watcher can fail after it started (EMFILE when the machine runs out
-        // of watch handles); unhandled, that is an uncaught exception. Drop it
-        // and look for the answer by polling instead.
-        this._answerFileWatcher.on('error', (err: NodeJS.ErrnoException) => {
-            debugLog(`[ChatPanel] answer-file watcher failed (${err.code ?? err.message}); polling every ${ANSWER_POLL_MS} ms`, 'WARN', 'extension');
-            this._answerFileWatcher?.close();
-            this._answerFileWatcher = undefined;
-            if (!this._answerPollTimer) {
-                this._answerPollTimer = setInterval(() => this._notifyAnswerFileStatus(), ANSWER_POLL_MS);
-            }
-        });
-    }
-
-    private _notifyAnswerFileStatus(): void {
-        const exists = answerFileExists();
-        const answer = exists ? readAnswerFile() : undefined;
-        let answerSlot = this._currentAnswerSlot;
-
-        if (answer?.requestId) {
-            const mappedSlot = this._copilotRequestSlotMap.get(answer.requestId);
-            if (mappedSlot) {
-                answerSlot = mappedSlot;
-                this._copilotRequestSlotMap.delete(answer.requestId);
-            } else {
-                answerSlot = this._lastSentCopilotSlot;
-            }
-            this._currentAnswerSlot = answerSlot;
-        }
-        
-        // Propagate responseValues to shared store for ${chat.KEY} access
-        if (answer?.responseValues && typeof answer.responseValues === 'object') {
-            updateChatResponseValues(answer.responseValues);
-        }
-        
-        // Auto-write to answer trail when a new answer is detected
-        // Fix: validate requestId — if it looks like an unresolved template placeholder, generate a new one
-        let answerRequestId = answer?.requestId;
-        if (answerRequestId && /\{\{.*\}\}/.test(answerRequestId)) {
-            answerRequestId = generateRequestId();
-        }
-        if (answer?.generatedMarkdown && answerRequestId && answerRequestId !== this._lastLoggedAnswerId) {
-            this._lastLoggedAnswerId = answerRequestId;
-            writeAnswerTrail({
-                requestId: answerRequestId,
-                generatedMarkdown: answer.generatedMarkdown,
-                comments: answer.comments,
-                references: answer.references,
-                requestedAttachments: answer.requestedAttachments,
-                responseValues: answer.responseValues
-            });
-        }
-        
-        this._view?.webview.postMessage({
-            type: 'answerFileStatus',
-            exists,
-            hasAnswer: !!answer?.generatedMarkdown,
-            answerSlot,
-        });
-    }
-
+    /** Ends the listeners the view set up (the provider is one of the extension's subscriptions). */
     public dispose(): void {
-        if (this._answerFileWatcher) {
-            this._answerFileWatcher.close();
-        }
-        if (this._answerPollTimer) {
-            clearInterval(this._answerPollTimer);
-            this._answerPollTimer = undefined;
-        }
+        this._summaryListener?.dispose();
+        this._summaryListener = undefined;
+        this._runsListener?.dispose();
+        this._runsListener = undefined;
     }
 
     resolveWebviewView(
@@ -513,11 +367,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'togglePin':
                         // Pin state is handled client-side via localStorage
                         break;
-                    case 'sendCopilot':
-                        if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'copilot', template: message.template })) { break; }
-                        // "Run default": the panel's run's default template, looked up now.
-                        await this._handleSendCopilot(message.text, resolveRunDefaultChoice(message.template, this._runSettings(this._chatRun('copilot')).defaultMessageTemplateId), message.slot, message.wrap === true);
-                        break;
                     case 'sendAnthropic':
                         if (this._isDuplicateSend({ text: String(message.text ?? ''), transport: 'anthropic', profile: message.profile, template: message.userMessageTemplate })) {
                             // The webview set itself to "sending": tell it what happened.
@@ -579,7 +428,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         const current = this._chatRun(section);
                         const picked = await vscode.window.showQuickPick(
                             chatRunOptions(runs, windowRun, subjects).map((o) => ({ label: `${o.run === current ? '$(check) ' : ''}${o.label}`, run: o.run })),
-                            { title: `Run of the ${section === 'anthropic' ? 'ANTHROPIC/LLM' : 'Copilot'} subpanel`, placeHolder: `Current: ${current}` },
+                            { title: 'Run of the ANTHROPIC/LLM subpanel', placeHolder: `Current: ${current}` },
                         );
                         if (!picked) { break; }
                         await this._setChatRun(section, picked.run);
@@ -744,50 +593,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'deleteProfile':
                         await this._handleDeleteProfile(message.section, message.name);
                         break;
-                    case 'addTemplate':
-                        await this._handleAddTemplate(message.section);
-                        break;
-                    case 'editTemplate':
-                        await this._handleEditTemplate(message.section, message.name);
-                        break;
-                    case 'deleteTemplate':
-                        await this._handleDeleteTemplate(message.section, message.name);
-                        break;
                     case 'preview':
-                        await this._handlePreview(message.section, message.text, message.profile || message.template, message.wrap === true);
-                        break;
-                    case 'setAutoHideDelay':
-                        // The Copilot action bar's Auto-hide dropdown (vscimpb74), kept per window.
-                        this._autoHideDelay = normalizeAutoHideDelay(message.value);
-                        await this._context.workspaceState.update(AUTO_HIDE_STATE_KEY, this._autoHideDelay);
-                        break;
-                    case 'getAutoHideDelay':
-                        this._view?.webview.postMessage({ type: 'autoHideDelay', value: this._autoHideDelay });
-                        break;
-                    case 'checkAnswerFile':
-                        this._notifyAnswerFileStatus();
-                        break;
-                    case 'showAnswerViewer':
-                        await this._showAnswerViewer();
-                        break;
-                    case 'extractAnswer':
-                        await this._extractAnswerToMd();
-                        break;
-                    case 'setKeepContent':
-                        this._keepContentAfterSend = message.value;
-                        this._context.workspaceState.update('copilotKeepContent', message.value);
-                        break;
-                    case 'getKeepContent':
-                        this._view?.webview.postMessage({ type: 'keepContent', value: this._keepContentAfterSend });
-                        break;
-                    case 'openPromptsFile':
-                        await this._openPromptsFile();
-                        break;
-                    case 'openAnswersFile':
-                        await this._openAnswersFile();
-                        break;
-                    case 'getContextSummary':
-                        this._sendContextSummary();
+                        await this._handlePreview(message.section, message.text);
                         break;
                     // The Extension Tools overlay: an entry of the catalogue by id (the webview never names a command).
                     case 'openExtensionTool':
@@ -798,7 +605,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'addToQueue':
                         if (this._queueAddGuard.isDuplicate({
                             text: String(message.text ?? ''),
-                            transport: message.transport || 'copilot',
+                            transport: 'anthropic',
                             profile: message.anthropicProfileId,
                             template: message.template,
                         })) {
@@ -809,9 +616,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             message.text,
                             message.template,
                             message.repeatCount,
-                            message.answerWaitMinutes,
                             {
-                                transport: message.transport,
                                 anthropicProfileId: message.anthropicProfileId,
                                 anthropicConfigId: message.anthropicConfigId,
                                 usePanelTarget: message.usePanelTarget === true,
@@ -845,35 +650,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openProcessEditor':
                         await vscode.commands.executeCommand('tomAi.editor.process');
                         break;
-                    case 'openTimedRequestsEditor':
-                        await vscode.commands.executeCommand('tomAi.editor.timedRequests');
-                        break;
-                    // openTrailRawFiles = Raw Trail Files Viewer (the grouped-exchanges
-                    // webview panel over _ai/trail/{subsystem}/{quest}/). Forwards the
-                    // originating section as a subsystem hint so the dropdown lands
-                    // on the right subsystem.
-                    case 'openTrailRawFiles':
-                        // The Copilot section's raw trail; an Anthropic session's is opened
-                        // from the @CHAT Logs panel (runChatSessionAction).
-                        await vscode.commands.executeCommand(
-                            'tomAi.editor.rawTrailViewer',
-                            undefined,
-                            message.section || undefined,
-                        );
-                        break;
-                    case 'openTrailSummaryViewer': {
-                        // Wave 3.3 — route through the chat-provider
-                        // registry. Anthropic registers its own trail
-                        // summary opener; every other section falls
-                        // through to the shared default.
-                        const provider = chatProviders.get(message.section);
-                        if (provider?.openTrailSummary) {
-                            await provider.openTrailSummary();
-                        } else {
-                            await this._openTrailFiles();
-                        }
-                        break;
-                    }
                     case 'openStatusPage':
                         await vscode.commands.executeCommand('tomAi.statusPage');
                         break;
@@ -935,17 +711,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     case 'openQuestMemoryInMdBrowser':
                         await this._openMemoryMarkdown();
                         break;
-                    case 'saveAsTimedRequest':
-                        await this._saveAsTimedRequest(message.text, message.template);
-                        break;
                     case 'saveDrafts':
                         await this._saveDrafts(message.drafts);
                         break;
                     case 'loadDrafts':
                         await this._loadDrafts();
-                        break;
-                    case 'showPanelsFile':
-                        await this._showPanelsFile();
                         break;
                 }
             },
@@ -1002,7 +772,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     }
 
     /** A run's queue settings (its defaults); none without a prompt queue. */
-    private _runSettings(run: string): { defaultTransport?: 'copilot' | 'anthropic'; defaultAnthropicProfileId?: string; defaultAnthropicConfigId?: string; defaultAgentSdkSession?: string; defaultMessageTemplateId?: string } {
+    private _runSettings(run: string): { defaultTransport?: 'anthropic'; defaultAnthropicProfileId?: string; defaultAnthropicConfigId?: string; defaultAgentSdkSession?: string; defaultMessageTemplateId?: string } {
         try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const queue = (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance;
@@ -1143,12 +913,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
     private _runsListener?: { dispose(): void };
     private _summaryListener?: { dispose(): void };
 
-    /** The Copilot status line's context summary (Q: quest | R: role) follows the chat variables while the view lives. */
+    /** The Run selects follow a run's subject (what it works on) while the view lives. */
     private _watchContextSummary(view: vscode.WebviewView): void {
         try {
             this._summaryListener?.dispose();
             this._summaryListener = ChatVariablesStore.instance.onDidChange((e) => {
-                if (this._view === view && (e.key === 'quest' || e.key === 'role')) { this._sendContextSummary(); }
                 // A run named what it works on: the Run selects show it.
                 if (this._view === view && e.key === PROCESS_SUBJECT_VARIABLE) { this._sendChatRuns(); }
             });
@@ -1289,8 +1058,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
         this._view?.webview.postMessage({
             type: 'profiles',
-            // The Copilot template dropdown: the one template store.
-            copilotTemplates: userMessageTemplateOptions(config).map((t) => ({ id: t.id, name: t.label })),
             anthropic: anthropicProfiles,
             anthropicConfigurations,
             anthropicProfileEntries,
@@ -1517,15 +1284,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         // Route by originating section so the Send icon behaves like typing
-        // the reusable prompt into the section's textarea and clicking Send
-        // (spec: user expectation). Sections without a `sendReusablePrompt`
-        // hook fall back to Copilot for backwards compatibility.
-        const provider = chatProviders.get(section);
-        if (provider?.sendReusablePrompt) {
-            await provider.sendReusablePrompt(content, anthropicState as Record<string, unknown>);
-            return;
-        }
-        await this._handleSendCopilot(content, '__answer_file__', 1);
+        // the reusable prompt into the section's textarea and clicking Send.
+        await chatProviders.get(section ?? 'anthropic')?.sendReusablePrompt?.(content, anthropicState as Record<string, unknown>);
     }
 
     private async _openReusablePromptInEditor(section: string, reusableId: string): Promise<void> {
@@ -1650,26 +1410,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         void this._sendReusablePrompts();
     }
 
-    private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
-        const regexes = [
-            /"requestId"\s*:\s*"([^"]+)"/,
-            /requestId\s*[:=]\s*['"]([^'"]+)['"]/,
-        ];
-        for (const re of regexes) {
-            const match = expanded.match(re);
-            if (match?.[1]) {
-                return match[1].trim();
-            }
-        }
-        return undefined;
-    }
-
-    /**
-     * Send to Copilot Chat: the text in the chosen template (one store, the
-     * Anthropic user-message templates), put into the Copilot Queue Wrapper when
-     * `wrap` is on (the panel's Wrap checkbox; `__answer_file__` as the template
-     * means "no template, wrapped").
-     */
     /** The double-click guard (src/utils/duplicateSubmitGuard.ts): queue adds and sends, each its own. */
     private readonly _queueAddGuard = new DuplicateSubmitGuard();
     private readonly _sendGuard = new DuplicateSubmitGuard();
@@ -1679,55 +1419,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         if (!this._sendGuard.isDuplicate(fields)) { return false; }
         vscode.window.setStatusBarMessage('$(info) Already sent: an identical send within 3 s was ignored', 4000);
         return true;
-    }
-
-    private async _handleSendCopilot(text: string, template: string, slot?: number, wrap?: boolean): Promise<void> {
-        const config = loadSendToChatConfig();
-        const isAnswerFileTemplate = wrap === true || template === ANSWER_WRAPPER_ID;
-        const panelSlot = Number.isInteger(slot) && (slot as number) >= 1 && (slot as number) <= 9 ? (slot as number) : 1;
-        this._lastSentCopilotSlot = panelSlot;
-
-        // Always log the prompt (before expansion)
-        logCopilotPrompt(text, template);
-
-        const body = userMessageTemplateBody(config, template);
-        // The placeholders resolve as the subpanel's run: its chat variables and process position.
-        const runContext = this._chatRunContext('copilot');
-        const expandAsRun = (t: string): Promise<string> => runInProcessPosition(runContext, () => expandTemplate(t));
-        let expanded = body ? await expandAsRun(fillTemplate(body, text)) : await expandAsRun(text);
-        if (isAnswerFileTemplate) {
-            // Delete the existing answer file before sending, so a stale one is not read as the answer.
-            deleteAnswerFile();
-            this._notifyAnswerFileStatus();
-            expanded = await expandAsRun(fillWrapper(copilotQueueWrapper(config), expanded));
-        }
-
-        // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
-        // Its levels: the live ones with the panel's run and sticky choices (gsel4).
-        expanded = withAspectsForCopilot(expanded, liveAspectChoices(chatSendAspectChoices('copilot', this._chatRun('copilot'))));
-
-        // Extract requestId from expanded prompt so trail and answer share the same ID
-        const requestId = this._extractRequestIdFromExpandedPrompt(expanded);
-
-        // Write to trail (consolidated + individual files)
-        writePromptTrail(text, template, isAnswerFileTemplate, expanded, requestId);
-        if (requestId) {
-            this._copilotRequestSlotMap.set(requestId, panelSlot);
-        }
-        
-        await vscode.commands.executeCommand('workbench.action.chat.open', { query: expanded });
-        
-        // Clear the textarea if keepContent is false
-        if (!this._keepContentAfterSend) {
-            this._view?.webview.postMessage({ type: 'clearCopilotText' });
-        }
-        
-        // Apply auto-hide if configured
-        if (this._autoHideDelay > 0) {
-            setTimeout(() => {
-                vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
-            }, this._autoHideDelay);
-        }
     }
 
     /**
@@ -1782,13 +1473,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * Mirror an Anthropic chat-panel turn into the window-status panel
      * so the sidebar's `anthropic` dot reflects this window's panel
      * activity (orange while waiting, green once the turn returns). Uses
-     * the same windowId/workspace/quest source as the Copilot trail so
-     * all subsystem dots land on a single window card. Best-effort —
+     * the window's id, workspace and quest, so all subsystem dots land on
+     * a single window card. Best-effort —
      * a status-panel failure must never break the chat send.
      */
     private _updateAnthropicWindowStatus(status: 'prompt-sent' | 'answer-received'): void {
         try {
-            writeWindowState(getWindowId(), getWorkspaceName(), WsPaths.getWorkspaceQuestId(), 'anthropic', status);
+            writeWindowState(`${vscode.env.sessionId.substring(0, 8)}_${vscode.env.machineId.substring(0, 8)}`, getWorkspaceName(), WsPaths.getWorkspaceQuestId(), 'anthropic', status);
         } catch (e) {
             debugLog(`[ChatPanel] Failed to update anthropic window status: ${e}`, 'WARN', 'windowStatus');
         }
@@ -2198,173 +1889,11 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('tomAi.openInMdBrowserLive', uri);
     }
 
-    // =========================================================================
-    // Copilot Answer File Methods
-    // =========================================================================
-
-    private async _showAnswerViewer(): Promise<void> {
-        const answer = readAnswerFile();
-        if (!answer?.generatedMarkdown) {
-            await showMarkdownHtmlPreview(this._context, {
-                title: 'Copilot Answer',
-                markdown: 'No answer file found.',
-                meta: 'No metadata available',
-            });
-            return;
-        }
-
-        const references = (answer.references || []).join(', ');
-        const meta = `Slot ${this._currentAnswerSlot} • Request ID: ${answer.requestId || 'N/A'}${references ? ` • References: ${references}` : ''}`;
-
-        await showMarkdownHtmlPreview(this._context, {
-            title: 'Copilot Answer',
-            markdown: answer.generatedMarkdown,
-            meta,
-        });
-    }
-
-    private async _extractAnswerToMd(): Promise<void> {
-        const answer = readAnswerFile();
-        if (!answer?.generatedMarkdown) {
-            vscode.window.showWarningMessage('No answer to extract');
-            return;
-        }
-        
-        const mdPath = getCopilotAnswersMdPath();
-        const dir = path.dirname(mdPath);
-        
-        // Ensure directory exists
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        
-        // Create marker for this answer
-        const marker = `<!-- answer-id: ${answer.requestId} -->`;
-        
-        // Read existing file or create new
-        let existingContent = '';
-        if (fs.existsSync(mdPath)) {
-            existingContent = fs.readFileSync(mdPath, 'utf-8');
-        }
-        
-        // Check if this answer is already in the file
-        if (existingContent.includes(marker)) {
-            // Just open the file
-            const doc = await vscode.workspace.openTextDocument(mdPath);
-            await vscode.window.showTextDocument(doc, { preview: false });
-            return;
-        }
-        
-        // Format the new entry
-        const timestamp = new Date().toISOString();
-        const entry = `${marker}\n## Answer ${timestamp}\n\n${answer.generatedMarkdown}\n\n`;
-        
-        // Prepend to file (after header if exists)
-        let newContent: string;
-        if (existingContent.startsWith('# ')) {
-            // Find end of first line (header)
-            const headerEnd = existingContent.indexOf('\n');
-            if (headerEnd > 0) {
-                newContent = existingContent.substring(0, headerEnd + 1) + '\n' + entry + existingContent.substring(headerEnd + 1);
-            } else {
-                newContent = existingContent + '\n\n' + entry;
-            }
-        } else if (existingContent.trim()) {
-            newContent = entry + existingContent;
-        } else {
-            newContent = '# Copilot Answers\n\n' + entry;
-        }
-        
-        fs.writeFileSync(mdPath, newContent, 'utf-8');
-        
-        // Write to trail (consolidated + individual files)
-        writeAnswerTrail({
-            requestId: answer.requestId,
-            generatedMarkdown: answer.generatedMarkdown,
-            comments: answer.comments,
-            references: answer.references,
-            requestedAttachments: answer.requestedAttachments,
-            responseValues: answer.responseValues
-        });
-        
-        // Open the file
-        const doc = await vscode.workspace.openTextDocument(mdPath);
-        await vscode.window.showTextDocument(doc, { preview: false });
-    }
-
-    private async _openPromptsFile(): Promise<void> {
-        const summaryPaths = getCopilotSummaryTrailPaths();
-        if (!summaryPaths) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-
-        if (!fs.existsSync(summaryPaths.promptsPath)) {
-            vscode.window.showInformationMessage('No summary prompts trail exists yet. Send a prompt first.');
-            return;
-        }
-        
-        // Open or focus the file
-        const doc = await vscode.workspace.openTextDocument(summaryPaths.promptsPath);
-        await vscode.window.showTextDocument(doc, { preview: false });
-    }
-
-    private async _openAnswersFile(): Promise<void> {
-        const summaryPaths = getCopilotSummaryTrailPaths();
-        if (!summaryPaths) {
-            vscode.window.showWarningMessage('No workspace folder found');
-            return;
-        }
-
-        if (!fs.existsSync(summaryPaths.answersPath)) {
-            vscode.window.showInformationMessage('No summary answers trail exists yet. Extract an answer first.');
-            return;
-        }
-        
-        // Open or focus the file
-        const doc = await vscode.workspace.openTextDocument(summaryPaths.answersPath);
-        await vscode.window.showTextDocument(doc, { preview: false });
-    }
-
-    /**
-     * Open the trail custom editor (tomAi.trailViewer) for the copilot prompts trail file.
-     * Uses TrailService for path resolution so it is consistent with _openAnthropicSummaryTrail.
-     */
-    private async _openTrailFiles(): Promise<void> {
-        const questId = WsPaths.getWorkspaceQuestId();
-        const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'copilot' }, questId);
-        if (!summaryPath || !fs.existsSync(summaryPath)) {
-            vscode.window.showInformationMessage('No Copilot summary trail exists yet. Send a prompt first.');
-            return;
-        }
-        const uri = vscode.Uri.file(summaryPath);
-        await vscode.commands.executeCommand('vscode.openWith', uri, 'tomAi.trailViewer');
-    }
-
-    // ========================================================================
-    // The Copilot status line's context summary + queue integration
-    // ========================================================================
-
-    private _sendContextSummary(): void {
-        let parts: string[] = [];
-        try {
-            const store = ChatVariablesStore.instance;
-            if (store.quest) parts.push('Q:' + store.quest);
-            if (store.role)  parts.push('R:' + store.role);
-        } catch { /* store not yet initialised */ }
-        this._view?.webview.postMessage({
-            type: 'contextSummary',
-            text: parts.length > 0 ? parts.join(' | ') : ''
-        });
-    }
-
     private async _handleAddToQueue(
         text: string,
         template: string,
         repeatCount?: number | string,
-        answerWaitMinutes?: number,
         transportOpts?: {
-            transport?: 'copilot' | 'anthropic';
             anthropicProfileId?: string;
             anthropicConfigId?: string;
             /**
@@ -2384,10 +1913,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
             const queue = PromptQueueManager.instance;
             if (queue) {
-                const transport = transportOpts?.transport ?? 'copilot';
                 const next = transportOpts?.next === true;
                 const panelTarget = transportOpts?.usePanelTarget === true;
-                const section: ChatRunSection = origin?.section === 'anthropic' || (!origin?.section && transport === 'anthropic') ? 'anthropic' : 'copilot';
+                const section: ChatRunSection = 'anthropic';
                 // The panel's target: its run (its session there, `<session>@<run>`); else the default run with the
                 // queue's own settings and default template, nothing from the panel (vscimpb151).
                 const run = panelTarget ? this._chatRun(section) : DEFAULT_RUN;
@@ -2400,22 +1928,17 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // item is processed; only coerce actual numeric input.
                     repeatCount: normalizeRepeatCountInput(repeatCount),
                     templateRepeatCount: undefined,
-                    // answerWait / reminder fields don't apply to anthropic
-                    // items (spec §4.7). Leave them undefined.
-                    answerWaitMinutes: transport === 'copilot' && answerWaitMinutes && answerWaitMinutes > 0
-                        ? answerWaitMinutes
-                        : undefined,
                     // Pending (the queue sends it when it gets there), or staged when the subpanel's
                     // queue mode says so; Queue next is always pending. Save to Queue does not start
                     // a send itself (deferSend): the queue's run loop takes the item.
                     deferSend: !next,
                     initialStatus: !next && transportOpts?.staged ? 'staged' : 'pending',
                     // "Run default" profile with the panel's target: no transport of its own, the run's (vscimpb: run default).
-                    transport: transport === 'anthropic' && !(panelTarget && isRunDefaultChoice(transportOpts?.anthropicProfileId)) ? 'anthropic' : undefined,
+                    transport: !(panelTarget && isRunDefaultChoice(transportOpts?.anthropicProfileId)) ? 'anthropic' : undefined,
                     // Save to Queue / Queue next: the prompt queue's own profile and session (nothing pinned).
                     // With the panel's target (Save to Queue, Queue next): this panel's profile and session,
                     // so the queued prompt continues the panel's conversation as Send would.
-                    ...(transport === 'anthropic' && panelTarget
+                    ...(panelTarget
                         ? {
                             // "Run default" (profile, session): nothing set on the item, it takes the run's when it is sent.
                             ...(isRunDefaultChoice(transportOpts?.anthropicProfileId) ? {} : { anthropicProfileId: transportOpts?.anthropicProfileId, anthropicConfigId: transportOpts?.anthropicConfigId }),
@@ -2424,7 +1947,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                         : {}),
                     // With the panel's target the item carries the panel's role (ANTHROPIC/LLM only) and its
                     // sticky guideline choices as its own (gsel6).
-                    ...(panelTarget ? chatQueueItemFields(section === 'anthropic' ? this._chatRole() : '', chatPanelChoices(section)) : {}),
+                    ...(panelTarget ? chatQueueItemFields(this._chatRole(), chatPanelChoices(section)) : {}),
                     run,
                     // The default run named outright: the queue does not take the run of a Proceed running now.
                     runIsExplicit: true,
@@ -2432,10 +1955,10 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     fromChatPanel: section,
                 });
                 const count = queue.items.length;
-                const where = panelTarget ? `run ${run}${transport === 'anthropic' ? `, session ${runSessionName(this._chatSessionKey(), run)}` : ''}` : `run ${DEFAULT_RUN}`;
+                const where = panelTarget ? `run ${run}, session ${runSessionName(this._chatSessionKey(), run)}` : `run ${DEFAULT_RUN}`;
                 vscode.window.showInformationMessage(next
-                    ? `Queued next (${where}; ${count} items, ${transport})`
-                    : `Added to prompt queue ${transportOpts?.staged ? 'staged' : 'pending'} (${where}; ${count} items, ${transport})`);
+                    ? `Queued next (${where}; ${count} items)`
+                    : `Added to prompt queue ${transportOpts?.staged ? 'staged' : 'pending'} (${where}; ${count} items)`);
                 this._view?.webview.postMessage({ type: 'queueAdded', count, ...(origin?.section ? { section: origin.section } : {}), ...(origin?.slot ? { slot: origin.slot } : {}) });
             } else {
                 vscode.window.showWarningMessage('Prompt queue not available');
@@ -2448,24 +1971,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             const msg = err instanceof Error ? err.message : String(err);
             debugLog(`[ChatPanel] addToQueue failed: ${msg}\n${err instanceof Error ? err.stack ?? '' : ''}`, 'ERROR', 'queue');
             vscode.window.showErrorMessage(`Failed to add prompt to queue: ${msg}`);
-        }
-    }
-
-    private async _saveAsTimedRequest(text: string, template?: string): Promise<void> {
-        try {
-            const { TimerEngine } = await import('../managers/timerEngine.js');
-            const te = TimerEngine.instance;
-            te.addEntry({
-                enabled: false,
-                template: template || '(None)',
-                originalText: text,
-                scheduleMode: 'interval',
-                intervalMinutes: 30,
-                scheduledTimes: [],
-            });
-            vscode.window.showInformationMessage('Saved as timed request (disabled, 30min default). Open Timed Requests editor to configure and enable.');
-        } catch {
-            vscode.window.showWarningMessage('Could not save timed request — TimerEngine not available.');
         }
     }
 
@@ -2494,18 +1999,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({ type: 'draftsLoaded', sections: loaded });
     }
 
-    private async _showPanelsFile(): Promise<void> {
-        try {
-            const { openPromptPanelFile, getPromptPanelFilePath } = await import('../utils/panelYamlStore.js');
-            const section = 'copilot';
-            const promptFile = getPromptPanelFilePath(section);
-            if (promptFile && fs.existsSync(promptFile)) {
-                await openPromptPanelFile(section);
-                return;
-            }
-        } catch { /* not available */ }
-    }
-
     private async _openPromptPanelEditor(section: string, draft: { text?: string; profile?: string; activeSlot?: number; slots?: Record<string, string> }): Promise<void> {
         if (!section) {
             return;
@@ -2525,32 +2018,9 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         } catch { /* not available */ }
     }
 
-    private async _handlePreview(section: string, text: string, profileOrTemplate: string, wrap = false): Promise<void> {
-        const config = loadSendToChatConfig();
-        let title = section;
-        let previewContent = text;
-        let onSend: ((t: string) => Promise<void>) | undefined;
-        
-        switch (section) {
-            case 'copilot': {
-                title = 'Copilot';
-                // As _handleSendCopilot sends it: the template, then the
-                // Copilot Queue Wrapper when Wrap is on.
-                const body = userMessageTemplateBody(config, profileOrTemplate);
-                const inner = body ? await expandTemplate(fillTemplate(body, text)) : text;
-                previewContent = wrap || profileOrTemplate === ANSWER_WRAPPER_ID
-                    ? await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner))
-                    : inner;
-                onSend = async (t) => {
-                    await vscode.commands.executeCommand('workbench.action.chat.open', { query: t });
-                };
-                break;
-            }
-        }
-        
-        // Final expansion for any remaining placeholders
-        const expanded = await expandTemplate(previewContent);
-        await showPreviewPanel(title, expanded, onSend);
+    private async _handlePreview(section: string, text: string): Promise<void> {
+        // The text with its placeholders expanded.
+        await showPreviewPanel(section, await expandTemplate(text));
     }
 
     // --- Profile CRUD (anthropic) ---
@@ -2601,50 +2071,6 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // --- Template CRUD (the Copilot dropdown: user-message templates) ---
-
-    private async _handleAddTemplate(section: string): Promise<void> {
-        const categoryMap: Record<string, TemplateCategory> = {
-            copilot: 'anthropicUserMessage',
-        };
-        const category = categoryMap[section];
-        if (category) {
-            openGlobalTemplateEditor(this._context, { category });
-        }
-    }
-
-    private async _handleEditTemplate(section: string, name?: string): Promise<void> {
-        if (!name) { return; }
-        const categoryMap: Record<string, TemplateCategory> = {
-            copilot: 'anthropicUserMessage',
-        };
-        const category = categoryMap[section];
-        if (category) {
-            openGlobalTemplateEditor(this._context, { category, itemId: name });
-        }
-    }
-
-    private async _handleDeleteTemplate(section: string, name?: string): Promise<void> {
-        if (!name) { return; }
-        const confirm = await vscode.window.showWarningMessage(
-            `Delete template "${name}"?`, { modal: true }, 'Delete'
-        );
-        if (confirm !== 'Delete') { return; }
-
-        const config = loadSendToChatConfig();
-        if (!config) { return; }
-
-        // The Copilot dropdown lists the user-message templates (the one store).
-        const templates = config.anthropic?.userMessageTemplates;
-        if (section !== 'copilot' || !templates?.some((t) => t.id === name)) { return; }
-        config.anthropic!.userMessageTemplates = templates.filter((t) => t.id !== name);
-
-        if (saveSendToChatConfig(config)) {
-            this._sendProfiles();
-            vscode.window.showInformationMessage('Template deleted');
-        }
-    }
-
 }
 
 let _provider: ChatPanelViewProvider | undefined;
@@ -2671,7 +2097,7 @@ export function registerChatPanel(context: vscode.ExtensionContext): void {
         registerGatedWebviewViewProvider(VIEW_ID, _provider, {
             webviewOptions: { retainContextWhenHidden: true }
         }),
-        // Closes the answer-folder watcher and the answer poll timer on deactivate.
+        // Ends the provider's listeners on deactivate.
         _provider,
     );
 }

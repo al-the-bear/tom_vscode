@@ -342,7 +342,6 @@ export class TomScriptingBridgeHandler {
                 const item = await qm.enqueue({
                     originalText: params.promptText,
                     template: params.template || '(None)',
-                    answerWrapper: params.answerWrapper,
                     // Queued right after the item when it is done or fails for good (src/utils/doneNotification.ts).
                     ...(typeof params.doneNotificationPrompt === 'string' && params.doneNotificationPrompt.trim()
                         ? { doneNotificationPrompt: params.doneNotificationPrompt } : {}),
@@ -488,7 +487,6 @@ export class TomScriptingBridgeHandler {
                 const entry = te.addEntry({
                     enabled: true,
                     template: params.template || '(None)',
-                    answerWrapper: params.answerWrapper,
                     originalText: params.promptText,
                     scheduleMode: params.scheduleMode || 'interval',
                     intervalMinutes: params.intervalMinutes,
@@ -501,7 +499,6 @@ export class TomScriptingBridgeHandler {
                 const updates: Partial<TimedRequest> = {};
                 if (params.promptText !== undefined) { updates.originalText = params.promptText; }
                 if (params.template !== undefined) { updates.template = params.template; }
-                if (params.answerWrapper !== undefined) { updates.answerWrapper = params.answerWrapper; }
                 if (params.scheduleMode !== undefined) { updates.scheduleMode = params.scheduleMode; }
                 if (params.intervalMinutes !== undefined) { updates.intervalMinutes = params.intervalMinutes; }
                 if (params.scheduledTimes !== undefined) { updates.scheduledTimes = params.scheduledTimes; }

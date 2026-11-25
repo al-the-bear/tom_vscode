@@ -207,12 +207,12 @@ describe('busy sessions', () => {
         const chat = runningChat('default', { cancel: () => { cancelled++; }, timeoutMs: 60 });
         await wait(20);
         const id = chat.id()!;
-        await assert.rejects(chat.done, /no result within 1 minute \(the prompt queue's response timeout\): the send was stopped/);
+        await assert.rejects(chat.done, /no result within 1 minute \(a chat send's time limit\): the send was stopped/);
         assert.equal(cancelled, 1);
         const item = queue().getById(id)!;
         assert.equal(item.status, 'chat-sent');
         assert.match(String(item.error), /no result within/);
-        assert.equal(chatTimeoutError(60), "no result within 60 minutes (the prompt queue's response timeout): the send was stopped");
+        assert.equal(chatTimeoutError(60), "no result within 60 minutes (a chat send's time limit): the send was stopped");
         clear();
     });
     test('BS-5: chat sends one after another, with the queue reloaded from disk between them', async () => {

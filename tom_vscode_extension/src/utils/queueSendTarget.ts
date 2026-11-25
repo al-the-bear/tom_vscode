@@ -14,7 +14,7 @@ export interface QueueSendTarget {
 const given = (value: string | undefined): string | undefined => (value && value.trim() ? value.trim() : undefined);
 
 /**
- * `via copilot`, or `via anthropic (profile <id>[, configuration <id>][, session <name>])`
+ * `via anthropic (profile <id>[, configuration <id>][, session <name>])`
  * — `default profile` when none is named. The configuration is named only
  * when one is set explicitly (otherwise it is the profile's own).
  */

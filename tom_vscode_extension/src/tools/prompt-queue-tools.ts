@@ -1,6 +1,6 @@
 /**
- * Prompt-queue tools — 14 tools that manipulate the multi-transport
- * Prompt Queue (Copilot Chat + Anthropic via `AnthropicHandler`).
+ * Prompt-queue tools — 14 tools that manipulate the Prompt Queue
+ * (prompts sent through `AnthropicHandler`).
  *
  * Carved out of `chat-enhancement-tools.ts` for coverage entry #18.
  *
@@ -9,9 +9,8 @@
  * A queue **item** has three layers of prompts that fire in order:
  *
  *   1. **Pre-prompts** — sent before the main prompt, in order. Each
- *      waits for the prior answer (or `answerWaitMinutes`) before the
- *      next fires.
- *   2. **Main prompt** — the original text + any answer wrapper.
+ *      waits for the prior answer before the next fires.
+ *   2. **Main prompt** — the original text in its template.
  *   3. **Follow-ups** — sent after each answer to the main prompt, in
  *      sequence. The queue manager auto-advances through follow-ups.
  *
@@ -25,12 +24,9 @@
  *   - `interrupted` — cancelled on purpose (interrupt for continuation);
  *     resent when auto-send is re-armed
  *
- * Transport routing happens at the item or per-stage level:
- *
- *   - `copilot` (default): routes through VS Code's Copilot Chat
- *   - `anthropic`: routes through `AnthropicHandler.sendMessage` with
- *     a resolved profile + configuration. Approval mode is forced to
- *     `never` (the queue is unattended).
+ * Every stage routes through `AnthropicHandler.sendMessage` with a
+ * profile + configuration resolved at the item or per-stage level.
+ * Approval mode is forced to `never` (the queue is unattended).
  *
  * ## Sending
  *
@@ -69,13 +65,13 @@ import { normalizeAspectChoices } from '../utils/aspectChoices';
 // ===========================================================================
 
 export type QueueStatus = 'staged' | 'pending' | 'sending' | 'sent' | 'error' | 'decision-needed' | 'todo-blocked' | 'interrupted' | 'chat' | 'chat-sent';
-export type QueueTransport = 'copilot' | 'anthropic';
+/** The one transport. */
+export type QueueTransport = 'anthropic';
 
 export interface PrePromptSpec {
     text: string;
     template?: string;
     repeatCount?: number | string;
-    answerWaitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -85,7 +81,6 @@ export interface FollowUpSpec {
     originalText: string;
     template?: string;
     repeatCount?: number | string;
-    answerWaitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -111,16 +106,12 @@ export interface QueueItemSnapshot {
     type?: string;
     originalText: string;
     template?: string;
-    answerWrapper?: boolean;
-    requestId?: string;
-    expectedRequestId?: string;
     createdAt: number;
     sentAt?: number;
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
-    answerWaitMinutes?: number;
     followUpIndex?: number;
     followUps?: FollowUpItem[];
     prePrompts?: PrePromptSpec[];
@@ -174,9 +165,9 @@ export interface QueueItemSnapshot {
  * build when a field is added to the interface but not to this list.
  */
 export const QUEUE_ITEM_SNAPSHOT_FIELDS = [
-    'id', 'status', 'type', 'originalText', 'template', 'answerWrapper', 'requestId', 'expectedRequestId',
+    'id', 'status', 'type', 'originalText', 'template',
     'createdAt', 'sentAt',
-    'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'answerWaitMinutes', 'followUpIndex',
+    'repeatCount', 'repeatPrefix', 'repeatSuffix', 'templateRepeatCount', 'followUpIndex',
     'followUps', 'prePrompts', 'transport', 'anthropicProfileId', 'anthropicConfigId', 'session', 'sessionCreate', 'role', 'guidelines', 'run',
     'answerText', 'lastDispatched', 'warning', 'error', 'outOfBudget', 'budgetFallback', 'doneNotificationPrompt', 'doneNotificationDisabled', 'doneNotificationQuest', 'doneNotificationRun', 'doneNotificationPosted', 'notificationOf', 'from', 'todoIdPattern',
     'queuedBy', 'yieldAfterIteration', 'waitingFor', 'processItem', 'itemKind', 'groupSelection',
@@ -204,7 +195,6 @@ export interface EnqueueInput {
     todoIdPattern?: string;
     allowDuplicateTodo?: boolean;
     template?: string;
-    answerWrapper?: boolean;
     position?: number;
     deferSend?: boolean;
     /**
@@ -217,7 +207,6 @@ export interface EnqueueInput {
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
-    answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
     walkContinuations?: number;
     transport?: QueueTransport;
@@ -256,8 +245,6 @@ export interface PromptQueueAccess {
     items(): QueueItemSnapshot[];
     /** The window's run's auto-send. */
     autoSendEnabled(): boolean;
-    /** The window's run's Copilot answer timeout. */
-    responseFileTimeoutMinutes(): number;
     pendingCount(): number;
     /**
      * The queue settings per run (vscimpb60a): those of `run` (default: the
@@ -266,7 +253,6 @@ export interface PromptQueueAccess {
     runSettings?(run?: string): { run: string; settings: Record<string, unknown>; runs: Array<{ run: string; autoSend: boolean }> };
 
     getById(id: string): QueueItemSnapshot | undefined;
-    getByRequestId(requestId: string): QueueItemSnapshot | undefined;
 
     enqueue(input: EnqueueInput): Promise<QueueItemSnapshot>;
     /** The calling agent's quest, run and session (recorded as the item's `queuedBy`); unset: not recorded. */
@@ -289,7 +275,7 @@ export interface PromptQueueAccess {
     setStatus(id: string, status: 'staged' | 'pending'): boolean;
 
     updateText(id: string, text: string): Promise<void>;
-    updateItemTemplateAndWrapper(id: string, opts: { template?: string; answerWrapper?: boolean }): Promise<void>;
+    updateItemTemplate(id: string, opts: { template?: string }): Promise<void>;
     /** A GROUP item's members with their markers (vscimpb129); undefined for another item. Unset: not shown. */
     groupMembers?(id: string): GroupMemberView[] | undefined;
     /** Check exactly these members of a GROUP item (vscimpb129); false when refused. Unset: not offered. */
@@ -301,7 +287,6 @@ export interface PromptQueueAccess {
         repeatPrefix?: string;
         repeatSuffix?: string;
         templateRepeatCount?: number | string;
-        answerWaitMinutes?: number;
         backgroundWaitLimitMinutes?: number;
         walkContinuations?: number;
     }): void;
@@ -334,14 +319,13 @@ export interface PromptQueueAccess {
     updatePrePrompt(id: string, index: number, opts: Partial<PrePromptSpec>): boolean;
     removePrePrompt(id: string, index: number): boolean;
 
-    addFollowUpPrompt(id: string, opts: Omit<FollowUpSpec, 'repeatCount' | 'answerWaitMinutes'> & {
+    addFollowUpPrompt(id: string, opts: Omit<FollowUpSpec, 'repeatCount'> & {
         repeatCount?: never;
-        answerWaitMinutes?: never;
     }): FollowUpItem | undefined;
     updateFollowUpPrompt(id: string, followUpId: string, opts: Partial<FollowUpSpec>): boolean;
     removeFollowUpPrompt(id: string, followUpId: string): boolean;
 
-    sendQueuedPrompt(selector: { id?: string; requestId?: string }): Promise<QueueItemSnapshot | null>;
+    sendQueuedPrompt(selector: { id?: string }): Promise<QueueItemSnapshot | null>;
     resendLastPrompt(id: string): Promise<void>;
     /**
      * Send the stopped stage again on another profile as the out-of-budget
@@ -450,9 +434,6 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         kind: i.itemKind ?? deriveQueueItemKind(i),
         type: i.type,
         template: i.template,
-        answerWrapper: !!i.answerWrapper,
-        requestId: i.requestId || null,
-        expectedRequestId: i.expectedRequestId || null,
         createdAt: i.createdAt,
         sentAt: i.sentAt || null,
         followUpIndex: i.followUpIndex || 0,
@@ -460,7 +441,7 @@ function compactItem(i: QueueItemSnapshot): Record<string, unknown> {
         textPreview: String(i.originalText || '').slice(0, 160),
         ...(todoIdPatternOf(i) ? { todoIdPattern: todoIdPatternOf(i) } : {}),
         ...(i.queuedBy ? { queuedBy: i.queuedBy } : {}),
-        transport: i.transport || 'copilot',
+        transport: 'anthropic',
         anthropicProfileId: i.anthropicProfileId || null,
         anthropicConfigId: i.anthropicConfigId || null,
         session: i.session || null,
@@ -498,7 +479,6 @@ export interface AddQueueItemInput {
     /** Queue it although an item with the same todo id pattern is staged, pending or sending. */
     allowDuplicateTodo?: boolean;
     template?: string;
-    answerWrapper?: boolean;
     position?: number;
     deferSend?: boolean;
     prePrompts?: PrePromptSpec[];
@@ -506,13 +486,11 @@ export interface AddQueueItemInput {
         text: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
     }> : never;
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
-    answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
     walkContinuations?: number;
     transport?: QueueTransport;
@@ -611,7 +589,6 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             ...(input.todoIdPattern?.trim() ? { todoIdPattern: input.todoIdPattern.trim() } : {}),
             ...(input.allowDuplicateTodo ? { allowDuplicateTodo: true } : {}),
             template: input.template,
-            answerWrapper: input.answerWrapper,
             position: input.position,
             deferSend: input.deferSend ?? true,
             // Staged unless deferSend is false: a staged item waits for
@@ -622,7 +599,6 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
             repeatPrefix: input.repeatPrefix,
             repeatSuffix: input.repeatSuffix,
             templateRepeatCount: input.templateRepeatCount,
-            answerWaitMinutes: input.answerWaitMinutes,
             ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
             ...(input.walkContinuations !== undefined ? { walkContinuations: input.walkContinuations } : {}),
             transport: input.transport,
@@ -638,7 +614,6 @@ export async function addQueueItemImpl(access: PromptQueueAccess, input: AddQueu
                 originalText: f.text,
                 template: f.template,
                 repeatCount: f.repeatCount,
-                answerWaitMinutes: f.answerWaitMinutes,
             })),
         });
         return ok({
@@ -663,13 +638,13 @@ const DONE_NOTIFICATION_RUN_DOC =
     'The process run the done notification is queued in (its lane; sessions `<session>@<run>`). Default: the item\'s run in this quest, `default` in another. \'\' resets.';
 
 export const ADD_QUEUE_ITEM_DESCRIPTION =
-    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. `transport` defaults to `copilot`; `anthropic` with `anthropicProfileId` runs unattended. `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `todo` / `group` queue a TODO item (one todo) / GROUP item (a group todo\'s members), run like a walk; `session` names the session it runs in. `processItem: true` marks a process step\'s own work (what a step queues while it runs): it does not count towards the quest refresh.' + API_KEY_WARNING_DOC;
+    'Queue a prompt item: the main prompt `text` with optional `prePrompts` and `followUps`, run in that order, each waiting for its answer. By default the item is staged (`deferSend: true`), NOT sent: start it with tomAi_sendQueuedPrompt. It runs unattended with the Anthropic profile `anthropicProfileId` (default: the profile of its session, else the default profile of its run). `repeatCount` repeats the main prompt or walks `<prefix>*` todos; `todo` / `group` queue a TODO item (one todo) / GROUP item (a group todo\'s members), run like a walk; `session` names the session it runs in. `processItem: true` marks a process step\'s own work (what a step queues while it runs): it does not count towards the quest refresh.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
     name: 'tomAi_addQueueItem',
     displayName: 'Add To Prompt Queue',
     description: ADD_QUEUE_ITEM_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -678,7 +653,6 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             todo: { type: 'string', description: 'A TODO item: one todo of the window\'s quest, run like a walk iteration — its record appended, claimed (in-progress) when sent, its completion checked with `walkContinuations`. Refused for an unknown todo; not with `repeatCount`.' },
             group: { type: 'string', description: 'A GROUP item: a group todo (status `group`, `comprised_of`) of the window\'s quest; it walks the members of this quest in `comprised_of` order, one per iteration, by the walk\'s rules (open, not blocked, not the user\'s, decisions answered). Refused for an unknown todo or one that is no group.' },
             template: { type: 'string' },
-            answerWrapper: { type: 'boolean' },
             position: { type: 'number', description: 'Insert index (0: the front of the queue). -1 appends.' },
             deferSend: { type: 'boolean', description: 'Default true → staged. False → enqueue as pending.' },
             todoIdPattern: { type: 'string', description: 'The todos it runs: a todo id, `<prefix>*`, or several, comma-separated; the todo panel marks them queued. Default: a `<prefix>*` repeatCount. An item with the same pattern still staged, pending or sending refuses it (the todo is already queued).' },
@@ -689,10 +663,9 @@ export const ADD_QUEUE_ITEM_TOOL: SharedToolDefinition<AddQueueItemInput> = {
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
-            answerWaitMinutes: { type: 'number' },
             backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h)." },
             walkContinuations: { type: 'number', description: "Continuations a `<prefix>*` walk iteration gets when its todo is not completed after the turn (sent into the same session; then the item stops as needs attention). Unset: the queue's walk-continuations, default 2; 0 = none." },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
@@ -734,11 +707,10 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
                 ? {
                     run: perRun.run,
                     autoSendEnabled: perRun.settings.autoSend,
-                    responseTimeoutMinutes: perRun.settings.responseTimeoutMinutes,
                     settings: perRun.settings,
                     runs: perRun.runs,
                 }
-                : { autoSendEnabled: access.autoSendEnabled(), responseTimeoutMinutes: access.responseFileTimeoutMinutes() }),
+                : { autoSendEnabled: access.autoSendEnabled() }),
             pendingCount: access.pendingCount(),
             totalCount: items.length,
             items,
@@ -749,11 +721,11 @@ export async function listQueueImpl(access: PromptQueueAccess, input: ListQueueI
 }
 
 export const LIST_QUEUE_DESCRIPTION =
-    'List queue items with status, ids, their `kind` (todo, group, prefix, iteration, chat, prompt), the process run each belongs to, reminder metadata, transport, and ' +
+    'List queue items with status, ids, their `kind` (todo, group, prefix, iteration, chat, prompt), the process run each belongs to, and ' +
     'follow-up counts. **Default excludes `sent` items** — pass ' +
     '`includeSent: true` to see the whole history. Response includes ' +
     'the queue settings of one process run (`run`, default the window\'s run; each run has its own, its lane sending ' +
-    'beside the others): `autoSendEnabled`, `responseTimeoutMinutes` and all of them as `settings`, every run\'s ' +
+    'beside the others): `autoSendEnabled` and all of them as `settings`, every run\'s ' +
     'auto-send as `runs`, and `pendingCount` so the ' +
     'model can see the queue\'s run-loop state at a glance. Items have ' +
     '`textPreview` (first 160 chars) — use `tomAi_listQueue` for browsing, ' +
@@ -763,7 +735,7 @@ export const LIST_QUEUE_TOOL: SharedToolDefinition<ListQueueInput> = {
     name: 'tomAi_listQueue',
     displayName: 'Queue List',
     description: LIST_QUEUE_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {
         type: 'object',
@@ -781,19 +753,17 @@ export const LIST_QUEUE_TOOL: SharedToolDefinition<ListQueueInput> = {
 
 export interface SendQueuedPromptInput {
     queueItemId?: string;
-    requestId?: string;
 }
 
 export async function sendQueuedPromptImpl(access: PromptQueueAccess, input: SendQueuedPromptInput): Promise<string> {
     try {
-        const sent = await access.sendQueuedPrompt({ id: input.queueItemId, requestId: input.requestId });
+        const sent = await access.sendQueuedPrompt({ id: input.queueItemId });
         if (!sent) {
-            return err('No pending queued prompt matched. Provide queueItemId (preferred) or requestId of a pending item.');
+            return err('No pending queued prompt matched. Provide the queueItemId of a staged or pending item.');
         }
         return ok({
             id: sent.id,
             status: sent.status,
-            requestId: sent.requestId || null,
             followUpCount: sent.followUps?.length ?? 0,
             ...apiKeyWarning(access, sent.id),
         });
@@ -806,20 +776,18 @@ export const SEND_QUEUED_PROMPT_DESCRIPTION =
     'Hand a staged or pending queue item to the manager\'s run loop — the ' +
     '**canonical lifecycle entry point**. The manager will then: send pre-' +
     'prompts → wait → send main → wait → send follow-up #1 → wait → … → ' +
-    'mark sent. All follow-ups are auto-wrapped with the Answer Wrapper. ' +
-    'Pass `queueItemId` (preferred) or `requestId` (when id is unknown).' + API_KEY_WARNING_DOC;
+    'mark sent. Pass `queueItemId`.' + API_KEY_WARNING_DOC;
 
 export const SEND_QUEUED_PROMPT_TOOL: SharedToolDefinition<SendQueuedPromptInput> = {
     name: 'tomAi_sendQueuedPrompt',
     displayName: 'Send Queued Prompt',
     description: SEND_QUEUED_PROMPT_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
         properties: {
             queueItemId: { type: 'string' },
-            requestId: { type: 'string' },
         },
     },
     execute: async () => '{"ok":false,"error":"execute() must be installed by tool-executors.ts"}',
@@ -852,7 +820,7 @@ export async function resendQueueItemImpl(access: PromptQueueAccess, input: Rese
         return ok({
             id: input.queueItemId,
             status: item.status,
-            transport: item.transport || 'copilot',
+            transport: 'anthropic',
             anthropicProfileId: item.anthropicProfileId || null,
             anthropicConfigId: item.anthropicConfigId || null,
             lastDispatched: item.lastDispatched || null,
@@ -890,7 +858,7 @@ export const RESEND_QUEUE_ITEM_TOOL: SharedToolDefinition<ResendQueueItemInput> 
     name: 'tomAi_resendQueueItem',
     displayName: 'Queue Resend Last Prompt',
     description: RESEND_QUEUE_ITEM_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -938,7 +906,7 @@ export const SET_QUEUE_ITEM_STATUS_TOOL: SharedToolDefinition<SetQueueItemStatus
     name: 'tomAi_setQueueItemStatus',
     displayName: 'Queue Set Status',
     description: SET_QUEUE_ITEM_STATUS_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -959,12 +927,10 @@ export interface UpdateQueueItemInput {
     queueItemId: string;
     text?: string;
     template?: string;
-    answerWrapper?: boolean;
     repeatCount?: number | string;
     repeatPrefix?: string;
     repeatSuffix?: string;
     templateRepeatCount?: number | string;
-    answerWaitMinutes?: number;
     backgroundWaitLimitMinutes?: number;
     walkContinuations?: number;
     transport?: QueueTransport;
@@ -1005,21 +971,17 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
         if (input.text !== undefined) {
             await access.updateText(input.queueItemId, input.text);
         }
-        if (input.template !== undefined || input.answerWrapper !== undefined) {
-            await access.updateItemTemplateAndWrapper(input.queueItemId, {
-                template: input.template,
-                answerWrapper: input.answerWrapper,
-            });
+        if (input.template !== undefined) {
+            await access.updateItemTemplate(input.queueItemId, { template: input.template });
         }
         if (input.repeatCount !== undefined || input.repeatPrefix !== undefined ||
             input.repeatSuffix !== undefined || input.templateRepeatCount !== undefined ||
-            input.answerWaitMinutes !== undefined || input.backgroundWaitLimitMinutes !== undefined || input.walkContinuations !== undefined) {
+            input.backgroundWaitLimitMinutes !== undefined || input.walkContinuations !== undefined) {
             access.updateItemRepetition(input.queueItemId, {
                 repeatCount: input.repeatCount,
                 repeatPrefix: input.repeatPrefix,
                 repeatSuffix: input.repeatSuffix,
                 templateRepeatCount: input.templateRepeatCount,
-                answerWaitMinutes: input.answerWaitMinutes,
                 ...(input.backgroundWaitLimitMinutes !== undefined ? { backgroundWaitLimitMinutes: input.backgroundWaitLimitMinutes } : {}),
                 ...(input.walkContinuations !== undefined ? { walkContinuations: input.walkContinuations } : {}),
             });
@@ -1099,11 +1061,9 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
             id: input.queueItemId,
             status: updated?.status,
             template: updated?.template,
-            answerWrapper: !!updated?.answerWrapper,
             repeatCount: updated?.repeatCount ?? null,
             templateRepeatCount: updated?.templateRepeatCount ?? null,
-            answerWaitMinutes: updated?.answerWaitMinutes ?? null,
-            transport: updated?.transport ?? 'copilot',
+            transport: 'anthropic',
             ...(updated?.doneNotificationPrompt ? { doneNotificationPrompt: updated.doneNotificationPrompt, doneNotificationDisabled: !!updated.doneNotificationDisabled } : {}),
             ...(updated?.doneNotificationQuest ? { doneNotificationQuest: updated.doneNotificationQuest } : {}),
             ...(updated?.doneNotificationRun ? { doneNotificationRun: updated.doneNotificationRun } : {}),
@@ -1115,9 +1075,9 @@ export async function updateQueueItemImpl(access: PromptQueueAccess, input: Upda
 }
 
 export const UPDATE_QUEUE_ITEM_DESCRIPTION =
-    'Update an editable queue item: text, template, answer-wrapper, reminder ' +
-    'config, main-prompt repetition (count/prefix/suffix), templateRepeatCount, ' +
-    'answerWaitMinutes, transport, anthropic target. **Only editable in ' +
+    'Update an editable queue item: text, template, main-prompt repetition ' +
+    '(count/prefix/suffix), templateRepeatCount, the Anthropic profile and ' +
+    'configuration. **Only editable in ' +
     '`staged` / `pending` states** — items in `sending`/`sent`/`error` are ' +
     'frozen. `repeatCount`/`templateRepeatCount` accept literal numbers or ' +
     'chat-variable names. To change pre-prompts use `tomAi_updateQueuePrePrompt`; ' +
@@ -1133,7 +1093,7 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
     name: 'tomAi_updateQueueItem',
     displayName: 'Queue Update Item',
     description: UPDATE_QUEUE_ITEM_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1142,15 +1102,13 @@ export const UPDATE_QUEUE_ITEM_TOOL: SharedToolDefinition<UpdateQueueItemInput> 
             queueItemId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
-            answerWrapper: { type: 'boolean' },
             repeatCount: { description: REPEAT_COUNT_DOC },
             repeatPrefix: { type: 'string' },
             repeatSuffix: { type: 'string' },
             templateRepeatCount: { description: 'Literal number or chat-variable name.' },
-            answerWaitMinutes: { type: 'number' },
             backgroundWaitLimitMinutes: { type: 'number', description: "The longest a turn of the item waits for its own background work (background tasks / command streams) before it ends with a hint naming what still runs, in minutes; 0 = no wait. Unset: the profile's limit, else 360 (6 h). A negative number clears it." },
             walkContinuations: { type: 'number', description: "Continuations a `<prefix>*` walk iteration gets when its todo is not completed after the turn (sent into the same session; then the item stops as needs attention). Unset: the queue's walk-continuations, default 2; 0 = none." },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
             session: SESSION_SCHEMA,
@@ -1193,7 +1151,7 @@ export const REMOVE_QUEUE_ITEM_TOOL: SharedToolDefinition<RemoveQueueItemInput> 
     name: 'tomAi_removeQueueItem',
     displayName: 'Queue Remove Item',
     description: REMOVE_QUEUE_ITEM_DESCRIPTION,
-    tags: ['queue', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1241,17 +1199,16 @@ export async function addQueuePrePromptImpl(access: PromptQueueAccess, input: Ad
 export const ADD_QUEUE_PRE_PROMPT_DESCRIPTION =
     'Append a pre-prompt to an existing staged/pending queue item. ' +
     '**Pre-prompts run BEFORE the main prompt**, in insertion order, each ' +
-    'waiting for its own answer (or `answerWaitMinutes`) before the next ' +
-    'fires. Use `tomAi_updateQueuePrePrompt` to add `repeatCount`/' +
-    '`answerWaitMinutes`/reminder settings after creation. Transport defaults ' +
-    'to the item\'s transport; override per pre-prompt with the `transport` ' +
-    'field.' + API_KEY_WARNING_DOC;
+    'waiting for its own answer before the next ' +
+    'fires. Use `tomAi_updateQueuePrePrompt` to add a `repeatCount` after ' +
+    'creation. It runs with the item\'s profile; override per pre-prompt ' +
+    'with `anthropicProfileId`.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<AddQueuePrePromptInput> = {
     name: 'tomAi_addQueuePrePrompt',
     displayName: 'Add Pre-Prompt',
     description: ADD_QUEUE_PRE_PROMPT_DESCRIPTION,
-    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'pre-prompt', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1260,7 +1217,7 @@ export const ADD_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<AddQueuePrePromptIn
             queueItemId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
         },
@@ -1276,7 +1233,6 @@ export interface UpdateQueuePrePromptInput {
     text?: string;
     template?: string;
     repeatCount?: number | string;
-    answerWaitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -1293,7 +1249,6 @@ export async function updateQueuePrePromptImpl(access: PromptQueueAccess, input:
             text: input.text,
             template: input.template,
             repeatCount: input.repeatCount,
-            answerWaitMinutes: input.answerWaitMinutes,
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
@@ -1308,13 +1263,13 @@ export async function updateQueuePrePromptImpl(access: PromptQueueAccess, input:
 export const UPDATE_QUEUE_PRE_PROMPT_DESCRIPTION =
     'Patch fields on an existing pre-prompt by **zero-based index** within ' +
     'the item\'s pre-prompt array. Same field surface as the create form plus ' +
-    'repeat/wait/reminder. Reordering is NOT supported — remove and re-add.';
+    '`repeatCount`. Reordering is NOT supported — remove and re-add.';
 
 export const UPDATE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdateQueuePrePromptInput> = {
     name: 'tomAi_updateQueuePrePrompt',
     displayName: 'Update Pre-Prompt',
     description: UPDATE_QUEUE_PRE_PROMPT_DESCRIPTION,
-    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'pre-prompt', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1325,8 +1280,7 @@ export const UPDATE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<UpdateQueuePrePr
             text: { type: 'string' },
             template: { type: 'string' },
             repeatCount: { description: REPEAT_COUNT_DOC },
-            answerWaitMinutes: { type: 'number' },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
         },
@@ -1362,7 +1316,7 @@ export const REMOVE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<RemoveQueuePrePr
     name: 'tomAi_removeQueuePrePrompt',
     displayName: 'Remove Pre-Prompt',
     description: REMOVE_QUEUE_PRE_PROMPT_DESCRIPTION,
-    tags: ['queue', 'pre-prompt', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'pre-prompt', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1381,11 +1335,9 @@ export const REMOVE_QUEUE_PRE_PROMPT_TOOL: SharedToolDefinition<RemoveQueuePrePr
 
 export interface AddQueueFollowUpInput {
     queueItemId?: string;
-    requestId?: string;
     text: string;
     template?: string;
     repeatCount?: number | string;
-    answerWaitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -1396,11 +1348,9 @@ export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: Add
         if (!input.text) { return err('`text` is required.'); }
         const refusedFollow = repeatCountRefusal(input.repeatCount);
         if (refusedFollow) { return refusedFollow; }
-        const item = input.queueItemId
-            ? access.getById(input.queueItemId)
-            : (input.requestId ? access.getByRequestId(input.requestId) : undefined);
+        const item = input.queueItemId ? access.getById(input.queueItemId) : undefined;
         if (!item) {
-            return err('Queue item not found. Provide queueItemId (preferred) or requestId of an existing queued/sending item.');
+            return err('Queue item not found. Provide the queueItemId of an existing queued/sending item.');
         }
         const follow = access.addFollowUpPrompt(item.id, {
             originalText: input.text,
@@ -1410,13 +1360,9 @@ export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: Add
             anthropicConfigId: input.anthropicConfigId,
         });
         if (!follow) { return err('Failed to add follow-up prompt.'); }
-        // The manager's addFollowUpPrompt doesn't accept repeatCount / answerWaitMinutes
-        // — patch via update if provided.
-        if (input.repeatCount !== undefined || input.answerWaitMinutes !== undefined) {
-            access.updateFollowUpPrompt(item.id, follow.id, {
-                repeatCount: input.repeatCount,
-                answerWaitMinutes: input.answerWaitMinutes,
-            });
+        // The manager's addFollowUpPrompt doesn't accept repeatCount — patch via update if provided.
+        if (input.repeatCount !== undefined) {
+            access.updateFollowUpPrompt(item.id, follow.id, { repeatCount: input.repeatCount });
         }
         const updated = access.getById(item.id);
         return ok({
@@ -1433,30 +1379,25 @@ export async function addQueueFollowUpImpl(access: PromptQueueAccess, input: Add
 export const ADD_QUEUE_FOLLOW_UP_DESCRIPTION =
     'Append a follow-up to an existing queue item. **Follow-ups run AFTER the ' +
     'main prompt**, in insertion order — the manager sends follow-up #1, ' +
-    'waits for its answer, sends #2, etc., until done. All follow-ups are ' +
-    'auto-wrapped with the Answer Wrapper. `repeatCount`/`answerWaitMinutes` ' +
-    'are accepted here (they\'re applied to the new follow-up via an internal ' +
-    'update call, since the manager\'s create form doesn\'t take them). Pass ' +
-    '`queueItemId` (preferred) or `requestId` to target the item. Transport ' +
-    'override available per follow-up.' + API_KEY_WARNING_DOC;
+    'waits for its answer, sends #2, etc., until done. `repeatCount` ' +
+    'is accepted here. Pass `queueItemId` to target the item. It runs with ' +
+    'the item\'s profile; override per follow-up with `anthropicProfileId`.' + API_KEY_WARNING_DOC;
 
 export const ADD_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<AddQueueFollowUpInput> = {
     name: 'tomAi_addQueueFollowUp',
     displayName: 'Add Follow-Up Prompt',
     description: ADD_QUEUE_FOLLOW_UP_DESCRIPTION,
-    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'follow-up', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
         required: ['text'],
         properties: {
             queueItemId: { type: 'string' },
-            requestId: { type: 'string' },
             text: { type: 'string' },
             template: { type: 'string' },
             repeatCount: { description: REPEAT_COUNT_DOC },
-            answerWaitMinutes: { type: 'number' },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
         },
@@ -1472,7 +1413,6 @@ export interface UpdateQueueFollowUpInput {
     text?: string;
     template?: string;
     repeatCount?: number | string;
-    answerWaitMinutes?: number;
     transport?: QueueTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -1489,7 +1429,6 @@ export async function updateQueueFollowUpImpl(access: PromptQueueAccess, input: 
             originalText: input.text,
             template: input.template,
             repeatCount: input.repeatCount,
-            answerWaitMinutes: input.answerWaitMinutes,
             transport: input.transport,
             anthropicProfileId: input.anthropicProfileId,
             anthropicConfigId: input.anthropicConfigId,
@@ -1503,7 +1442,7 @@ export async function updateQueueFollowUpImpl(access: PromptQueueAccess, input: 
 
 export const UPDATE_QUEUE_FOLLOW_UP_DESCRIPTION =
     'Update fields on an existing follow-up by its id: text, template, ' +
-    'reminder config, repeat/wait, transport. **Targeted by `followUpId`** ' +
+    'repeat count, profile. **Targeted by `followUpId`** ' +
     '(NOT by index — follow-ups have stable ids the manager generates). ' +
     'Get follow-up ids from the `followUps[].id` array in a queue item ' +
     'inspection.';
@@ -1512,7 +1451,7 @@ export const UPDATE_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<UpdateQueueFollow
     name: 'tomAi_updateQueueFollowUp',
     displayName: 'Queue Update Follow-Up',
     description: UPDATE_QUEUE_FOLLOW_UP_DESCRIPTION,
-    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat', 'anthropic'],
+    tags: ['queue', 'follow-up', 'tom-ai-chat', 'anthropic'],
     readOnly: false,
     inputSchema: {
         type: 'object',
@@ -1523,8 +1462,7 @@ export const UPDATE_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<UpdateQueueFollow
             text: { type: 'string' },
             template: { type: 'string' },
             repeatCount: { description: REPEAT_COUNT_DOC },
-            answerWaitMinutes: { type: 'number' },
-            transport: { type: 'string', enum: ['copilot', 'anthropic'] },
+            transport: { type: 'string', enum: ['anthropic'], description: 'The one transport; may be left out.' },
             anthropicProfileId: { type: 'string' },
             anthropicConfigId: { type: 'string' },
         },
@@ -1560,7 +1498,7 @@ export const REMOVE_QUEUE_FOLLOW_UP_TOOL: SharedToolDefinition<RemoveQueueFollow
     name: 'tomAi_removeQueueFollowUp',
     displayName: 'Queue Remove Follow-Up',
     description: REMOVE_QUEUE_FOLLOW_UP_DESCRIPTION,
-    tags: ['queue', 'follow-up', 'copilot', 'tom-ai-chat'],
+    tags: ['queue', 'follow-up', 'tom-ai-chat'],
     readOnly: false,
     inputSchema: {
         type: 'object',

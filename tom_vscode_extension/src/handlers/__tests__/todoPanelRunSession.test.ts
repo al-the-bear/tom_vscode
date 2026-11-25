@@ -130,14 +130,14 @@ let context: Json;
 // What the panel hands the queue and the Anthropic send.
 const enqueued: Json[] = [];
 const sends: Json[] = [];
-const runDefaults: Record<string, Json> = { default: { defaultTransport: 'anthropic' }, r2: { defaultTransport: 'copilot' } };
+const runDefaults: Record<string, Json> = { default: { defaultTransport: 'anthropic' }, r2: { defaultTransport: 'anthropic' } };
 (PromptQueueManager as Json)._inst = {
     enqueue: async (o: Json) => { enqueued.push({ how: 'end', ...o }); return { id: `q${enqueued.length}`, status: 'staged', ...o }; },
     enqueueNext: async (o: Json) => { enqueued.push({ how: 'next', ...o }); return { id: `q${enqueued.length}`, status: 'pending', ...o }; },
-    runQueueSettings: (run?: string) => runDefaults[run ?? 'default'] ?? { defaultTransport: 'copilot' },
+    runQueueSettings: (run?: string) => runDefaults[run ?? 'default'] ?? { defaultTransport: 'anthropic' },
     // A queue item runs in busy@r2.
     sessionHolder: (s: string) => (s === 'busy@r2' ? { kind: 'queue', label: 'running item' } : undefined),
-    get defaultTransport() { return 'copilot'; },
+    get defaultTransport() { return 'anthropic'; },
 };
 const originalSend = router.runAnthropicSend;
 // Not ok: Guide me's closing question (which waits for the user) is not asked.
@@ -360,11 +360,11 @@ describe('the todo panel\'s queue-target flow', () => {
         assert.match(sends[1].userMessageTemplate, /^GUIDE/);
         // The bar's Send (this window's run's transport: Anthropic): the same pick.
         answers = ['work'];
-        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a2', template: '__none__' });
+        await send(webview, { type: 'qtSendCurrentTodoToChat', todoId: 'a2', template: '__none__' });
         assert.deepEqual([sends[2].session, sends[2].run], ['work', 'default']);
         // Escape: nothing sent.
         answers = [undefined];
-        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
+        await send(webview, { type: 'qtSendCurrentTodoToChat', todoId: 'a1', template: '__none__' });
         assert.equal(sends.length, 3);
     });
 
@@ -464,13 +464,13 @@ describe('the todo panel\'s queue-target flow', () => {
         // A direct send: in a temporary session that is gone when the send is over.
         sends.length = 0;
         answers = ['work'];
-        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a2', template: '__none__' });
+        await send(webview, { type: 'qtSendCurrentTodoToChat', todoId: 'a2', template: '__none__' });
         assert.match(sends[0].session, /^tmp-.*-fresh$/);
         assert.equal(sends[0].run, 'default');
         assert.equal(readSession(sessionsFolder(QUEST), sends[0].session), undefined, 'discarded after the send');
         await toggle(webview, 'fresh', false);
         answers = ['work'];
-        await send(webview, { type: 'qtSendCurrentTodoToCopilot', todoId: 'a1', template: '__none__' });
+        await send(webview, { type: 'qtSendCurrentTodoToChat', todoId: 'a1', template: '__none__' });
         assert.equal(sends[1].session, 'work', 'off: the session itself');
     });
 

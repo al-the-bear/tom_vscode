@@ -333,7 +333,8 @@ describe('roles per todo, item and run default', () => {
     test('QR-9: the wiring', () => {
         const src = EXT('src', 'managers', 'promptQueueManager.ts');
         const dispatch = src.slice(src.indexOf('    private async dispatchStage('), src.indexOf('\n    }\n', src.indexOf('    private async dispatchStage(')));
-        assert.ok(dispatch.indexOf('await this._holdStageRole(stageItem, resolved.processRun, roleSource);') < dispatch.indexOf("if (resolved.transport === 'copilot')"), 'held before either transport');
+        const held = dispatch.indexOf('await this._holdStageRole(stageItem, resolved.processRun, roleSource);');
+        assert.ok(held > 0 && held < dispatch.indexOf('AnthropicHandler.instance.sendMessage('), 'held before the stage is sent');
         assert.match(dispatch, /runInProcessPosition\(resolved\.processRun, \(\) => runWithQueueRole\(roleSource, \(\) => AnthropicHandler\.instance\.sendMessage\(/);
         for (const stage of ["'prePrompt'", "'main', iterationTodo?.id", "'followUp'"]) {
             assert.ok(src.includes(`runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, ${stage}), () => this._buildExpandedText(`), `expansion of ${stage}`);

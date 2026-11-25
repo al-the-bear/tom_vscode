@@ -201,7 +201,7 @@ The API key is the real boundary. When you expose write tools:
 ## 7. Observability
 
 - **Output channel** — lifecycle and per-request decisions stream to the **`Tom AI: MCP Server`** channel in the Output dropdown (`src/utils/mcpServerLog.ts`, ISO-timestamped). It logs each busy port probe and the finally-bound port, `started on <url>` / `stopped`, the auth decision per request (authenticated → full set vs read-only floor, **with the token redacted**), and per-request errors.
-- **Trail** — every external tool call writes a request/answer pair to the per-window trail under **`${ai}/trail/mcp/${quest}`** (the `mcp` trail subsystem), and tags the resulting change-log entries with `source: 'mcp'`, so external mutations are attributable alongside the `anthropic`/`copilot` surfaces.
+- **Trail** — every external tool call writes a request/answer pair to the per-window trail under **`${ai}/trail/mcp/${quest}`** (the `mcp` trail subsystem), and tags the resulting change-log entries with `source: 'mcp'`, so external mutations are attributable alongside the `anthropic` surface.
 
 ## 8. Testing every tool over MCP
 

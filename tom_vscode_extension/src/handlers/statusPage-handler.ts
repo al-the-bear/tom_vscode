@@ -43,12 +43,11 @@ import { isTelegramPollingActive } from './telegram-commands';
 import { readEffectiveTelegramRaw, writeQuestTelegramRaw, getQuestTelegramConfigPath } from './telegram-config';
 import { readChatQuestionsConfig, writeChatQuestionsConfig, getChatQuestionsConfigPath } from './chatQuestions-config';
 import { WsPaths } from '../utils/workspacePaths';
-import { getLayout, describeAiMissing, layoutWorkspaceFolder } from '../utils/workspaceLayout';
-import { questTrailFolder } from '../utils/questPaths.js';
+import { getLayout, describeAiMissing } from '../utils/workspaceLayout';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { compactTrailMaxEntries } from '../utils/compactTrailTrim';
 import { rawTrailMaxFiles, setRawTrailMaxFiles } from '../utils/rawTrailLimit';
-import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, getCopilotChatAnswerFolder, type QuestRefreshPanel } from '../utils/sendToChatConfig';
+import { validateStrictAiConfiguration, SendToChatConfig, getQuestRefreshSettings, type QuestRefreshPanel } from '../utils/sendToChatConfig';
 import { QuestRefreshStore } from '../managers/questRefreshStore';
 import {
     getCliServerAutostart,
@@ -217,7 +216,6 @@ function createEmptySendToChatConfig(): SendToChatConfig {
         localLlm: { configurations: [] },
         trail: {},
         bridge: { profiles: {} },
-        copilot: {},
     };
 }
 
@@ -304,19 +302,6 @@ async function updateChatQuestionsSettings(settings: any): Promise<void> {
         : current.fallbackPrompt;
     if (writeChatQuestionsConfig({ maxWaitMinutes, fallbackPrompt })) {
         vscode.window.showInformationMessage('Chat questions settings updated');
-    }
-}
-
-/** The folder Copilot writes its answer files to (`copilot.answerFolder`); empty = the default `_ai/answers/copilot`. */
-async function updateCopilotAnswerFolder(settings: { copilotAnswerFolder?: unknown }): Promise<void> {
-    if (typeof settings.copilotAnswerFolder !== 'string') { return; }
-    const sendToChatConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
-    if (!sendToChatConfig.copilot) {
-        sendToChatConfig.copilot = {};
-    }
-    sendToChatConfig.copilot.answerFolder = settings.copilotAnswerFolder;
-    if (saveSendToChatConfig(sendToChatConfig)) {
-        vscode.window.showInformationMessage('Copilot answer folder updated');
     }
 }
 
@@ -1086,7 +1071,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
             const incoming = (message.settings ?? {}) as Record<string, { promptInterval?: unknown; refreshPrompt?: unknown }>;
             const questRefresh = stcConfig.questRefresh ?? {};
-            for (const panel of ['anthropic', 'copilot'] as const) {
+            for (const panel of ['anthropic'] as const) {
                 const src = incoming[panel] ?? {};
                 const rawInterval = typeof src.promptInterval === 'number' ? src.promptInterval : 0;
                 questRefresh[panel] = {
@@ -1102,7 +1087,7 @@ export async function handleStatusAction(action: string, message: any): Promise<
         // Quest Refresh — per-quest activation checkbox for one panel.
         case 'setQuestRefreshActive': {
             const panel = message.panel as QuestRefreshPanel;
-            if (panel === 'anthropic' || panel === 'copilot') {
+            if (panel === 'anthropic') {
                 QuestRefreshStore.instance.setActive(panel, !!message.active);
             }
             break;
@@ -1190,20 +1175,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
         case 'openQueueEditor':
             await vscode.commands.executeCommand('tomAi.editor.promptQueue');
             break;
-        case 'openTrailFile': {
-            const questId = WsPaths.getWorkspaceQuestId();
-            const wsRoot = layoutWorkspaceFolder();
-            const questFolder = WsPaths.ai('quests', questId) || (wsRoot ? path.join(wsRoot, '_ai', 'quests', questId) : '');
-            if (questFolder) {
-                const promptsPath = path.join(questTrailFolder(questFolder), `${questId}.copilot.prompts.md`);
-                if (!fs.existsSync(promptsPath)) {
-                    vscode.window.showInformationMessage('No summary trail exists yet. Send a prompt first.');
-                    break;
-                }
-                await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(promptsPath), 'tomAi.trailViewer');
-            }
-            break;
-        }
         // Telegram
         case 'startTelegram':
         case 'stopTelegram':
@@ -1233,9 +1204,6 @@ export async function handleStatusAction(action: string, message: any): Promise<
             break;
         case 'updateChatQuestions':
             await updateChatQuestionsSettings(message.settings || {});
-            break;
-        case 'updateCopilotAnswerFolder':
-            await updateCopilotAnswerFolder(message.settings || {});
             break;
         case 'updateCompactionSettings': {
             const stcConfig = loadSendToChatConfig() || createEmptySendToChatConfig();
@@ -1718,7 +1686,6 @@ export interface StatusData {
     questRefresh: {
         scopeLabel: string;
         anthropic: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
-        copilot: { promptInterval: number; refreshPrompt: string; active: boolean; count: number };
     };
     bridge: {
         connected: boolean;
@@ -1749,7 +1716,6 @@ export interface StatusData {
         maxWaitMinutes: number;
         fallbackPrompt: string;
     };
-    copilotAnswerFolder: string;
     schedule: TimerScheduleSlot[];
     executables: { [name: string]: { [platform: string]: string } };
     binaryPath: { [platform: string]: string };
@@ -1995,7 +1961,6 @@ export async function gatherStatusData(): Promise<StatusData> {
             return {
                 scopeLabel: questId ? `quest: ${questId}` : 'workspace',
                 anthropic: buildPanel('anthropic'),
-                copilot: buildPanel('copilot'),
             };
         })(),
         bridge: {
@@ -2037,7 +2002,6 @@ export async function gatherStatusData(): Promise<StatusData> {
                 fallbackPrompt: cq.fallbackPrompt,
             };
         })(),
-        copilotAnswerFolder: getCopilotChatAnswerFolder(),
         schedule,
         executables: sendToChatConfig?.bridge?.executables || {},
         binaryPath: sendToChatConfig?.bridge?.binaryPath || {},
@@ -2197,7 +2161,7 @@ function escapeHtmlContent(s: string): string {
 }
 
 /**
- * Render one Quest Refresh sub-block (Anthropic / Local LLM / Copilot): the
+ * Render the Quest Refresh sub-block of a panel: the
  * global interval + prompt controls plus the per-quest "active" checkbox. The
  * checkbox toggles via an immediate `setQuestRefreshActive` action; interval and
  * prompt are saved together by the section's "Save" button (`updateQuestRefresh`).
@@ -2575,7 +2539,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
                 (${escapeHtmlContent(status.questRefresh.scopeLabel)}). Interval 0 = never.
             </p>
             ${renderQuestRefreshPanel('anthropic', 'Anthropic', status.questRefresh.anthropic)}
-            ${renderQuestRefreshPanel('copilot', 'Copilot', status.questRefresh.copilot)}
             <div class="sp-settings-row">
                 <button class="sp-btn primary" data-status-action="updateQuestRefresh">Save Quest Refresh Settings</button>
             </div>
@@ -3138,22 +3101,6 @@ ${renderMcpServerCard(status.mcpServer, AVAILABLE_LLM_TOOLS, getMcpReadOnlyToolN
          History Compaction section above (memoryToolsEnabled + the
          memory injection cap live with the rest of the compaction +
          memory extraction configuration). -->
-
-    <!-- Copilot answers: where Copilot writes its answer files (the queue's Copilot stages, scripts) -->
-    <div class="sp-section">
-        <div class="sp-section-header sp-collapsible" data-collapse="copilotAnswers">
-            <span class="sp-section-title"><span class="sp-collapse-icon">▶</span> 🤖 Copilot answers</span>
-        </div>
-        <div class="sp-collapse-content sp-collapsed" id="sp-copilotAnswers-content">
-            <div class="sp-settings-row">
-                <label>Copilot Answer Folder:</label>
-                <input type="text" id="sp-copilot-answerFolder" value="${escapeHtml(status.copilotAnswerFolder)}">
-            </div>
-            <div class="sp-settings-row">
-                <button class="sp-btn primary" data-status-action="updateCopilotAnswerFolder">Save</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Open Full Status Page -->
     <div class="sp-section sp-fullpage">

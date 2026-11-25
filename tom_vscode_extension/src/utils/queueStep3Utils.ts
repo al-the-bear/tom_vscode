@@ -113,12 +113,12 @@ export function normalizeRepeatCountInput(value: number | string | undefined): n
 /**
  * How editable a queue item's repeat controls are, keyed on its status.
  *
- * - `full`     — every repeat field (counters + prefix/suffix/answer-wait).
+ * - `full`     — every repeat field (counters + prefix/suffix).
  *                Applies while the item is still ahead of dispatch.
  * - `counters` — only the loop counters (main + template repeat count and
  *                current index). Applies while the item is in flight so the
  *                user can steer a running loop; the change takes effect on the
- *                next repetition. Structural fields (prefix/suffix/answer-wait)
+ *                next repetition. Structural fields (prefix/suffix)
  *                are frozen for the run.
  * - `none`     — terminal / non-editable.
  */
@@ -140,7 +140,6 @@ export interface RepeatEditTarget {
     repeatIndex?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
-    answerWaitMinutes?: number;
     templateRepeatCount?: number | string;
     templateRepeatIndex?: number;
 }
@@ -151,7 +150,6 @@ export interface RepeatEditPatch {
     repeatIndex?: number;
     repeatPrefix?: string;
     repeatSuffix?: string;
-    answerWaitMinutes?: number;
     templateRepeatCount?: number | string;
     templateRepeatIndex?: number;
 }
@@ -164,7 +162,7 @@ export interface RepeatEditPatch {
  * index and template counters be steered mid-loop, and what makes a *pending*
  * item's status-bar inputs actually stick (both were silently dropped before,
  * because the old gate only wrote counters for `staged`). The structural fields
- * (prefix/suffix/answer-wait) are applied only in `full` mode; `none` is a
+ * (prefix/suffix) are applied only in `full` mode; `none` is a
  * no-op. Mutates `target` in place; pure otherwise.
  */
 export function applyRepeatEditToItem(target: RepeatEditTarget, patch: RepeatEditPatch, mode: RepeatEditMode): void {
@@ -204,9 +202,6 @@ export function applyRepeatEditToItem(target: RepeatEditTarget, patch: RepeatEdi
     }
     if (patch.repeatSuffix !== undefined) {
         target.repeatSuffix = patch.repeatSuffix;
-    }
-    if (patch.answerWaitMinutes !== undefined) {
-        target.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
     }
 }
 
@@ -999,7 +994,7 @@ function fillRepetitionPlaceholders(template: string, repeatCount: number, repea
  * iteration is done (the done-notification, the sender, a temporary session).
  */
 export interface TemplateIterationCarried {
-    transport?: 'copilot' | 'anthropic';
+    transport?: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
     session?: string;
@@ -1012,8 +1007,6 @@ export interface TemplateIterationCarried {
 export interface NextTemplateIterationSource extends TemplateIterationCarried {
     originalText: string;
     template?: string;
-    answerWrapper?: boolean;
-    answerWaitMinutes?: number;
     type?: string;
     repeatCount?: number | string;
     repeatPrefix?: string;
@@ -1024,13 +1017,11 @@ export interface NextTemplateIterationSource extends TemplateIterationCarried {
         text: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
     }>;
     followUps?: Array<{
         originalText: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
     }>;
 }
 
@@ -1042,8 +1033,6 @@ export interface NextTemplateIterationSource extends TemplateIterationCarried {
 export interface NextTemplateIterationParams extends TemplateIterationCarried {
     originalText: string;
     template?: string;
-    answerWrapper?: boolean;
-    answerWaitMinutes?: number;
     type?: string;
     repeatCount?: number | string;
     repeatIndex: 0;
@@ -1055,13 +1044,11 @@ export interface NextTemplateIterationParams extends TemplateIterationCarried {
         text: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
     }>;
     followUps: Array<{
         originalText: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
     }>;
     initialStatus: 'pending';
     deferSend: true;
@@ -1073,12 +1060,8 @@ export interface NextTemplateIterationParams extends TemplateIterationCarried {
  * Build the params to enqueue the next iteration of a template-repeat
  * sequence, or `null` when the sequence has reached its target count.
  *
- * Pure / unit-testable. Extracted from three identical inline blocks in
- * `PromptQueueManager` (answer-file, answer-wait timer, manual continue)
- * so the Anthropic-direct completion paths can share the same logic —
- * without this, items with `templateRepeatCount > 1` dispatched via the
- * synchronous Anthropic transport never spawned the second iteration
- * (the next-iteration enqueue lived only on Copilot/manual paths).
+ * Pure / unit-testable: every completion path of `PromptQueueManager`
+ * (a finished dispatch, a resumed one, a resend, manual continue) shares it.
  */
 /** The carried fields that are set on `item`. */
 export function templateIterationCarried(item: TemplateIterationCarried): TemplateIterationCarried {
@@ -1111,8 +1094,6 @@ export function buildNextTemplateIterationParams(
         ...templateIterationCarried(sending),
         originalText: sending.originalText,
         template: sending.template,
-        answerWrapper: sending.answerWrapper,
-        answerWaitMinutes: sending.answerWaitMinutes,
         type: sending.type,
         repeatCount: sending.repeatCount,
         repeatIndex: 0,
@@ -1124,13 +1105,11 @@ export function buildNextTemplateIterationParams(
             text: pp.text,
             template: pp.template,
             repeatCount: pp.repeatCount,
-            answerWaitMinutes: pp.answerWaitMinutes,
         })),
         followUps: (sending.followUps || []).map(f => ({
             originalText: f.originalText,
             template: f.template,
             repeatCount: f.repeatCount,
-            answerWaitMinutes: f.answerWaitMinutes,
         })),
         initialStatus: 'pending',
         deferSend: true,
@@ -1161,14 +1140,14 @@ export function applyRepetitionAffixes(input: RepetitionAffixInput): string {
 
 /** Queue-level transport defaults, as surfaced by the dropdowns above the queue. */
 export interface QueueTransportDefaults {
-    transport: 'copilot' | 'anthropic';
+    transport: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
 }
 
 /** Minimal shape of a queued item's transport/profile override fields. */
 export interface QueueTransportTarget {
-    transport?: 'copilot' | 'anthropic';
+    transport?: 'anthropic';
     anthropicProfileId?: string;
     anthropicConfigId?: string;
 }
@@ -1193,7 +1172,7 @@ export function applyQueueDefaultTransportToItem<T extends QueueTransportTarget>
     item: T,
     defaults: QueueTransportDefaults,
 ): T {
-    item.transport = defaults.transport === 'anthropic' ? 'anthropic' : 'copilot';
+    item.transport = defaults.transport;
     item.anthropicProfileId = defaults.anthropicProfileId?.trim() ? defaults.anthropicProfileId : undefined;
     item.anthropicConfigId = defaults.anthropicConfigId?.trim() ? defaults.anthropicConfigId : undefined;
     return item;

@@ -5,8 +5,8 @@
  *   DG-1 the host check: a submission whose text, transport, profile and template equal one accepted
  *        within 3 s is a duplicate; any field different, or 3 s passed, is not; an ignored duplicate
  *        does not extend the window; queue adds and sends are guarded apart
- *   DG-2 the chat panel host checks addToQueue (text, transport — copilot when unset — profile, template),
- *        sendCopilot and sendAnthropic before handling them, says "Already queued" / "Already sent" in the
+ *   DG-2 the chat panel host checks addToQueue (text, transport, profile, template)
+ *        and sendAnthropic before handling them, says "Already queued" / "Already sent" in the
  *        status bar, and answers an ignored Anthropic send with anthropicNotSent (keeping a running send's state)
  *   DG-3 the panel: Send and the three queue buttons are paused (disabled) for 2 s after a click, a second
  *        click in that time posts nothing, after it the button works again; other buttons are not paused
@@ -36,7 +36,7 @@ function chatPanel(): { w: Win; posted: Array<Record<string, unknown>> } {
     const w = new JSDOM(html, { runScripts: 'outside-only' }).window as Win;
     open.push(w);
     const posted: Array<Record<string, unknown>> = [];
-    w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic', 'copilot'], pinned: [] }) });
+    w.acquireVsCodeApi = () => ({ postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))), setState: () => undefined, getState: () => ({ expanded: ['anthropic'], pinned: [] }) });
     w.__INIT__ = {};
     w.eval(media('chatPanel', 'main.js'));
     return { w, posted };
@@ -65,11 +65,10 @@ describe('duplicate guard: Queue and Send', () => {
         const host = src('handlers', 'chatPanel-handler.ts');
         const after = (from: string, to: string): string => { const i = host.indexOf(from); return host.slice(i, host.indexOf(to, i)); };
         const add = after("case 'addToQueue':", 'await this._handleAddToQueue(');
-        assert.match(add, /this\._queueAddGuard\.isDuplicate\(\{\s*text: String\(message\.text \?\? ''\),\s*transport: message\.transport \|\| 'copilot',\s*profile: message\.anthropicProfileId,\s*template: message\.template,\s*\}\)/);
+        assert.match(add, /this\._queueAddGuard\.isDuplicate\(\{\s*text: String\(message\.text \?\? ''\),\s*transport: 'anthropic',\s*profile: message\.anthropicProfileId,\s*template: message\.template,\s*\}\)/);
         assert.match(add, /setStatusBarMessage\('\$\(info\) Already queued[^']*'/);
         assert.match(add, /break;/, 'not handled');
-        const sendCopilot = after("case 'sendCopilot':", 'await this._handleSendCopilot(');
-        assert.match(sendCopilot, /this\._isDuplicateSend\(\{ text: String\(message\.text \?\? ''\), transport: 'copilot', template: message\.template \}\)\) \{ break; \}/);
+        assert.doesNotMatch(host, /case 'sendCopilot':/, 'no Copilot send');
         const sendAnthropic = after("case 'sendAnthropic':", 'await this._handleSendAnthropic(');
         assert.match(sendAnthropic, /this\._isDuplicateSend\(\{ text: String\(message\.text \?\? ''\), transport: 'anthropic', profile: message\.profile, template: message\.userMessageTemplate \}\)/);
         assert.match(sendAnthropic, /type: 'anthropicNotSent', message: 'Already sent[^']*', \.\.\.\(panelBusy \? \{ panelBusy \} : \{\}\)/);
@@ -80,14 +79,11 @@ describe('duplicate guard: Queue and Send', () => {
         const { w, posted } = chatPanel();
         const doc = w.document;
         doc.getElementById('anthropic-text').value = 'Do it';
-        doc.getElementById('copilot-text').value = 'Do it';
         const count = (type: string): number => posted.filter((m) => m.type === type).length;
         for (const [sel, type] of [
             ['[data-action="addToQueue"][data-id="anthropic"]', 'addToQueue'],
             ['[data-action="addToQueuePanelTarget"][data-id="anthropic"]', 'addToQueue'],
             ['[data-action="addToQueueNext"][data-id="anthropic"]', 'addToQueue'],
-            ['[data-action="addToQueue"][data-id="copilot"]', 'addToQueue'],
-            ['[data-action="send"][data-id="copilot"]', 'sendCopilot'],
             ['[data-action="send"][data-id="anthropic"]', 'sendAnthropic'],
         ] as const) {
             const btn = doc.querySelector(sel);
@@ -107,7 +103,7 @@ describe('duplicate guard: Queue and Send', () => {
         const queueBtn = doc.querySelector('[data-action="addToQueue"][data-id="anthropic"]');
         assert.equal(queueBtn.disabled, false, 'after 2 s it works again');
         queueBtn.click();
-        assert.equal(count('addToQueue'), 5);
+        assert.equal(count('addToQueue'), 4);
         assert.equal(doc.getElementById('anthropic-send-btn').disabled, false);
     });
 

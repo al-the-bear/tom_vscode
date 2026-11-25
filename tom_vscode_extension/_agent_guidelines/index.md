@@ -18,7 +18,6 @@ Type: TypeScript extension
 - [implementation.md](implementation.md)
 - [project.md](project.md)
 - [copilot_guidelines.md](copilot_guidelines.md)
-- [copilot_answers.md](copilot_answers.md)
 - [extension_bridge.md](extension_bridge.md)
 - [bridge_scripting_guide.md](bridge_scripting_guide.md)
 - [keybindings_and_commands.md](keybindings_and_commands.md)
@@ -41,8 +40,5 @@ Type: TypeScript extension
 - [doc/README.md](../doc/README.md)
 - [doc/user_guide.md](../doc/user_guide.md)
 - [doc/quick_reference.md](../doc/quick_reference.md)
-- [doc/copilot_chat_tools.md](../doc/copilot_chat_tools.md)
 - [doc/mcp_server.md](../doc/mcp_server.md)
 - [doc/agent_sdk_scripting_mirror.md](../doc/agent_sdk_scripting_mirror.md)
-
-Ask-AI tooling guidance is merged into `doc/copilot_chat_tools.md`.

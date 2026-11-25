@@ -112,8 +112,8 @@
             "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, refresh quest-notes). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
             "properties": {
                 "anthropic": { "$ref": "#/definitions/questRefreshPanel" },
-                "localLlm": { "$ref": "#/definitions/questRefreshPanel" },
-                "copilot": { "$ref": "#/definitions/questRefreshPanel" }
+                "copilot": { "deprecated": true, "description": "Not read." },
+                "localLlm": { "$ref": "#/definitions/questRefreshPanel" }
             },
             "additionalProperties": false
         },
@@ -137,21 +137,6 @@
                     "type": "string",
                     "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
                     "description": "The local time (HH:MM) on a todo's due date when its one due reminder goes out (the repeated-todo controller's check, Timed Requests); a check after that time sends it at once. Not set: 09:00."
-                }
-            },
-            "additionalProperties": false
-        },
-        "copilot": {
-            "type": "object",
-            "description": "GitHub Copilot sends. Their templates are the user-message templates (anthropic.userMessageTemplates), the one template store.",
-            "properties": {
-                "queueWrapper": {
-                    "type": "string",
-                    "description": "The Copilot Queue Wrapper: goes around every Copilot send that waits for an answer (queue items, the todo buttons, scripts sending to Copilot, the Copilot panel's Send when Wrap is on) and makes Copilot write an answer file. ${originalPrompt} is the prompt after its template; ${copilotAnswerFile} and ${requestId} name the answer file. Not set: the built-in default. Edited in the template editor (Copilot — Queue Wrapper)."
-                },
-                "answerFolder": {
-                    "type": "string",
-                    "description": "Folder (workspace-relative) Copilot writes its answer files to."
                 }
             },
             "additionalProperties": false
@@ -443,7 +428,7 @@
                     "type": "object",
                     "properties": {
                         "localLlm": { "type": "string", "default": "${ai}/trail/localllm/${quest}" },
-                        "copilot": { "type": "string", "default": "${ai}/trail/copilot/${quest}" },
+                        "copilot": { "type": "string", "deprecated": true, "description": "Not read." },
                         "lmApi": { "type": "string", "default": "${ai}/trail/lm-api/${quest}" },
                         "anthropic": { "type": "string", "default": "${ai}/trail/anthropic/${quest}" }
                     },

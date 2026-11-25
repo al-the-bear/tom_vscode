@@ -112,11 +112,12 @@ describe('guideline picker: a choice and the catalogue', () => {
         assert.match(applyAspectChoice({ level: 'chat', section: 'answer', value: 'brief', panel: 'logs' as never }, w).error ?? '', /Unknown chat panel/);
         assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'night', value: 'on', panel: 'anthropic' }, w), { ok: true });
         assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'answer', value: '', panel: 'anthropic' }, w), { ok: true });
-        assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'answer', value: 'remove', panel: 'copilot' }, w), { ok: true });
+        assert.match(applyAspectChoice({ level: 'chat', section: 'answer', value: 'brief', panel: 'copilot' as never }, w).error ?? '', /Unknown chat panel/, 'the removed Copilot panel');
+        assert.deepEqual(applyAspectChoice({ level: 'chat', section: 'answer', value: 'remove', panel: 'anthropic' }, w), { ok: true });
         assert.deepEqual(w.log, [
             ['chat', 'anthropic', { answer: 'full', night: 'on' }],
             ['chat', 'anthropic', { night: 'on' }],
-            ['chat', 'copilot', { answer: 'remove' }],
+            ['chat', 'anthropic', { night: 'on', answer: 'remove' }],
         ]);
     });
 

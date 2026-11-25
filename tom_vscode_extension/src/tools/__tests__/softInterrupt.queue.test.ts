@@ -15,7 +15,6 @@
  *   SQ-5  a held Agent SDK turn lost (its process ended): interrupted, run paused; the resend carries the note, the
  *         held result and the turn's conversation
  *   SQ-6  a held direct-API turn lost: the conversation was saved; resume continues it exactly — no resend, no note
- *   SQ-7  a Copilot item: the hard interrupt at once
  *   SQ-8  a turn waiting in a question counts as held; the answer given while held is kept until Resume
  *   SQ-9  a turn waiting in tomAi_waitFor counts as held; so does a turn waiting for its background work (its answer
  *         given), at once — no hard interrupt after the wait
@@ -287,16 +286,6 @@ describe('interrupt for continuation — soft first', () => {
         await wait(150);
         assert.equal(fs.existsSync(file!), false, 'used up once the continued turn ended');
         assert.equal(live(item).heldConversationFile, undefined);
-    });
-
-    test('SQ-7: a Copilot item — the hard interrupt at once', async () => {
-        const item = await startItem('task seven');
-        live(item).lastDispatched = { ...live(item).lastDispatched!, transport: 'copilot' };
-        assert.equal(queue().interruptActiveItemForContinuation(item.id), true);
-        assert.equal(live(item).status, 'interrupted');
-        assert.equal(soft.stateOf(item.id), undefined, 'no soft interrupt');
-        await wait(60);
-        reset();
     });
 
     test('SQ-8: a question counts as held; its answer is kept until Resume', async () => {

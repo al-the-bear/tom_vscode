@@ -149,10 +149,10 @@ describe('the todo views: one action, one item', () => {
         add.click(); await sleep(50); add.click(); await sleep(55); add.click();
         assert.equal(count('qtAddCurrentTodoToQueue'), 1, 'a burst while it is paused: nothing more');
         assert.equal(add.disabled, true);
-        const sendBtn = w.document.getElementById('qt-btn-send-copilot');
+        const sendBtn = w.document.getElementById('qt-btn-send-chat');
         assert.ok(sendBtn, 'the bar\'s Send');
         sendBtn.click(); sendBtn.click(); sendBtn.click();
-        assert.equal(count('qtSendCurrentTodoToCopilot'), 1);
+        assert.equal(count('qtSendCurrentTodoToChat'), 1);
         w.qtRenderList();
         const walk = w.document.querySelector('.qt-group-walk-btn');
         assert.ok(walk, 'a group header with its walk button');
@@ -183,7 +183,7 @@ describe('the todo views: one action, one item', () => {
         await burst({ type: 'qtGuideUserAction', target: 'queue', todoId: 'u1' });
         assert.equal(enqueued.length - b.q, 1, 'Guide me (queue)');
         b = before();
-        await burst({ type: 'qtSendCurrentTodoToCopilot', todoId: 'b1', template: '__none__' });
+        await burst({ type: 'qtSendCurrentTodoToChat', todoId: 'b1', template: '__none__' });
         assert.equal(sends.length - b.s, 1, 'the bar\'s Send');
         b = before();
         await burst({ type: 'qtQueueStackedTodos', todos: [{ todoId: 'c1' }, { todoId: 'c2' }], template: '__none__' });
@@ -217,8 +217,8 @@ describe('the todo views: one action, one item', () => {
         const q = enqueued.length;
         const s = sends.length;
         await send({ type: 'qtAddCurrentTodoToQueue', todoId: 'd3', template: '__none__' });
-        await send({ type: 'qtSendCurrentTodoToCopilot', todoId: 'd3', template: '__none__' });
-        await send({ type: 'qtSendCurrentTodoToCopilot', todoId: 'd3', template: 'execute-todo' });
+        await send({ type: 'qtSendCurrentTodoToChat', todoId: 'd3', template: '__none__' });
+        await send({ type: 'qtSendCurrentTodoToChat', todoId: 'd3', template: 'execute-todo' });
         assert.equal(enqueued.length - q, 1);
         assert.equal(sends.length - s, 2, 'Send after Queue, and another template');
     });

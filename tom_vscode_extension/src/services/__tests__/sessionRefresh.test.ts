@@ -12,7 +12,6 @@
  *   SR-3 the list in the prompt: in place of `${refreshSessions}`, else appended; an empty list says so
  *   SR-4 a refresh of the Anthropic panel dispatches the list, trims every session's trail to base,
  *        records when it ran; the next refresh lists only the sessions written since
- *   SR-5 on the other panels the placeholder is removed, nothing listed
  */
 
 import { describe, test } from 'node:test';
@@ -135,21 +134,6 @@ describe('session live trails', () => {
             await QuestRefreshService.instance.runRefresh('anthropic', async (t) => { sent.push(t); }, quest);
             assert.match(sent[0], /`chat`/);
             assert.doesNotMatch(sent[0], /`default`|`review`/);
-        } finally {
-            QuestRefreshStore.setInstanceForTest(undefined);
-        }
-    });
-
-    test('SR-5: other panels get no list', async () => {
-        const quest = newQuest();
-        const config = {
-            questRefresh: { copilot: { promptInterval: 3, refreshPrompt: 'Refresh.\n\n${refreshSessions}' } },
-        } as unknown as SendToChatConfig;
-        QuestRefreshStore.setInstanceForTest(new QuestRefreshStore(() => config));
-        try {
-            const sent: string[] = [];
-            await QuestRefreshService.instance.runRefresh('copilot', async (t) => { sent.push(t); }, quest);
-            assert.deepEqual(sent, ['Refresh.']);
         } finally {
             QuestRefreshStore.setInstanceForTest(undefined);
         }

@@ -295,19 +295,3 @@ export function liveAspectsForSend(
         },
     );
 }
-
-/**
- * The aspect text placed before a Copilot prompt (Copilot has no system
- * prompt). `choices`: the send's levels; default: the live ones
- * (services/aspectChoiceLevels.ts liveAspectChoices).
- */
-export function withAspectsForCopilot(text: string, choices?: AspectLevelChoices): string {
-    try {
-        /* eslint-disable-next-line @typescript-eslint/no-require-imports */
-        const levels = choices ?? (require('./aspectChoiceLevels') as typeof import('./aspectChoiceLevels')).liveAspectChoices();
-        // No skills list on Copilot (gsel21): `${skills-list}` reads empty there.
-        return liveAspectsForSend('copilot', { systemSegments: [], userContent: text }, levels, { 'skills-list': '' }).userContent;
-    } catch {
-        return text;
-    }
-}

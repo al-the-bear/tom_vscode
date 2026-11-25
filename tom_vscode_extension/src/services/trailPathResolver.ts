@@ -24,14 +24,14 @@ import { resolveVariables } from '../utils/variableResolver';
 export interface TrailPathVars {
     /** Active quest id. Defaults to `'default'` when omitted. */
     quest?: string;
-    /** Subsystem folder name (e.g. `'copilot'`, `'localLlm-<config>'`). */
+    /** Subsystem folder name (e.g. `'anthropic'`, `'localLlm-<config>'`). */
     subsystem?: string;
 }
 
 export interface TrailPathOptions {
     /**
      * `'fill'` (default) replaces `${quest}` and `${subsystem}` with the
-     * values passed in `vars` (or `'default'` / `'copilot'` if absent).
+     * values passed in `vars` (or `'default'` / `'anthropic'` if absent).
      *
      * `'strip'` removes them so the caller can walk up to the trail
      * root. A leading slash before the stripped token is also removed
@@ -72,7 +72,7 @@ export function resolveTrailPath(
     const resolverValues: Record<string, string> = {};
     if (mode === 'fill') {
         resolverValues.quest = vars.quest ?? 'default';
-        resolverValues.subsystem = vars.subsystem ?? 'copilot';
+        resolverValues.subsystem = vars.subsystem ?? 'anthropic';
     }
 
     const resolved = resolveVariables(prepared, {

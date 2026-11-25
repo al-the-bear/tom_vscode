@@ -26,20 +26,17 @@ Primary categories:
 ## Additional Placeholder Categories
 
 - Template-specific values from command/workflow context
-- Response values extracted from Copilot answer JSON payloads
+- Response values extracted from an answer's text
 
-## Copilot answer JSON placeholders
+## Response values
 
-When using answer-file workflows, generated JSON follows:
+A queue item's answer text can carry response values in one of these shapes:
 
-- `requestId`
-- `generatedMarkdown`
-- optional `comments`
-- optional `references`
-- optional `requestedAttachments`
-- optional `responseValues`
+- JSON: `"responseValues": { "KEY": "value" }`
+- YAML: a `responseValues:` line followed by indented `key: value` lines
+- a `variables:` line followed by `- key = value` (or `- key: value`) lines
 
-`responseValues` can be reused in later template expansions.
+`responseValues` can be reused in later template expansions as `${chat.KEY}`.
 
 ## File-oriented placeholder behavior
 
@@ -77,7 +74,7 @@ Two shortcuts for the most common case — the active role / quest from the Chat
 
 | Placeholder | Expands to |
 | --- | --- |
-| `${skills-list}` | The skills of `.claude/skills/` as the system prompt lists them: the `## Skills` heading, the instruction to call `tomAi_loadSkill` first, one line per skill (name and description). It is the text of the aspect guideline `skills` (choice `all`, the default); a send fills it only on the transports with the extension's own tool loop (direct, Local LLM, VS Code LM) when it carries `tomAi_loadSkill` — on the Agent SDK (which loads skills itself) and on Copilot it reads empty. |
+| `${skills-list}` | The skills of `.claude/skills/` as the system prompt lists them: the `## Skills` heading, the instruction to call `tomAi_loadSkill` first, one line per skill (name and description). It is the text of the aspect guideline `skills` (choice `all`, the default); a send fills it only on the transports with the extension's own tool loop (direct, Local LLM, VS Code LM) when it carries `tomAi_loadSkill` — on the Agent SDK (which loads skills itself) it reads empty. |
 
 ### Project guidelines
 
@@ -173,7 +170,7 @@ See @dart/unit_tests.md.        → stays (not alone on its line)
 
 ### Available in every template context
 
-All file-injection placeholders work inside system prompts, user-message templates, compaction and memory-extraction templates, and Copilot prompt templates. They resolve the same way everywhere.
+All file-injection placeholders work inside system prompts, user-message templates, and compaction and memory-extraction templates. They resolve the same way everywhere.
 
 ### Conditional injection with expressions
 
@@ -291,7 +288,7 @@ every variable above they read the **prompt facts**:
 
 | Variable | Value |
 | --- | --- |
-| `prompt.transport` | `direct`, `agentSdk`, `copilot`, `localLlm` or `vscodeLm` |
+| `prompt.transport` | `direct`, `agentSdk`, `localLlm` or `vscodeLm` |
 | `prompt.kind` | `chat` (a chat panel's send), `queue`, `todo` (a queue stage that runs a todo), `proceed` (a process step's Proceed prompt), `timed` (a timed request's) |
 | `prompt.todo` | the id of the todo the prompt runs, `''` when none |
 | `prompt.role`, `prompt.roleType` | the role the prompt runs as and its role type (`_ai/role-types/<type>`) |

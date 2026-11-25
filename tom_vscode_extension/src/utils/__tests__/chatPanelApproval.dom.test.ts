@@ -2,7 +2,7 @@
  * The @CHAT panel's tool-approval dialog (media/chatPanel/main.js), in a JSDOM running the real script.
  *
  *   CA-1 the webview reports approvalUiReady when it has started
- *   CA-2 a request opens the Anthropic subpanel when another one (Copilot) was shown, and shows the dialog
+ *   CA-2 a request opens the Anthropic subpanel when another section (Logs) was shown, and shows the dialog
  *   CA-3 requests arriving while one is shown wait their turn: each gets its own answer, in order; the same
  *        request sent twice (a reloaded webview) is shown once
  *   CA-4 a request settled elsewhere (Stop, a queue cancel) leaves the dialog, the next one shows
@@ -27,11 +27,11 @@ function setup(t: { after(fn: () => void): void }) {
     const w = dom.window as Win;
     t.after(() => w.close());
     const posted: Array<Record<string, unknown>> = [];
-    // The user last looked at the Copilot subpanel.
+    // The user last looked at the Logs section.
     w.acquireVsCodeApi = () => ({
         postMessage: (m: Record<string, unknown>) => posted.push(JSON.parse(JSON.stringify(m))),
         setState: () => undefined,
-        getState: () => ({ expanded: ['copilot'], pinned: [] }),
+        getState: () => ({ expanded: ['logs'], pinned: [] }),
     });
     w.__INIT__ = {};
     w.eval(media('chatPanel', 'main.js'));
@@ -54,7 +54,7 @@ describe('chat panel: tool approval', () => {
 
     test('CA-2: the Anthropic subpanel opens', (t) => {
         const s = setup(t);
-        assert.ok(s.section('anthropic').classList.contains('collapsed'), 'Copilot was shown');
+        assert.ok(s.section('anthropic').classList.contains('collapsed'), 'Logs was shown');
         s.send(request('t1'));
         assert.ok(s.section('anthropic').classList.contains('expanded'), 'the Anthropic subpanel is open');
         assert.equal(s.overlay().style.display, 'block');

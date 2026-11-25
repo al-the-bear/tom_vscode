@@ -7,7 +7,6 @@
  * auto-execute the matching command.
  *
  * Groups:
- *   Ctrl+Shift+C → Send to Copilot Chat
  *   Ctrl+Shift+L → Send to Anthropic/LLM (the @CHAT Anthropic panel's profile)
  *   Ctrl+Shift+E → Execute Commandline
  *   Ctrl+Shift+X → Favorites (configurable via tom_vscode_extension.json)
@@ -89,17 +88,6 @@ const HELP_ITEM: ChordMenuItem = {
 // ============================================================================
 
 const CHORD_GROUPS: Record<string, ChordGroup> = {
-    chat: {
-        title: 'Send to Copilot Chat',
-        prefix: 'Ctrl+Shift+C',
-        items: [
-            { key: 'c', label: 'Send to Chat', commandId: 'tomAi.sendToCopilot' },
-            { key: 's', label: 'Send to Chat (Standard)', commandId: 'tomAi.sendToCopilot.standard' },
-            { key: 't', label: 'Send to Chat (Template)', commandId: 'tomAi.sendToCopilot.template' },
-            { key: 'r', label: 'Reload Chat Config', commandId: 'tomAi.reloadConfig' },
-            HELP_ITEM,
-        ]
-    },
     llm: {
         title: 'Send to Anthropic/LLM',
         prefix: 'Ctrl+Shift+L',
@@ -272,10 +260,6 @@ async function showChordMenu(groupId: string): Promise<void> {
 // Command Handlers (exported for extension.ts)
 // ============================================================================
 
-export function chordMenuChatHandler(): void {
-    showChordMenu('chat');
-}
-
 export function chordMenuLlmHandler(): void {
     showChordMenu('llm');
 }
@@ -312,7 +296,6 @@ export async function chordMenuFavoritesHandler(): Promise<void> {
  */
 export function registerChordMenuCommands(context: vscode.ExtensionContext): void {
     const cmds = [
-        vscode.commands.registerCommand('tomAi.chordMenu.copilot', chordMenuChatHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.llm', chordMenuLlmHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.execute', chordMenuExecuteHandler),
         vscode.commands.registerCommand('tomAi.chordMenu.favorites', chordMenuFavoritesHandler),

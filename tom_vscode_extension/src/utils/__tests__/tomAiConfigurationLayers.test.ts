@@ -62,8 +62,8 @@ function cfg(): TomAiConfiguration {
 }
 
 function layers(): void {
-    write(rootFile, { bridge: { requestTimeout: 1000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, copilot: { mode: 'root', x: 1 }, rootOnly: 1 });
-    write(wsFile, { bridge: { restartDelay: 7 }, todo: { defaultColumns: ['ws'] }, copilot: { mode: 'ws' } });
+    write(rootFile, { bridge: { requestTimeout: 1000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, extra: { mode: 'root', x: 1 }, rootOnly: 1 });
+    write(wsFile, { bridge: { restartDelay: 7 }, todo: { defaultColumns: ['ws'] }, extra: { mode: 'ws' } });
     write(userFile, 'bridge:\n  maxRestarts: 3\n  requestTimeout: 99\nfavorites:\n  - name: mine\n');
 }
 
@@ -73,7 +73,7 @@ describe('TomAiConfiguration in layers', () => {
         const c = cfg();
         assert.deepEqual(c.getBridge(), { requestTimeout: 1000, restartDelay: 7, maxRestarts: 3, own: 'root' });
         assert.deepEqual(c.getTodo(), { defaultColumns: ['ws'] }, 'an array of the workspace layer replaces the root one');
-        assert.deepEqual(c.getCopilot(), { mode: 'ws', x: 1 }, 'a scalar of the workspace layer wins');
+        assert.deepEqual(c.getSection('extra'), { mode: 'ws', x: 1 }, 'a scalar of the workspace layer wins');
     });
 
     test('TL-2: the user-global file fills in only what the shared files leave out', () => {
@@ -96,7 +96,7 @@ describe('TomAiConfiguration in layers', () => {
         const c = cfg();
         const wsBefore = fs.readFileSync(wsFile, 'utf8');
         await c.saveBridge({ ...c.getBridge(), requestTimeout: 2000 });
-        assert.deepEqual(read(rootFile), { bridge: { requestTimeout: 2000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, copilot: { mode: 'root', x: 1 }, rootOnly: 1 });
+        assert.deepEqual(read(rootFile), { bridge: { requestTimeout: 2000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, extra: { mode: 'root', x: 1 }, rootOnly: 1 });
         assert.equal(fs.readFileSync(wsFile, 'utf8'), wsBefore, 'the workspace layer is never written');
         assert.equal(c.getBridge().requestTimeout, 2000);
         const before = fs.readFileSync(rootFile, 'utf8');
@@ -108,12 +108,12 @@ describe('TomAiConfiguration in layers', () => {
         layers();
         cfg();
         const loaded = loadSendToChatConfig() as unknown as Record<string, Record<string, unknown>>;
-        assert.equal(loaded.copilot.mode, 'ws', 'the loaded view is the merged one');
+        assert.equal(loaded.extra.mode, 'ws', 'the loaded view is the merged one');
         assert.equal(loaded.bridge.maxRestarts, 3, 'with the user-global file under it');
-        loaded.copilot.x = 2;
+        loaded.extra.x = 2;
         loaded.added = { k: true };
         assert.equal(saveSendToChatConfig(loaded as never), true);
-        assert.deepEqual(read(rootFile), { bridge: { requestTimeout: 1000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, copilot: { mode: 'root', x: 2 }, rootOnly: 1, added: { k: true } });
+        assert.deepEqual(read(rootFile), { bridge: { requestTimeout: 1000, own: 'root' }, todo: { defaultColumns: ['a', 'b'] }, extra: { mode: 'root', x: 2 }, rootOnly: 1, added: { k: true } });
     });
 
     test('TL-6: a workspace file that is a symlink to the root\'s is read once', () => {
@@ -124,10 +124,10 @@ describe('TomAiConfiguration in layers', () => {
             const c = cfg();
             assert.deepEqual(c.getTodo(), { defaultColumns: ['a', 'b'] });
             const loaded = loadSendToChatConfig() as unknown as Record<string, Record<string, unknown>>;
-            loaded.copilot.x = 9;
+            loaded.extra.x = 9;
             saveSendToChatConfig(loaded as never);
             assert.equal(fs.lstatSync(wsFile).isSymbolicLink(), true, 'the link stays a link');
-            assert.equal((read(rootFile) as Record<string, Record<string, unknown>>).copilot.x, 9);
+            assert.equal((read(rootFile) as Record<string, Record<string, unknown>>).extra.x, 9);
         } finally {
             fs.rmSync(wsFile);
         }

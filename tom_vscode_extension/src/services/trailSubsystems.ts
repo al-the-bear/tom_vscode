@@ -15,8 +15,5 @@ import type { TrailSubsystem } from './trailService';
 /** `TrailSubsystem` literal for Anthropic-routed trails. */
 export const ANTHROPIC_SUBSYSTEM = { type: 'anthropic' as const } satisfies TrailSubsystem;
 
-/** `TrailSubsystem` literal for Copilot-routed trails. */
-export const COPILOT_SUBSYSTEM = { type: 'copilot' as const } satisfies TrailSubsystem;
-
 /** `TrailSubsystem` literal for MCP-server-routed trails. */
 export const MCP_SUBSYSTEM = { type: 'mcp' as const } satisfies TrailSubsystem;

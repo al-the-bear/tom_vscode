@@ -5,7 +5,7 @@ import * as path from 'path';
 import { TrailService, TrailMetadata, TrailSubsystem } from './trailService';
 import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 
-export type TrailType = 'local' | 'copilot' | 'conversation' | 'tomai';
+export type TrailType = 'local' | 'conversation' | 'tomai';
 
 function sanitizeSegment(value: string): string {
     return value.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
@@ -18,12 +18,6 @@ function getWindowId(): string {
 }
 
 function mapTypeToSubsystem(type: string, target?: string, metadata: TrailMetadata = {}): TrailSubsystem {
-    const targetLower = (target ?? '').toLowerCase();
-
-    if (type === 'copilot' || targetLower.includes('copilot')) {
-        return { type: 'copilot' };
-    }
-
     if (type === 'local') {
         return {
             type: 'localLlm',
@@ -154,12 +148,6 @@ export function logToolResult(type: TrailType | string, toolName: string, output
         output,
         error,
     }, getWindowId(), questId);
-}
-
-export function logCopilotAnswer(answerPath: string, data: unknown): void {
-    const payload = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    const metadata: TrailMetadata = { sourcePath: answerPath };
-    logResponse('copilot', 'github_copilot', payload, true, metadata);
 }
 
 export async function writeTrailFile(

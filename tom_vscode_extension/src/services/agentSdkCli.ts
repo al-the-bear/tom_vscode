@@ -9,7 +9,7 @@
  * CLI to the SDK as `pathToClaudeCodeExecutable`. In a development checkout
  * the extension's own devDependency is used. On a platform the SDK ships no
  * CLI for, the Agent SDK transport cannot run; the other transports (direct
- * API, VS Code LM, Copilot, Local LLM) are not affected.
+ * API, VS Code LM, Local LLM) are not affected.
  *
  * {@link locateAgentSdkCli} looks the package up the way the SDK does
  * (sdk.mjs: `<package>/claude[.exe]`, on Linux the glibc and the musl
@@ -121,10 +121,10 @@ export function unusableMuslAgentSdkCli(
 export function agentSdkCliMissingMessage(platform: string = `${process.platform}-${process.arch}`, unusableMusl?: string): string {
     if (unusableMusl) {
         return `The installed Anthropic provider has only the musl Claude CLI (${unusableMusl}), which this host cannot start (it has no musl loader; it needs ${AGENT_SDK_PACKAGE}-${platform}). `
-            + `Reinstall the Anthropic provider: Remove, then Install, on the Provider SDKs page (command ${PROVIDER_SDKS_COMMAND}). Until then use another transport (direct Anthropic API, VS Code LM, Copilot, a local model).`;
+            + `Reinstall the Anthropic provider: Remove, then Install, on the Provider SDKs page (command ${PROVIDER_SDKS_COMMAND}). Until then use another transport (direct Anthropic API, VS Code LM, a local model).`;
     }
     return `The Agent SDK transport needs the Claude CLI (${AGENT_SDK_PACKAGE}-${platform}), which the installed Anthropic provider does not have for ${platform}. `
-        + `Use another transport (direct Anthropic API, VS Code LM, Copilot, a local model), or install the Anthropic provider again on the Provider SDKs page (command ${PROVIDER_SDKS_COMMAND}).`;
+        + `Use another transport (direct Anthropic API, VS Code LM, a local model), or install the Anthropic provider again on the Provider SDKs page (command ${PROVIDER_SDKS_COMMAND}).`;
 }
 
 /** Thrown by the Agent SDK transport before a query when the CLI is missing on this platform (`unusableMusl`: the musl CLI a glibc host has). */

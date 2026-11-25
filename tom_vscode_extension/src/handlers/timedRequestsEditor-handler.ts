@@ -14,7 +14,7 @@ import { applyTemplateWrapping } from '../managers/promptQueueManager';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { loadSendToChatConfig } from './handler_shared';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
-import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { userMessageTemplateOptions } from '../utils/userMessageTemplateLookup';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { wireCompletionMessages } from '../utils/completionWiring';
 
@@ -181,11 +181,10 @@ async function handleMessage(msg: any): Promise<void> {
             const { expandTemplate } = await import('./promptTemplate.js');
             let previewContent = msg.text || '';
             const template = msg.template || '';
-            const answerWrapper = msg.answerWrapper || false;
 
             // Use the exact same expansion logic as real prompt processing
             previewContent = await expandTemplate(previewContent);
-            previewContent = await applyTemplateWrapping(previewContent, template, answerWrapper);
+            previewContent = await applyTemplateWrapping(previewContent, template);
             
             await showPreviewPanel('Timed Request Preview', previewContent);
             return;
@@ -218,7 +217,6 @@ async function handleMessage(msg: any): Promise<void> {
                 te.addEntry({
                     enabled: true,
                     template: msg.template || '(None)',
-                    answerWrapper: msg.answerWrapper || false,
                     originalText: msg.text || '',
                     scheduleMode: msg.scheduleMode || 'interval',
                     intervalMinutes: msg.intervalMinutes ?? 30,
@@ -226,7 +224,6 @@ async function handleMessage(msg: any): Promise<void> {
                         ? msg.intervalWeekdays.filter((d: unknown) => typeof d === 'number' && d >= 0 && d <= 6)
                         : [],
                     sendMaximum: Number.isFinite(msg.sendMaximum) ? Math.max(0, Math.round(msg.sendMaximum)) : 0,
-                    answerWaitMinutes: Number.isFinite(msg.answerWaitMinutes) ? Math.max(0, Math.round(msg.answerWaitMinutes)) : 0,
                     scheduledTimes: msg.scheduledTimes ?? [],
                     repeatCount: Number.isFinite(msg.repeatCount) ? Math.max(1, Math.round(msg.repeatCount)) : 1,
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : '',

@@ -43,7 +43,6 @@
     <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Prompt Template"><span class="codicon codicon-add"></span></button>
     <button class="ctx-btn-icon" onclick="editPromptTemplate('addTemplate')" title="Edit Prompt Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deletePromptTemplate('addTemplate')" title="Delete Prompt Template"><span class="codicon codicon-trash"></span></button>
-    <label style="display:inline;margin:0;"><input type="checkbox" id="addAnswerWrapper" /> Answer Wrapper</label>
   </div>
   <label>Schedule Mode</label>
   <div class="schedule-row">
@@ -55,7 +54,6 @@
   <div id="addIntervalRow" class="schedule-row">
     <span>Every</span> <input type="number" id="addInterval" min="1" value="30" style="width:60px"/> <span>minutes</span>
     <span style="margin-left:8px;">Send max:</span> <input type="number" id="addSendMaximum" min="0" value="0" style="width:60px" title="0 = unlimited"/>
-    <span style="margin-left:8px;">Answer wait:</span> <input type="number" id="addAnswerWait" min="0" value="0" style="width:60px" title="Minutes to wait before auto-advancing (0 = wait for answer file)"/>
   </div>
   <div id="addIntervalWeekdaysRow" class="schedule-row" style="align-items:center;">
     <span style="font-size:0.85em;white-space:nowrap;">Days:</span>

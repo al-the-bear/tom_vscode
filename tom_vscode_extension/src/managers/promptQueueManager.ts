@@ -1,7 +1,7 @@
 /**
  * Prompt Queue Manager (§3.2)
  *
- * Manages an ordered queue of prompts destined for Copilot Chat.
+ * Manages an ordered queue of prompts sent through the Anthropic handler.
  * Supports auto-send on answer detection, manual reordering,
  * and integration with the Timer system.
  */
@@ -15,8 +15,6 @@ import { runQueueRemovalPlan, type RunQueueRemovalMode } from '../utils/runQueue
 import { resolveItemTemplate, isRunDefaultChoice, RUN_DEFAULT_TEMPLATE } from '../utils/runDefaultChoice';
 import { applyRunDefaultsToItem, runDefaultFieldsOf, type RunDefaultField, type RunDefaultsApplyResult, type RunDefaultsMode } from '../utils/queueRunDefaultsApply';
 import * as vscode from 'vscode';
-import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
-import { liveAspectChoices } from '../services/aspectChoiceLevels';
 import { normalizeAspectChoices } from '../utils/aspectChoices';
 import { renameInChoices, type AspectRename } from '../utils/aspectRename';
 import { inheritedProcessRun, parseProcessRun, runInProcessPosition, type ProcessRun } from '../services/processRunContext';
@@ -27,7 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { expandTemplate } from '../handlers/promptTemplate';
-import { loadSendToChatConfig, getCopilotChatAnswerFolderAbsolute } from '../handlers/handler_shared';
+import { loadSendToChatConfig } from '../handlers/handler_shared';
 import {
     readAllEntries,
     writeEntry,
@@ -78,20 +76,9 @@ import { ACTIVE_QUEUE_STATUSES, PARKED_QUEUE_STATUSES, canRelocateQueueItem, lan
 import { orderForYield, yieldTarget, yieldUnavailableReason } from '../utils/queueYield';
 import { groupItemMembers, parseGroupSelection, selectionOf, withMemberChoice, withSelectionFlags, type GroupMemberView, type GroupSelection } from '../utils/groupItemSelection';
 import { claimTodo, reclaimForResend, releaseTodoClaim, settleGroupClaim, todoClaimFromYaml, todoClaimToYaml, type TodoClaim, type TodoStatusPort } from '../utils/queueTodoClaim';
-import { resolveVariables, unescapePlaceholders } from '../utils/variableResolver.js';
-import {
-    buildAnswerFilePath,
-    shouldWatchAnswerFile,
-    extractRequestIdFromAnswerFilename,
-    findMatchingAnswerFile,
-    resolveDetectedRequestId,
-    computeHealthCheckDecisions,
-    windowAnswerFileStem,
-    answerFileClaim,
-    ownsAnswerFile,
-    type AnswerFileClaimInput,
-} from '../utils/queueStep4Utils';
-import { writeWindowState, setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
+import { resolveVariables } from '../utils/variableResolver.js';
+import { computeHealthCheckDecisions } from '../utils/queueStep4Utils';
+import { setWindowSubsystemActive, loadAllWindowStates } from '../handlers/windowStatusPanel-handler';
 import { isWindowAlive } from '../utils/windowHeartbeat';
 import { onUserWaitsChanged, queueItemsWaitingForUser, runAsQueueItem, type UserWaitKind } from '../services/userWaits';
 import { isAskLiveHere, openAskContinuationPrompt, sendOpenAskChatContinuation, openAskRecordToYaml, parseOpenAskRecord, runOpenAskTool, setOpenAskStore, shouldRestoreOpenAsk, type OpenAskRecord, type OpenAskTool } from '../services/openAskRecord';
@@ -114,11 +101,10 @@ import { queueMoveTarget } from '../utils/queueMove';
 import { CHAT_SENT_STATUS, CHAT_STATUS, appendChatItemNote, finishChatItem, isChatStatus, newChatItem, settleRunningChatItems, type ChatQueueItem } from '../utils/chatQueueItems';
 import { sessionHolderOf, type SessionBusyItem, type SessionHolder } from '../utils/sessionBusy';
 import { abandonChatSend, isChatSendActive } from '../handlers/chatQueueTracking';
-import { TrailService } from '../services/trailService';
 import { WsPaths } from '../utils/workspacePaths';
 import { normalizeResponseValues, splitResponseValues } from '../utils/answerResponseValues';
 import { extractResponseValuesFromText } from '../utils/responseValues';
-import { ANSWER_WRAPPER_ID, copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
+import { fillTemplate, userMessageTemplateBody } from '../utils/userMessageTemplateLookup';
 import { directApiKeyEnvVar, isMissingApiKeyFailure, missingApiKeyFailureText, missingDirectApiKey, missingApiKeyMessage, stageKeyRefusal } from '../utils/anthropicApiKeyCheck';
 import type { ChangeSource } from './chatVariablesStore';
 import { createSession, deleteSession, ensureSession, readSession } from '../services/agentSdkSessionStore';
@@ -144,7 +130,6 @@ import {
     type InboxItem,
     type InboxSender,
 } from '../utils/questInbox';
-import { getWindowId } from '../services/copilotAnswerService';
 import { getWorkspaceName } from '../utils/panelYamlStore';
 import * as os from 'os';
 import { lookupProfile, parseSessionSpec, specExtras, type ProfileSection, type SessionSpec } from '../utils/sessionSpecs';
@@ -199,11 +184,8 @@ export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
 
 /**
  * Outcome of one `dispatchNextStageForSendingItem` invocation. Drives
- * the three branches every caller has to differentiate:
+ * the two branches every caller has to differentiate:
  *
- *   - `'dispatched'` — a stage / repetition went out. Callers leave
- *     the item alone (Copilot: the answer-file watcher continues;
- *     Anthropic: the dispatch loop already recursed inline).
  *   - `'done'`       — all stages + all repetitions are complete.
  *     Callers mark the item `'sent'` and advance the queue.
  *   - `'paused'`     — no further repetition starts, for one of two
@@ -225,7 +207,7 @@ export function parseProcessMove(raw: unknown): ProcessMoveSpec | undefined {
  * to be handled at each of them, and a missed one marks the item
  * `'sent'` — silently completing a queue item that never ran.
  */
-export type DispatchOutcome = 'dispatched' | 'done' | 'paused';
+export type DispatchOutcome = 'done' | 'paused';
 
 /** Appended to the answer of a stage the user moved past with Continue while its turn still ran. */
 export const CONTINUE_ANSWER_MARK = '\n\n_(Ended by Continue: the turn was still running; this is its last text.)_';
@@ -268,14 +250,16 @@ export interface QueueItemWarning {
 }
 
 /**
- * Which backend a queued prompt goes through. `copilot` is the
- * historical behaviour (answer-file polling); `anthropic` routes the
- * prompt through AnthropicHandler.sendMessage, which itself forks
- * into Direct / Agent SDK / VS Code LM / Local LLM based on the
- * profile's selected configuration. See
- * `doc/multi_transport_prompt_queue_revised.md` §2 decision 1.
+ * The backend a queued prompt goes through: the Anthropic handler
+ * (`AnthropicHandler.sendMessage`), which forks into Direct / Agent SDK /
+ * VS Code LM / Local LLM by the profile's configuration.
  */
-export type QueuedTransport = 'copilot' | 'anthropic';
+export type QueuedTransport = 'anthropic';
+
+/** A stored `transport` value as read: `anthropic`, and the former `copilot` read as `anthropic`; undefined for none. */
+export function readStoredTransport(value: unknown): QueuedTransport | undefined {
+    return value === 'anthropic' || value === 'copilot' ? 'anthropic' : undefined;
+}
 
 export interface QueuedFollowUpPrompt {
     id: string;
@@ -284,7 +268,6 @@ export interface QueuedFollowUpPrompt {
     repeatCount?: number | string;
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this follow-up has been sent (0-based counter)
-    answerWaitMinutes?: number;
     createdAt: string;
     // Multi-transport fields (design doc §4.1).
     transport?: QueuedTransport;
@@ -300,7 +283,6 @@ export interface QueuedPrePrompt {
     repeatCount?: number | string;
     resolvedRepeatCount?: number; // Cached resolved value when repeatCount is a variable name
     repeatIndex?: number;         // How many times this pre-prompt has been sent (0-based counter)
-    answerWaitMinutes?: number;
     // Multi-transport fields (design doc §4.1).
     transport?: QueuedTransport;
     anthropicProfileId?: string;
@@ -321,7 +303,6 @@ export interface QueueSendWait {
 export interface QueuedPrompt {
     id: string;
     template: string;             // Template name or "(None)"
-    answerWrapper?: boolean;      // Whether to also wrap with answer file template
     originalText: string;         // User's raw prompt
     expandedText: string;         // After template processing
     status: QueuedPromptStatus;
@@ -335,17 +316,15 @@ export interface QueuedPrompt {
     /** A chat send shown in the queue (status `chat` / `chat-sent`): where it came from. */
     chatSource?: string;
     /**
-     * Queued with a queue button of the @CHAT panel (Save to Queue, Queue next): the subpanel (`anthropic`,
-     * `copilot`). The queue editor's "From the chat panel" filter shows these and the chat sends.
+     * Queued with a queue button of the @CHAT panel (Save to Queue, Queue next): the subpanel (`anthropic`).
+     * The queue editor's "From the chat panel" filter shows these and the chat sends.
      */
     fromChatPanel?: string;
     /** A chat send shown in the queue: the window that ran it (src/utils/chatQueueItems.ts). */
     chatWindowId?: string;
     createdAt: string;            // ISO timestamp
-    sentAt?: string;              // When actually sent to Copilot
+    sentAt?: string;              // When actually sent
     error?: string;
-    requestId?: string;           // Initial request id extracted from the wrapped prompt
-    expectedRequestId?: string;   // Request id expected in the next answer file
     prePrompts?: QueuedPrePrompt[];  // Pre-prompts sent before the main prompt
     followUps?: QueuedFollowUpPrompt[];
     followUpIndex?: number;       // Number of follow-ups already sent
@@ -362,7 +341,6 @@ export interface QueuedPrompt {
     repeatSuffix?: string;
     templateRepeatCount?: number | string; // Repeat the entire template this many times
     templateRepeatIndex?: number;  // Current template repeat iteration (0-based)
-    answerWaitMinutes?: number;   // If > 0, auto-advance after N minutes instead of waiting for answer file
     /**
      * The longest a turn of this item waits for its own background work
      * before it ends with a hint naming what still runs; wins over the
@@ -457,9 +435,7 @@ export interface QueuedPrompt {
      * the next pending item of its lane; the walk resumes after that item.
      */
     yieldAfterIteration?: boolean;
-    // Multi-transport fields (design doc §4.1). Items without `transport`
-    // resolve to 'copilot' at dispatch time — byte-identical to the
-    // pre-multi-transport behaviour.
+    // The transport (always `anthropic`) and the profile / configuration it runs with.
     transport?: QueuedTransport;
     anthropicProfileId?: string;
     anthropicConfigId?: string;
@@ -600,8 +576,7 @@ export interface QueuedPrompt {
     retryUntil?: string;
     /**
      * True while a dispatched prompt is genuinely in flight — set at each
-     * dispatch (a Copilot polled answer-file wait, or an Anthropic direct
-     * await) and cleared the moment the queue stops actively processing this
+     * dispatch and cleared the moment the queue stops actively processing this
      * item (pause gate, completion, or error). Drives the webview's green→amber
      * header: a `sending` item stays green while `awaitingAnswer`, and turns
      * amber once it is idle/paused between iterations — so a stopped queue shows
@@ -709,7 +684,6 @@ export interface QueuedPrompt {
 const MAX_SENT_HISTORY = 50;
 const MAX_TOTAL_ITEMS = 100;
 const HEALTH_CHECK_INTERVAL_MS = 60_000;
-const ANSWER_POLL_INTERVAL_MS = 30_000;
 /**
  * Grace period added to a parsed rate-limit reset time before the queue
  * auto-retries a `waiting` item. The reset instant is when the *provider*
@@ -722,54 +696,23 @@ const MISSING_KEY_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
 
 /**
  * Resolve a template name to its body: a user-message template of the one
- * store (`anthropic.userMessageTemplates`, by id or name), whatever the
- * transport; `__answer_file__` is the Copilot Queue Wrapper
- * (src/utils/copilotTemplates.ts). Exported so preview panels can use the
- * exact same logic.
+ * store (`anthropic.userMessageTemplates`, by id or name). Exported so
+ * preview panels can use the exact same logic.
  */
-export function resolveTemplateString(
-    templateName: string,
-    _transport: QueuedTransport = 'copilot',
-): string | undefined {
+export function resolveTemplateString(templateName: string): string | undefined {
     if (!templateName || templateName === '(None)') { return undefined; }
     let config: ReturnType<typeof loadSendToChatConfig> | undefined;
     try { config = loadSendToChatConfig(); } catch { config = undefined; }
-    if (templateName === ANSWER_WRAPPER_ID) { return copilotQueueWrapper(config); }
     return userMessageTemplateBody(config, templateName);
 }
 
-/**
- * Whether a main prompt carries the Copilot Queue Wrapper: on Copilot unless
- * the item sets `answerWrapper: false` (it waits a fixed time instead of for
- * the answer file); never on Anthropic.
+/** Apply template wrapping to expanded text, expanding the placeholders the
+ *  template introduces. Exported so preview panels can use the exact same logic.
  */
-export function copilotWrapFor(transport: QueuedTransport | undefined, answerWrapper: boolean | undefined): boolean {
-    return transport === 'copilot' && answerWrapper !== false;
-}
-
-/** Apply template wrapping to expanded text.
- *  Expands placeholders after each template application so that
- *  placeholders introduced by the named template are resolved before
- *  the result becomes ${originalPrompt} for the Copilot Queue Wrapper.
- *  `answerWrapper` puts the wrapper around the result (Copilot only; the
- *  dispatcher passes false for Anthropic items). Exported so preview panels
- *  can use the exact same logic.
- */
-export async function applyTemplateWrapping(
-    expanded: string,
-    templateName: string,
-    answerWrapper?: boolean,
-    transport: QueuedTransport = 'copilot',
-): Promise<string> {
-    const body = resolveTemplateString(templateName, transport);
-    if (body !== undefined && templateName !== ANSWER_WRAPPER_ID) {
+export async function applyTemplateWrapping(expanded: string, templateName: string): Promise<string> {
+    const body = resolveTemplateString(templateName);
+    if (body !== undefined) {
         expanded = await expandTemplate(fillTemplate(body, expanded), { includeEditorContext: false });
-    }
-    // `__answer_file__` as the template means "no template, wrapped".
-    if (answerWrapper || templateName === ANSWER_WRAPPER_ID) {
-        let config: ReturnType<typeof loadSendToChatConfig> | undefined;
-        try { config = loadSendToChatConfig(); } catch { config = undefined; }
-        expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), expanded), { includeEditorContext: false });
     }
     return expanded;
 }
@@ -842,8 +785,8 @@ export class PromptQueueManager {
     /**
      * The queue settings of each process run (vscimpb60a, utils/runQueueSettings.ts):
      * auto-send, Auto-Start / -Pause / -Continue, the walk continuations, the
-     * defaults new items take (transport, profile, configuration, session,
-     * prompt template) and the Copilot answer timeout.
+     * defaults new items take (profile, configuration, session, prompt
+     * template).
      * `default` always; another run once a setting of it was set. A run with
      * none of its own reads {@link _runStart}.
      */
@@ -853,13 +796,9 @@ export class PromptQueueManager {
     /** Auto-Continue's start, by run. */
     private _autoContinueTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private _reloadDebounceTimer?: ReturnType<typeof setTimeout>;
-    private _answerWatcher?: fs.FSWatcher;
-    private _timeoutWatcher?: ReturnType<typeof setInterval>;
     private _healthCheckTimer?: ReturnType<typeof setInterval>;
-    private _answerPollTimer?: ReturnType<typeof setInterval>;
     private _statusBarItem?: vscode.StatusBarItem;
     private _statusBarChangeDisposable?: vscode.Disposable;
-    private _processingAnswerFile = false;
 
     /**
      * Cancellation source of each in-flight Anthropic dispatch, by the id of
@@ -940,48 +879,6 @@ export class PromptQueueManager {
 
     private readonly _onAnswerReceived = new vscode.EventEmitter<Record<string, unknown> | undefined>();
     public readonly onAnswerReceived = this._onAnswerReceived.event;
-
-    private _extractRequestIdFromExpandedPrompt(expanded: string): string | undefined {
-        const lastMatch = (pattern: RegExp): string | undefined => {
-            const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
-            const matcher = new RegExp(pattern.source, flags);
-            let match: RegExpExecArray | null = null;
-            let last: string | undefined;
-            while ((match = matcher.exec(expanded)) !== null) {
-                const candidate = match[1]?.trim();
-                if (candidate) {
-                    last = candidate;
-                }
-            }
-            return last;
-        };
-
-        // Prefer explicit trailing request-id markers in the prompt body.
-        const explicitRequestId = lastMatch(/Request ID(?: for this prompt)?\s*[:=]\s*([A-Za-z0-9_.-]+)/i);
-        if (explicitRequestId) {
-            return explicitRequestId;
-        }
-
-        // If a concrete answer-file path is included, use the filename stem.
-        const answerPathRequestId = lastMatch(/\/([A-Za-z0-9_.-]+)_answer\.json\b/i);
-        if (answerPathRequestId) {
-            return answerPathRequestId;
-        }
-
-        // Fallback: pick the last requestId-like occurrence rather than the first,
-        // because templates can contain examples and context blocks with older IDs.
-        const jsonRequestId = lastMatch(/"requestId"\s*:\s*"([^"]+)"/i);
-        if (jsonRequestId) {
-            return jsonRequestId;
-        }
-
-        const inlineRequestId = lastMatch(/\brequestId\b\s*[:=]\s*['"]([^'"]+)['"]/i);
-        if (inlineRequestId) {
-            return inlineRequestId;
-        }
-
-        return undefined;
-    }
 
     /** The quest the queue resolves todos against, or `undefined` when none is set. */
     private activeQuestId(): string | undefined {
@@ -1238,7 +1135,6 @@ export class PromptQueueManager {
     private async _buildExpandedText(
         originalText: string,
         template?: string,
-        answerWrapper?: boolean,
         repetition?: {
             repeatCount?: number;
             repeatIndex?: number;
@@ -1248,7 +1144,6 @@ export class PromptQueueManager {
             repeatTodoId?: string;
             repeatTodoTitle?: string;
         },
-        transport: QueuedTransport = 'copilot',
         templateRepetition?: { templateRepeatCount?: number; templateRepeatIndex?: number },
         /** A todo iteration's stage: the todo's record, appended (src/utils/todoIterationRecord.ts). */
         todoBlock?: string,
@@ -1297,33 +1192,11 @@ export class PromptQueueManager {
         });
 
         // The todo's record goes with the prompt text, inside the template's
-        // `${userMessage}` and ahead of the Copilot answer wrapper. Its `${`
+        // `${userMessage}`. Its `${`
         // are escaped, so the passes below leave it as stored.
         let expanded = await expandTemplate(withTodoYaml(withResolvedAffixes, todoBlock), { includeEditorContext: false });
-        expanded = await applyTemplateWrapping(expanded, template ?? '(None)', answerWrapper, transport);
+        expanded = await applyTemplateWrapping(expanded, template ?? '(None)');
         return expanded;
-    }
-
-    private updateWindowStatus(status: 'prompt-sent' | 'answer-received', transport?: QueuedTransport): void {
-        try {
-            // Only mirror to the 'copilot' dot when the dispatched stage
-            // actually used the Copilot transport. Without this guard an
-            // Anthropic queue item would falsely light Copilot (the bug
-            // behind the panel showing the wrong subsystem). Copilot
-            // answers are additionally marked 'answer-received' by
-            // copilotTrailService's answer-file path.
-            //
-            // The 'queue' dot itself is NOT written here — it reflects the
-            // live local queue state and is recomputed in
-            // _refreshQueueWindowStatus() rather than stamped per-event.
-            if (transport !== 'copilot') { return; }
-            const quest = (await_import_ChatVariablesStore())?.quest || '';
-            const windowId = getWindowStatusWindowId();
-            const workspaceName = getWindowStatusWorkspaceName();
-            writeWindowState(windowId, workspaceName, quest, 'copilot', status);
-        } catch {
-            // Best-effort status panel update; queue processing must continue.
-        }
     }
 
     /**
@@ -1363,10 +1236,7 @@ export class PromptQueueManager {
         logQueue('PromptQueueManager initialising');
         const m = new PromptQueueManager();
         m.restore();
-        m.setupAnswerWatcher();
-        m.startTimeoutWatcher();
         m.startHealthCheck();
-        m.startAnswerPolling();
         m.setupStatusBarItem();
         // Start file watcher for cross-window sync
         startQueueWatching();
@@ -1422,21 +1292,13 @@ export class PromptQueueManager {
 
     dispose(): void {
         logQueue('PromptQueueManager disposing');
-        this._answerWatcher?.close();
-        for (const timer of this._renameDebounceTimers.values()) { clearTimeout(timer); }
-        this._renameDebounceTimers.clear();
         for (const timer of this._autoContinueTimers.values()) { clearTimeout(timer); }
         this._autoContinueTimers.clear();
         if (this._reloadDebounceTimer) {
             clearTimeout(this._reloadDebounceTimer);
             this._reloadDebounceTimer = undefined;
         }
-        if (this._timeoutWatcher) {
-            clearInterval(this._timeoutWatcher);
-            this._timeoutWatcher = undefined;
-        }
         this.stopHealthCheck();
-        this.stopAnswerPolling();
         this._queueChangeDisposable?.dispose();
         this._inboxChangeDisposable?.dispose();
         this._statusBarChangeDisposable?.dispose();
@@ -1492,95 +1354,6 @@ export class PromptQueueManager {
         this._statusBarItem.tooltip = `Prompt Queue paused (${pending} pending)`;
     }
 
-    // ----- answer file watcher -----------------------------------------------
-
-    private get answerDirectory(): string {
-        return getCopilotChatAnswerFolderAbsolute();
-    }
-
-    private getAnswerFilePathForRequestId(requestId?: string): string {
-        return buildAnswerFilePath({
-            folder: this.answerDirectory,
-            sessionId: vscode.env.sessionId,
-            machineId: vscode.env.machineId,
-            requestId,
-        });
-    }
-
-    private get answerFilePath(): string {
-        const sending = this._answerItem();
-        return this.getAnswerFilePathForRequestId(sending?.expectedRequestId);
-    }
-
-    private _renameDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-    private setupAnswerWatcher(): void {
-        const dir = this.answerDirectory;
-        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-
-        this._answerWatcher?.close();
-
-        logQueue(`Answer watcher started for ${dir} (pattern: *_answer.json)`);
-        debugLog(`[PromptQueueManager] Setting up answer watcher for ${dir}`, 'INFO', 'queue');
-        this._answerWatcher = fs.watch(dir, (event, filename) => {
-            const fileNameText = typeof filename === 'string' ? filename : undefined;
-            debugLog(`[PromptQueueManager] File watch event: ${event} ${fileNameText || '(none)'}`, 'DEBUG', 'queue');
-            if (!shouldWatchAnswerFile(fileNameText)) { return; }
-            const changedPath = path.join(dir, String(fileNameText));
-
-            if (event === 'change') {
-                // Direct modification — process immediately.
-                logQueue(`Answer file changed (event=${event}, file=${fileNameText})`);
-                debugLog(`[PromptQueueManager] Answer file changed, calling onAnswerFileChanged for ${changedPath}`, 'INFO', 'queue');
-                void this.onAnswerFileChanged(changedPath);
-            } else if (event === 'rename') {
-                // 'rename' fires on file creation — delay briefly so content is flushed.
-                const key = String(fileNameText);
-                const existing = this._renameDebounceTimers.get(key);
-                if (existing) { clearTimeout(existing); }
-                this._renameDebounceTimers.set(key, setTimeout(() => {
-                    this._renameDebounceTimers.delete(key);
-                    if (fs.existsSync(changedPath)) {
-                        try {
-                            const stat = fs.statSync(changedPath);
-                            if (stat.size > 2) {
-                                logQueue(`Answer file created (rename event, file=${fileNameText})`);
-                                debugLog(`[PromptQueueManager] Rename event with content, calling onAnswerFileChanged for ${changedPath}`, 'INFO', 'queue');
-                                void this.onAnswerFileChanged(changedPath);
-                            }
-                        } catch { /* stat failed, skip */ }
-                    }
-                }, 500));
-            }
-        });
-        // A watcher can fail after it started — macOS runs out of watch handles
-        // when many windows watch files (EMFILE). Without a listener the error
-        // escapes as an uncaught exception; the answer polling
-        // (startAnswerPolling) still finds every answer, so drop the watcher.
-        this._answerWatcher.on('error', (err: NodeJS.ErrnoException) => {
-            logQueue(`Answer watcher failed (${err.code ?? err.message}); answers are found by polling`);
-            this._answerWatcher?.close();
-            this._answerWatcher = undefined;
-        });
-    }
-
-    private restartAnswerWatcher(): void {
-        try {
-            this._answerWatcher?.close();
-        } catch {
-            // no-op
-        }
-        this._answerWatcher = undefined;
-        this.setupAnswerWatcher();
-    }
-
-    private startTimeoutWatcher(): void {
-        if (this._timeoutWatcher) { return; }
-        this._timeoutWatcher = setInterval(() => {
-            void this.checkResponseTimeouts();
-        }, 30_000);
-    }
-
     private startHealthCheck(): void {
         if (this._healthCheckTimer) { return; }
         this._healthCheckTimer = setInterval(() => {
@@ -1592,19 +1365,6 @@ export class PromptQueueManager {
         if (!this._healthCheckTimer) { return; }
         clearInterval(this._healthCheckTimer);
         this._healthCheckTimer = undefined;
-    }
-
-    private startAnswerPolling(): void {
-        if (this._answerPollTimer) { return; }
-        this._answerPollTimer = setInterval(() => {
-            void this.pollForExpectedAnswer();
-        }, ANSWER_POLL_INTERVAL_MS);
-    }
-
-    private stopAnswerPolling(): void {
-        if (!this._answerPollTimer) { return; }
-        clearInterval(this._answerPollTimer);
-        this._answerPollTimer = undefined;
     }
 
     private async runHealthCheck(): Promise<void> {
@@ -1664,7 +1424,6 @@ export class PromptQueueManager {
         const interruptedCount = this._items.filter(i => i.status === 'interrupted').length;
         const sendingCount = this._items.filter(i => i.status === 'sending').length;
         const decisions = computeHealthCheckDecisions({
-            hasAnswerWatcher: !!this._answerWatcher,
             autoSendEnabled: this._anyRunMayStart(),
             // A lane can be idle while another sends: the drain is due whenever an item could start
             // (the stale-sending check still sees what sends).
@@ -1674,22 +1433,9 @@ export class PromptQueueManager {
             // trigger. This is what lets Auto-Start replay it after a reload.
             pendingCount: pendingCount + interruptedCount,
             sendingCount,
-            answerDirectoryExists: fs.existsSync(this.answerDirectory),
-            sendingSentAtIso: this._answerItem()?.sentAt,
-            responseFileTimeoutMinutes: (this._answerItem() ? this._itemSettings(this._answerItem()!) : this._settingsOf(undefined)).responseTimeoutMinutes,
         });
 
         logQueue(`Health check: items=${this._items.length}, sending=${sendingCount}, pending=${pendingCount}, pausedRuns=${this._pausedRuns().join(',') || 'none'}, blockingWaiting=${hasBlockingWaiting}`);
-
-        if (decisions.shouldEnsureDirectory) {
-            fs.mkdirSync(this.answerDirectory, { recursive: true });
-            logQueue(`Health check recreated missing answer directory: ${this.answerDirectory}`);
-        }
-
-        if (decisions.shouldRestartWatcher) {
-            logQueue('Health check restarting answer watcher');
-            this.restartAnswerWatcher();
-        }
 
         if (hasBlockingWaiting) {
             logQueue('Health check holding all sends: an item is waiting for its rate-limit reset or retry backoff');
@@ -1704,309 +1450,19 @@ export class PromptQueueManager {
             logQueue('Health check resuming after a parked window (rate-limit reset, retry backoff, or deferred start)');
             await this.sendNext(resumedRuns);
         }
-
-        // Secondary safety net from Issue 7: scan for expected answer during health check.
-        await this.pollForExpectedAnswer();
-    }
-
-    private async pollForExpectedAnswer(): Promise<void> {
-        if (this._processingAnswerFile) {
-            return;
-        }
-        const sending = this._answerItem();
-        if (!sending || !sending.expectedRequestId) {
-            return;
-        }
-        // Defensive guard (spec §4.8): anthropic items must never match
-        // against Copilot answer files. The sending-item's expectedRequestId
-        // is blanked for anthropic stages in dispatchStage, but an item
-        // constructed by hand or revived from older state could still
-        // carry a stale id. Skip it here so it can't drive a false match.
-        // The stage in flight decides (its last dispatch), as on the watcher path (qrfix2).
-        if (this.stageTransportOf(sending.id) === 'anthropic') {
-            return;
-        }
-        const dir = this.answerDirectory;
-        if (!fs.existsSync(dir)) {
-            return;
-        }
-        let files: string[] = [];
-        try {
-            files = fs.readdirSync(dir);
-        } catch {
-            return;
-        }
-        const matchingFile = findMatchingAnswerFile(files, sending.expectedRequestId);
-        if (!matchingFile) {
-            logQueue(`Poll: no matching answer file for requestId=${sending.expectedRequestId}`);
-            return;
-        }
-
-        const fullPath = path.join(dir, matchingFile);
-        debugLog(`[PromptQueueManager] Polling fallback matched expected answer file: ${fullPath}`, 'INFO', 'queue');
-        await this.onAnswerFileChanged(fullPath);
-    }
-
-    private async checkResponseTimeouts(): Promise<void> {
-        const sending = this._answerItem();
-        if (!sending || !sending.sentAt) { return; }
-
-        // Anthropic items don't have an answer-file wait — the response
-        // is returned synchronously and the stage advances immediately.
-        // Skip the answer-wait auto-advance for these items (spec §4.7).
-        if (this.resolveStageTransport(sending).transport === 'anthropic') { return; }
-
-        // Answer-wait timer: auto-advance after N minutes without waiting for answer file.
-        if (sending.answerWaitMinutes && sending.answerWaitMinutes > 0) {
-            const elapsedMs = Date.now() - new Date(sending.sentAt).getTime();
-            const waitMs = sending.answerWaitMinutes * 60_000;
-            if (elapsedMs >= waitMs) {
-                logQueue(`Answer-wait timer expired for ${sending.id}: ${sending.answerWaitMinutes}min elapsed — auto-advancing`);
-                try {
-                    const outcome = await this._runDispatchFrame(sending);
-                    if (outcome === 'paused') {
-                        logQueue(`Answer-wait advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
-                        return;
-                    }
-                    if (outcome === 'done') {
-                        sending.status = 'sent';
-                        sending.expectedRequestId = undefined;
-
-                        await this._afterItemDone(sending, 'answer-wait');
-
-                        this.persist();
-                        this._onDidChange.fire();
-
-                        if (this._shouldAdvanceQueueAfter(sending)) {
-                            // Auto-Pause per run: the run whose lane has nothing left pauses; the other runs go on.
-                            const runSettings = this._itemSettings(sending);
-                            const pendingCount = this._items.filter(i => i.status === 'pending' && itemRun(i) === itemRun(sending)).length;
-                            if (shouldAutoPauseOnEmpty(runSettings.autoSend, pendingCount, runSettings.autoPause)) {
-                                this._pauseRunOf(sending, 'its lane is empty (Auto-Pause)');
-                            } else {
-                                await this.delaySendNext();
-                            }
-                        }
-                    }
-                } catch (err) {
-                    logQueueError(`checkResponseTimeouts/answerWait(${sending.id})`, err);
-                }
-            }
-        }
-    }
-
-    private async onAnswerFileChanged(changedFilePath?: string): Promise<void> {
-        if (this._processingAnswerFile) {
-            debugLog('[PromptQueueManager] Answer processing already in progress; skipping re-entrant event', 'DEBUG', 'queue');
-            return;
-        }
-        this._processingAnswerFile = true;
-
-        try {
-        const answerItem = this._answerItem();
-        const filePath = changedFilePath || this.getAnswerFilePathForRequestId(answerItem?.expectedRequestId);
-        debugLog(`[PromptQueueManager] onAnswerFileChanged called, checking: ${filePath}`, 'DEBUG', 'queue');
-
-        // The answer folder is shared by every window (qrfix2): a file is taken
-        // only by a sending Copilot stage of this window that waits for it —
-        // its request's file, or this window's own window-named file (checked
-        // against its content below). Anything else is ignored unread.
-        const fileName = path.basename(filePath);
-        const windowFileStem = windowAnswerFileStem(vscode.env.sessionId, vscode.env.machineId);
-        const claimInput = (i: QueuedPrompt): AnswerFileClaimInput => ({
-            fileName,
-            // The stage in flight (its last dispatch), else the item's: a Copilot follow-up of an Anthropic item takes its file.
-            stageTransport: this.stageTransportOf(i.id),
-            expectedRequestId: i.expectedRequestId,
-            windowFileStem,
-        });
-        const claimants = this._items
-            .filter(i => i.status === 'sending')
-            .map(i => ({ item: i, claim: answerFileClaim(claimInput(i)) }))
-            .filter((c) => c.claim.claim !== 'none');
-        if (claimants.length === 0) {
-            logQueue(`Ignoring answer file ${fileName}: no sending Copilot stage of this window waits for it`);
-            return;
-        }
-
-        logQueue(`Watching for answer at ${filePath}`);
-        if (!fs.existsSync(filePath)) {
-            debugLog(`[PromptQueueManager] Answer file does not exist`, 'DEBUG', 'queue');
-            return;
-        }
-
-        let answer: Record<string, unknown> | undefined;
-        let rawAnswerContent = '';
-        let parseErrorMessage = '';
-        try {
-            rawAnswerContent = fs.readFileSync(filePath, 'utf-8');
-            answer = JSON.parse(rawAnswerContent);
-            debugLog(`[PromptQueueManager] Parsed answer file, requestId: ${(answer as any)?.requestId}`, 'DEBUG', 'queue');
-        } catch (e) { 
-            debugLog(`[PromptQueueManager] Failed to parse answer file: ${e}`, 'ERROR', 'queue');
-            parseErrorMessage = String(e);
-        }
-
-        const answerAlreadyProcessed = !!(answer && typeof answer === 'object' && (answer as any).processed);
-
-        // Fallback: recover requestId from raw content if JSON parsing failed.
-        const recoveredRequestId = this._extractRequestIdFromExpandedPrompt(rawAnswerContent);
-        if (!answer && recoveredRequestId) {
-            const preview = rawAnswerContent.slice(0, 2000);
-            answer = {
-                requestId: recoveredRequestId,
-                generatedMarkdown:
-                    `An invalid answer file was received and recovered via fallback.\n\n`
-                    + `source: ${filePath}\n`
-                    + `parseError: ${parseErrorMessage || 'unknown'}\n\n`
-                    + `--- raw content preview ---\n\n`
-                    + `\`\`\`text\n${preview}\n\`\`\``,
-            };
-            debugLog(`[PromptQueueManager] Recovered requestId from invalid answer file: ${recoveredRequestId}`, 'WARN', 'queue');
-        }
-
-        const answerRequestId = (answer && typeof answer === 'object' && typeof (answer as any).requestId === 'string')
-            ? String((answer as any).requestId)
-            : undefined;
-
-        // A window-named file's request id comes from its content, never from its name.
-        const filenameRequestId = extractRequestIdFromAnswerFilename(fileName);
-        const detectedRequest = resolveDetectedRequestId(filenameRequestId, answerRequestId, windowFileStem);
-        const resolvedAnswerRequestId = detectedRequest.requestId;
-        if (detectedRequest.source !== 'none') {
-            logQueue(`Answer requestId detected via ${detectedRequest.source}: ${resolvedAnswerRequestId}`);
-        }
-
-        // The owner: the claimant whose request this file answers (several lanes may send at once).
-        const sending = claimants.find((c) => ownsAnswerFile(claimInput(c.item), answerRequestId))?.item;
-        if (!sending) {
-            logQueue(`Ignoring answer file ${fileName}: its content names request ${answerRequestId ?? '(none)'}, which no sending Copilot stage of this window waits for`);
-            return;
-        }
-
-        // Already-processed files are never processed again.
-        if (answerAlreadyProcessed) {
-            debugLog(`[PromptQueueManager] Answer file already processed at ${(answer as any).processed}, skipping: ${filePath}`, 'DEBUG', 'queue');
-            return;
-        }
-
-        // Only an owned, new answer is announced.
-        this._onAnswerReceived.fire(answer);
-
-        // At this point the answer is relevant for the active sending item.
-        if (resolvedAnswerRequestId) {
-            try {
-                const generatedMarkdown = (answer && typeof answer === 'object' && typeof (answer as any).generatedMarkdown === 'string')
-                    ? String((answer as any).generatedMarkdown)
-                    : '';
-                const fallbackText = rawAnswerContent
-                    ? `An answer file without generatedMarkdown was received.\n\nsource: ${filePath}\n\n\`\`\`json\n${rawAnswerContent}\n\`\`\``
-                    : `An answer file event was received, but no readable content was available.\n\nsource: ${filePath}`;
-                const trailText = generatedMarkdown.trim().length > 0 ? generatedMarkdown : fallbackText;
-                const quest = await_import_ChatVariablesStore()?.quest || WsPaths.getWorkspaceQuestId();
-
-                TrailService.instance.writeRawAnswer({ type: 'copilot' }, trailText, getWindowStatusWindowId(), resolvedAnswerRequestId, quest);
-                TrailService.instance.writeSummaryAnswer(
-                    { type: 'copilot' },
-                    trailText,
-                    {
-                        requestId: resolvedAnswerRequestId,
-                        comments: generatedMarkdown.trim().length > 0
-                            ? undefined
-                            : `invalid answer schema received from ${filePath}`,
-                        references: [filePath],
-                    },
-                    quest,
-                );
-            } catch (trailErr) {
-                debugLog(`[PromptQueueManager] Failed to write fallback trail answer: ${trailErr}`, 'WARN', 'queue');
-            }
-        }
-
-        // The stage's answer, as the Anthropic transport records it (a walked
-        // todo keeps the main prompt's answer when it is settled).
-        const answerMarkdown = answer && typeof answer === 'object' && typeof (answer as { generatedMarkdown?: unknown }).generatedMarkdown === 'string'
-            ? String((answer as { generatedMarkdown: string }).generatedMarkdown) : '';
-        const answerStage = resolveAnswerContainer(sending);
-        if (answerStage && answerMarkdown.trim()) {
-            answerStage.answerText = answerMarkdown;
-            if (answerStage === sending) { recordRepetitionAnswer(sending, answerMarkdown, resolveRepeatCount); }
-        }
-
-        // At this point the answer is relevant for the active sending item.
-        this.propagateAnswerResponseValues(answer, 'copilot', sending);
-        this.markAnswerFileProcessed(filePath, answer);
-
-        logQueue(`Answer detected for ${sending.id}, requestId=${resolvedAnswerRequestId || '(none)'}`);
-        debugLog(`[PromptQueueManager] Processing answer for sending item ${sending.id}`, 'INFO', 'queue');
-
-        try {
-            const outcome = await this._runDispatchFrame(sending);
-            if (outcome === 'paused') {
-                logQueue(`Answer-file advance paused for ${sending.id}: auto-send off, item kept in 'sending' for resume`);
-                this.persist();
-                this._onDidChange.fire();
-                return;
-            }
-            if (outcome === 'done') {
-                logQueue(`Marking item ${sending.id} as sent — status: sending → sent`);
-                debugLog(`[PromptQueueManager] Marking item ${sending.id} as sent`, 'INFO', 'queue');
-                sending.status = 'sent';
-                sending.expectedRequestId = undefined;
-
-                await this._afterItemDone(sending, 'answer-file');
-
-                this.persist();
-                this._onDidChange.fire();
-
-                if (this._shouldAdvanceQueueAfter(sending)) {
-                    // Auto-Pause per run: the run whose lane has nothing left pauses; the other runs go on.
-                    const runSettings = this._itemSettings(sending);
-                    const pendingCount = this._items.filter(i => i.status === 'pending' && itemRun(i) === itemRun(sending)).length;
-                    if (shouldAutoPauseOnEmpty(runSettings.autoSend, pendingCount, runSettings.autoPause)) {
-                        this._pauseRunOf(sending, 'its lane is empty (Auto-Pause)');
-                    } else {
-                        // Send next pending item after delay
-                        await this.delaySendNext();
-                    }
-                }
-            }
-        } catch (err) {
-            this._markItemError(sending, err, `onAnswerFileChanged(${sending.id})`);
-        }
-        } finally {
-            this._processingAnswerFile = false;
-        }
-    }
-
-    private markAnswerFileProcessed(filePath: string, answer: Record<string, unknown> | undefined): void {
-        if (!answer || typeof answer !== 'object') {
-            debugLog(`[PromptQueueManager] markAnswerFileProcessed: no answer object`, 'DEBUG', 'queue');
-            return;
-        }
-        try {
-            const updated = { ...answer, processed: new Date().toISOString() };
-            fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
-            debugLog(`[PromptQueueManager] markAnswerFileProcessed: marked ${filePath}`, 'DEBUG', 'queue');
-        } catch (e) {
-            debugLog(`[PromptQueueManager] markAnswerFileProcessed: failed to update ${filePath}: ${e}`, 'WARN', 'queue');
-        }
     }
 
     /**
-     * Apply the chat-variable updates carried by one *final* answer. Both
-     * transports funnel their final answers through here so a repeating /
-     * multi-stage queue item propagates responseValues for EVERY stage — each
-     * pre-prompt, the main prompt, every repeat, and every follow-up:
-     *
-     *   - **Copilot** — {@link onAnswerFileChanged} passes the answer file's
-     *     structured `responseValues` (default `source: 'copilot'`).
-     *   - **Anthropic** — {@link _propagateDirectAnswer} parses responseValues
-     *     out of the direct answer text and passes `source: 'anthropic'`.
+     * Apply the chat-variable updates carried by one *final* answer. Every
+     * final answer goes through here so a repeating / multi-stage queue item
+     * propagates responseValues for EVERY stage — each pre-prompt, the main
+     * prompt, every repeat, and every follow-up: {@link _propagateDirectAnswer}
+     * parses responseValues out of the answer text and passes
+     * `source: 'anthropic'`.
      */
     private propagateAnswerResponseValues(
         answer: Record<string, unknown> | undefined,
-        source: ChangeSource = 'copilot',
+        source: ChangeSource,
         item?: QueuedPrompt,
     ): void {
         debugLog(`[PromptQueueManager] propagateAnswerResponseValues called (source=${source})`, 'DEBUG', 'queue');
@@ -2115,8 +1571,6 @@ export class PromptQueueManager {
     get pendingCount(): number { return this._items.filter(i => i.status === 'pending').length; }
     /** The window's run's auto-send (settings per run: {@link runQueueSettings}). */
     get autoSendEnabled(): boolean { return this._settingsOf(undefined).autoSend; }
-    /** The window's run's Copilot answer timeout. */
-    get responseFileTimeoutMinutes(): number { return this._settingsOf(undefined).responseTimeoutMinutes; }
 
     /**
      * Switch the window's run's auto-send. Pausing has no immediate effect —
@@ -2373,10 +1827,7 @@ export class PromptQueueManager {
      *
      *   - `'paused'`     — somehow paused again (e.g. user toggled
      *     off in the same tick); leave item alone.
-     *   - `'done'`       — for Anthropic, mark sent + advance queue.
-     *     For Copilot, the answer-file watcher will already have
-     *     fired this branch.
-     *   - `'dispatched'` — Copilot: wait for the next answer file.
+     *   - `'done'`       — mark sent + advance queue.
      */
     private async _resumePausedSendingItem(item: QueuedPrompt): Promise<void> {
         const epoch = this._epochOf(item);
@@ -2386,10 +1837,9 @@ export class PromptQueueManager {
                 logQueue(`_resumePausedSendingItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
-            const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
             if (outcome === 'paused') {
                 logQueue(`_resumePausedSendingItem(${item.id}): re-paused`);
-            } else if (outcome === 'done' && isAnthropicItem) {
+            } else {
                 const liveItem = this._items.find(i => i.id === item.id) ?? item;
                 liveItem.status = 'sent';
                 // Continue the outer template-repeat loop — see the
@@ -2397,12 +1847,10 @@ export class PromptQueueManager {
                 await this._afterItemDone(liveItem, 'resume/anthropic');
                 this.persist();
                 this._onDidChange.fire();
-                logQueue(`Resumed item ${item.id} completed (anthropic transport — no polling)`);
+                logQueue(`Resumed item ${item.id} completed`);
                 if (this._shouldAdvanceQueueAfter(liveItem)) {
                     void this.sendNext();
                 }
-            } else {
-                logQueue(`Resumed item ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
@@ -2413,8 +1861,6 @@ export class PromptQueueManager {
             this._markItemError(liveItem, err, `_resumePausedSendingItem(${item.id})`, readInterruptionFromError(err));
         }
     }
-
-    set responseFileTimeoutMinutes(v: number) { this.setRunQueueSettings(undefined, { responseTimeoutMinutes: v }); }
 
 
     get autoSendDelayMs(): number { return this._autoSendDelayMs; }
@@ -2439,7 +1885,6 @@ export class PromptQueueManager {
                 resetCount++;
             }
         }
-        this._processingAnswerFile = false;
         if (resetCount > 0) {
             logQueue(`Reset ${resetCount} stuck sending items to pending`);
         }
@@ -2459,7 +1904,6 @@ export class PromptQueueManager {
         /** The todos it runs (QueuedPrompt.todoIdPattern); a `<prefix>*` repeat count gives it when omitted. */
         todoIdPattern?: string;
         template?: string;
-        answerWrapper?: boolean;
         type?: QueuedPromptType;
         /** With `type: 'timed'`: the timed request that queued it (QueuedPrompt.timedEntryId). */
         timedEntryId?: string;
@@ -2468,13 +1912,11 @@ export class PromptQueueManager {
             text: string;
             template?: string;
             repeatCount?: number | string;
-            answerWaitMinutes?: number;
         }>;
         followUps?: Array<{
             originalText: string;
             template?: string;
             repeatCount?: number | string;
-            answerWaitMinutes?: number;
         }>;
         repeatCount?: number | string;
         repeatIndex?: number;
@@ -2482,7 +1924,6 @@ export class PromptQueueManager {
         repeatSuffix?: string;
         templateRepeatCount?: number | string;
         templateRepeatIndex?: number;
-        answerWaitMinutes?: number;
         /** The background-wait limit in minutes (0 = no wait); unset: the profile's. */
         backgroundWaitLimitMinutes?: number;
         /** Continuations a walk iteration gets while its todo is not completed; unset: the queue's. */
@@ -2550,26 +1991,15 @@ export class PromptQueueManager {
         const itemRun = normalizeRun(inherited?.run ?? opts.run ?? windowProcessRun());
         const sessionSpec = parsedSession ? { ...parsedSession, name: runSessionName(parsedSession.name, itemRun) } : parsedSession;
         const resolvedRepeatCount = resolveRepeatCount(opts.repeatCount);
-        // Spec §4.16 — pass the transport so template lookup hits the
-        // correct store. The initial expanded text is what the queue
-        // editor previews before the first dispatch; without this the
-        // anthropic template body would fail to apply and users would
-        // see the raw user text in the preview (even though the later
-        // dispatch-time recomputation in dispatchNextStageForSendingItem
-        // gets it right).
-        const resolveInitialTransport: QueuedTransport =
-            opts.transport ?? this._settingsOf(itemRun).defaultTransport ?? 'copilot';
         const expanded = await this._buildExpandedText(
             opts.originalText,
             resolveItemTemplate(opts.template, this._settingsOf(itemRun).defaultMessageTemplateId),
-            copilotWrapFor(resolveInitialTransport, opts.answerWrapper),
             {
                 repeatCount: resolvedRepeatCount,
                 repeatIndex: opts.repeatIndex,
                 repeatPrefix: opts.repeatPrefix,
                 repeatSuffix: opts.repeatSuffix,
             },
-            resolveInitialTransport,
             {
                 templateRepeatCount: resolveRepeatCount(opts.templateRepeatCount),
                 templateRepeatIndex: opts.templateRepeatIndex,
@@ -2579,7 +2009,6 @@ export class PromptQueueManager {
         const item: QueuedPrompt = {
             id: randomUUID(),
             template: isRunDefaultChoice(opts.template) ? RUN_DEFAULT_TEMPLATE : (opts.template ?? '(None)'),
-            ...(opts.answerWrapper !== undefined ? { answerWrapper: !!opts.answerWrapper } : {}),
             originalText: opts.originalText,
             expandedText: expanded,
             status: opts.initialStatus ?? 'pending',
@@ -2593,7 +2022,6 @@ export class PromptQueueManager {
                     template: p.template,
                     status: 'pending' as const,
                     repeatCount: p.repeatCount,
-                    answerWaitMinutes: p.answerWaitMinutes,
                 })),
             followUps: (opts.followUps || [])
                 .filter(f => !!(f.originalText || '').trim())
@@ -2602,7 +2030,6 @@ export class PromptQueueManager {
                     originalText: f.originalText,
                     template: f.template,
                     repeatCount: f.repeatCount,
-                    answerWaitMinutes: f.answerWaitMinutes,
                     createdAt: new Date().toISOString(),
                 })),
             followUpIndex: 0,
@@ -2612,7 +2039,6 @@ export class PromptQueueManager {
             repeatSuffix: opts.repeatSuffix,
             templateRepeatCount: opts.templateRepeatCount,
             templateRepeatIndex: Math.max(0, Math.round(opts.templateRepeatIndex || 0)),
-            answerWaitMinutes: opts.answerWaitMinutes && opts.answerWaitMinutes > 0 ? opts.answerWaitMinutes : undefined,
             ...(validLimit(opts.backgroundWaitLimitMinutes) !== undefined ? { backgroundWaitLimitMinutes: validLimit(opts.backgroundWaitLimitMinutes) } : {}),
             ...(validContinuations(opts.walkContinuations) !== undefined ? { walkContinuations: validContinuations(opts.walkContinuations) } : {}),
             transport: opts.transport,
@@ -2738,7 +2164,8 @@ export class PromptQueueManager {
         logQueue(`Text edit closed on ${ended.join(', ')}${text !== undefined ? ' (saved)' : ''}`);
         this._onDidChange.fire();
         if (this._anyRunMayStart() && this._mayDrain()) {
-            await this.sendNext();
+            // Not awaited: the send runs until its turn ends, and the editor's Save must not wait for that.
+            void this.sendNext();
         }
     }
 
@@ -2868,13 +2295,12 @@ export class PromptQueueManager {
         // Pass the item's effective transport so template lookup hits
         // the right store (spec §4.16). Falls back to the queue default
         // when the item has no explicit transport set.
-        const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-        item.expandedText = await this._buildExpandedText(newText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
+        item.expandedText = await this._buildExpandedText(newText, this._templateOf(item.template, item), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        }, effectiveTransport, {
+        }, {
             templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
             templateRepeatIndex: item.templateRepeatIndex,
         });
@@ -2882,7 +2308,7 @@ export class PromptQueueManager {
         this._onDidChange.fire();
     }
 
-    async updateItemTemplateAndWrapper(id: string, patch: { template?: string; answerWrapper?: boolean }): Promise<boolean> {
+    async updateItemTemplate(id: string, patch: { template?: string }): Promise<boolean> {
         const item = this._items.find(i => i.id === id);
         if (!item || !this.isEditableStatus(item.status)) { return false; }
 
@@ -2891,20 +2317,15 @@ export class PromptQueueManager {
             item.template = isRunDefaultChoice(patch.template) ? RUN_DEFAULT_TEMPLATE : (patch.template || '(None)');
             changed = true;
         }
-        if (patch.answerWrapper !== undefined) {
-            item.answerWrapper = !!patch.answerWrapper;
-            changed = true;
-        }
 
         if (!changed) { return false; }
 
-        const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-        item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
+        item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), {
             repeatCount: resolveRepeatCount(item.repeatCount),
             repeatIndex: item.repeatIndex,
             repeatPrefix: item.repeatPrefix,
             repeatSuffix: item.repeatSuffix,
-        }, effectiveTransport, {
+        }, {
             templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
             templateRepeatIndex: item.templateRepeatIndex,
         });
@@ -3012,13 +2433,12 @@ export class PromptQueueManager {
             if (changed.includes('template') || before.transport !== item.transport) { rebuild.push(item); }
         }
         for (const item of rebuild) {
-            const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
+            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), {
                 repeatCount: resolveRepeatCount(item.repeatCount),
                 repeatIndex: item.repeatIndex,
                 repeatPrefix: item.repeatPrefix,
                 repeatSuffix: item.repeatSuffix,
-            }, effectiveTransport, {
+            }, {
                 templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                 templateRepeatIndex: item.templateRepeatIndex,
             });
@@ -3131,7 +2551,7 @@ export class PromptQueueManager {
     }
 
     /**
-     * Patch the main item's repetition / answer-wait fields. Editable while the
+     * Patch the main item's repetition fields. Editable while the
      * item is in an editable status (staged or pending).
      */
     updateItemRepetition(id: string, patch: {
@@ -3139,7 +2559,6 @@ export class PromptQueueManager {
         repeatPrefix?: string;
         repeatSuffix?: string;
         templateRepeatCount?: number | string;
-        answerWaitMinutes?: number;
         /** The background-wait limit in minutes; a negative number clears it (the profile's applies). */
         backgroundWaitLimitMinutes?: number;
         /** Continuations a walk iteration gets; a negative number clears it (the queue's applies). */
@@ -3156,9 +2575,6 @@ export class PromptQueueManager {
         if (patch.repeatPrefix !== undefined) { item.repeatPrefix = patch.repeatPrefix || undefined; }
         if (patch.repeatSuffix !== undefined) { item.repeatSuffix = patch.repeatSuffix || undefined; }
         if (patch.templateRepeatCount !== undefined) { item.templateRepeatCount = patch.templateRepeatCount; }
-        if (patch.answerWaitMinutes !== undefined) {
-            item.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
-        }
         if (patch.backgroundWaitLimitMinutes !== undefined) {
             item.backgroundWaitLimitMinutes = validLimit(patch.backgroundWaitLimitMinutes);
         }
@@ -3257,10 +2673,6 @@ export class PromptQueueManager {
         return [...byMessage].map(([message, labels]) => `${labels.join(', ')}: ${message}`);
     }
 
-    getByRequestId(requestId: string): QueuedPrompt | undefined {
-        if (!requestId) { return undefined; }
-        return this._items.find(i => i.requestId === requestId || i.expectedRequestId === requestId);
-    }
 
     addFollowUpPrompt(itemId: string, followUp: {
         originalText: string;
@@ -3309,7 +2721,6 @@ export class PromptQueueManager {
         originalText?: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
@@ -3329,9 +2740,6 @@ export class PromptQueueManager {
         if (patch.repeatCount !== undefined) {
             follow.repeatCount = patch.repeatCount;
             follow.resolvedRepeatCount = undefined;
-        }
-        if (patch.answerWaitMinutes !== undefined) {
-            follow.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         }
         // `'key' in patch` → differentiate "no change" from "clear".
         if ('transport' in patch) { follow.transport = patch.transport; }
@@ -3386,7 +2794,6 @@ export class PromptQueueManager {
         text?: string;
         template?: string;
         repeatCount?: number | string;
-        answerWaitMinutes?: number;
         transport?: QueuedTransport;
         anthropicProfileId?: string;
         anthropicConfigId?: string;
@@ -3402,7 +2809,6 @@ export class PromptQueueManager {
             pp.repeatCount = patch.repeatCount;
             pp.resolvedRepeatCount = undefined;
         }
-        if (patch.answerWaitMinutes !== undefined) pp.answerWaitMinutes = patch.answerWaitMinutes > 0 ? patch.answerWaitMinutes : undefined;
         // `'key' in patch` → differentiate "no change" from "clear".
         if ('transport' in patch) { pp.transport = patch.transport; }
         if ('anthropicProfileId' in patch) { pp.anthropicProfileId = patch.anthropicProfileId || undefined; }
@@ -3473,7 +2879,7 @@ export class PromptQueueManager {
             deferSend: true,
             reloadPrompt: { windowId },
         });
-        logQueue(`Reload prompt: queued item ${item.id} at the front of run ${run} (${item.transport ?? this._settingsOf(run).defaultTransport ?? 'copilot'})`);
+        logQueue(`Reload prompt: queued item ${item.id} at the front of run ${run}`);
         this._sendReloadPromptWhenFree(item.id, run);
         return item;
     }
@@ -3521,7 +2927,6 @@ export class PromptQueueManager {
         // Cancel any in-flight Anthropic dispatch for this item before advancing.
         // Without this, the next stage/item is dispatched while the original handler
         // is still running, and the late answer triggers a duplicate send.
-        // For Copilot transport this is a documented no-op (no CTS in flight).
         // The CTS lifecycle guard in dispatchStage (`if (this._activeAnthropicCts === cts)`)
         // ensures the cancelled handler's `finally` will not clobber the freshly-set
         // CTS for the next stage's dispatch.
@@ -3561,8 +2966,7 @@ export class PromptQueueManager {
         // stages the handler tracks the latest assistant text; route it
         // onto the stage that was last dispatched so the captured answer
         // is persisted (and ${answer} placeholders resolve) before we
-        // advance. Copilot stages have no such handler-side text — their
-        // answer lives in an answer file — so they are left untouched.
+        // advance.
         await this._captureLastAnswerForSendingItem(sending, reason === 'manual-continue');
 
         const outcome = await this._runDispatchFrame(sending, frame);
@@ -3572,13 +2976,7 @@ export class PromptQueueManager {
             this._onDidChange.fire();
             return true;
         }
-        if (outcome === 'dispatched') {
-            logQueue(`Advanced sending item ${sending.id} to next stage (${reason})`);
-            return true;
-        }
-
         sending.status = 'sent';
-        sending.expectedRequestId = undefined;
 
         await this._afterItemDone(sending, reason);
 
@@ -3611,8 +3009,7 @@ export class PromptQueueManager {
      * Only applies to Anthropic-transport stages: the handler tracks
      * `lastAssistantText` across the round loop, so even a send that
      * stalled mid tool-loop has the latest assistant text available.
-     * Copilot stages capture their answer from an answer file, never
-     * from the handler, so they are skipped. Never clobbers a stage
+     * Never clobbers a stage
      * that already has an `answerText` (the normal direct-completion
      * path already recorded the real answer).
      */
@@ -3664,8 +3061,6 @@ export class PromptQueueManager {
                 }
             }
             item.status = 'staged';
-            item.requestId = undefined;
-            item.expectedRequestId = undefined;
             item.followUpIndex = 0;
             // The cancelled dispatch is over, so its counter snapshot is spent.
             // Leaving it set would let a *later* failure (a Resend that fails,
@@ -3849,10 +3244,6 @@ export class PromptQueueManager {
      * pending approval-bar awaiters.  The CTS is NOT cleared here;
      * it is disposed and unset by `dispatchStage`'s `finally` block
      * once the handler call returns.
-     *
-     * Copilot dispatches have no CTS — they return immediately and
-     * the queue polls for an answer file.  Calling this method for a
-     * Copilot-transport item is a no-op and safe.
      */
     private _cancelActiveDispatch(item?: QueuedPrompt): void {
         // Bump the dispatch epoch so any send-owning frame currently
@@ -3914,12 +3305,6 @@ export class PromptQueueManager {
      *    `requestId`/`expectedRequestId`/`sentAt` and
      *    flips any `sent` pre-prompts back to `pending`.
      *
-     * Copilot-transport items have no in-flight network call to
-     * cancel — the queue dispatched the prompt to the chat panel and
-     * is polling for the answer file. Stopping in that mode is a
-     * status-only operation; the polling loop notices the status
-     * change at its next tick and stops looking for the answer.
-     *
      * Returns `true` if a sending item was found and/or an active
      * dispatch was cancelled; `false` if there was nothing to stop.
      */
@@ -3978,8 +3363,8 @@ export class PromptQueueManager {
      * Nothing held within 15 s: a turn waiting in an ask* tool, tomAi_waitFor or
      * for its background work counts as held, any other gets the HARD interrupt. A second press while it still
      * waits for its hold point: it waits WITHOUT A LIMIT (no hard interrupt by the timer; a long tool call may
-     * take many minutes before its result can be held). A third press — or a press once held, or `hard`, a
-     * Copilot item, or a turn that cannot hold: the hard interrupt now — the dispatch is cancelled, the item `interrupted`, and its resend
+     * take many minutes before its result can be held). A third press — or a press once held, or `hard`, or
+     * a turn that cannot hold: the hard interrupt now — the dispatch is cancelled, the item `interrupted`, and its resend
      * starts with RESEND_INTERRUPTED_NOTE in the conversation it ran in.
      * Between two stages (no turn running) the press only pauses the run.
      *
@@ -4001,7 +3386,6 @@ export class PromptQueueManager {
             logQueue(`interruptActiveItemForContinuation: no sending item${id ? ` with id ${id}` : ''}`);
             return false;
         }
-        const transport = sending.lastDispatched?.transport ?? this.resolveStageTransport(sending).transport;
         const soft = SoftInterruptRegistry.instance.stateOf(sending.id);
         const requested = soft !== undefined;
         // Second press: still waiting for the hold point — wait for it without a limit instead of the hard interrupt.
@@ -4011,8 +3395,8 @@ export class PromptQueueManager {
             logQueue(`interruptActiveItemForContinuation: ${sending.id} waits for its hold point without a limit (second click)`);
             return true;
         }
-        if (opts?.hard || requested || transport === 'copilot') {
-            this._hardInterrupt(sending, opts?.hard ? 'hard interrupt' : requested ? (soft?.unlimited ? 'third click' : 'click while held') : 'a Copilot item has no hold point');
+        if (opts?.hard || requested) {
+            this._hardInterrupt(sending, opts?.hard ? 'hard interrupt' : soft?.unlimited ? 'third click' : 'click while held');
             return true;
         }
         if (!this._activeAnthropicCts.has(sending.id)) {
@@ -4048,9 +3432,6 @@ export class PromptQueueManager {
         // Interrupted before the answer: hand the todo back. The resume replays
         // the same main prompt through Resend, which claims it again.
         this.releaseQuestTodoClaim(sending, 'interrupted for continuation');
-        // A Copilot answer that still lands for the cancelled request must
-        // not be mistaken for the replay's answer.
-        this.clearExpectedAnswerFiles(sending.expectedRequestId);
         const result = applyInterruptForContinuation(sending);
         // The resend says the turn was interrupted, carries a result it held, and goes on in its conversation.
         sending.interruptNote = true;
@@ -4282,7 +3663,7 @@ export class PromptQueueManager {
         return changed;
     }
 
-    updateRepeat(id: string, patch: { repeatCount?: number | string; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; answerWaitMinutes?: number; templateRepeatCount?: number | string; templateRepeatIndex?: number }): void {
+    updateRepeat(id: string, patch: { repeatCount?: number | string; repeatIndex?: number; repeatPrefix?: string; repeatSuffix?: string; templateRepeatCount?: number | string; templateRepeatIndex?: number }): void {
         const item = this._items.find(i => i.id === id);
         if (!item) { return; }
 
@@ -4300,16 +3681,11 @@ export class PromptQueueManager {
     }
 
     /**
-     * Explicitly send a queued prompt by queue item ID or request ID.
+     * Explicitly send a queued prompt by queue item ID.
      * Only pending items are eligible.
      */
-    async sendQueuedPrompt(target: { id?: string; requestId?: string }): Promise<QueuedPrompt | undefined> {
-        let item: QueuedPrompt | undefined;
-        if (target.id) {
-            item = this._items.find(i => i.id === target.id);
-        } else if (target.requestId) {
-            item = this._items.find(i => i.requestId === target.requestId || i.expectedRequestId === target.requestId);
-        }
+    async sendQueuedPrompt(target: { id?: string }): Promise<QueuedPrompt | undefined> {
+        const item = target.id ? this._items.find(i => i.id === target.id) : undefined;
         if (!item || !(item.status === 'pending' || item.status === 'staged')) {
             return undefined;
         }
@@ -4375,9 +3751,8 @@ export class PromptQueueManager {
     // ----- busy sessions (src/utils/sessionBusy.ts) --------------------------
 
     /** The session a queue item runs in when it runs on the Anthropic transport, else undefined. */
-    private anthropicSessionOf(item: QueuedPrompt): string | undefined {
-        const resolved = this.resolveStageTransport(item);
-        return resolved.transport === 'anthropic' ? canonicalSessionName(resolved.session ?? DEFAULT_RUN_SESSION) : undefined;
+    private anthropicSessionOf(item: QueuedPrompt): string {
+        return canonicalSessionName(this.resolveStageTransport(item).session ?? DEFAULT_RUN_SESSION);
     }
 
     /** Whether a `chat` item's send still runs: this window's active send, or one of another live window. */
@@ -4408,13 +3783,12 @@ export class PromptQueueManager {
     /**
      * The Anthropic session item `id` runs (or will run) in — its own, else its
      * run's queue session — whose live trail the queue editor's item icon opens;
-     * undefined for an unknown item or one that goes to Copilot (no live trail).
+     * undefined for an unknown item.
      */
     stageSessionOf(id: string): string | undefined {
         const item = this._items.find(i => i.id === id);
         if (!item) { return undefined; }
         const resolved = this.resolveStageTransport(item);
-        if ((item.lastDispatched?.transport ?? resolved.transport) === 'copilot') { return undefined; }
         return canonicalSessionName(resolved.session || DEFAULT_RUN_SESSION);
     }
 
@@ -4571,10 +3945,9 @@ export class PromptQueueManager {
         return this._globalEpoch + (item ? this._itemEpochs.get(item.id) ?? 0 : 0);
     }
 
-    /** How `item` runs now: its session on the Anthropic transport, else the Copilot chat. */
+    /** How `item` runs now: its session. */
     private _laneTarget(item: QueuedPrompt): LaneTarget {
-        const session = this.anthropicSessionOf(item);
-        return session ? { transport: 'anthropic', session } : { transport: 'copilot' };
+        return { session: this.anthropicSessionOf(item) };
     }
 
     /**
@@ -4583,15 +3956,6 @@ export class PromptQueueManager {
      */
     private _mayDrain(): boolean {
         return true;
-    }
-
-    /**
-     * The sending item a Copilot answer file belongs to: with one lane the
-     * sending item; with lanes the one on the Copilot transport (at most one
-     * sends at a time).
-     */
-    private _answerItem(): QueuedPrompt | undefined {
-        return this._items.find(i => i.status === 'sending' && this._laneTarget(i).transport === 'copilot');
     }
 
     /** The items that may start now, one per free lane. */
@@ -4835,18 +4199,13 @@ export class PromptQueueManager {
                 logQueue(`sendItem(${item.id}): dispatch superseded by an explicit action — original frame stands down`);
                 return;
             }
-            // Anthropic items cascade synchronously through all their
-            // stages; on 'done' the item is finished. For Copilot
-            // items the answer-file polling loop drives progression
-            // — we just log and wait. Differentiate here so
-            // anthropic items actually transition to 'sent' instead
-            // of hanging at 'sending'. On 'paused' the item stays in
-            // 'sending' so the UI shows "SENDING (PAUSED)" and
-            // `set autoSendEnabled(true)` knows where to resume.
-            const isAnthropicItem = this.resolveStageTransport(item).transport === 'anthropic';
+            // An item cascades through all its stages; on 'done' it is
+            // finished. On 'paused' the item stays in 'sending' so the UI
+            // shows "SENDING (PAUSED)" and `set autoSendEnabled(true)`
+            // knows where to resume.
             if (outcome === 'paused') {
                 logQueue(`sendItem(${item.id}): paused — held in 'sending' for resume`);
-            } else if (outcome === 'done' && isAnthropicItem) {
+            } else {
                 // Re-look up the live item by ID: if _reloadFromDisk() ran
                 // during the async dispatch (despite the guard above, a
                 // reload could still have happened in an earlier tick before
@@ -4863,15 +4222,12 @@ export class PromptQueueManager {
                 await this._afterItemDone(liveItem, 'sendItem/anthropic');
                 this.persist();
                 this._onDidChange.fire();
-                logQueue(`Prompt ${item.id} completed (anthropic transport — no polling)`);
-                // Anthropic completes inline rather than via the answer file,
-                // but it is still just a completion: same gate as every other
+                logQueue(`Prompt ${item.id} completed`);
+                // A completion like any other: same gate as every other
                 // tail, so a paused queue does not march on from here.
                 if (this._shouldAdvanceQueueAfter(liveItem)) {
                     void this.sendNext();
                 }
-            } else {
-                logQueue(`Prompt ${item.id} sent, waiting for answer at ${this.getAnswerFilePathForRequestId(item.expectedRequestId)}`);
             }
         } catch (err) {
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
@@ -4898,8 +4254,7 @@ export class PromptQueueManager {
      * counters are **not** touched; they were already incremented for
      * the stage the resend replays, so after the resend
      * `dispatchNextStageForSendingItem` advances naturally to the next
-     * stage (anthropic) or the copilot answer-file poll loop arms for
-     * the next answer.
+     * stage.
      *
      * Used by (a) the Resend icon in the queue editor webview and
      * (b) the `tomAi_resendQueueItem` tool. Throws when there is no
@@ -4982,9 +4337,6 @@ export class PromptQueueManager {
         // The resend is the item's frame from its replayed stage on: an older frame stops at its next stage.
         const frame = takeover ?? this._claimFrame(item);
         try {
-            if (last.transport === 'copilot') {
-                this.clearExpectedAnswerFiles(item.expectedRequestId);
-            }
             // An edit made after the last dispatch wins over the snapshot for
             // the main stage — cancel / correct / resend is a workflow the
             // queue invites, and replaying the snapshot there sent the very
@@ -5010,7 +4362,7 @@ export class PromptQueueManager {
                 : opts?.note;
             const sentText = continuation ?? (note ? `${note}\n\n${resendText}` : resendText);
             if (resumeConversation) { logQueue(`resendLastPrompt(${item.id}): continuing the held conversation (${resumeConversation.transport})`); }
-            const dispatchResult = await this.dispatchStage(sentText, {
+            await this.dispatchStage(sentText, {
                 ...resolved,
                 ...(continueSessionId ? { continueSessionId } : {}),
                 ...(resumeConversation ? { resumeConversation } : {}),
@@ -5030,12 +4382,11 @@ export class PromptQueueManager {
                 dispatchedAt: new Date().toISOString(),
             };
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent', last.transport);
             this.persist();
             this._onDidChange.fire();
 
-            if (dispatchResult.mode === 'direct') {
-                // Anthropic — counters for the resent stage were already
+            {
+                // The counters for the resent stage were already
                 // incremented by the original send, so the next dispatch
                 // advances to the *next* stage. Mirrors the tail of sendItem.
                 const outcome = await this._runDispatchFrame(item, frame);
@@ -5056,12 +4407,6 @@ export class PromptQueueManager {
                 } else if (outcome === 'paused') {
                     logQueue(`resendLastPrompt(${item.id}): paused after resending the failed rep — held in 'sending' for resume`);
                 }
-            } else {
-                // Copilot — already executed workbench.action.chat.open;
-                // the answer-file poll loop is armed for the expected
-                // request id. Keep item.status = 'sending' so the poll
-                // loop sees it; it'll transition to 'sent' when the
-                // answer file appears (or to 'error' on timeout).
             }
         } catch (err) {
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
@@ -5506,12 +4851,11 @@ export class PromptQueueManager {
      *   - The first error item with a recorded `lastDispatched` is
      *     resent via `resendLastPrompt` — that call takes the single
      *     sending slot and drives the item through the remainder of
-     *     its stages (anthropic) or arms the copilot poll loop.
+     *     its stages.
      *   - All other error items are flipped back to `pending`,
      *     clearing their error/warning markers. Queue order is
      *     preserved. When the first resend completes, `sendNext()`
-     *     (called at the tail of `resendLastPrompt` for direct mode,
-     *     or from the answer-file poll loop for copilot mode) picks
+     *     (called at the tail of `resendLastPrompt`) picks
      *     the next pending item — so retries cascade even when
      *     auto-send is off.
      *   - Items without `lastDispatched` (defensive — shouldn't
@@ -5620,11 +4964,9 @@ export class PromptQueueManager {
     }
 
     /**
-     * Resolve the effective transport for a given stage — stage-level
-     * transport wins over item-level, item-level over the queue-level
-     * default, queue default over the hard-coded 'copilot'. See
-     * multi_transport_prompt_queue_revised.md §2 decision 1 and §4.5.
-     * §4.10 adds the queue-default tier between item and hardcoded.
+     * Resolve the profile, configuration and session a stage runs with —
+     * the stage's own win over the item's, the item's over the run's
+     * queue defaults.
      */
     private resolveStageTransport(
         item: QueuedPrompt,
@@ -5674,9 +5016,7 @@ export class PromptQueueManager {
     }
 
     /**
-     * Dispatch one stage's expanded text through the resolved transport.
-     * Copilot goes through `workbench.action.chat.open` as before (and
-     * the queue continues to poll for the answer file). Anthropic goes
+     * Dispatch one stage's expanded text: it goes
      * through `AnthropicHandler.sendMessage` with the profile's
      * `toolApprovalMode` coerced to `'never'` (queue runs are unattended
      * — see spec §2 decision 7); the returned text is captured into the
@@ -5703,7 +5043,7 @@ export class PromptQueueManager {
         // Quest Refresh dispatch, whose maintenance answer must not drive
         // downstream chat-variable / TODO side-effects.
         propagateAnswer = true,
-    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
+    ): Promise<{ answerText: string; superseded?: true }> {
         // The role this stage runs as (gsel3): its todo's (none for a pre-prompt),
         // the item's, the step's, the run default's; the chat variable shows the
         // queue's own while the item sends. The Quest Refresh dispatch has none.
@@ -5711,15 +5051,7 @@ export class PromptQueueManager {
         const isPrePrompt = !!stageItem && !!stageForAnswer && (stageItem.prePrompts ?? []).some((pp) => pp === stageForAnswer);
         const roleSource = stageForAnswer ? this.stageRoleSource(stageItem, isPrePrompt ? 'prePrompt' : 'main') : undefined;
         await this._holdStageRole(stageItem, resolved.processRun, roleSource);
-        if (resolved.transport === 'copilot') {
-            // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
-            // The item's levels (todo, item, run, role) come from its role source (gsel4).
-            await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(unescapePlaceholders(expandedText), liveAspectChoices(undefined, roleSource)) });
-            this._clearRetryOnDispatchSuccess();
-            return { mode: 'polled' };
-        }
-
-        // anthropic path. Deferred imports because promptQueueManager is
+        // Deferred imports because promptQueueManager is
         // a module-level singleton and we don't want its module init to
         // pull in the Anthropic handler (which pulls in the SDK).
         const { AnthropicHandler } = await import('../handlers/anthropic-handler.js');
@@ -5815,7 +5147,7 @@ export class PromptQueueManager {
                 throw err;
             });
             if (result === undefined) {
-                return { mode: 'direct', answerText: '', superseded: true };
+                return { answerText: '', superseded: true };
             }
             // The turn ended by itself within the soft interrupt's wait: the stage is done, the run stays paused.
             if (waitItem && SoftInterruptRegistry.instance.stateOf(waitItem.id) !== undefined && !SoftInterruptRegistry.instance.hasLiveHold(waitItem.id)) {
@@ -5825,14 +5157,14 @@ export class PromptQueueManager {
             if (dispatchWasSuperseded(sendEpoch, this._epochOf(waitItem))) {
                 logQueue(`dispatchStage: the turn of ${waitItem?.id ?? '(no item)'} ended after an explicit Continue / Stop / Resend — its result is not taken as the stage's answer`);
                 if (waitItem) { this._addItemSendUsage(waitItem, result.usage); }
-                return { mode: 'direct', answerText: result.text, superseded: true };
+                return { answerText: result.text, superseded: true };
             }
             // The user interrupted the turn's wait and moved on (vscimpb82): the turn ended with its note, and
             // the item steps back behind the next item of its lane instead of going on with its next stage.
             if (waitItem && this._waitInterrupted.delete(waitItem.id)) {
                 this._addItemSendUsage(waitItem, result.usage);
                 this._stepBackAfterWaitInterrupt(waitItem);
-                return { mode: 'direct', answerText: result.text, superseded: true };
+                return { answerText: result.text, superseded: true };
             }
             if (stageForAnswer) {
                 stageForAnswer.answerText = result.text;
@@ -5846,13 +5178,12 @@ export class PromptQueueManager {
             // Propagate responseValues on EVERY direct answer — pre-prompt,
             // main prompt, each repeat, follow-up — so chat-variable setting and
             // TODO analysis run on all final answers, not only the last stage.
-            // (The Copilot transport already propagates once per answer file.)
             // The internal Quest Refresh dispatch opts out (`propagateAnswer`).
             if (propagateAnswer) {
                 this._propagateDirectAnswer(result.text, waitItem);
             }
             this._clearRetryOnDispatchSuccess(waitItem);
-            return { mode: 'direct', answerText: result.text };
+            return { answerText: result.text };
         } finally {
             this._showSendWait(waitItem, null);
             this._showBackgroundWait(waitItem, undefined);
@@ -5972,7 +5303,7 @@ export class PromptQueueManager {
     }
 
     /** Whether a message can be written to item `id` now: its turn waits in tomAi_waitFor or for its background work. */
-    /** The session the sending item `id` runs its Anthropic prompt in; undefined on Copilot or when it does not run. */
+    /** The session the sending item `id` runs its prompt in; undefined when it does not run. */
     runningSessionOf(id: string): string | undefined {
         const item = this._items.find(i => i.id === id);
         if (!item || item.status !== 'sending') { return undefined; }
@@ -5997,7 +5328,6 @@ export class PromptQueueManager {
         const problem = waitMessageProblem(text);
         if (problem) { return { ok: false, reason: problem }; }
         const session = this.anthropicSessionOf(item);
-        if (!session) { return { ok: false, reason: 'The item runs on Copilot, which takes no message while it runs.' }; }
         const pushed = sendUpdateToRunningPrompt(session, text.trim());
         if (!pushed) { return { ok: false, reason: `No Agent SDK prompt runs in session ${session} now: only an Agent SDK prompt takes a message while it runs.` }; }
         const message: ItemWaitMessage = { at: new Date().toISOString(), into: 'running', text: text.trim() };
@@ -6204,16 +5534,11 @@ export class PromptQueueManager {
      * `skipQuestRefresh:true` so `sendMessage`'s own hook stays inert for the
      * queue. The interactive send path keeps that hook (it works there).
      *
-     * Only the anthropic transport participates — copilot has no anthropic
-     * refresh, so it dispatches directly.
      */
     private async _dispatchMainStageWithRefresh(
         item: QueuedPrompt,
         resolved: ReturnType<typeof this.resolveStageTransport>,
-    ): Promise<{ mode: 'polled' } | { mode: 'direct'; answerText: string; superseded?: true }> {
-        if (resolved.transport !== 'anthropic') {
-            return this.dispatchStage(item.expandedText, resolved, item, true);
-        }
+    ): Promise<{ answerText: string; superseded?: true }> {
         const { QuestRefreshService } = await import('../services/quest-refresh-service.js');
         const { QuestRefreshStore } = await import('./questRefreshStore.js');
         const quest = WsPaths.getWorkspaceQuestId();
@@ -6279,12 +5604,10 @@ export class PromptQueueManager {
      * iff an iteration was actually enqueued.
      *
      * Called from every completion site:
-     *  - answer-wait timer fires (Copilot),
-     *  - answer file detected (Copilot),
      *  - manual continue (`continueSending`),
-     *  - Anthropic-direct `sendItem` completion,
-     *  - Anthropic-direct `_resumePausedSendingItem` completion,
-     *  - Anthropic-direct `resendLastPrompt` completion.
+     *  - `sendItem` completion,
+     *  - `_resumePausedSendingItem` completion,
+     *  - `resendLastPrompt` completion.
      *
      * The last three were missing prior to this method and caused
      * Anthropic items with `templateRepeatCount > 1` to terminate
@@ -6310,7 +5633,7 @@ export class PromptQueueManager {
             const workspace = getWorkspaceName();
             const files = [...listInboxFiles(folder, host, workspace), ...listStaleClaims(folder, host, workspace, Date.now())];
             for (const file of files) {
-                const claimed = claimInboxFile(folder, file, getWindowId());
+                const claimed = claimInboxFile(folder, file, getWindowStatusWindowId());
                 if (!claimed) { continue; }
                 const parsed = parseInboxItem(fs.readFileSync(claimed, 'utf-8'));
                 if (!parsed.ok) {
@@ -6585,7 +5908,7 @@ export class PromptQueueManager {
      * turn normally), another frame took the item over, or the item is no
      * longer `sending`. Whatever the transport reported.
      */
-    private _frameLostAfterDispatch(item: QueuedPrompt, frame: symbol | undefined, result: { mode: string; superseded?: true }): boolean {
+    private _frameLostAfterDispatch(item: QueuedPrompt, frame: symbol | undefined, result: { superseded?: true }): boolean {
         const why = result.superseded
             ? 'its turn ended after an explicit Continue / Stop / Resend'
             : frame && this._frameOwners.get(item.id) !== frame
@@ -6749,16 +6072,10 @@ export class PromptQueueManager {
                 if (this._pauseBeforeNextDispatch(item)) { return 'paused'; }
                 // A pre-prompt runs in the iteration it precedes.
                 const resolved = { ...this.resolveStageTransport(item, pp), iterationKey: iterationKeyFor(item, 'prePrompt'), item };
-                // Anthropic pre-prompts skip the answer-wrapper expansion;
-                // it's a Copilot-only construct (spec §4.7). Pass the
-                // resolved transport so the template lookup hits the
-                // right store (spec §4.16).
                 const prePromptExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'prePrompt'), () => this._buildExpandedText(
                     pp.text,
                     this._templateOf(pp.template, item),
-                    resolved.transport === 'copilot',
                     { repeatCount: ppRepeatCount, repeatIndex: ppSentCount },
-                    resolved.transport,
                     {
                         templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                         templateRepeatIndex: item.templateRepeatIndex,
@@ -6771,17 +6088,11 @@ export class PromptQueueManager {
                 // this same pre-prompt repetition (not the next one).
                 item.inFlightRepetition = { stage: 'prePrompt', stageIndex: ppIndex, prevRepeatIndex: ppSentCount };
                 item.expandedText = prePromptExpanded;
-                item.expectedRequestId = resolved.transport === 'copilot'
-                    ? this._extractRequestIdFromExpandedPrompt(prePromptExpanded)
-                    : undefined;
                 item.sentAt = new Date().toISOString();
                 item.awaitingAnswer = true; // in flight — a prompt is being processed
                 this.persist();
                 this._onDidChange.fire();
 
-                if (resolved.transport === 'copilot') {
-                    this.clearExpectedAnswerFiles(item.expectedRequestId);
-                }
                 // Snapshot what we're about to send so Resend can replay it.
                 item.lastDispatched = {
                     kind: 'prePrompt',
@@ -6796,18 +6107,12 @@ export class PromptQueueManager {
                 const dispatchResult = await this.dispatchStage(prePromptExpanded, resolved, pp);
                 if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Pre-prompt sent (${ppSentCount + 1}/${ppRepeatCount}) via ${resolved.transport}`);
-                if (dispatchResult.mode === 'direct') {
-                    // Synchronous response — advance to the next stage
-                    // immediately instead of waiting for the polling
-                    // loop. The recursive call will hit the pause gate
-                    // first thing, so pause-mid-flight propagates up.
-                    this.persist();
-                    this._onDidChange.fire();
-                    return await this.dispatchNextStageForSendingItem(item, frame);
-                }
-                return 'dispatched';
+                // Advance to the next stage. The recursive call hits the pause
+                // gate first thing, so pause-mid-flight propagates up.
+                this.persist();
+                this._onDidChange.fire();
+                return await this.dispatchNextStageForSendingItem(item, frame);
             }
         }
 
@@ -6936,13 +6241,9 @@ export class PromptQueueManager {
         if (hasMainToSend) {
             // The main prompt starts the next iteration.
             const resolved = { ...this.resolveStageTransport(item), iterationKey: iterationKeyFor(item, 'main'), item };
-            // Every Copilot stage that waits for an answer carries the Copilot Queue
-            // Wrapper; an item opts out with answerWrapper: false (it waits a fixed time).
-            const effectiveWrap = copilotWrapFor(resolved.transport, item.answerWrapper);
             item.expandedText = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'main', iterationTodo?.id), () => this._buildExpandedText(
                 item.originalText,
                 this._templateOf(item.template, item),
-                effectiveWrap,
                 {
                     repeatCount: mainRepeatCount,
                     // In todo mode the "repetition number" is the todo's own
@@ -6954,20 +6255,12 @@ export class PromptQueueManager {
                     repeatTodoId: iterationTodo?.id,
                     repeatTodoTitle: iterationTodo?.title,
                 },
-                resolved.transport,
                 {
                     templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                     templateRepeatIndex: item.templateRepeatIndex,
                 },
                 this.iterationTodoBlock(item, 'main', iterationTodo?.id),
             )));
-            const newRequestId = resolved.transport === 'copilot'
-                ? this._extractRequestIdFromExpandedPrompt(item.expandedText)
-                : undefined;
-            if (!item.requestId) {
-                item.requestId = newRequestId; // Preserve first request ID
-            }
-            item.expectedRequestId = newRequestId;
             // In todo mode the counter follows the todo's own number, so the
             // entry reads "todo 7 of 9" rather than "rep 3 of 9".
             const prevRepeatTodoId = item.repeatTodoId;
@@ -6991,9 +6284,6 @@ export class PromptQueueManager {
             this.persist();
             this._onDidChange.fire();
 
-            if (resolved.transport === 'copilot') {
-                this.clearExpectedAnswerFiles(item.expectedRequestId);
-            }
             // Snapshot what we're about to send so Resend can replay it.
             item.lastDispatched = {
                 kind: 'main',
@@ -7011,20 +6301,16 @@ export class PromptQueueManager {
             const dispatchResult = await this._dispatchMainStageWithRefresh(item, resolved);
             if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
             this._onPromptSent.fire(item);
-            this.updateWindowStatus('prompt-sent', resolved.transport);
             logQueue(iterationTodo
                 ? `Main prompt sent for todo ${iterationTodo.id} (${iterationTodo.index}/${mainRepeatCount}) via ${resolved.transport}`
                 : `Main prompt sent (${mainSentCount + 1}/${mainRepeatCount}) via ${resolved.transport}`);
-            if (dispatchResult.mode === 'direct') {
-                this.persist();
-                this._onDidChange.fire();
-                // A walk iteration whose todo is not completed gets continuations in its own session first.
-                if (iterationTodo && await this._continueUnfinishedIteration(item, frame, iterationTodo.id, resolved) === 'stop') {
-                    return 'paused';
-                }
-                return await this.dispatchNextStageForSendingItem(item, frame);
+            this.persist();
+            this._onDidChange.fire();
+            // A walk iteration whose todo is not completed gets continuations in its own session first.
+            if (iterationTodo && await this._continueUnfinishedIteration(item, frame, iterationTodo.id, resolved) === 'stop') {
+                return 'paused';
             }
-            return 'dispatched';
+            return await this.dispatchNextStageForSendingItem(item, frame);
         }
 
         // Stage 3: Follow-ups with individual repeat support.
@@ -7047,9 +6333,7 @@ export class PromptQueueManager {
                 const followUpExpanded = await runInProcessPosition(item.processRun, () => runWithQueueRole(this.stageRoleSource(item, 'followUp'), () => this._buildExpandedText(
                     nextFollowUp.originalText,
                     this._templateOf(nextFollowUp.template, item),
-                    resolved.transport === 'copilot',
                     { repeatCount: fuRepeatCount, repeatIndex: fuSentCount },
-                    resolved.transport,
                     {
                         templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                         templateRepeatIndex: item.templateRepeatIndex,
@@ -7058,9 +6342,6 @@ export class PromptQueueManager {
                 )));
                 nextFollowUp.repeatIndex = fuSentCount + 1;
                 item.expandedText = followUpExpanded;
-                item.expectedRequestId = resolved.transport === 'copilot'
-                    ? this._extractRequestIdFromExpandedPrompt(followUpExpanded)
-                    : undefined;
                 // Advance to next follow-up only when all repeats for this one are done
                 if (nextFollowUp.repeatIndex >= fuRepeatCount) {
                     item.followUpIndex = currentFuIndex + 1;
@@ -7079,9 +6360,6 @@ export class PromptQueueManager {
                 this.persist();
                 this._onDidChange.fire();
 
-                if (resolved.transport === 'copilot') {
-                    this.clearExpectedAnswerFiles(item.expectedRequestId);
-                }
                 // Snapshot what we're about to send so Resend can replay it.
                 item.lastDispatched = {
                     kind: 'followUp',
@@ -7096,14 +6374,10 @@ export class PromptQueueManager {
                 const dispatchResult = await this.dispatchStage(followUpExpanded, resolved, nextFollowUp);
                 if (this._frameLostAfterDispatch(item, frame, dispatchResult)) { return 'paused'; }
                 this._onPromptSent.fire(item);
-                this.updateWindowStatus('prompt-sent', resolved.transport);
                 logQueue(`Follow-up ${currentFuIndex + 1} sent (${fuSentCount + 1}/${fuRepeatCount}) via ${resolved.transport}`);
-                if (dispatchResult.mode === 'direct') {
-                    this.persist();
-                    this._onDidChange.fire();
-                    return await this.dispatchNextStageForSendingItem(item, frame);
-                }
-                return 'dispatched';
+                this.persist();
+                this._onDidChange.fire();
+                return await this.dispatchNextStageForSendingItem(item, frame);
             }
             // All repeats done for this follow-up, advance to next.
             // The recursive call hits the pause gate first, so pause
@@ -7116,20 +6390,6 @@ export class PromptQueueManager {
         item.awaitingAnswer = false;
         item.inFlightRepetition = undefined;
         return 'done';
-    }
-
-    private clearExpectedAnswerFiles(expectedRequestId?: string): void {
-        const candidatePaths = new Set<string>([
-            this.getAnswerFilePathForRequestId(expectedRequestId),
-            this.answerFilePath,
-        ]);
-        for (const candidate of candidatePaths) {
-            try {
-                fs.unlinkSync(candidate);
-            } catch {
-                // File may not exist yet.
-            }
-        }
     }
 
     /** Check if a timed request already has a pending item in the queue. */
@@ -7338,8 +6598,6 @@ export class PromptQueueManager {
     /** The window's run (the run the queue-wide accessors and a command without a run act on). */
     get windowRun(): string { return this._windowRun(); }
 
-    /** The Copilot answer timeout of the run `item` belongs to. */
-    responseTimeoutMinutesFor(item: QueuedPrompt): number { return this._itemSettings(item).responseTimeoutMinutes; }
 
     /** The settings of `run` (default: the window's run), a copy. */
     runQueueSettings(run?: string): RunQueueSettings {
@@ -7361,7 +6619,6 @@ export class PromptQueueManager {
         const name = normalizeRun(run ?? this._windowRun());
         const before = this._settingsOf(name);
         const next: RunQueueSettings = { ...before, ...patch };
-        if (patch.responseTimeoutMinutes !== undefined) { next.responseTimeoutMinutes = Math.max(5, Math.round(patch.responseTimeoutMinutes || 60)); }
         if (patch.walkContinuations !== undefined) { next.walkContinuations = validContinuations(patch.walkContinuations) ?? before.walkContinuations; }
         for (const key of ['defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId', 'defaultRole'] as const) {
             if (key in patch) { next[key] = (typeof patch[key] === 'string' ? (patch[key] as string).trim() : '') || undefined; }
@@ -7565,13 +6822,12 @@ export class PromptQueueManager {
             const r = this.moveItemToRun(item.id, to);
             if (!r.ok) { refused.push({ id: item.id, reason: r.reason }); continue; }
             applyRunDefaultsToItem(item, this._settingsOf(to), to, ['profile', 'template', 'session', 'role'], 'clear');
-            const effectiveTransport: QueuedTransport = item.transport ?? this._itemSettings(item).defaultTransport;
-            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), copilotWrapFor(effectiveTransport, item.answerWrapper), {
+            item.expandedText = await this._buildExpandedText(item.originalText, this._templateOf(item.template, item), {
                 repeatCount: resolveRepeatCount(item.repeatCount),
                 repeatIndex: item.repeatIndex,
                 repeatPrefix: item.repeatPrefix,
                 repeatSuffix: item.repeatSuffix,
-            }, effectiveTransport, {
+            }, {
                 templateRepeatCount: resolveRepeatCount(item.templateRepeatCount),
                 templateRepeatIndex: item.templateRepeatIndex,
             });
@@ -7686,10 +6942,8 @@ export class PromptQueueManager {
         this.setRunQueueSettings(run, { defaultTransport: transport, defaultAnthropicProfileId: anthropicProfileId, defaultAnthropicConfigId: anthropicConfigId });
     }
     /**
-     * Update the queue-level default message-wrapping template. The
-     * semantics are transport-scoped — pass an anthropic user-message
-     * template id when defaultTransport is 'anthropic', a copilot
-     * template name when it's 'copilot'. Passing '' clears it.
+     * Update the queue-level default message-wrapping template: a
+     * user-message template id. Passing '' clears it.
      */
     setDefaultMessageTemplate(templateId?: string, run?: string): void {
         this.setRunQueueSettings(run, { defaultMessageTemplateId: templateId });
@@ -8048,7 +7302,6 @@ export class PromptQueueManager {
             const prompt: QueuedPrompt = {
                 id: meta.id || entry.entryId,
                 template: kind.template,
-                answerWrapper: main['answer-wrapper'],
                 originalText: main['prompt-text'] || '',
                 expandedText: main['expanded-text'] || main['prompt-text'] || '',
                 status: (meta.status as QueuedPromptStatus) || 'pending',
@@ -8061,8 +7314,6 @@ export class PromptQueueManager {
                 createdAt: (meta.created as string) || new Date().toISOString(),
                 sentAt: main.execution?.['sent-at'] || undefined,
                 error: main.execution?.error || undefined,
-                requestId: main.execution?.['request-id'] || undefined,
-                expectedRequestId: main.execution?.['expected-request-id'] || undefined,
                 followUpIndex: main.execution?.['follow-up-index'] || 0,
                 repeatCount: typeof main['repeat-count'] === 'string' ? main['repeat-count'] : Math.max(0, Math.round(Number(main['repeat-count'] || 0))),
                 resolvedRepeatCount: main['resolved-repeat-count'] ? Math.max(1, Math.round(Number(main['resolved-repeat-count']))) : undefined,
@@ -8072,7 +7323,6 @@ export class PromptQueueManager {
                 repeatSuffix: main['repeat-suffix'],
                 templateRepeatCount: typeof main['template-repeat-count'] === 'string' ? main['template-repeat-count'] : (main['template-repeat-count'] ? Math.max(0, Math.round(Number(main['template-repeat-count']))) : undefined),
                 templateRepeatIndex: main['template-repeat-index'] ? Math.max(0, Math.round(Number(main['template-repeat-index']))) : undefined,
-                answerWaitMinutes: main['answer-wait-minutes'] && Number(main['answer-wait-minutes']) > 0 ? Number(main['answer-wait-minutes']) : undefined,
                 ...(validLimit(main['background-wait-limit-minutes']) !== undefined ? { backgroundWaitLimitMinutes: validLimit(main['background-wait-limit-minutes']) } : {}),
                 ...(backgroundWaitFromYaml(main['background-wait']) ? { backgroundWait: backgroundWaitFromYaml(main['background-wait']) } : {}),
                 ...(waitForFromYaml(main['waiting-for']) ? { waitingFor: waitForFromYaml(main['waiting-for']) } : {}),
@@ -8081,11 +7331,8 @@ export class PromptQueueManager {
                 ...(typeof main['turn-session-id'] === 'string' && main['turn-session-id'] ? { turnSessionId: main['turn-session-id'] } : {}),
                 ...(main['interrupt-note'] === true ? { interruptNote: true as const } : {}),
                 ...(typeof main['held-conversation-file'] === 'string' && main['held-conversation-file'] ? { heldConversationFile: main['held-conversation-file'] } : {}),
-                // Multi-transport — absence means "inherit queue default"
-                // at dispatch time; existing YAMLs without these fields
-                // continue to resolve to 'copilot' so the round-trip is
-                // byte-identical for pre-spec queues (spec §4.14).
-                transport: main.transport === 'anthropic' ? 'anthropic' : (main.transport === 'copilot' ? 'copilot' : undefined),
+                // A stored `copilot` (older files) is read as `anthropic`.
+                transport: readStoredTransport(main.transport),
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,
                 // `agent-sdk-session` is the key's older name (it now chooses the
@@ -8133,7 +7380,7 @@ export class PromptQueueManager {
                     prePromptIndex: typeof ld['pre-prompt-index'] === 'number' ? ld['pre-prompt-index'] : undefined,
                     followUpIndex: typeof ld['follow-up-index'] === 'number' ? ld['follow-up-index'] : undefined,
                     expandedText: ld['expanded-text'],
-                    transport: ld.transport,
+                    transport: readStoredTransport(ld.transport) ?? 'anthropic',
                     anthropicProfileId: ld['anthropic-profile-id'] || undefined,
                     anthropicConfigId: ld['anthropic-config-id'] || undefined,
                     iterationKey: typeof ld['iteration-key'] === 'string' ? ld['iteration-key'] : undefined,
@@ -8181,9 +7428,8 @@ export class PromptQueueManager {
                         repeatCount: pp?.['repeat-count'],
                         resolvedRepeatCount: pp?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(pp['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(pp?.['repeat-index'] || 0))),
-                        answerWaitMinutes: pp?.['answer-wait-minutes'],
                         // Multi-transport (spec §4.14).
-                        transport: pp?.transport === 'anthropic' ? 'anthropic' : (pp?.transport === 'copilot' ? 'copilot' : undefined),
+                        transport: readStoredTransport(pp?.transport),
                         anthropicProfileId: pp?.['anthropic-profile-id'] || undefined,
                         anthropicConfigId: pp?.['anthropic-config-id'] || undefined,
                         answerText: pp?.['answer-text'] || undefined,
@@ -8204,10 +7450,9 @@ export class PromptQueueManager {
                         repeatCount: fu?.['repeat-count'],
                         resolvedRepeatCount: fu?.['resolved-repeat-count'] ? Math.max(1, Math.round(Number(fu['resolved-repeat-count']))) : undefined,
                         repeatIndex: Math.max(0, Math.round(Number(fu?.['repeat-index'] || 0))),
-                        answerWaitMinutes: fu?.['answer-wait-minutes'],
                         createdAt: (fu?.metadata?.created as string) || (meta.created as string) || new Date().toISOString(),
                         // Multi-transport (spec §4.14).
-                        transport: fu?.transport === 'anthropic' ? 'anthropic' : (fu?.transport === 'copilot' ? 'copilot' : undefined),
+                        transport: readStoredTransport(fu?.transport),
                         anthropicProfileId: fu?.['anthropic-profile-id'] || undefined,
                         anthropicConfigId: fu?.['anthropic-config-id'] || undefined,
                         answerText: fu?.['answer-text'] || undefined,
@@ -8233,7 +7478,6 @@ export class PromptQueueManager {
             'prompt-text': item.originalText,
             'expanded-text': item.expandedText,
             template: item.template || '(None)',
-            'answer-wrapper': item.answerWrapper,
             'repeat-count': item.repeatCount || 0,
             'resolved-repeat-count': item.resolvedRepeatCount,
             'repeat-index': Math.max(0, Math.round(item.repeatIndex || 0)),
@@ -8242,7 +7486,6 @@ export class PromptQueueManager {
             'repeat-suffix': item.repeatSuffix,
             'template-repeat-count': item.templateRepeatCount,
             'template-repeat-index': item.templateRepeatIndex,
-            'answer-wait-minutes': item.answerWaitMinutes,
             ...(item.backgroundWaitLimitMinutes !== undefined ? { 'background-wait-limit-minutes': item.backgroundWaitLimitMinutes } : {}),
             ...(item.backgroundWait ? { 'background-wait': backgroundWaitToYaml(item.backgroundWait) } : {}),
             ...(item.waitingFor ? { 'waiting-for': waitForToYaml(item.waitingFor) } : {}),
@@ -8251,8 +7494,7 @@ export class PromptQueueManager {
             ...(item.turnSessionId ? { 'turn-session-id': item.turnSessionId } : {}),
             ...(item.interruptNote ? { 'interrupt-note': true } : {}),
             ...(item.heldConversationFile ? { 'held-conversation-file': item.heldConversationFile } : {}),
-            // Multi-transport round-trip (spec §4.14). Omit fields when
-            // they're falsy so the YAML stays clean for Copilot items.
+            // Omitted when not set, so the YAML stays clean.
             ...(item.transport ? { transport: item.transport } : {}),
             ...(item.anthropicProfileId ? { 'anthropic-profile-id': item.anthropicProfileId } : {}),
             ...(item.anthropicConfigId ? { 'anthropic-config-id': item.anthropicConfigId } : {}),
@@ -8292,15 +7534,13 @@ export class PromptQueueManager {
 
         // Execution state
         if (
-            item.requestId || item.expectedRequestId || item.sentAt || item.error
+            item.sentAt || item.error
             || (item.followUpIndex && item.followUpIndex > 0)
             || item.lastDispatched || item.warning
             || item.waitingUntil
             || item.retryUntil || item.retryAttempt
         ) {
             mainPrompt.execution = {
-                'request-id': item.requestId || null,
-                'expected-request-id': item.expectedRequestId || null,
                 'sent-at': item.sentAt || null,
                 error: item.error || null,
                 'follow-up-index': item.followUpIndex || 0,
@@ -8349,7 +7589,6 @@ export class PromptQueueManager {
                     'repeat-count': pp.repeatCount,
                     'resolved-repeat-count': pp.resolvedRepeatCount,
                     'repeat-index': pp.repeatIndex || 0,
-                    'answer-wait-minutes': pp.answerWaitMinutes,
                     execution: pp.status !== 'pending' ? {
                         'sent-at': pp.status === 'sent' ? new Date().toISOString() : null,
                         error: pp.status === 'error' ? 'pre-prompt failed' : null,
@@ -8379,7 +7618,6 @@ export class PromptQueueManager {
                     'repeat-count': fu.repeatCount,
                     'resolved-repeat-count': fu.resolvedRepeatCount,
                     'repeat-index': fu.repeatIndex || 0,
-                    'answer-wait-minutes': fu.answerWaitMinutes,
                     metadata: { created: fu.createdAt },
                     // Multi-transport round-trip (spec §4.14).
                     ...(fu.transport ? { transport: fu.transport } : {}),

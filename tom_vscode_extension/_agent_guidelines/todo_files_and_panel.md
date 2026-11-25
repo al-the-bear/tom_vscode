@@ -292,7 +292,7 @@ beside the user-action checkbox (`qtUserActionRow(checked, true)`) post
 the template `todoButtonTemplates.resolveTodoButtonTemplate` gives
 (`anthropic.todoButtonTemplates`: `userAction` for Guide me and a user-action
 todo, `other` for the rest; defaults `guide-user-action` / `execute-todo`),
-always on Anthropic — sent by `runAnthropicSend` or enqueued staged with
+sent by `runAnthropicSend` or enqueued staged with
 `transport: 'anthropic'`; a template missing from the store warns. A double
 click is ignored: the button pauses for 2 s (`qtPauseButton`) and the host
 drops the same todo sent the same way within 3 s (`_todoButtonGuard`,
@@ -409,7 +409,7 @@ _ai/quests/<quest>/history/sessions/<session>/session-todos.todo.yaml
 
 `src/tools/quest-todo-tools.ts` exposes the TRA01 operations as shared tools
 (registered for the chat LLM and the MCP server via `CHAT_ENHANCEMENT_TOOLS` →
-`ALL_SHARED_TOOLS`, plus `package.json` `languageModelTools`):
+`ALL_SHARED_TOOLS`):
 
 - `tomAi_archiveQuestTodos` — `{ questId, file?, todoIds? | allCompleted? }`
 - `tomAi_deleteQuestTodos` — `{ questId, file?, todoIds? | allCancelled? }`
@@ -449,6 +449,6 @@ Contract:
 When touching these tools, keep all registration surfaces in lockstep:
 `quest-todo-tools.ts`, `chat-enhancement-tools.ts`, `tool-executors.ts`
 (`ALL_SHARED_TOOLS`), `utils/constants.ts` (`AVAILABLE_LLM_TOOLS`),
-`utils/toolCategories.ts`, `package.json` (`contributes.languageModelTools`),
+`utils/toolCategories.ts`,
 and a `withTiming` test case so `npm run audit:tools` passes (see
 `tool_testing.md`).

@@ -1,8 +1,9 @@
 /**
  * The queue writes only the items that changed (PromptQueueManager
  * `_persistToFiles`, storage/queueFileStorage.ts): through the real queue
- * manager under the vscode stub, on the Copilot transport (nothing reaches a
- * model), with the file writes counted.
+ * manager under the vscode stub, with the file writes counted. Only the
+ * transport is a stub (nothing reaches a model): a turn that is sent stays
+ * running, its item `sending`.
  *
  *   QP-1 a queue of 50 items: the first persist writes all 50 files; a dispatch of a loop's next iteration
  *        writes only the loop item's file, and that file holds the new state (repeat-index)
@@ -23,7 +24,15 @@ const WS = path.join(SANDBOX, 'ws');
 const HOME = path.join(SANDBOX, 'home');
 const QUEST = 'q1';
 const EXT_ROOT = path.resolve(__dirname, '..', '..', '..');
-for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'], ['.tom/tom_vscode_extension.json', '{}\n']]) {
+/* eslint-disable @typescript-eslint/naming-convention -- config keys */
+const CONFIG = JSON.stringify({
+    anthropic: {
+        apiKeyEnvVar: 'TOM_TEST_ANTHROPIC_KEY',
+        profiles: [{ id: 'sdk', name: 'SDK', systemPrompt: '', configurationId: 'c-sdk' }],
+        configurations: [{ id: 'c-sdk', name: 'Agent SDK', model: 'claude-test', transport: 'agentSdk' }],
+    },
+}, null, 2);
+for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'], ['.tom/tom_vscode_extension.json', CONFIG]]) {
     const abs = path.join(WS, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text);
@@ -31,6 +40,7 @@ for (const [rel, text] of [[`_ai/quests/${QUEST}/overview.${QUEST}.md`, '# Q1\n'
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
 process.env.USERPROFILE = HOME;
+process.env.TOM_TEST_ANTHROPIC_KEY = 'test-key';
 
 import { installVscodeStub } from './_vscode-stub.js';
 const vscodeStub = installVscodeStub({ workspaceFolders: [WS] });
@@ -41,6 +51,7 @@ import { TimerEngine } from '../../managers/timerEngine.js';
 import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueueManager.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
+import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 
 const subscriptions: Array<{ dispose(): void }> = [];
 (function start(): void {
@@ -82,7 +93,15 @@ nodeFs.readFileSync = ((...args: unknown[]) => {
     return (realRead as (...a: unknown[]) => unknown)(...args);
 }) as typeof fs.readFileSync;
 
+// The transport: a turn that is sent never ends by itself, as a prompt waiting for its answer.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const handler = AnthropicHandler.instance as any;
+const originalSend = handler.sendMessage;
+const sent: string[] = [];
+handler.sendMessage = (opts: { userText?: unknown }) => new Promise(() => { sent.push(String(opts.userText)); });
+
 after(() => {
+    handler.sendMessage = originalSend;
     nodeFs.writeFileSync = realWrite;
     nodeFs.readFileSync = realRead;
     for (const stop of [() => PromptQueueManager.instance.dispose(), () => TimerEngine.instance.dispose()]) {
@@ -99,6 +118,7 @@ const boundary = (item: QueuedPrompt): Promise<string> =>
     (queue() as unknown as { dispatchNextStageForSendingItem(i: QueuedPrompt): Promise<string> }).dispatchNextStageForSendingItem(item);
 const fileOf = (item: QueuedPrompt): string => (queue() as unknown as { _fileNameMap: Map<string, string> })._fileNameMap.get(item.id)!;
 const reset = (): void => { written = []; read = []; };
+const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function clear(): void { for (const i of [...queue().items]) { queue().remove(i.id); } }
 
@@ -106,25 +126,30 @@ describe('the queue writes what changed', () => {
     test('QP-1: a dispatch on a queue of 50 items writes one file', async () => {
         clear();
         queue().autoSendEnabled = false;
+        queue().setDefaultTransport('anthropic', 'sdk');
         reset();
-        const loop = await queue().enqueue({ originalText: 'iteration', repeatCount: 3, transport: 'copilot', deferSend: true });
+        const loop = await queue().enqueue({ originalText: 'iteration', repeatCount: 3, transport: 'anthropic', deferSend: true });
         for (let i = 1; i < 50; i++) {
-            await queue().enqueue({ originalText: `prompt ${i} ${'text '.repeat(200)}`, transport: 'copilot', deferSend: true });
+            await queue().enqueue({ originalText: `prompt ${i} ${'text '.repeat(200)}`, transport: 'anthropic', deferSend: true });
         }
         assert.equal(queue().items.length, 50);
         assert.equal(new Set(written).size, 50, 'every item written once at least');
         // A loop with its first iteration out, then the dispatch of iteration 2.
         loop.status = 'sending';
         loop.repeatIndex = 1;
-        loop.lastDispatched = { kind: 'main', expandedText: 'iteration', transport: 'copilot', dispatchedAt: new Date().toISOString() } as QueuedPrompt['lastDispatched'];
+        loop.lastDispatched = { kind: 'main', expandedText: 'iteration', transport: 'anthropic', dispatchedAt: new Date().toISOString() } as QueuedPrompt['lastDispatched'];
         persist();
         reset();
         queue().autoSendEnabled = true;
         try {
-            await boundary(loop);
+            // The iteration's turn stays running: the frame does not return while it does.
+            void boundary(loop);
+            await wait(250);
         } finally {
             queue().autoSendEnabled = false;
         }
+        assert.ok(sent.length >= 1 && sent.every((t) => t.includes('iteration')), 'the loop\'s next iteration went out, and nothing else');
+        assert.ok(queue().getById(loop.id)!.repeatIndex! >= 2, 'the loop advanced');
         assert.ok(written.length >= 1, 'the dispatch persisted');
         assert.deepEqual([...new Set(written)], [fileOf(loop)], 'only the loop item\'s file');
         const text = fs.readFileSync(path.join(QUEUE_DIR, fileOf(loop)), 'utf8');

@@ -4,8 +4,8 @@
 > Licensed BSD-3-Clause. See [LICENSE](LICENSE).
 
 The **`@Tom`** VS Code extension — an AI-assisted development cockpit. It adds
-multi-model chat panels (Anthropic, Copilot), a multi-transport prompt
-queue, timed requests, a shared tool registry, a standalone MCP server, the
+a multi-model chat panel (Anthropic profiles on the direct API, the Agent SDK,
+VS Code LM or a local LLM), a prompt queue, timed requests, a shared tool registry, a standalone MCP server, the
 status page, and the **CLI Integration Server** that lets out-of-process Dart
 clients drive the live window. This is the product of the Tom VS Code repo.
 
@@ -16,10 +16,10 @@ clients drive the live window. This is the product of the Tom VS Code repo.
 `@Tom` turns a normal VS Code window into a unified AI workspace:
 
 - **Multi-model chat** — Anthropic (direct SDK, Agent SDK, VS Code LM, or a local
-  LLM through an Anthropic profile on a Local LLM configuration) and Copilot, in
-  dedicated bottom-panel subpanels.
-- **Prompt queue orchestration** — queue work across transports with follow-ups,
-  reminders, repeat support, and automation toggles.
+  LLM through an Anthropic profile on a Local LLM configuration), in
+  a dedicated bottom-panel subpanel.
+- **Prompt queue orchestration** — queue work with pre-prompts, follow-ups,
+  repeat support, and automation toggles.
 - **Timed requests** — interval / scheduled prompts that enqueue automatically.
 - **Tool registry + MCP server** — the same MCP-style tools the panels use,
   published to external MCP clients over HTTP.
@@ -193,7 +193,7 @@ on purpose). Such a VSIX lacks two things only:
   `tomAi_specBackfill`, `tomAi_specPrefill`, `tomAi_specDeriveFields`,
   `tomAi_specRenameId`) and CodeSpecs mapping (`tomAi_specCodeSpecsMap`).
 
-Everything else works: the chat panels and their transports, the prompt queue,
+Everything else works: the chat panel and its transports, the prompt queue,
 the tools, quests, todos and processes, TomSpecs editing.
 
 The VSIX carries no model provider's SDK: the Anthropic SDK and the Agent SDK
@@ -575,12 +575,11 @@ platforms the binaries are built for (a VSIX carries them for no other).
 
 ### Chat panels
 
-The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts two subpanels:
+The bottom **@CHAT** panel (`tomAi.chatPanel`) hosts the chat subpanel and the **Logs** section:
 
 | Subpanel | Transport |
 | --- | --- |
-| Anthropic | Per profile: direct Anthropic SDK, Agent SDK, VS Code LM, or a Local LLM configuration (`anthropic-handler`, `agent-sdk-transport`, `localLlm-handler`). |
-| Copilot | VS Code Copilot Chat; the answer comes back through an answer file Copilot writes (the Copilot Queue Wrapper). |
+| ANTHROPIC/LLM | Per profile: direct Anthropic SDK, Agent SDK, VS Code LM, or a Local LLM configuration (`anthropic-handler`, `agent-sdk-transport`, `localLlm-handler`). |
 
 Alongside it: **@WS** (`tomAi.wsPanel`, workspace) in the bottom panel, and the
 **@TOM** sidebar for the quest (process, quest notes, quest and session todos),
@@ -666,9 +665,8 @@ processes, refreshed every 30 s; a click opens the view.
 
 | Area | Capabilities |
 | --- | --- |
-| Prompt Queue | One-file-per-entry YAML storage; auto-send / auto-start / auto-pause / auto-continue / restart; repeat with prefix/suffix placeholders; answer-wait timeout; watchdog health checks. |
-| Timed Requests | Interval and scheduled firing; `sentCount`-based `sendMaximum` auto-pause; reminder + repeat config; global schedule-slot filtering; all fires enqueue through the Prompt Queue (single dispatch path). |
-| Answer detection | RequestId-based detection with a file watcher plus a polling fallback. |
+| Prompt Queue | One-file-per-entry YAML storage; auto-send / auto-start / auto-pause / auto-continue / restart; repeat with prefix/suffix placeholders; watchdog health checks. |
+| Timed Requests | Interval and scheduled firing; `sentCount`-based `sendMaximum` auto-pause; repeat config; global schedule-slot filtering; all fires enqueue through the Prompt Queue (single dispatch path). |
 | Browsing | Markdown Browser with a grouped document picker, quest filters, line anchors, and auto-reload. |
 | Status | Window Status panel showing per-window subsystem state from window-state files. |
 | MCP server | Standalone MCP server publishing the tool registry over HTTP — see [doc/mcp_server.md](doc/mcp_server.md). |
@@ -689,7 +687,7 @@ Open the command palette and type `@T:` to discover commands.
 
 | Group | Commands |
 | --- | --- |
-| Core AI | Send to Copilot · Send to Copilot (Default Template) · Send to Copilot (Pick Template) · Send to Anthropic/LLM · Send to Anthropic/LLM (Default Template) · Send to Anthropic/LLM (Pick Template) |
+| Core AI | Send to Anthropic/LLM · Send to Anthropic/LLM (Default Template) · Send to Anthropic/LLM (Pick Template) |
 | Queue & timer | Open Prompt Queue · Open Timed Requests · Open Prompt Templates · Open Reusable Prompts |
 | Workspace & runtime | Open in Markdown Browser · Extension Status Page · Restart Bridge · Start / Stop Tom CLI Integration Server · Start Process Monitor |
 
@@ -718,8 +716,8 @@ handlers own webview wiring, services own side-effects, utils are pure.
 | `config/` | Configuration schemas + defaults (`sendToChatConfig.ts`, `tom_vscode_extension.schema.json`). |
 | `extension.ts` | Activation entry point. |
 | `handlers/` | Per-subsystem handlers — chatPanel, anthropic, agent-sdk-transport, localLlm, queueEditor, statusPage, mcpServer, … |
-| `managers/` | Long-lived state managers (e.g. `promptQueueManager`, `reminderSystem`). |
-| `services/` | Pure side-effect services — trail, tool-result store, history compaction, memory, drafts, answer files. |
+| `managers/` | Long-lived state managers (e.g. `promptQueueManager`, `timerEngine`). |
+| `services/` | Pure side-effect services — trail, tool-result store, history compaction, memory, drafts. |
 | `storage/` | Disk-backed stores (`panelYamlStore`, notepad stores). |
 | `tools/` | MCP-style tool surface — shared tool registry, tool executors, chat-enhancement / issue / test tools. |
 | `types/` | Shared type declarations. |
@@ -746,8 +744,8 @@ handlers own webview wiring, services own side-effects, utils are pure.
 ## Queue and timed-request behavior
 
 - **Prompt Queue** — one-file-per-entry YAML storage; automation toggles for flow
-  behavior; repetition with prefix/suffix placeholders; answer-wait timeout for
-  time-based auto-advance; watchdog health checks to recover watcher issues.
+  behavior; repetition with prefix/suffix placeholders; watchdog health checks
+  that resume parked items and restart a stalled drain.
 - **Todo claims** — in todo iteration (a `<prefix>*` repeat count) the runner
   writes `status: in-progress` onto the todo it dispatches, before the send,
   and records the status it overwrote. Once that dispatch's answer arrives the
@@ -758,7 +756,7 @@ handlers own webview wiring, services own side-effects, utils are pure.
   claims the todo again. The claim is persisted with the queue item, so a
   reload does not lose it.
 - **Timed Requests** — interval and scheduled firing modes; `sendMaximum` with
-  `sentCount`-based auto-pause; reminder and repeat configuration; global
+  `sentCount`-based auto-pause; repeat configuration; global
   schedule-slot filtering; every fire enqueues through the Prompt Queue.
 
 Full model: [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md).
@@ -811,7 +809,7 @@ Run the extension host for manual testing: open this project in VS Code, press
 > *installed* VSIX (`~/.vscode/extensions/peter-nicolai-alexis-kyaw.tom-ai-extension-<version>/`;
 > a stack trace pointing there means the extension was not reinstalled since the
 > edit). Repackage + reinstall first (`compile_and_install.sh`; `reinstall_for_testing.sh`
-> also marks it a test reinstall, which shows a reminder after the reload), then reload. The workspace's pattern prompt
+> also marks it a test reinstall, which queues `!!!Reload finished` at the front of the window's run after the reload), then reload. The workspace's pattern prompt
 > `!reinstall_extension` runs this cycle, and `!reload_finished` signals that the
 > reload is done.
 
@@ -856,7 +854,6 @@ source tree; they are not part of this documentation.
 | [doc/multi_transport_prompt_queue_revised.md](doc/multi_transport_prompt_queue_revised.md) | The current prompt-queue model. |
 | [doc/llm_configuration.md](doc/llm_configuration.md) | Local LLM + Anthropic + history-compaction settings. |
 | [doc/placeholder_engine.md](doc/placeholder_engine.md) | Placeholder engine reference. |
-| [doc/copilot_chat_tools.md](doc/copilot_chat_tools.md) | Copilot tooling. |
 
 ---
 

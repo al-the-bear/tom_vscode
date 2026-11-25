@@ -6,8 +6,8 @@
  *   RG-1 the gate: a view resolved before shows its own provider's page; closed, every view (shown and resolved
  *        later, the later ones without their provider) shows the reload placeholder; a provider writing its
  *        page again is overwritten when the view becomes visible; Show running prompts / Reload window
- *   RG-2 the refusals: the chat sends of the editor commands (Send to LLM), scripts (Anthropic and Copilot),
- *        Send to Copilot, the todo panel and Telegram answer the sentence; nothing is sent
+ *   RG-2 the refusals: the chat sends of the editor commands (Send to LLM), scripts, the todo panel and Telegram
+ *        answer the sentence; nothing is sent; a script naming the removed target `copilot` is refused by name
  *   RG-3 the placeholder page: the reload hint with Reload window and Show running prompts, no Upgrade button
  *   RG-4 the wiring: every webview view of the extension is registered behind the gate; another window's
  *        migration enters the mode; the user guide says so
@@ -31,7 +31,7 @@ const providers = new Map<string, { resolveWebviewView(view: unknown, ctx?: unkn
 
 import { closeWebviewViews, gatedViews, isWebviewGateClosed, registerGatedWebviewViewProvider, resetWebviewGateForTests } from '../webviewViewGate.js';
 import { chatSendRefusal, refuseChatSends } from '../sendToChatState.js';
-import { dispatchToLlm, openCopilotChat, runAnthropicSend, sendToChatForScript } from '../sendToChatRouter.js';
+import { dispatchToLlm, runAnthropicSend, scriptSendTarget, sendToChatForScript } from '../sendToChatRouter.js';
 import { formatReloadHint, reloadRequiredSentence } from '../../utils/aiFormatMigrationRun.js';
 import { setExtensionPath } from '../handler_shared.js';
 
@@ -97,11 +97,9 @@ describe('a window migrated under it', () => {
         warnings.length = 0;
         await dispatchToLlm(ctx, 'hello');
         assert.deepEqual(warnings, [`Not sent: ${sentence}`]);
-        assert.deepEqual(await sendToChatForScript(ctx, 'hi', 'copilot'), { target: 'copilot', ok: false, refused: true, error: sentence });
-        const before = stubbed.spies.byMethod('commands.executeCommand').length;
-        await openCopilotChat('hi');
-        assert.equal(stubbed.spies.byMethod('commands.executeCommand').slice(before).filter((c) => c.args[0] === 'workbench.action.chat.open').length, 0);
-        assert.equal(warnings.at(-1), `Not sent: ${sentence}`);
+        assert.deepEqual(await sendToChatForScript(ctx, 'hi'), { target: 'anthropic', ok: false, refused: true, error: sentence });
+        assert.deepEqual(await sendToChatForScript(ctx, 'hi', scriptSendTarget('anthropic')), { target: 'anthropic', ok: false, refused: true, error: sentence });
+        assert.throws(() => scriptSendTarget('copilot'), /the target `copilot` is gone/);
         const telegram = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'telegram-cmd-handlers.ts'), 'utf8');
         assert.match(telegram, /if \(outcome\.refused\) \{\s*return \{ text: `⛔ Not sent: \$\{outcome\.error/);
         const panel = fs.readFileSync(path.join(EXT, 'src', 'handlers', 'chatPanel-handler.ts'), 'utf8');

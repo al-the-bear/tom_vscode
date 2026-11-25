@@ -82,7 +82,7 @@ export function getPanelFilePath(type: string): string | undefined {
     return path.join(folder, `${name}.${type}.yaml`);
 }
 
-/** Build a per-section prompt state file path (e.g. workspace.copilot.prompt-panel.yaml). */
+/** Build a per-section prompt state file path (e.g. workspace.anthropic.prompt-panel.yaml). */
 export function getPromptPanelFilePath(section: string): string | undefined {
     const folder = getStorageFolder();
     if (!folder) {return undefined;}

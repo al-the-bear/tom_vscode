@@ -3,7 +3,7 @@
  *
  * Singleton that fires timed/repeat requests into the PromptQueue.
  * Checks every 30 seconds for due entries: interval-based or
- * scheduled-time entries.  Never sends directly to Copilot —
+ * scheduled-time entries.  Never sends directly —
  * always enqueues into PromptQueueManager.
  */
 
@@ -49,7 +49,6 @@ export interface TimedRequest {
     kind?: TimedRequestKind;
     enabled: boolean;
     template: string;
-    answerWrapper?: boolean;
     originalText: string;
     scheduleMode: 'interval' | 'scheduled';
     intervalMinutes?: number;
@@ -59,7 +58,6 @@ export interface TimedRequest {
     repeatSuffix?: string;
     sendMaximum?: number;
     sentCount?: number;
-    answerWaitMinutes?: number;
     /** Day-of-week filter for interval mode: 0=Sun, 1=Mon … 6=Sat. Absent or empty = fire on any day. */
     intervalWeekdays?: number[];
     lastSentAt?: string;
@@ -508,14 +506,12 @@ export class TimerEngine {
             originalText: entry.originalText,
             // The entry's template is applied like any item's; the item names its entry in a field of its own.
             template: entry.template || '(None)',
-            answerWrapper: entry.answerWrapper || false,
             type: 'timed',
             timedEntryId: entry.id,
             initialStatus: 'pending',
             repeatCount: Math.max(0, Math.round(Number(entry.repeatCount || 0))),
             repeatPrefix: entry.repeatPrefix,
             repeatSuffix: entry.repeatSuffix,
-            answerWaitMinutes: entry.answerWaitMinutes && entry.answerWaitMinutes > 0 ? entry.answerWaitMinutes : undefined,
         });
 
         // Update lastSentAt and sentCount

@@ -1,124 +1,107 @@
-# Multi-Transport Prompt Queue — design (revised v3, implemented)
+# Prompt Queue — transport and dispatch design
 
-> **Revision note (v3, 2026-04-20).** This is the implementation-complete
-> version of the two-transport design. The queue's transport model is
-> exactly **Copilot** and **Anthropic**. VS Code LM is folded in as a
-> new Anthropic configuration type (the JSON field is `transport`, not
-> `type` as an earlier revision implied — the extension's schema has
-> always used `transport` for this role). Existing Local LLM
-> configurations surface inside the Anthropic profile's config picker
-> and dispatch through a synthesised shim configuration with
-> `transport: 'localLlm'` so the handler fork stays uniform.
->
-> The Anthropic handler owns a shared loop over four leaf primitives —
-> Direct, Agent SDK, VS Code LM, Local LLM — each a one-round API call
-> (or the full SDK stream for Agent SDK). The queue sees only
-> `anthropic`. @CHAT has exactly these two subpanels, Anthropic and
-> Copilot, both with queue buttons. The Local LLM leaf calls the
-> public `callLocalLlmOnce` entry point on `LocalLlmManager`, the
-> single-round HTTP primitive.
->
-> **Implementation status — complete.** Landed in 31 commits on
-> `main` through commit `13cbca8` (2026-04-20). Six verification passes
-> confirmed all §8 acceptance items plus the per-stage §4.10 override
-> subrequirement. The original four-transport
-> spec at `multi_transport_prompt_queue.md` has been retired. Sections
-> below note implementation choices where they differ slightly from
-> the literal reading of the design (e.g. gear-icon QuickPick flow in
-> place of collapsible forms); the behaviour matches the design intent.
+The queue has one transport, **Anthropic**: every queue item, pre-prompt,
+follow-up and timed request is sent through the Anthropic handler. A new
+model backend is a configuration type an Anthropic profile references
+(the JSON field is `transport`), not a queue transport. Local LLM
+configurations surface inside the Anthropic profile's config picker and
+dispatch through a synthesised shim configuration with
+`transport: 'localLlm'` so the handler fork stays uniform.
+
+The Anthropic handler owns a shared loop over four leaf primitives —
+Direct, Agent SDK, VS Code LM, Local LLM — each a one-round API call
+(or the full SDK stream for Agent SDK). The queue sees only
+`anthropic`. @CHAT has the ANTHROPIC/LLM subpanel with its queue
+buttons, and the Logs section. The Local LLM leaf calls the
+public `callLocalLlmOnce` entry point on `LocalLlmManager`, the
+single-round HTTP primitive.
 
 ## 1. Goal
 
-Today the prompt queue only routes to **Copilot Chat**. Prompts are wrapped with an answer-file template, dispatched via `workbench.action.chat.open`, and advance when an answer JSON appears in the Copilot answer directory. We want the same queue to also route through the **Anthropic** handler, which itself forks into four concrete API calls based on the active Anthropic profile's selected configuration:
+The prompt queue routes every prompt through the **Anthropic** handler, which itself forks into four concrete API calls based on the Anthropic profile's selected configuration:
 
-- **Direct** — `@anthropic-ai/sdk` (existing).
-- **Agent SDK** — `@anthropic-ai/claude-agent-sdk` (existing).
-- **VS Code LM** — `vscode.lm.selectChatModels` + `model.sendRequest` (new configuration type).
+- **Direct** — `@anthropic-ai/sdk`.
+- **Agent SDK** — `@anthropic-ai/claude-agent-sdk`.
+- **VS Code LM** — `vscode.lm.selectChatModels` + `model.sendRequest` (a configuration type).
 - **Local LLM (Ollama / OpenAI-compatible)** — `LocalLlmManager.callLocalLlmOnce` (a Local LLM configuration, referenced from the Anthropic profile's config picker).
 
-From the queue's perspective there are **two transports**: `copilot` and `anthropic`. The four-way fork happens inside `AnthropicHandler.sendMessage()` based on `configuration.transport` (plus the synthesised `transport: 'localLlm'` shim when the profile's `configurationId` resolves to a Local LLM config); the queue does not care which leaf path ran.
+From the queue's perspective there is **one transport**: `anthropic`. The four-way fork happens inside `AnthropicHandler.sendMessage()` based on `configuration.transport` (plus the synthesised `transport: 'localLlm'` shim when the profile's `configurationId` resolves to a Local LLM config); the queue does not care which leaf path ran.
 
-**No parallel execution across transports** — a single ordered queue is sufficient.
+**One ordered queue per process run** — each run is a lane of its own (`utils/queueLanes.ts`), and the items of a lane are sent one after the other.
 
 ## 2. Design decisions
 
-1. **Two transports only.** Queue items carry `transport: 'copilot' | 'anthropic'` (default `'copilot'`). Per-item transport lets a single ordered workflow interleave transports ("plan with Claude → run 3 tasks via Copilot").
-2. **VS Code LM is a new Anthropic configuration type.** The `AnthropicConfiguration.transport` enum grows from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`, with a fourth synthesised value `'localLlm'` used at runtime when a profile references a Local LLM config (never persisted). A `vscodeLm` configuration carries the selector params for `vscode.lm.selectChatModels` as a required triple `{vendor, family, modelId}`. Trails land in the same `_ai/trail/anthropic/*` directory as the other two persisted types.
-3. **Local LLM configurations are referenced from Anthropic profiles.** The Local LLM config schema is unchanged and lives where it lives today. The Anthropic profile's config picker widens its source: it lists Anthropic configurations AND existing Local LLM configurations, labelled by backing type. Selecting a Local LLM config on an Anthropic profile swaps only the final API call — prompt composition, tool approval, live trail, trail-file layout, user-message templates, and the queueing UI are the ANTHROPIC/LLM panel's.
-4. **Direct responses, no synthetic answer files.** For `anthropic` items, `sendItem()` awaits `AnthropicHandler.sendMessage()` and stores the returned text on the queue item. The polling loop is bypassed for anthropic items.
-5. **Transport-owned trails.** AnthropicHandler already writes prompt + answer + tool-call + live-trail entries for the Direct and Agent SDK paths. The new `vscodeLm` branch and the Local-LLM-referencing branch reuse the same trail writers (same subsystem, same directory). The queue does not duplicate trails.
-6. **Anthropic-only features dropped for direct transport**: answer-wrapper template, reminders, `answerWaitMinutes`, `expectedRequestId`, polling loop. All Copilot-specific.
-7. **Queue-dispatched anthropic items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value. The field's only legal values are `'always' | 'never'` — see [sendToChatConfig.ts:200](../src/utils/sendToChatConfig.ts#L200). The UI must surface this (see §4.10).
-8. **Shared prompt composition, APIs that don't separate system/user get concatenated.** The ANTHROPIC/LLM panel's rules apply to every leaf path: profile system prompt + user-message template + user prompt = final composed prompt. When the leaf API (VS Code LM, Local LLM) doesn't take a separate `system` field, the handler concatenates `{systemPrompt}\n\n{userText}` before the call. Direct and Agent SDK keep using the structured fields they already take.
-9. **One template store.** Every send — Copilot, and every Anthropic profile whatever its configuration type — takes its template from `config.anthropic.userMessageTemplates`. No per-transport and no per-configuration-type templates. A Copilot send that waits for an answer goes into the **Copilot Queue Wrapper** (`config.copilot.queueWrapper`, default built in), which makes Copilot write the answer file; it is a setting, not a template.
-10. **The Anthropic and Copilot panels carry queue buttons** — the same two buttons on each, the only two @CHAT subpanels.
+1. **One transport.** `QueuedTransport` is `'anthropic'`. An item, pre-prompt or follow-up may carry `transport: 'anthropic'` or leave it out; either way it runs on Anthropic. A stored `transport: copilot` is read as `anthropic` (`readStoredTransport`). What a single ordered workflow varies per item or stage is the **profile** ("plan with one profile → run three tasks with another").
+2. **VS Code LM is an Anthropic configuration type.** The `AnthropicConfiguration.transport` enum is `'direct' | 'agentSdk' | 'vscodeLm'`, with a fourth synthesised value `'localLlm'` used at runtime when a profile references a Local LLM config (never persisted). A `vscodeLm` configuration carries the selector params for `vscode.lm.selectChatModels` as a required triple `{vendor, family, modelId}`. Trails land in the same `_ai/trail/anthropic/*` directory as the other two persisted types.
+3. **Local LLM configurations are referenced from Anthropic profiles.** The Local LLM config schema is its own and lives in `config.localLlm.configurations`. The Anthropic profile's config picker lists Anthropic configurations AND Local LLM configurations, labelled by backing type. Selecting a Local LLM config on an Anthropic profile swaps only the final API call — prompt composition, tool approval, live trail, trail-file layout, user-message templates, and the queueing UI are the ANTHROPIC/LLM panel's.
+4. **Direct responses.** `dispatchStage()` awaits `AnthropicHandler.sendMessage()` and stores the returned text on the queue item or stage (`answerText`). A dispatch always completes inline: when the call returns, the stage is answered.
+5. **Transport-owned trails.** AnthropicHandler writes prompt + answer + tool-call + live-trail entries for every leaf path (same subsystem, same directory). The queue does not duplicate trails.
+6. **The awaited call is the stage.** The queue puts nothing around the prompt but its template, starts no timer for an answer and watches no file: a stage begins with the call to `sendMessage` and ends when it returns or throws.
+7. **Queue-dispatched items force auto-approve-all.** Queue execution is unattended — any tool call that triggers the approval bar would deadlock the queue. The dispatcher sets `toolApprovalMode = 'never'` regardless of the profile's stored value (`'always' | 'acceptEdits' | 'never'`, [sendToChatConfig.ts:244](../src/utils/sendToChatConfig.ts#L244)). The UI must surface this (see §4.10).
+8. **Shared prompt composition, APIs that don't separate system/user get concatenated.** The ANTHROPIC/LLM panel's rules apply to every leaf path: profile system prompt + user-message template + user prompt = final composed prompt. When the leaf API (VS Code LM, Local LLM) doesn't take a separate `system` field, the handler concatenates `{systemPrompt}\n\n{userText}` before the call. Direct and Agent SDK use the structured fields they take.
+9. **One template store.** Every send — every Anthropic profile whatever its configuration type — takes its template from `config.anthropic.userMessageTemplates`. No per-configuration-type templates.
+10. **The ANTHROPIC/LLM panel carries queue buttons** — Save to Queue and Queue next, each for the default run and for the panel's own target (§4.11).
 
 ## 3. Current state reference
 
 | Concern | Where |
 | --- | --- |
-| Queue manager | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) (3485 lines) |
-| `QueuedTransport` type (`'copilot' \| 'anthropic'`) | [line 98](../src/managers/promptQueueManager.ts#L98) |
-| `QueuedFollowUpPrompt` / `QueuedPrePrompt` / `QueuedPrompt` interfaces | [lines 100 / 120 / 139](../src/managers/promptQueueManager.ts#L100) |
-| `_buildExpandedText()` (template + answer-wrapper expansion) | [line 434](../src/managers/promptQueueManager.ts#L434) |
-| `pollForExpectedAnswer()` answer-file polling loop | [line 727](../src/managers/promptQueueManager.ts#L727) (called from `sendItem` / `continueSending`) |
-| `enqueue()` | [line 1402](../src/managers/promptQueueManager.ts#L1402) |
-| `continueSending()` | [line 1933](../src/managers/promptQueueManager.ts#L1933) |
-| `sendItem()` — main dispatch | [line 2208](../src/managers/promptQueueManager.ts#L2208) |
-| `resolveStageTransport()` — stage › item › queue default › `'copilot'` | [line 2486](../src/managers/promptQueueManager.ts#L2486) |
-| `dispatchStage()` — central dispatch for both transports | [line 2520](../src/managers/promptQueueManager.ts#L2520) |
-| `workbench.action.chat.open` (Copilot branch inside `dispatchStage`) | [line 2526](../src/managers/promptQueueManager.ts#L2526) |
-| Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) (1863 lines) |
-| Reminder toggle / update bindings | [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414) |
-| `toggleAutoSend` | [queueEditor-handler.ts:607](../src/handlers/queueEditor-handler.ts#L607) |
-| `stopActiveItem` | [queueEditor-handler.ts:627](../src/handlers/queueEditor-handler.ts#L627) |
-| `interruptActiveForContinuation` / `interruptForContinuation` (interrupt for continuation, §4.18) | [queueEditor-handler.ts:637](../src/handlers/queueEditor-handler.ts#L637) |
-| `answerWaitMinutes` message payload | [queueEditor-handler.ts:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494) |
-| `AnthropicTransport` leaf enum (`'direct' \| 'agentSdk' \| 'vscodeLm' \| 'localLlm'`) | [anthropic-handler.ts:58](../src/handlers/anthropic-handler.ts#L58) |
-| `AnthropicSendOptions` / `AnthropicSendResult` | [line 185](../src/handlers/anthropic-handler.ts#L185) / [line 291](../src/handlers/anthropic-handler.ts#L291) |
-| `AnthropicHandler` class | [anthropic-handler.ts:321](../src/handlers/anthropic-handler.ts#L321) |
-| `sendMessage()` entry point | [anthropic-handler.ts:870](../src/handlers/anthropic-handler.ts#L870) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
-| Anthropic Agent SDK branch | [anthropic-handler.ts:1073](../src/handlers/anthropic-handler.ts#L1073) |
-| Anthropic Direct branch | [anthropic-handler.ts:1350](../src/handlers/anthropic-handler.ts#L1350) |
-| VS Code LM branch (`vscodeLm`) | [anthropic-handler.ts:1361](../src/handlers/anthropic-handler.ts#L1361) |
-| Local LLM branch (synthesised shim) | [anthropic-handler.ts:1542](../src/handlers/anthropic-handler.ts#L1542) (calls `callLocalLlmOnce` at [:1627](../src/handlers/anthropic-handler.ts#L1627)) |
-| Trail writes (`writeSummaryPrompt` / `writeSummaryAnswer`) | [anthropic-handler.ts:1122-1124](../src/handlers/anthropic-handler.ts#L1122), [:1796-1798](../src/handlers/anthropic-handler.ts#L1796) |
-| `ANTHROPIC_SUBSYSTEM` literal | [services/trailSubsystems.ts:16](../src/services/trailSubsystems.ts#L16) (imported at [anthropic-handler.ts:21](../src/handlers/anthropic-handler.ts#L21)) |
-| `callLocalLlmOnce()` — single-round HTTP primitive | [localLlm-handler.ts](../src/handlers/localLlm-handler.ts) |
-| `resolveAnthropicTargets()` — shared profile + config resolver | [utils/resolveAnthropicTargets.ts:49](../src/utils/resolveAnthropicTargets.ts#L49) |
-| Local LLM configurations (`sendToChatConfig`) | [sendToChatConfig.ts:59-76](../src/utils/sendToChatConfig.ts#L59-L76) |
-| Anthropic configurations (`transport` enum + `vscodeLm` block) | [sendToChatConfig.ts:138-175](../src/utils/sendToChatConfig.ts#L138-L175) |
-| Anthropic profiles (`toolApprovalMode`) | [sendToChatConfig.ts:176-203](../src/utils/sendToChatConfig.ts#L176-L203) |
-| Anthropic user-message templates | [sendToChatConfig.ts:204-212](../src/utils/sendToChatConfig.ts#L204-L212) |
-| `getPromptEditorComponent` factory (per-section panel toolbar) | [chatPanel-handler.ts:2995](../src/handlers/chatPanel-handler.ts#L2995) |
-| Panel section definitions | [chatPanel-handler.ts](../src/handlers/chatPanel-handler.ts): the `anthropic` and `copilot` sections |
-| Copilot queue buttons | [chatPanel-handler.ts:3086-3087](../src/handlers/chatPanel-handler.ts#L3086) |
-| Anthropic queue buttons **(implemented)** | [chatPanel-handler.ts:3166-3167](../src/handlers/chatPanel-handler.ts#L3166) |
-| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:503, 516](../src/handlers/chatPanel-handler.ts#L503) |
-| Webview-side `addToQueue` dispatcher | [chatPanel-handler.ts:3486-3488](../src/handlers/chatPanel-handler.ts#L3486) |
-| `addCopilotToQueue()` | [chatPanel-handler.ts:4086](../src/handlers/chatPanel-handler.ts#L4086) |
-| `addAnthropicToQueue()` **(implemented)** | [chatPanel-handler.ts:4101](../src/handlers/chatPanel-handler.ts#L4101) |
+| Queue manager | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) |
+| `QueuedTransport` type (`'anthropic'`), `readStoredTransport()` | [line 257](../src/managers/promptQueueManager.ts#L257) |
+| `QueuedFollowUpPrompt` / `QueuedPrePrompt` / `QueuedPrompt` interfaces | [lines 264 / 279 / 303](../src/managers/promptQueueManager.ts#L264) |
+| `_buildExpandedText()` (repeat affixes, todo record, template) | [line 1135](../src/managers/promptQueueManager.ts#L1135) |
+| `enqueue()` | [line 1902](../src/managers/promptQueueManager.ts#L1902) |
+| `continueSending()` | [line 2913](../src/managers/promptQueueManager.ts#L2913) |
+| `sendItem()` — starts an item | [line 4131](../src/managers/promptQueueManager.ts#L4131) |
+| `resolveStageTransport()` — profile, configuration and session of a stage: stage › item › session › run default | [line 4970](../src/managers/promptQueueManager.ts#L4970) |
+| `dispatchStage()` — the one dispatch, through `AnthropicHandler.sendMessage` | [line 5024](../src/managers/promptQueueManager.ts#L5024) |
+| `dispatchNextStageForSendingItem()` — the stage loop of a sending item | [line 6011](../src/managers/promptQueueManager.ts#L6011) |
+| Queue editor webview | [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts), `media/queueEditor/`, `media/shared/queueEntry*.js` |
+| `editItemTransport` / `editPrePromptTransport` / `editFollowUpTransport` (the gear's profile → configuration pick) | [queueEditor-handler.ts:563](../src/handlers/queueEditor-handler.ts#L563) |
+| `toggleAutoSend` | [queueEditor-handler.ts:1059](../src/handlers/queueEditor-handler.ts#L1059) |
+| `stopActiveItem` | [queueEditor-handler.ts:1113](../src/handlers/queueEditor-handler.ts#L1113) |
+| `interruptActiveForContinuation` / `interruptForContinuation` (interrupt for continuation, §4.18) | [queueEditor-handler.ts:1123](../src/handlers/queueEditor-handler.ts#L1123) |
+| `AnthropicTransport` leaf enum (`'direct' \| 'agentSdk' \| 'vscodeLm' \| 'localLlm'`) | [anthropic-handler.ts:132](../src/handlers/anthropic-handler.ts#L132) |
+| `AnthropicSendOptions` / `AnthropicSendResult` | [line 349](../src/handlers/anthropic-handler.ts#L349) / [line 553](../src/handlers/anthropic-handler.ts#L553) |
+| `AnthropicHandler` class | [anthropic-handler.ts:665](../src/handlers/anthropic-handler.ts#L665) |
+| `sendMessage()` entry point | [anthropic-handler.ts:2190](../src/handlers/anthropic-handler.ts#L2190) — `async sendMessage(options: AnthropicSendOptions): Promise<AnthropicSendResult>` |
+| Anthropic Agent SDK branch | [anthropic-handler.ts:2531](../src/handlers/anthropic-handler.ts#L2531) |
+| VS Code LM branch (`sendViaVsCodeLm`) | [anthropic-handler.ts:3196](../src/handlers/anthropic-handler.ts#L3196) |
+| Local LLM branch (`sendViaLocalLlm`, synthesised shim) | [anthropic-handler.ts:3509](../src/handlers/anthropic-handler.ts#L3509) (calls `callLocalLlmOnce` at [:3653](../src/handlers/anthropic-handler.ts#L3653)) |
+| Trail writes (`writeSummaryPrompt` / `writeSummaryAnswer`) | [anthropic-handler.ts:2482](../src/handlers/anthropic-handler.ts#L2482), [:2702](../src/handlers/anthropic-handler.ts#L2702) |
+| `ANTHROPIC_SUBSYSTEM` literal | [services/trailSubsystems.ts:16](../src/services/trailSubsystems.ts#L16) |
+| `callLocalLlmOnce()` — single-round HTTP primitive | [localLlm-handler.ts:595](../src/handlers/localLlm-handler.ts#L595) |
+| `resolveAnthropicTargets()` — shared profile + config resolver | [utils/resolveAnthropicTargets.ts:50](../src/utils/resolveAnthropicTargets.ts#L50) |
+| Local LLM configurations (`sendToChatConfig`) | [sendToChatConfig.ts:30](../src/utils/sendToChatConfig.ts#L30) |
+| Anthropic configurations (`transport` enum + `vscodeLm` block) | [sendToChatConfig.ts:153](../src/utils/sendToChatConfig.ts#L153) |
+| Anthropic profiles (`toolApprovalMode`) | [sendToChatConfig.ts:209](../src/utils/sendToChatConfig.ts#L209) |
+| Anthropic user-message templates | [sendToChatConfig.ts:267](../src/utils/sendToChatConfig.ts#L267) |
+| `getPromptEditorComponent` factory (the panel section's toolbar, with the queue buttons) | [media/chatPanel/main.js:312](../media/chatPanel/main.js#L312) |
+| Webview-side `addAnthropicToQueue()` | [media/chatPanel/main.js:1665](../media/chatPanel/main.js#L1665) |
+| `addToQueue` / `openQueueEditor` backend router | [chatPanel-handler.ts:597, 621](../src/handlers/chatPanel-handler.ts#L597) |
+| `_handleAddToQueue()` | [chatPanel-handler.ts:1884](../src/handlers/chatPanel-handler.ts#L1884) |
+| Queue tools | [prompt-queue-tools.ts](../src/tools/prompt-queue-tools.ts) |
 
 ## 4. Required changes
 
 ### 4.1 Data model — `promptQueueManager.ts`
 
-Add to `QueuedPrompt` ([:83](../src/managers/promptQueueManager.ts#L83)), `QueuedPrePrompt` ([:69](../src/managers/promptQueueManager.ts#L69)), `QueuedFollowUpPrompt` ([:54](../src/managers/promptQueueManager.ts#L54)):
+`QueuedPrompt`, `QueuedPrePrompt` and `QueuedFollowUpPrompt` carry:
 
 ```ts
-transport?: 'copilot' | 'anthropic';     // default 'copilot'
+transport?: 'anthropic';                 // the one transport; may be left out
 anthropicProfileId?: string;             // Anthropic profile id
 anthropicConfigId?: string;              // may reference an Anthropic config OR a Local LLM config
-answerText?: string;                     // captured direct response (not written by Copilot path)
+answerText?: string;                     // the response the dispatch returned
 ```
 
-All four fields optional. Items without `transport` behave exactly like today.
+All four fields optional. An item without them runs with its session's profile, else its run's default profile (§4.19).
 
 `anthropicConfigId` is intentionally a single loosely-typed id — it can point at an Anthropic configuration (`direct` / `agentSdk` / `vscodeLm`) or at a Local LLM configuration. The handler resolves the id against both stores when dispatching.
 
-### 4.2 New Anthropic configuration type: `vscodeLm`
+### 4.2 Anthropic configuration type: `vscodeLm`
 
-The `AnthropicConfiguration.transport` enum grows from `'direct' | 'agentSdk'` to `'direct' | 'agentSdk' | 'vscodeLm'`. A `vscodeLm` configuration stores the model identity at configure-time in a sibling `vscodeLm` object (flat-record style — the interface keeps `transport` on the existing field, and the configure-time-resolved selector triple is nested):
+The `AnthropicConfiguration.transport` enum is `'direct' | 'agentSdk' | 'vscodeLm'`. A `vscodeLm` configuration stores the model identity at configure-time in a sibling `vscodeLm` object (flat-record style — the interface keeps `transport` on the one field, and the configure-time-resolved selector triple is nested):
 
 ```ts
 interface AnthropicConfiguration {
@@ -135,19 +118,19 @@ interface AnthropicConfiguration {
     };
     agentSdk?: AnthropicAgentSdkOptions;
     localLlm?: { baseUrl; model; temperature; keepAlive? };  // runtime-synthesised only
-    // … other pre-existing fields
+    // … other fields
 }
 ```
 
-**Model resolution happens at configure-time, NOT per send.** When the user creates or edits a `vscodeLm` configuration on the Extension State Page, the form's model picker calls `vscode.lm.selectChatModels()` once to list available models; the user's selection is stored as `{vendor, family, modelId}` on the configuration. When editing an existing `vscodeLm` configuration the currently-stored model is marked `(current)` in the QuickPick and pre-picked, so the user can change other fields without accidentally retargeting the model. On subsequent sends, the handler calls `selectChatModels({ vendor, family })` and picks the entry whose `id === modelId` — this is a cheap filter against an already-cached-by-VS-Code list, not a fresh enumeration across providers.
+**The model is stored on the configuration, NOT resolved per send.** A `vscodeLm` configuration holds `{vendor, family, modelId}`; editing it on the Extension State Page keeps that triple, so the other fields can be changed without retargeting the model. On a send, the handler calls `selectChatModels({ vendor, family })` and picks the entry whose `id === modelId` — this is a cheap filter against an already-cached-by-VS-Code list, not a fresh enumeration across providers.
 
 **Trail directory is the same** as the other two types (`_ai/trail/anthropic/*`), because from the user's perspective this is still "an Anthropic configuration" — it just happens to route to VS Code's LM API.
 
-JSON schema + `SendToChatConfig` type updated accordingly. The Extension State Page's Anthropic configurations section gains the new type as a picker option; the rest of the form adapts to the reduced field set.
+The JSON schema and the `SendToChatConfig` type carry the type.
 
 ### 4.3 Anthropic profile config picker — widened source
 
-The Anthropic profile's `configId` dropdown today sources only from `config.anthropic.configurations`. It must now also list entries from `config.localLlm.configurations` ([sendToChatConfig.ts:59-76](../src/utils/sendToChatConfig.ts#L59-L76)), with a visible backing-type label so the user knows which path they're pinning. The Local LLM configuration schema itself is **not** changed.
+The Anthropic profile's `configId` dropdown sources from `config.anthropic.configurations` and from `config.localLlm.configurations` ([sendToChatConfig.ts:30](../src/utils/sendToChatConfig.ts#L30)), with a visible backing-type label so the user knows which path they're pinning. The Local LLM configuration schema itself is its own.
 
 Resolution order inside `AnthropicHandler.sendMessage()` when handling `profile.configId`:
 
@@ -159,28 +142,16 @@ Resolution order inside `AnthropicHandler.sendMessage()` when handling `profile.
 
 The Anthropic handler owns everything **around** the API call for all four leaves: prompt composition (profile system prompt + user-message template + user prompt), `rawTurns` / `compactedSummary` history injection, the tool-approval gate, the agent loop (repeated calls until the model stops producing `tool_use` blocks), raw trail + live trail + built-in-tool persistence, `AnthropicSendResult` shape. **Only the "one API round-trip" primitive differs per leaf.**
 
-The four leaf primitives:
+The four leaves:
 
-```ts
-// Direct — already exists, today baked into the direct branch.
-callDirectOnce(messages, tools, config): Promise<ResponseBlocks>
+- **Direct** — one `@anthropic-ai/sdk` request per round, inside `sendMessage`'s own loop.
+- **Agent SDK** — special case. The SDK runs its OWN loop, so this leaf hands the whole stream off (`runAgentSdkQuery`) rather than participating in the shared loop. It still uses the Anthropic handler's live-trail writer and approval bridge.
+- **VS Code LM** — `sendViaVsCodeLm`: one `model.sendRequest` per round.
+- **Local LLM** — `sendViaLocalLlm`: one `LocalLlmManager.callLocalLlmOnce` per round (see §4.4a).
 
-// Agent SDK — special case. The SDK runs its OWN loop, so this leaf
-// hands the whole stream off (as today) rather than participating in
-// the shared loop. It still uses the Anthropic handler's live-trail
-// writer and approval bridge via the callback seam we already have.
-runAgentSdkQuery(...): AgentSdkResult   // unchanged
+Each self-looped leaf takes already-composed messages + tool schemas, calls its API exactly once per round, and yields blocks in Anthropic's content-block shape (`text`, `tool_use`, `thinking`). The loop stitches rounds together, runs the approval gate on any `tool_use` block, dispatches the tool, appends `tool_result` to the next round's messages, and repeats until there are no more `tool_use` blocks.
 
-// VS Code LM — NEW.
-callVsCodeLmOnce(messages, tools, config): Promise<ResponseBlocks>
-
-// Local LLM — LocalLlmManager's single-round primitive (see below).
-callLocalLlmOnce(messages, tools, config): Promise<ResponseBlocks>
-```
-
-Each primitive takes already-composed messages + tool schemas, calls its API exactly once, and returns a block array in Anthropic's content-block shape (`text`, `tool_use`, `thinking`). The shared loop in `sendMessage` stitches rounds together, runs the approval gate on any `tool_use` block, dispatches the tool, appends `tool_result` to the next round's messages, and repeats until there are no more `tool_use` blocks.
-
-**VS Code LM branch.** When `configuration.type === 'vscodeLm'`, `callVsCodeLmOnce`:
+**VS Code LM branch.** When `configuration.transport === 'vscodeLm'`, each round:
 
 ```ts
 // Resolve the pinned model (cheap — selectChatModels here filters against
@@ -203,7 +174,7 @@ const request = await model.sendRequest(chatMessages, { tools: toLMTools(tools) 
 
 **Local LLM branch.** When `configuration` resolves to a Local LLM config, `callLocalLlmOnce` is the HTTP primitive of `LocalLlmManager` — see §4.4a.
 
-All three self-looped leaves (Direct / VS Code LM / Local LLM) share the same tool-approval bridge, live-trail writer, and built-in-tool-persistence hooks already wired for the Direct branch. `AnthropicSendResult`'s shape is unchanged for callers (queue and chat panel).
+All three self-looped leaves (Direct / VS Code LM / Local LLM) share the same tool-approval bridge, live-trail writer, and built-in-tool-persistence hooks. `AnthropicSendResult`'s shape is the same for every caller (queue and chat panel).
 
 ### 4.4a Local LLM primitive — `callLocalLlmOnce`
 
@@ -213,79 +184,65 @@ The Anthropic handler's Local LLM leaf calls `callLocalLlmOnce` directly and par
 
 ### 4.5 Transport dispatcher
 
-A small local helper inside `promptQueueManager.ts` — **not** a new cross-handler abstraction. Signature:
+A private method of `PromptQueueManager` — **not** a cross-handler abstraction. Signature (shortened):
 
 ```ts
-async function dispatchStage(
-  item: QueuedPrompt,
-  stage: 'pre' | 'main' | 'followUp',
-  indexOrId: number | string,
+private async dispatchStage(
   expandedText: string,
-): Promise<
-  | { mode: 'polled'; expectedRequestId: string }     // copilot
-  | { mode: 'direct'; answerText: string }            // anthropic
->
+  resolved: ReturnType<typeof this.resolveStageTransport>,   // profile, configuration, session, iteration key
+  stageForAnswer: { answerText?: string } | undefined,       // the item / pre-prompt / follow-up that takes the answer
+  skipQuestRefresh = true,
+  propagateAnswer = true,
+): Promise<{ answerText: string; superseded?: true }>
 ```
 
-Inside the helper:
+Inside:
 
 ```ts
-const transport = resolveStageTransport(item, stage);  // stage > item > queue default > 'copilot'
-if (transport === 'copilot') {
-  // Current flow: extract requestId, chat.open, return { mode: 'polled' }
-}
-// transport === 'anthropic'
-const { profile, configuration, tools } = resolveAnthropicTargets(item, stage);
+const { profile, configuration } = resolveAnthropicTargets({
+  profileId: resolved.anthropicProfileId, configId: resolved.anthropicConfigId,
+});
 const coercedProfile = { ...profile, toolApprovalMode: 'never' as const };  // §2 decision 7
 const result = await AnthropicHandler.instance.sendMessage({
-  userText: expandedText, profile: coercedProfile, configuration, tools,
+  userText: expandedText, profile: coercedProfile, configuration, tools: ALL_SHARED_TOOLS,
+  source: 'queue', sessionKey: resolved.session, iterationKey: resolved.iterationKey, …
 });
-return { mode: 'direct', answerText: result.text };
+// result.text is stored as the stage's answerText
 ```
 
 `resolveAnthropicTargets()` hands the profile's `configId` to the resolver described in §4.3; the caller doesn't need to know which leaf path will run.
 
-### 4.6 `sendItem()` refactor
+### 4.6 `sendItem()` and the stage loop
 
-- Before calling `dispatchStage()`, **conditionally expand** the text. `_buildExpandedText()` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) already handles the Copilot answer-wrapper case — split its behaviour:
-  - Copilot: apply the named template, then the Copilot Queue Wrapper (unless the item sets `answerWrapper: false` and waits a fixed time instead) → `expandedText`. The template id `__answer_file__` means no template, wrapped.
-  - Anthropic: apply the named template if any; **skip** the Copilot Queue Wrapper and the `answerWrapper` boolean (both are Copilot-only).
-- After `dispatchStage()`:
-  - `{ mode: 'polled' }`: record `expectedRequestId` and let the existing poll loop drive `continueSending()` at [:1933](../src/managers/promptQueueManager.ts#L1933).
-  - `{ mode: 'direct' }`: store `answerText` on the item/stage (reuse the existing `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), then call `continueSending()` synchronously.
-- On anthropic-transport failure: set item status `'error'` and surface the error message.
-- The dispatcher **always** coerces `toolApprovalMode = 'never'` for anthropic items (see §2 decision 7) — regardless of whether the leaf path is Direct, Agent SDK, VS Code LM, or Local LLM.
+- Before `dispatchStage()` is called, the stage's text is expanded by `_buildExpandedText()` at [promptQueueManager.ts:1135](../src/managers/promptQueueManager.ts#L1135): the repeat affixes and their placeholders, a todo iteration's record, then the named template if any (`applyTemplateWrapping(expanded, templateName)`). A stored template id `__answer_file__` means no template.
+- After `dispatchStage()` returned: `answerText` is stored on the item or stage (with the `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), and the loop (`dispatchNextStageForSendingItem`) goes on with the next stage.
+- On a failed send: the error path of §4.18 (`_markItemError`) — a retry schedule, or item status `'error'` with the error message.
+- The dispatcher **always** coerces `toolApprovalMode = 'never'` (see §2 decision 7) — regardless of whether the leaf path is Direct, Agent SDK, VS Code LM, or Local LLM.
 
-### 4.7 Per-transport skips
+### 4.7 What a stage consists of
 
-When `transport === 'anthropic'`, the queue bypasses:
+A stage is one awaited `sendMessage` call:
 
-| Feature | Copilot behaviour | Anthropic behaviour |
-| --- | --- | --- |
-| Copilot Queue Wrapper (`answerWrapper`) | applied at `_buildExpandedText` ([:434](../src/managers/promptQueueManager.ts#L434)) | **not applied** |
-| `expectedRequestId` extraction | required | skipped |
-| Answer-file polling | `pollForExpectedAnswer()` ([:727](../src/managers/promptQueueManager.ts#L727)) watches directory | **not started** for this item |
-| Reminders (`reminderEnabled`, `reminderTemplateId`, …) | enqueue reminder prompts on timeout | **ignored** (UI warns) |
-| `answerWaitMinutes` auto-advance | triggers after N min without answer | **ignored** (response is synchronous) |
+| Aspect | Behaviour |
+| --- | --- |
+| Text | the stage's text in its template (`_buildExpandedText`, [:1135](../src/managers/promptQueueManager.ts#L1135)) — nothing else is put around it |
+| Completion | the call returning; its text is the stage's answer |
+| Waiting | none beside the call: the turn's own waits (a question, `tomAi_waitFor`, background work, §4.10) happen inside it |
+| Failure | the call throwing (§4.18) |
 
-Implementation: `isDirectTransport(item)` / `isDirectStage(item, stage)` guard in `sendItem()`, `pollForExpectedAnswer()`, reminder scheduler, and answer-wait timer.
+### 4.8 Health check
 
-### 4.8 Polling-loop guard
-
-`pollForExpectedAnswer()` already skips items with no `expectedRequestId`. Defensive belt-and-suspenders: also skip any item where `transport === 'anthropic'` so a mis-constructed item can never be matched against an unrelated answer file.
-
-The watcher path applies the same rule as the polling path (`answerFileClaim` / `ownsAnswerFile` in `queueStep4Utils.ts`): every window sees every file of the shared answer folder, and a window takes one only for its own sending Copilot stage that waits for it (the stage in flight, its last dispatch, decides the transport: an Anthropic item's Copilot follow-up takes its file) — the file of that stage's request, or the window's own window-named file whose content names that request. Another window's file, an Anthropic stage and a stage without `expectedRequestId` take none; only a taken answer fires `onAnswerReceived`.
+A 60-second health check (`runHealthCheck`) keeps the queue moving without any answer to wait for: it takes inbox items a watcher event missed (§4.20), puts `waiting` and `retry` items whose time has come back to work, and restarts the drain of a run whose auto-send is on while it has pending items and nothing sending (`computeHealthCheckDecisions` in `queueStep4Utils.ts`).
 
 ### 4.9 Trail integration
 
-No queue-side changes — transports own it.
+No queue-side code — the transport owns it.
 
-- **Copilot**: unchanged. The answer file IS the trail entry (and the existing `_ai/trail/copilot/` pipeline picks it up).
-- **Anthropic (all four leaf paths)**: `sendMessage()` writes `ANTHROPIC_SUBSYSTEM` raw + summary trails for every branch (Direct, Agent SDK, VS Code LM, Local LLM). The queue does nothing.
+- **All four leaf paths**: `sendMessage()` writes `ANTHROPIC_SUBSYSTEM` raw + summary trails for every branch (Direct, Agent SDK, VS Code LM, Local LLM). The queue does nothing.
 
-If a trail consumer ever needs to know which leaf path a particular entry came from, the raw trail payload already records the configuration (model/type) — no separate subsystem needed.
+If a trail consumer ever needs to know which leaf path a particular entry came from, the raw trail payload records the configuration (model/type) — no separate subsystem needed.
 
-### 4.9a Response-value propagation — every final answer, both transports
+### 4.9a Response-value propagation — every final answer
 
 Response values (`${chat.KEY}` store updates, custom chat variables, and the
 `#TODO=` references that mark `*.todo.yaml` entries) must propagate on **every
@@ -297,52 +254,44 @@ The built-in / custom split is a pure, unit-tested util —
 [`src/utils/answerResponseValues.ts`](../src/utils/answerResponseValues.ts)
 (`normalizeResponseValues`, `splitResponseValues`, `analyzeAnswerText`;
 `BUILTIN_CHAT_VARIABLE_KEYS` = `quest`, `role`, `activeProjects`, `todo`,
-`todoFile`). Both transports funnel their final answer through
+`todoFile`). Every final answer goes through
 `PromptQueueManager.propagateAnswerResponseValues(answer, source)`, which pushes
 every value to the `${chat.KEY}` store (via `updateChatResponseValues`) and the
 non-built-in subset (with any leading `custom.` stripped) to
-`ChatVariablesStore.setCustomBulk(values, source, requestId)`:
+`ChatVariablesStore.setCustomBulk(values, source)`, in the answering item's run:
 
-- **Copilot** — `onAnswerFileChanged` reads the answer file's structured
-  `responseValues` and propagates once per answer file (`source: 'copilot'`).
-  Because Copilot writes one answer file per stage/repeat, this already covered
-  every final answer.
-- **Anthropic** — the direct transport returns the model's answer text inline
-  (no answer file), so `dispatchStage`'s anthropic branch calls
+- The send returns the model's answer text inline, so `dispatchStage` calls
   `_propagateDirectAnswer(result.text)` after every `sendMessage`. That parses
   `responseValues` out of the free-form text (`extractResponseValuesFromText`)
   and propagates with `source: 'anthropic'`. `dispatchStage` runs once per
-  stage/repeat, so every final Anthropic answer is analyzed by construction —
-  closing the prior gap where the Anthropic transport never set chat variables
-  and only the last stage's answer would have been analyzed.
+  stage/repeat, so every final answer is analyzed by construction. The
+  internal Quest Refresh dispatch passes `propagateAnswer = false`: its
+  maintenance answer sets nothing.
 
 ### 4.10 Queue editor UI — `queueEditor-handler.ts`
 
-**Header row — queue-level defaults.** The queue editor's top context bar (below the existing toolbar) renders a persistent `renderTransportPicker` in `queue-default` context with `showTargets: true`:
+**Run defaults row.** Each run tab of the queue editor has, below its context bar, the row `#runDefaultsBar` with the defaults the run's items take:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Transport: [ Copilot ▾ ]                                           │
-│  [Anthropic selected → ] Profile: [ ▾ ]  Config: [ ▾ ]              │
-│  ⚠️ Queue runs auto-approve every tool call — …                     │
+│  Model            Session            Template                       │
+│  <profile>        <session>          <prompt template>              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The `Config` dropdown merges both Anthropic configurations and Local LLM configurations (see §4.3), each labelled by backing type (`[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`). The selection persists to `queue-settings.yaml` as three keys: `default-transport`, `default-anthropic-profile-id`, `default-anthropic-config-id` (§4.14). New items without an explicit transport inherit from this default at dispatch via a queue-default tier in `resolveStageTransport` (between item and hardcoded `'copilot'`).
+Each value is a link that opens a VS Code picker: **Model** the run's default Anthropic profile (`pickQueueDefaultProfile`; *(default profile)* is the profile marked as default; a profile whose direct-API key is missing is marked, §4.17a), **Session** the session new items run in, **Template** the prompt template they take. The selection persists to `queue-settings.yaml` in the run's entry (`default-anthropic-profile-id`, `default-anthropic-config-id`, `default-agent-sdk-session`, `default-message-template-id`, §4.14). An item without a profile of its own takes its session's, else the run's default, at dispatch (`resolveStageTransport`, §4.19).
 
-**Per-item override — gear-icon QuickPick** (not a collapsible form). Each *staged* queue item's header carries a gear icon (`codicon-settings`). Clicking it opens a three-step VS Code QuickPick flow: transport (Copilot / Anthropic / Inherit (queue default)) → profile → config. The config picker lists the same merged Anthropic + Local LLM entries with backing-type labels. Clearing an item's transport fields (pick "Inherit") makes the item fall through to the queue-level default.
+**Per-item profile — chip and gear-icon QuickPick** (not a collapsible form). Every item that has not finished shows its profile in its header (`renderItemProfile`): a chip naming the item's own profile, or an account icon when it runs with its run's; a click picks among every profile, or "no profile of its own" (`pickItemProfile` → `setItemProfile`; a profile that cannot continue the item's session is offered with the queue's default session instead). Each *staged* queue item's header also carries a gear icon (`codicon-settings`). Clicking it opens a VS Code QuickPick flow: profile (or *Inherit (queue default)*) → configuration → session. The configuration picker lists *(profile default)* and the merged Anthropic + Local LLM entries with backing-type labels (`[direct]`, `[agentSdk]`, `[vscodeLm]`, `[localLlm]`, see §4.3). Picking "Inherit" clears the item's profile and configuration, so it falls through to the run's default.
 
-Design note: the spec's original sketch envisioned an always-visible collapsible Advanced section per item. The gear-icon QuickPick was chosen to keep the item row compact and avoid crowding the existing reminder + repeat controls. Both approaches satisfy the same contract — stage-level override reachable without leaving the queue editor, cleared via an "Inherit" option.
+**Adopt-queue-default button — one-click sync** (`codicon-arrow-circle-down`). Alongside the gear, every queue item header carries a *Set the profile to the default of its run* icon that copies the run's default Anthropic profile and configuration straight onto the item. Unlike the staged-only gear, it is shown in **every status** and is applied without the `isEditableStatus` guard (`PromptQueueManager.applyQueueDefaultsToItem`, wired to the `applyQueueDefaultTransport` webview message). It touches only the profile and configuration — status, repetition counters, template and text are left intact — so for a currently repeating (`sending`) item the in-flight dispatch is untouched and the **next repetition** resolves the freshly-adopted profile via `resolveStageTransport`. The item→patch logic is the pure, unit-tested `applyQueueDefaultTransportToItem` (`queueStep3Utils.ts`). The toolbar's *Apply the run's defaults to all items* does the same for every staged and pending item of the run, for a chosen set of profile, template, session and role.
 
-**Adopt-queue-default button — one-click sync** (`codicon-arrow-circle-down`). Alongside the gear, every queue item header carries an "adopt queue settings" icon that copies the queue-level default transport + Anthropic profile (the dropdowns above the queue) straight onto the item. Unlike the staged-only gear, it is shown in **every status** and is applied without the `isEditableStatus` guard (`PromptQueueManager.applyQueueDefaultsToItem`, wired to the `applyQueueDefaultTransport` webview message). It touches only the transport and Anthropic profile/config — status, repetition counters, template and text are left intact — so for a currently repeating (`sending`) item the in-flight dispatch is untouched and the **next repetition** resolves the freshly-adopted transport/profile via `resolveStageTransport`. The item→patch logic is the pure, unit-tested `applyQueueDefaultTransportToItem` (`queueStep3Utils.ts`).
+**Per-stage override** (pre-prompts and follow-ups): each pre-prompt row and each follow-up row (when the item is editable) gets its own gear icon → the profile → configuration QuickPick, routed to `updatePrePrompt` / `updateFollowUpPrompt`. The inherit option on a stage-level picker is labelled "Inherit from item". Levels of resolution for the profile: stage > item > session > run default.
 
-**Per-stage override** (pre-prompts and follow-ups): each pre-prompt row and each follow-up row (when the item is editable) gets its own gear icon → same three-step QuickPick, routed to `updatePrePrompt` / `updateFollowUpPrompt` with the new transport fields. The inherit option on a stage-level picker is labelled "Inherit from item". Three levels of resolution: stage > item > queue default > `'copilot'`.
+**Add form.** The Add form has a **Profile** select (`#addProfile`; *(default profile)*: the default profile of the item's run) beside the prompt template, the queue repeats and the repeat prefix / suffix.
 
-**Disable Copilot-only controls when transport is `anthropic`.** In the Add form, the Reminder template dropdown and the answer-wait timeout select become `disabled` with a tooltip explaining that reminders and answer-wait are Copilot-specific. This fires on transport-picker change AND on initial render. The reminder toggle / update bindings live at [queueEditor-handler.ts:414-415, 432-434](../src/handlers/queueEditor-handler.ts#L414); `toggleAutoSend` at [:468](../src/handlers/queueEditor-handler.ts#L468); `answerWaitMinutes` payload at [:494, 570, 591](../src/handlers/queueEditor-handler.ts#L494).
+**Auto-approve warning**: the Add form shows, directly beside the Profile select:
 
-**Auto-approve warning**: when the user picks `Anthropic` as the queue-level or item-level transport, render a visible notice directly below the transport dropdown:
-
-> ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored. The queue cannot pause for the approval bar.
+> ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored.
 
 No checkbox to disable it. See §2 decision 7.
 
@@ -361,76 +310,62 @@ The item keeps each message (`waitMessages`, YAML `wait-messages`, the last 20):
 
 **The item's ask panel** (`src/services/queueItemAsks.ts`, `renderItemAsks`): a sending item carries `askViews` — its open interactions (`userInteractions.forQueueItem`: questions, pickers shown in the user-input panel, MD Browser asks, approvals, plan proposals) and the QuickPicks on screen for it (`src/services/livePickers.ts`, registered by the live prompter while a QuickPick shows). The panel renders a question's choices from the same `layout` the user-input panel uses, a picker's items, an MD Browser ask's buttons. It posts `answerItemAsk {id, askId, response}`; `answerItemAsk` hands `response` to the interaction's own `respond` — a question's `submit` / `answers` / `choice`, a picker's `picker` message, an MD Browser ask's `{type: 'mdButton', buttonId}` (the slot's `click`) or `reveal` — or to the live picker's `answer`. So an answer from the item takes the path of an answer from the user-input panel, the QuickPick or the MD Browser bar, and the ask is settled once, for every surface. An ask of another item, or one already closed, is refused. Continue's **Type an answer…** submits a question's text the same way.
 
-**A walk iteration whose todo is not completed** (`utils/walkCompletionCheck.ts`, `_continueUnfinishedIteration`): after the main prompt of a `<prefix>*` iteration answered on an Anthropic transport, the queue reads the walked todo. Completed (or `waiting-for-repeat`, `cancelled`, gone): the walk goes on. Not completed, and nothing says why — the todo is not `blocked` or `decision-needed`, has no open decision (a `decisions` entry without its `decision`), and no question of the item waits — the queue sends the continuation *"The todo <id> is not completed. If you started something, wait for it actively and finish the todo; if it cannot be finished, say why and set its status."* with the main prompt's transport, session and iteration key, so it goes into the same conversation. At most N continuations: the item's `walkContinuations` (queue tools), else the queue setting `walk-continuations` (`queue-settings.yaml`), default 2. Still not completed after them: the item stops as **needs attention** — `needsAttention` (YAML `needs-attention`) carries the reason, auto-send goes off, and the item is held before the next todo (auto-send on goes on with it and clears the reason). The iteration's answer is its last turn's: the repetition answer, `answerText` (`${answer}`) and the todo's `last_answer` take it; the repetition answer records `continuations` and the `earlier` answers (YAML), which the editor shows as the chip's mark (`1 continuation`) and folded under the final answer (*ended before its work was done*). The continuation prompt is no answer; the trails keep every turn. A Copilot item's walk is not checked (its answer arrives by file).
+**A walk iteration whose todo is not completed** (`utils/walkCompletionCheck.ts`, `_continueUnfinishedIteration`): after the main prompt of a `<prefix>*` iteration answered, the queue reads the walked todo. Completed (or `waiting-for-repeat`, `cancelled`, gone): the walk goes on. Not completed, and nothing says why — the todo is not `blocked` or `decision-needed`, has no open decision (a `decisions` entry without its `decision`), and no question of the item waits — the queue sends the continuation *"The todo <id> is not completed. If you started something, wait for it actively and finish the todo; if it cannot be finished, say why and set its status."* with the main prompt's transport, session and iteration key, so it goes into the same conversation. At most N continuations: the item's `walkContinuations` (queue tools), else the queue setting `walk-continuations` (`queue-settings.yaml`), default 2. Still not completed after them: the item stops as **needs attention** — `needsAttention` (YAML `needs-attention`) carries the reason, auto-send goes off, and the item is held before the next todo (auto-send on goes on with it and clears the reason). The iteration's answer is its last turn's: the repetition answer, `answerText` (`${answer}`) and the todo's `last_answer` take it; the repetition answer records `continuations` and the `earlier` answers (YAML), which the editor shows as the chip's mark (`1 continuation`) and folded under the final answer (*ended before its work was done*). The continuation prompt is no answer; the trails keep every turn.
 
 **A question the item waits in** (`tomAi_askUser`): the registry records the asking item on the pending ask (`PendingAsk.queueItemId`, from the same context), so `pendingQuestionOf(id)` answers when it was asked; the editor's badge says *waiting for your answer since …* with an **Open question** button (`openPendingQuestion` → command `tomAi.showUserInteraction {itemId}`, which opens the user-input panel on the item's run tab, or brings the item's MD Browser to the front; the status-bar item *Waiting for you* runs `tomAi.showPendingQuestion`). **One open interaction per run (vscimpb81):** every wait records the run of its turn (`runAsQueueItem(id, fn, run)`, `currentInteractionRun()` in `services/userWaits.ts`: the item's run, else the process position, else `default`); a chat send runs as its chat item and run (`trackChatSend`), so its waits show on its entry too (`waitingForUser` for status `chat`). The open interactions — questions, approvals, plan proposals, pickers, MD Browser asks — are kept in `services/userInteractions.ts` and shown by `handlers/userInteractionPanel.ts`, one tab per run; the ask registry and the MD Browser slot allow one open ask per run, plan mode is per run, a picker of another run than the one on screen goes to the panel, and a Stop denies only the stopped turn's approvals (`abortPendingApprovals(match)`). The registry fires a change event on open and resolve (`AskUserRegistry.onDidChange`), which the manager forwards to its own. **Continue asks first** (`continueWithChoice` in the queue editor handler, options from `utils/pendingQuestion.ts`): *Answer now* only while the item waits in a question, *Resend this stage* whenever a stage was dispatched, *Skip* always; Cancel does nothing. **Resend of a running stage** (`resendSendingStage`, also the ↻ on a sending row): the item's frame is taken over, its turn cancelled, its question closed, and `resendLastPrompt(id, undefined, { interruptRunning: true })` sends the same stage again, prefixed with `RESEND_INTERRUPTED_NOTE` (not recorded as the stage's text); the counters stay. Skip (`continueSending`), Resend and Stop close the item's question with a note the turn receives (`AskUserRegistry.cancelForQueueItem`: `QUESTION_CLOSED_BY_SKIP` / `_RESEND` / `_STOP`), so it is journalled as closed by the user, not lost. The question panel's messages go to the debug log (`instrumentWebviewMessages`, source `tomAiAskUser`), so a submitted answer can be told from none afterwards. A question has no deadline unless the agent sets one.
 
 **Answers of every repetition**: a repeated item keeps each repetition's main-prompt answer (`repetitionAnswers`, entry-file key `repetition-answers`, at most 200, `utils/repetitionAnswers.ts`), keyed by the walked todo's id (a `<prefix>*` walk) or the repetition number. The Answer block shows a chip per repetition, the latest active; a click shows that answer. A resent repetition replaces its entry.
 
-**Display of direct responses**: when `item.answerText` exists (anthropic transport), show it inline under the item (truncated preview + expand-to-full button, and two buttons that show it rendered as Markdown over the queue or in the markdown preview editor). The authoritative trail is the Anthropic trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
+**Display of responses**: when `item.answerText` exists, show it inline under the item (truncated preview + expand-to-full button, and two buttons that show it rendered as Markdown over the queue or in the markdown preview editor). The authoritative trail is the Anthropic trail file, but seeing the text in the queue itself is the practical way to inspect what happened.
 
 ### 4.11 ANTHROPIC/LLM panel — queueing buttons
 
-The Copilot section already carries the queue buttons at [chatPanel-handler.ts:3086-3087](../src/handlers/chatPanel-handler.ts#L3086):
+The ANTHROPIC/LLM section's toolbar ([media/chatPanel/main.js](../media/chatPanel/main.js), `getPromptEditorComponent`) carries four queue buttons and, in the status bar below the input, the button that opens the queue editor:
 
-```html
-<button data-action="addToQueue"       data-id="copilot" …>
-<button data-action="openQueueEditor"  data-id="copilot" …>
-```
-
-**Change:** the same two buttons are in the **Anthropic** section, with `data-id="anthropic"`.
-
-In the `addToQueue` handler (`addCopilotToQueue()` at [:4086](../src/handlers/chatPanel-handler.ts#L4086), `addAnthropicToQueue()` at [:4101](../src/handlers/chatPanel-handler.ts#L4101), wired from the webview dispatcher at [:3486-3488](../src/handlers/chatPanel-handler.ts#L3486)), dispatch by `data-id`. The staged queue item carries the target metadata read from that panel's own dropdowns:
-
-| `data-id` | `transport` set | Payload (read from that panel's dropdowns) |
+| `data-action` | Button | What is queued |
 | --- | --- | --- |
-| `copilot` | `'copilot'` | `template`, `answerWrapper`, `repeatCount`, `answerWaitMinutes` (current) |
-| `anthropic` | `'anthropic'` | `anthropicProfileId`, `anthropicConfigId`, `template`, and `session`: the panel's session (the picked one, else its own `chat`), so the queued prompt continues the panel's conversation |
+| `addToQueue` | Save to Queue | in the default run, with the prompt queue's profile, session (`default@default`) and default template; nothing of the panel is pinned |
+| `addToQueueNext` | Queue next | the same, pending at the front of the default run's queue (§4.18, *Queue next*) |
+| `addToQueuePanelTarget` | Save to Queue with the panel's target | in the panel's run, with `anthropicProfileId` (unless the panel's profile is *Run default*), the panel's `template`, and `session`: the panel's session, so the queued prompt continues the panel's conversation; the panel's role and guideline choices go with it |
+| `addToQueueNextPanelTarget` | Queue next with the panel's target | the same, sent next in the panel's run |
+| `openQueueEditor` | Open Prompt Queue | — |
 
-The backend's queue-add router (`case 'addToQueue'` at [:503](../src/handlers/chatPanel-handler.ts#L503)) forwards all new fields into `PromptQueueManager.enqueue()` ([:1402](../src/managers/promptQueueManager.ts#L1402)) unchanged. A queue item staged from the ANTHROPIC/LLM panel **must** pin its transport — it should never inherit the queue's default.
+All four go through the webview's `addAnthropicToQueue(usePanelTarget, next)`, which posts `addToQueue` with the text, the template, the repeat count and `transport: 'anthropic'`; the backend's router (`case 'addToQueue'` at [chatPanel-handler.ts:597](../src/handlers/chatPanel-handler.ts#L597)) hands it to `_handleAddToQueue` ([:1884](../src/handlers/chatPanel-handler.ts#L1884)), which calls `PromptQueueManager.enqueue()` or, for Queue next, `enqueueNext()`. Save to Queue adds the prompt staged or pending by the subpanel's queue mode toggle; Queue next is always pending. Every item queued here is marked `fromChatPanel`, which the queue editor's *From the chat panel only* filter reads.
 
-`openQueueEditor` (`case 'openQueueEditor'` at [:516](../src/handlers/chatPanel-handler.ts#L516)) is unchanged — opens the same queue editor regardless of which panel's button was clicked.
+`openQueueEditor` (`case 'openQueueEditor'` at [:621](../src/handlers/chatPanel-handler.ts#L621)) opens the queue editor.
 
-### 4.12 ANTHROPIC/LLM panel — VS Code LM model dropdown (informational)
+### 4.12 ANTHROPIC/LLM panel — Available models (informational)
 
-When the active configuration has `type === 'vscodeLm'`, the ANTHROPIC/LLM panel's bottom area (where the profile/config pickers live) surfaces a dropdown listing the models currently available via `vscode.lm.selectChatModels()`, **purely for informational purposes** — it shows the user what's on offer in their VS Code LM provider set right now.
+The ANTHROPIC/LLM panel's **Available models** button (`showAvailableModels`) opens an overlay listing what the Anthropic API offers, with its count, or why the list is empty — **purely for informational purposes**.
 
-A small **Refresh** button sits next to the dropdown. The dropdown only calls `selectChatModels` on:
+**Sends don't touch this list.** The model used on send is the one stored on the active configuration — for a `vscodeLm` configuration the `modelId` of its triple (§4.2). It's a browser, not a control. (If the user wants to change the target model, they edit the configuration.)
 
-1. First render of the ANTHROPIC/LLM panel when a `vscodeLm` configuration is active.
-2. The user clicking Refresh.
+Everything else on the ANTHROPIC/LLM panel — system prompt composition, user-message template picker, live trail viewer, trail directory — is the same for every leaf path.
 
-**Sends don't touch this dropdown.** The actual model used on send is the `modelId` stored on the active configuration — decided at configure-time (§4.2). Changing the selected entry here does not retarget sends; it's a browser, not a control. (If the user wants to change the target model, they edit the configuration.)
+### 4.13 Tool surface — `prompt-queue-tools.ts`
 
-- For Direct / Agent SDK configurations, the existing model-string handling applies (no new dropdown).
-- For Local-LLM-backed configurations, the existing Local LLM config owns its own model field; the ANTHROPIC/LLM panel's VS Code LM dropdown is hidden.
+The queue add/update tools ([prompt-queue-tools.ts](../src/tools/prompt-queue-tools.ts)) take the target fields:
 
-This dropdown is the only new piece of panel-side UI outside the queue buttons in §4.11. Everything else on the ANTHROPIC/LLM panel — system prompt composition, user-message template picker, live trail viewer, trail directory — is reused as-is for every leaf path.
+| Tool | Purpose |
+| --- | --- |
+| `tomAi_addQueueItem` | stage a main prompt |
+| `tomAi_updateQueueItem` | patch fields of an existing item |
+| `tomAi_addQueuePrePrompt` | add a pre-prompt stage |
+| `tomAi_updateQueuePrePrompt` | patch a pre-prompt |
+| `tomAi_addQueueFollowUp` | add a follow-up stage |
+| `tomAi_updateQueueFollowUp` | patch a follow-up |
 
-### 4.13 Tool surface — `chat-enhancement-tools.ts`
-
-Extend the input schemas of the queue add/update tools with the new fields:
-
-| Tool | Line | Purpose |
-| --- | --- | --- |
-| `tomAi_addQueueItem` | [:785](../src/tools/chat-enhancement-tools.ts#L785) | stage a main prompt |
-| `tomAi_updateQueueItem` | [:1389](../src/tools/chat-enhancement-tools.ts#L1389) | patch fields of an existing item |
-| `tomAi_addQueuePrePrompt` | [:871](../src/tools/chat-enhancement-tools.ts#L871) | add a pre-prompt stage |
-| `tomAi_updateQueuePrePrompt` | [:938](../src/tools/chat-enhancement-tools.ts#L938) | patch a pre-prompt |
-| `tomAi_addQueueFollowUp` | [:1115](../src/tools/chat-enhancement-tools.ts#L1115) | add a follow-up stage |
-| `tomAi_updateQueueFollowUp` | [:1624](../src/tools/chat-enhancement-tools.ts#L1624) | patch a follow-up |
-
-New fields:
+Target fields:
 
 ```ts
-transport?: 'copilot' | 'anthropic';
+transport?: 'anthropic';        // the one transport; may be left out
 anthropicProfileId?: string;
 anthropicConfigId?: string;
 ```
 
-Read-only tools that list queue state (`tomAi_listQueue` at [:1275](../src/tools/chat-enhancement-tools.ts#L1275), `tomAi_setQueueItemStatus` at [:1446](../src/tools/chat-enhancement-tools.ts#L1446), `tomAi_sendQueuedPrompt` at [:1028](../src/tools/chat-enhancement-tools.ts#L1028)) surface the new fields in output.
+Tools that report queue state (`tomAi_listQueue`, `tomAi_setQueueItemStatus`, `tomAi_sendQueuedPrompt`) surface the fields in output; a snapshot always says `transport: 'anthropic'`.
 
-Removers (`tomAi_removeQueueItem` at [:1566](../src/tools/chat-enhancement-tools.ts#L1566), `tomAi_removeQueuePrePrompt` at [:981](../src/tools/chat-enhancement-tools.ts#L981), `tomAi_removeQueueFollowUp` at [:1673](../src/tools/chat-enhancement-tools.ts#L1673)) are unchanged.
+Removers (`tomAi_removeQueueItem`, `tomAi_removeQueuePrePrompt`, `tomAi_removeQueueFollowUp`) take none of them.
 
 ### 4.14 Persistence / compatibility
 
@@ -438,20 +373,20 @@ Queue state is persisted as one entry file per item in the queue folder (`_ai/qu
 
 **Only what changed is written.** `PromptQueueManager._persistToFiles` keeps, per item, the fingerprint its file was last written from — the quest, the item's place in the queue and the item as JSON, all that `_queuedPromptToDoc` builds the file from — and serialises and writes only the items whose fingerprint changed (a dispatch changes one item; removing or moving one changes the places after it); removed items' files are deleted. Before, every persist serialised every item with the yaml package on the extension host's thread (with 50 items of real prompts and answers, 274 KB: a median 112 ms and up to 400 ms per persist, 50 files written; now a median 4.5 ms, one file). The sent-history trim on disk (`trimSentEntries`, which reads and parses every entry file) runs only when the folder holds entry files of this host and workspace that the queue does not own (`countEntryFiles()` above the files it wrote): its own sent items are trimmed in memory already (`trimSentHistory`, 50). Tests: `queuePersistChanged.queue.test.ts` QP-1 – QP-3.
 
-The new fields are additive optional → **no migration**. Existing queue items deserialise with `transport: undefined`, which resolves to the queue-level default (which itself defaults to `'copilot'` when unset) — identical to current behaviour for queues that haven't opted into the new default.
+The target fields are optional. An item stored without `transport` runs on Anthropic like one that names it, and a stored `transport: copilot` is read as `anthropic` (`readStoredTransport`).
 
-**Actual YAML layout** (implementation): the per-item queue YAML format under `queueFileStorage.ts` uses dash-case keys on `QueuePromptYaml` (matching the existing convention in that file). The four new fields on the main item and on each pre-prompt / follow-up are:
+**YAML layout**: the per-item queue YAML format under `queueFileStorage.ts` uses dash-case keys on `QueuePromptYaml`. The target fields on the main item and on each pre-prompt / follow-up, and the item's todo pattern, are:
 
 ```yaml
-transport: anthropic                    # 'copilot' or 'anthropic'
+transport: anthropic                    # the one transport; may be absent
 anthropic-profile-id: software-engineer # string (profile id)
 anthropic-config-id: claude-sonnet-46   # string — anthropic OR localLlm config id
-answer-text: "…returned response…"      # direct-transport response captured by dispatcher
+answer-text: "…returned response…"      # the response captured by the dispatcher
 todo-id-pattern: chat*                  # the todos it runs: a todo id, <prefix>* (a walk), several comma-separated;
                                         # the todo panel marks them queued (utils/todoQueueMarks.ts)
 ```
 
-**Queue settings per run** persist to `queue-settings.yaml` via `QueueSettings` (`utils/runQueueSettings.ts`): each process run has its own auto-send, Auto-Start / -Pause / -Continue, walk continuations, defaults (transport, profile, configuration, session, prompt template) and Copilot answer timeout and reminder template, per quest under `runs-by-quest.<quest>.<run>` (vscimpb168; a quest without an entry reads the older shared `runs:`, and its first write starts its entry from them). The file is shared by every window of every quest, so a window writes only the runs it changed (`_putRunSettings` / `_dropRunSettings` mark them; `persistSettings` merges them into the file read fresh through `questRunsInFile`): a run's auto-send held from its Auto-Start at activation stays in that window's memory and never switches another window's run off. An item from another quest (the inbox) without a run is queued in `default` with `runIsExplicit`, never in the window's current run or an inherited process position. The keys of a run entry:
+**Queue settings per run** persist to `queue-settings.yaml` via `QueueSettings` (`utils/runQueueSettings.ts`): each process run has its own auto-send, Auto-Start / -Pause / -Continue, walk continuations, defaults (profile, configuration, session, prompt template, role), per quest under `runs-by-quest.<quest>.<run>` (vscimpb168; a quest without an entry reads the older shared `runs:`, and its first write starts its entry from them). The file is shared by every window of every quest, so a window writes only the runs it changed (`_putRunSettings` / `_dropRunSettings` mark them; `persistSettings` merges them into the file read fresh through `questRunsInFile`): a run's auto-send held from its Auto-Start at activation stays in that window's memory and never switches another window's run off. An item from another quest (the inbox) without a run is queued in `default` with `runIsExplicit`, never in the window's current run or an inherited process position. The keys of a run entry:
 
 ```yaml
 runs:
@@ -462,104 +397,65 @@ runs:
   collab:
     auto-send-enabled: false
     default-agent-sdk-session: idea
-    response-timeout-minutes: 30
 ```
 
-All keys are additive-optional; each `runs:` entry is written complete (an unset optional value as `""`), so a run with settings of its own never takes a top-level value. The top-level keys — the same keys, one set for the whole queue, the file's old shape — are the start values: what a run without settings of its own has (and the `default` run, when it has no entry). A missing key takes the start value, else the built-in default. The top-level keys are written only by **Make default** in the queue editor (a pin button in a tab's toolbar): `setDefaultQueueSettings(run)` copies the tab's run's shown settings (`DEFAULT_SETTING_FIELDS`: auto-send, Auto-Start / -Pause / -Continue, default transport / profile / configuration / session / prompt template, Copilot answer timeout and reminder template; not the walk continuations) to the top level, keeping `runs:` and every other key; runs with settings of their own keep them, runs without them and runs created later take the new values. The button is disabled while the tab's settings equal the start values (`defaultQueueSettingsDiff(run)`; the editor's state carries `startQueueSettings`). The queue always runs one lane per run (`utils/queueLanes.ts`): a run whose auto-send is off is a held lane. The manager's queue-wide accessors (`autoSendEnabled`, `defaultTransport`, `setDefaultTransport`, ...) read and set the window's run; `runQueueSettings(run)` / `setRunQueueSettings(run, patch)` / `setRunAutoSend(run, on)` take a run. Every place that used to switch the queue-wide auto-send off (an error, interrupt for continuation, needs attention, a decision hold, out of credit, Auto-Pause, *pause after this*, deleting the sending item) switches off the run of the item (`_pauseRunOf`).
+`default-transport` is written with every entry and always says `anthropic`. All keys are additive-optional; each `runs:` entry is written complete (an unset optional value as `""`), so a run with settings of its own never takes a top-level value. The top-level keys — the same keys, one set for the whole queue, the file's old shape — are the start values: what a run without settings of its own has (and the `default` run, when it has no entry). A missing key takes the start value, else the built-in default. The top-level keys are written only by **Make default** in the queue editor (a pin button in a tab's toolbar): `setDefaultQueueSettings(run)` copies the tab's run's shown settings (`DEFAULT_SETTING_FIELDS`: auto-send, Auto-Start / -Pause / -Continue, default profile / configuration / session / role / prompt template; not the walk continuations) to the top level, keeping `runs:` and every other key; runs with settings of their own keep them, runs without them and runs created later take the new values. The button is disabled while the tab's settings equal the start values (`defaultQueueSettingsDiff(run)`; the editor's state carries `startQueueSettings`). The queue always runs one lane per run (`utils/queueLanes.ts`): a run whose auto-send is off is a held lane. The manager's queue-wide accessors (`autoSendEnabled`, `defaultAnthropicProfileId`, `defaultAgentSdkSession`, ...) read and set the window's run; `runQueueSettings(run)` / `setRunQueueSettings(run, patch)` / `setRunAutoSend(run, on)` take a run. Every place that used to switch the queue-wide auto-send off (an error, interrupt for continuation, needs attention, a decision hold, out of credit, Auto-Pause, *pause after this*, deleting the sending item) switches off the run of the item (`_pauseRunOf`).
 
-### 4.15 Reusable TransportPicker component
+### 4.15 Profile pickers
 
-Lives at [`src/utils/transportPicker.ts`](../src/utils/transportPicker.ts). Two exports:
+The queue editor has no transport choice; what is picked is the Anthropic profile (and, in the gear's flow, its configuration):
 
-- `renderTransportPicker(options)` returns an HTML fragment.
-- `transportPickerScript()` returns a webview-side script snippet that wires up change listeners; the consuming editor drops it in once.
-
-```ts
-renderTransportPicker(options: {
-  idPrefix: string;                      // disambiguates DOM ids
-  context: 'queue-default' | 'queue-item' | 'queue-stage' | 'template-editor';
-  value: TransportPickerValue;           // current selection + target ids
-  showTargets: boolean;                  // render profile/config dropdowns?
-  onChangeEvent: string;                 // postMessage type
-}): string;   // HTML fragment
-```
-
-**Option set per context:**
-
-| Context | Dropdown options | Has inherit/default option? |
+| Place | Options | Has inherit/default option? |
 | --- | --- | --- |
-| `queue-default` | Copilot, Anthropic | no |
-| `queue-item` | *Inherit (queue default)*, Copilot, Anthropic | yes, **Inherit** |
-| `queue-stage` | *Inherit (item)*, Copilot, Anthropic | yes, **Inherit** |
-| `template-editor` | Copilot, Anthropic | no |
+| Run defaults row, **Model** | every profile | yes, *(default profile)* |
+| Add form, **Profile** | every profile | yes, *(default profile)* |
+| Item header, profile chip | every profile | yes, no profile of its own |
+| Item gear (staged) | profile → configuration → session | yes, **Inherit (queue default)** |
+| Pre-prompt / follow-up gear | profile → configuration | yes, **Inherit from item** |
 
-**Conditional target pickers** (`showTargets: true`):
-
-- Copilot → no target dropdowns (answer-file pipeline is fixed).
-- Anthropic → profile dropdown + config dropdown. The config dropdown is widened per §4.3 (Anthropic configs + Local LLM configs, labelled).
-
-**Current call sites** (implementation):
-
-- Queue editor header row — `context: 'queue-default'`, `showTargets: true`.
-- Queue editor Add form — `context: 'queue-default'`, `showTargets: true` (shared markup, separate prefix). The new item inherits from the queue-level default unless the user overrides here.
-- Queue editor per-item + per-stage overrides use a VS Code `QuickPick` flow instead of the inline helper — reduces item-row clutter (see §4.10). The helper's `queue-item` / `queue-stage` contexts are available for future inline UI if needed.
-- Template editor — not wired; the Global Template Editor already has a Category dropdown that covers the Copilot vs. Anthropic — User Message stores plus eight other related stores, so a second "transport" picker at the top would duplicate it. See §4.16.
-
-The picker emits `{ type: onChangeEvent, transport, anthropicProfileId?, anthropicConfigId? }` on any change, plus toggles the internal targets-row + auto-approve-warning visibility from its own script snippet.
+The configuration step lists *(profile default)*, the Anthropic configurations and the Local LLM configurations, labelled per §4.3. All of them are VS Code `QuickPick` flows except the Add form's select, which keeps the item row compact (see §4.10). The gear posts `editItemTransport` / `editPrePromptTransport` / `editFollowUpTransport`; the host writes `{ transport: 'anthropic', anthropicProfileId, anthropicConfigId }` (or clears all three for "Inherit") through `updateItemTransport` / `updatePrePrompt` / `updateFollowUpPrompt`.
 
 ### 4.16 Prompt template editor — the one template store
 
 | Store | Config key | Shape |
 | --- | --- | --- |
-| Templates (both transports) | `config.anthropic.userMessageTemplates` | array `[{ id, name, description?, template, isDefault? }]` |
-| Copilot Queue Wrapper (a setting) | `config.copilot.queueWrapper` | string; not set = the built-in default |
+| Templates | `config.anthropic.userMessageTemplates` | array `[{ id, name, description?, template, isDefault? }]` |
 
-Every send reads the one store: Copilot, and every Anthropic profile regardless of its configuration's leaf type (VS Code LM and Local-LLM-backed configurations included). The helpers are in `src/utils/copilotTemplates.ts`.
+Every send reads the one store: every Anthropic profile regardless of its configuration's leaf type (VS Code LM and Local-LLM-backed configurations included). The lookup helpers are in `src/utils/userMessageTemplateLookup.ts`.
 
 **Template editor:**
 
-1. The Global Template Editor's **Category** dropdown has `Anthropic — User Message` (the one store, its default category) and `Copilot — Queue Wrapper` (one item, the wrapper: saving it empty or Delete returns it to the default).
+1. The Global Template Editor's **Category** dropdown has `Anthropic — User Message` for the one store.
 2. The four template tools (`tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate`, in `src/tools/prompt-template-tools.ts`) work on the one store, keyed by `id` (`name`, `description`, `template`, `isDefault`); they take no transport.
 
 **Queue editor — template dropdown:**
 
-- The three template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) list the one store whatever the effective transport (stage > item > queue default).
-- Changing a queue item's transport **blanks** the template selection (see §5 edge case).
+- The template dropdowns in the queue editor (Add form's new-item template picker, per-item template select in the expanded row, per-stage template select on pre-prompts + follow-ups) list the one store.
 
-**Quest TODO panel — send button follows the queue transport:**
+**Quest TODO panel — send button:**
 
-- The Quest TODO panel's send button (`qt-btn-send-copilot`) and its template
-  dropdown follow the prompt queue's currently selected transport
-  (`PromptQueueManager.defaultTransport`), instead of being hardcoded to
-  Copilot. The dropdown lists the one template store
-  (`config.anthropic.userMessageTemplates`) for either transport. On
-  **Copilot** the button opens Copilot chat with the todo in its template and
-  the Copilot Queue Wrapper; on **Anthropic** it routes the todo through the
-  Anthropic transport via `runAnthropicSend(context, prompt, { userMessageTemplate })`.
-- The pure decision — which templates to offer and which is pre-selected for a
-  transport — lives in `src/utils/todoSendTargets.ts` (`buildTodoSendTemplateChoices`),
+- The Quest TODO panel's send button (`qt-btn-send-chat`, *Send to chat*) routes the todo through the Anthropic handler via `runAnthropicSend(context, prompt, { userMessageTemplate })`. Its template dropdown lists the one template store
+  (`config.anthropic.userMessageTemplates`).
+- The pure decision — which templates to offer and which is pre-selected — lives in `src/utils/todoSendTargets.ts` (`buildTodoSendTemplateChoices`),
   unit-tested without the panel.
-- Selection precedence: the queue's default template id
-  (`PromptQueueManager.defaultMessageTemplateId`, transport-scoped) wins when it
-  names an offered option; otherwise the `isDefault` template, else the
-  seeded **Execute TODO** template (see below); otherwise (None).
-- The dropdown re-requests templates on todo selection so it tracks a transport
-  change without a panel reload, while preserving a still-valid manual pick.
+- The options: **Run default** first and pre-selected (the item gets no template of its own and takes its run's default template,
+  `defaultMessageTemplateId` of the run's queue settings, when it is sent; its label names that template), then (None), then the store's templates,
+  among them the seeded **Execute TODO** template (see below).
 
 **What a todo send carries:** every send of a todo from the panel (Send,
 Add to queue, the stack) puts the todo's reference and its whole stored record
 into the prompt (`todoSendBlock` in `todoSendTargets.ts` around
 `todoYamlBlock` of `todoIterationRecord.ts`, the block a todo iteration
 appends), so Execute TODO, Guide me and Explain TODO read the same todo a walk
-does. The record's placeholders are escaped; the queue, the Anthropic send and
-the panel's direct Copilot send unescape them as the text leaves.
+does. The record's placeholders are escaped; the queue and the Anthropic send
+unescape them as the text leaves.
 
 **Seeded "Execute TODO" Anthropic user-message template:**
 
 - `ensureExecuteTodoUserMessageTemplate` (in `sendToChatConfig.ts`, seeded at
   activation alongside the Default Retry template) adds an `execute-todo`
-  entry to `config.anthropic.userMessageTemplates`. It mirrors the Copilot
-  "TODO Execution" built-in but wraps the Anthropic `${userMessage}` placeholder.
+  entry to `config.anthropic.userMessageTemplates`: execution instructions around
+  the `${userMessage}` placeholder.
   It is a pickable option only — **not** forced as the default user-message
   template — and the seed is idempotent.
 
@@ -583,7 +479,7 @@ the panel's direct Copilot send unescape them as the text leaves.
 - The queue's `dispatchStage` helper — before calling `AnthropicHandler.sendMessage` (queue-side).
 - The chat panel's `_handleSendAnthropic` — before calling the same handler entry (interactive-send side).
 
-Both call sites used to duplicate the fallback chain, and both missed the Local-LLM-backed profile case until the helper was extracted. Consolidating here also enforces consistent error messages (see §5 failure modes). The helper returns a discriminated union `{ profile, configuration } | { error: string }` so callers can surface a clear message without catching thrown errors across the module boundary.
+Both call sites share the fallback chain, the Local-LLM-backed profile case included, and the same error messages (see §5 failure modes). The helper returns a discriminated union `{ profile, configuration } | { error: string }` so callers can surface a clear message without catching thrown errors across the module boundary.
 
 Its first two steps — which profile (by id, else the default, else the first) and which configuration (an explicit, non-blank id, else the profile's) — live in `src/utils/anthropicApiKeyCheck.ts` (`pickAnthropicProfile`, `effectiveConfigurationId`), because the missing-key check below has to pick the same target.
 
@@ -594,7 +490,7 @@ The direct transport reads its key only from `process.env[anthropic.apiKeyEnvVar
 - `PromptQueueManager.missingApiKeyWarnings(itemId)` runs it for every stage of an item (main prompt, each pre-prompt, each follow-up, each resolved like `dispatchStage` resolves it) and answers one line per cause naming the stages it affects.
 - The queue tools that queue, change or send an item (`tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp`, `tomAi_sendQueuedPrompt`) answer those lines as `warning`. The item is kept: the caller decides.
 - The queue editor shows each line as a **No API key** chip at the top of the item, right under its header (the interruption chip of a send that did not complete sits beside it), with the yellow `warned` border.
-- The profile pickers — the ANTHROPIC/LLM subpanel's and the transport picker's (§4.15) — label such a profile `(no API key)` (`profileKeyStates`).
+- The profile pickers — the ANTHROPIC/LLM subpanel's and the queue editor's (§4.15) — label such a profile `(no API key)` (`profileKeyStates`).
 - **The stage is not sent.** `dispatchStage` runs the same check (`stageKeyRefusal`) for the stage it is about to send, before its session is made or anything leaves, and throws the transport's own no-key failure with the cause. The error path then treats it as a failed send — **not retried** (see *Backoff retry* in §4.18): `_markItemError` recognises the failure (`isMissingApiKeyFailure`) and sends the item to `error` at once, its `error` naming the stages and the fix (`missingApiKeyFailureText`); the user is told (`notifyUserLive`: Telegram when configured, else a VS Code message), the same text at most once in ten minutes. Auto-send stays on, so items on other profiles keep running.
 - **Process items do not count.** An item with `processItem: true` (meta `process-item`, vscimpb97) — the prompt Proceed queues for a position, its process-move marker, and what a step's agent queues with `tomAi_addQueueItem {processItem: true}` (the system prompt of a Proceed run asks for it) — is a process step's own work: its main stage neither counts toward the Quest Refresh interval nor runs a refresh that is due (`runMainStageWithRefresh` with `counts: false`); the refresh waits for the next stage that counts. The queue editor marks it `[process item]`.
 - **A due Quest Refresh waits.** The main stage's refresh pre-step (`runMainStageWithRefresh`) asks the same check first (`stageRefused`): a stage that would be refused runs no refresh and does not count toward the interval, so the refresh is neither refused on the same profile nor spent — it stays due for the next stage that can be sent.
@@ -627,8 +523,8 @@ item or silently skipping a rep.
 #### Pause finishes the current rep, then holds
 
 Turning auto-send off does **not** abort the rep that is already in flight.
-`dispatchNextStageForSendingItem` returns a three-valued
-`DispatchOutcome = 'dispatched' | 'done' | 'paused'`. In each stage, just
+`dispatchNextStageForSendingItem` returns a two-valued
+`DispatchOutcome = 'done' | 'paused'`. In each stage, just
 before a further prompt would go out (a pre-prompt, a main-prompt repetition or
 `prefix*` todo, a follow-up), the pause gate `_pauseBeforeNextDispatch` checks
 whether `_autoSendEnabled === false` **and** the item already has dispatch
@@ -637,9 +533,9 @@ progress (`itemHasInFlightProgress(item)` — see below, rule in
 sending it. The in-flight rep finishes naturally; the item **stays in
 `'sending'`** with its counters intact. An item with nothing left to send never
 reaches the gate: it returns `'done'` and becomes `'sent'`, auto-send on or off.
-All five callers (`sendItem`, `onAnswerFileChanged`, the answer-wait timer,
-`advanceSendingItemWithoutAnswer`, `resendLastPrompt`) propagate the outcome
-instead of treating "not dispatched" as "mark sent".
+Every caller (`sendItem`, `_resumePausedSendingItem`,
+`advanceSendingItemWithoutAnswer`, `resendLastPrompt`) propagates the outcome
+instead of treating "not done" as "mark sent".
 
 > The very first dispatch of an item is allowed even with auto-send off, so an
 > explicit `sendNow` / "Send" action is never blocked: the item sends its first
@@ -788,8 +684,8 @@ first pending item when that comes earlier or nothing is sending — with
 nothing pinned (the queue's profile and session), and marked `sendBetween`
 when the item above is a running loop.
 
-**A session a chat send runs in.** `sendItem` does not start an item on the
-Anthropic transport whose resolved session a live chat send holds
+**A session a chat send runs in.** `sendItem` does not start an item
+whose resolved session a live chat send holds
 (`chatHoldingSessionOf`, `src/utils/sessionBusy.ts`); it stays pending, the
 editor's state flags it `waitingForSession`, and `completeChatItem` calls
 `sendNext` once the chat send ended. In the other direction, a chat send into a
@@ -879,16 +775,15 @@ first** (vscimpb112):
   (`pausedAutoSend`).
 - **Hard interrupt** — a third click, or a click once held (toolbar or row), the
   item panel's **Hard interrupt now**, Continue's **Hard interrupt**, the wait
-  running out (not when waiting without a limit), or a Copilot item
-  (no hold point; the button's tooltip says so) — is `_hardInterrupt`: the
+  running out (not when waiting without a limit) — is `_hardInterrupt`: the
   in-flight dispatch is cancelled exactly as Stop does (`_cancelActiveDispatch`
   — epoch bump, CTS cancel, approval awaiters released, the soft interrupt
   cleared and a waiting hold point let go), the todo claim released, and the
   item moves to **`interrupted`** via the pure
   `applyInterruptForContinuation`. Its cursor is left untouched — counters,
   pre-prompt statuses, `followUpIndex` and `lastDispatched` all survive — and
-  only transient send-tracking is cleared (answer-file expectation, reminders, a
-  stale error). There is no counter rollback: the loop bumped it before the
+  only transient send-tracking is cleared (`awaitingAnswer`, `sentAt`, the
+  in-flight repetition snapshot, a stale error). There is no counter rollback: the loop bumped it before the
   send, so it already names the interrupted rep, and the resume path replays
   that rep's frozen text. The item gets `interruptNote`, keeps what a soft
   interrupt held (`softInterrupt.heldResult`), and auto-send of its run is
@@ -960,8 +855,8 @@ hard-interrupted item) > **waiting** (`codicon-clock`: pending items) > **idle**
 the tab's tooltip gives the text (held since … at the result of …; the
 question's first line and since when; the wait's reason, until, time left and
 since when). The row shows the same states (`❓ ANSWER NEEDED`, `⏳ WAITING UNTIL
-14:20`). The host builds the views (`softInterruptViewOf`, `questionView`,
-`interruptTransport` in `queueEditor-handler.ts`). The queue's status bar item
+14:20`). The host builds the views (`softInterruptViewOf`, `questionViewOf`
+in `queueEditor-handler.ts`). The queue's status bar item
 shows the window's run with the same icon and word (`runStatusBarText`,
 `utils/queueRunStatus.ts`): `$(debug-disconnect) held: Bash`,
 `$(loading~spin) interrupting`, `❓ answer needed`, `⏳ until 14:20`. No other
@@ -1011,9 +906,9 @@ logic is pure and unit-tested in
   attempt and the done path in `dispatchNextStageForSendingItem`; `setStatus`
   sending → staged (and so `stopActiveItem`); `resendLastPrompt`, which advances
   no counter of its own; and `applyCrashRecovery`. Dispatch **success** is
-  deliberately not a clear point: `_clearRetryOnDispatchSuccess` wipes the retry
-  bookkeeping but leaves the snapshot, because a polled Copilot send that
-  returned is still unanswered and its advance is not yet final.
+  not itself a clear point: `_clearRetryOnDispatchSuccess` wipes only the retry
+  bookkeeping; the snapshot goes at the top of the next attempt or on the done
+  path.
 
 - **Idle-amber header.** A transient `awaitingAnswer` flag (set at all three
   dispatch points, cleared at the pause gate, the done path, and
@@ -1053,7 +948,7 @@ logic is pure and unit-tested in
 An item runs in a named session (`session`; unset: the queue default, else the queue's own `default`). The session's lifetimes and files are described in `anthropic_sdk_integration.md` §18.12; the queue's part is:
 
 - **Name or spec.** `session` is a name or a spec `{name, basedOn?, mode?, profile?}` (`parseSessionSpec`, `src/utils/sessionSpecs.ts`). `mode` is `continue`, `per-prompt` or `per-iteration` (`fork-from-base` is read as `per-prompt`); neither lifetime needs a base. A malformed spec is refused by `enqueue` / `updateItemSession`, and by `tomAi_addQueueItem` / `tomAi_updateQueueItem` with code `invalidSession`. The item keeps the name in `session` and the rest in `sessionCreate`.
-- **Created at dispatch.** `dispatchStage` calls `ensureItemSession` before an Anthropic send: a session that does not exist is created from the spec (its missing base first, plainly; the spec's profile, else the item's `anthropicProfileId`), a bare name as a fresh `continue` session. `chat` and `default` are never created here.
+- **Created at dispatch.** `dispatchStage` calls `ensureItemSession` before a send: a session that does not exist is created from the spec (its missing base first, plainly; the spec's profile, else the item's `anthropicProfileId`), a bare name as a fresh `continue` session. `chat` and `default` are never created here.
 - **Iteration keys.** Every stage dispatch carries `iterationKey` (`src/utils/queueIterations.ts`): `ensureRunId` gives the item a run id on its first dispatch, `iterationSeq` counts the main prompts sent, the main prompt runs in iteration `iterationSeq + 1` and counts it, a pre-prompt runs in the iteration it precedes, a follow-up in the one it follows. A failed main send rolls `iterationSeq` back with the repetition (`prevIterationSeq` in `inFlightRepetition`), so the re-send runs in the same iteration; `lastDispatched.iterationKey` makes a resend run in it too. `resetItemRunState` (Send Now on a sent item) clears the run id, so a new run starts new conversations. The Quest Refresh prompt is sent without a key.
 - **Profile precedence.** `resolveStageTransport`: the stage's profile, else the item's, else the session's (`profileId` of its file, else the spec's `profile`), else the queue default.
 - **Transport check.** `sessionRefusal` refuses an item, when it is queued or its session changes, whose stages would run with a profile that keeps its conversation elsewhere than the session's existing one (an Agent SDK session continued by a profile with our own history, or the reverse), or whose spec names an unknown profile.
@@ -1078,23 +973,22 @@ Persisted keys (entry `meta`): `done-notification: {prompt, disabled?, queued-fo
 
 ### 4.21 The prompt after a reload
 
-The Status Page's *Send prompt after reload* (Queue & Timer → After Reload, stored per quest scope as `reload-prompt-by-scope` in `queue-settings.yaml`) is not sent to Copilot Chat directly. At activation `scheduleConfiguredReloadPromptSend` (extension.ts) waits for `PromptQueueManager.whenReady()` (the queue restored: entries loaded, crash recovery applied) and `ProcessStateStore.ready` (the window's run known), then calls `queueReloadPrompt(text)`:
+The Status Page's *Send prompt after reload* (Queue & Timer → After Reload, stored per quest scope as `reload-prompt-by-scope` in `queue-settings.yaml`) goes through the queue. At activation `scheduleConfiguredReloadPromptSend` (extension.ts) waits for `PromptQueueManager.whenReady()` (the queue restored: entries loaded, crash recovery applied) and `ProcessStateStore.ready` (the window's run known), then calls `queueReloadPrompt(text)`:
 
-- the prompt becomes an item of the window's current run with that run's defaults (transport, profile, session, template), inserted at position 0, marked `reloadPrompt: {windowId}` (entry `reload-prompt: {window-id}`; the queue editor shows an **after reload** chip) and logged in the Tom Prompt Queue channel;
+- the prompt becomes an item of the window's current run with that run's defaults (profile, session, template), inserted at position 0, marked `reloadPrompt: {windowId}` (entry `reload-prompt: {window-id}`; the queue editor shows an **after reload** chip) and logged in the Tom Prompt Queue channel;
 - an unsent reload item this window queued before is replaced; another window's stays (several windows of one quest may each queue one);
-- it is sent with `sendNow`, as Continue / Send Now send an item: also while the run is paused, without switching its auto-send on, so the items behind it wait as before. While an item of the run runs a stage (`runLaneBusy`: sending, not held at the pause gate) it waits, pending, and is sent once none does;
-- it goes to Copilot only when the run's default transport is Copilot.
+- it is sent with `sendNow`, as Continue / Send Now send an item: also while the run is paused, without switching its auto-send on, so the items behind it wait as before. While an item of the run runs a stage (`runLaneBusy`: sending, not held at the pause gate) it waits, pending, and is sent once none does.
 
 ## 5. Edge cases and non-obvious bits
 
-- **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:434](../src/managers/promptQueueManager.ts#L434) — unchanged. Chat-variable-driven `repeatCount` keeps working identically on both transports.
+- **Template expansion placeholders** (`${repeatNumber}`, `${repeatIndex}`, chat variables): handled at expand-time inside `_buildExpandedText` at [promptQueueManager.ts:1135](../src/managers/promptQueueManager.ts#L1135). A chat-variable-driven `repeatCount` is resolved the same way.
 - **TODO and GROUP items (vscimpb127).** A walk is what `parseTodoWalk` (`queueStep3Utils.ts`) reads in the repeat count: `<prefix>*`, `todo:<quest>/<id>` (one todo) or `group:<quest>/<id>` (a group todo's members in `comprised_of` order, this quest's only). `collectWalkTodos` gives the walk's todos, and every walk rule — the pick, the release of blocked todos, the user-action pass, the decision hold, the empty reason, the series count — reads them through it, so the three kinds share the claim, the record, the completion check and its continuations. `todoQueueItemSpec` (`todoQueueItems.ts`) checks a todo / group and gives the walk value and the todo pattern; the todo panel, `tomAi_addQueueItem` and `tomAi_sendItemToQuest` use it. Every item carries its kind (`deriveQueueItemKind`, `queueItemKind.ts`: todo, group, prefix, iteration, chat, prompt), written as `item-kind` on every save and derived for an entry written before it.
 - **`repeatCount` resolves at dispatch, not enqueue.** A `repeatCount` may be a plain integer, a chat-variable name, or a **`prefix*` pattern** (e.g. `tod*`). The raw value is stored on the item at enqueue (the client webview and the enqueue handlers no longer coerce a non-numeric value down to `1` — see `normalizeRepeatCountInput` / the webview `normalizeRepeatField`), and the actual count is computed at the processing chokepoint `resolveStableRepeatCount` and cached to `item.resolvedRepeatCount`. For a `prefix*` value, `resolveTodoPrefixRepeatCount` returns the highest number among the active quest's todo ids that start with `prefix`, the number being the first digit run after the prefix wherever it starts (`tod3b` and `tod-groupa3` count as `3`; a literal prefix with dashes, `tod-groupa*`, narrows to one group), and empty/non-matching patterns fall back to `1`. The id list comes from `readAllTodos`, which reads the quest's **live** todo files only — the `-archived` / `-deleted` siblings are excluded, so a retired todo cannot inflate the iteration count (see `TodoFileScope` in `src/utils/todoArchiveNames.ts`).
 - **Blocked todos are released before each pick.** `releaseUnblockedTodos` (`queueStep3Utils.ts`, live store via `questTodoUnblockPort`) sets a `blocked` todo of the series back to `not-started` when every id in its `blocked_by` is completed, cancelled or absent from the live files (`<quest>/<id>` names another quest); `todosToUnblock` is the pure rule. A todo with an open blocker, no `blocked_by`, or a `blocked_until` condition stays blocked, and the picker never takes a blocked todo.
 - **A `prefix*` main prompt runs in TODO ITERATION mode, not counter mode.** `planMainStageDispatch` (`src/utils/queueStep3Utils.ts`) reduces both modes to one gate. In counter mode the gate is `sentCount < repeatCount`. In todo mode `sentCount` is ignored entirely: `pickNextTodoForIteration` returns the lowest-numbered `not-started` todo matching the prefix (ties broken alphabetically, so `dsa2-a` precedes `dsa2-b`), and the stage runs while one exists. The resolved count stays frozen as the *displayed* series size only.
   - **Termination comes from the status write, not from a counter.** The dispatcher marks the picked todo `in-progress` **before** sending; an `in-progress` todo no longer qualifies, so the candidate set strictly shrinks. If the write does not stick (`updateTodo` returns `undefined`), the stage ends instead of dispatching — otherwise the same todo would be picked on every pass.
   - **`item.repeatIndex` carries the todo's number** in this mode (so the entry reads "7/9" for `dsa7`), and `${repeatNumber}` prints it. `${repeatTodoId}` / `${repeatTodoTitle}` name the todo; both are `''` outside todo mode.
-  - **Every prompt of the iteration carries the todo's record** (`src/utils/todoIterationRecord.ts`, `iterationTodoBlock` in the manager): `_buildExpandedText` appends "Here is the complete YAML of the todo:" and the stored todo (every field, `_extra` put back, without the derived `blocking`) in a yaml fence headed by its file, after the repeat pass and before the template and answer-wrapper passes; its `${` are escaped (`escapePlaceholders`), so the passes leave it as stored and the transport's unescape restores it. The main prompt carries the todo it claimed, a pre-prompt the todo `pickNextTodoForIteration` will pick (pre-prompts run before the first todo), a follow-up `item.repeatTodoId` (the last todo walked).
+  - **Every prompt of the iteration carries the todo's record** (`src/utils/todoIterationRecord.ts`, `iterationTodoBlock` in the manager): `_buildExpandedText` appends "Here is the complete YAML of the todo:" and the stored todo (every field, `_extra` put back, without the derived `blocking`) in a yaml fence headed by its file, after the repeat pass and before the template pass; its `${` are escaped (`escapePlaceholders`), so the pass leaves it as stored and the transport's unescape restores it. The main prompt carries the todo it claimed, a pre-prompt the todo `pickNextTodoForIteration` will pick (pre-prompts run before the first todo), a follow-up `item.repeatTodoId` (the last todo walked).
   - **The status write is a claim the runner owes an outcome for** (`src/utils/queueTodoClaim.ts`). `claimTodo` records the status it overwrote, and the claim is persisted with the item (`todo-claim` on the main prompt), so a reload does not lose it. When the answer for that dispatch arrives, the claim is **settled**: it is dropped and the todo's status is the agent's. When the run ends without an answer — stop (`setStatus → staged`), interrupt-for-continuation, a dispatch error, removal or clear of an in-flight item — the claim is **released**: the prior status is put back, but only if the todo still holds the runner's `in-progress`; a status the agent or the user wrote meanwhile is left alone. A released claim stays on the item marked `released`, so a Resend of the same main-stage prompt can claim the todo again.
   - **Rollback and release are separate steps.** On a dispatch error the shared failure handler runs `rollbackInFlightRepetition` (pure: it restores the counters and `prevRepeatTodoId`, what the entry displayed) and then releases the claim, which is the I/O half. The retry then picks up the same todo rather than skipping past it.
   - **Scope**: main prompt only. A `prefix*` on a pre-prompt or follow-up keeps counter behaviour against the resolved max-index.
@@ -1106,15 +1000,15 @@ The Status Page's *Send prompt after reload* (Queue & Timer → After Reload, st
   - **Every item queued from the todo panel names its todos** (`todoIdPattern`: the todo, the group and its members, or `<prefix>*`; the panel's entry type requires it), so the queue can read their block state and the panel can mark them queued.
   - **A held item is released only once its decisions are answered — the rest of the queue runs past it.** `sendNext()` calls `_releaseResolvedDecisionItems()` before picking the next item; it re-reads the quest todos and `releaseResolvedDecisionItems` (pure, `queueStep3Utils.ts`) puts back to `'pending'` every held item whose walk is no longer held (`decisionHoldingWalk` finds nothing: the todo it was held at had its decisions answered; a later `decision-needed` todo holds it again only when the walk reaches it). An item whose decisions are still open stays held and `sendNext` picks the next *pending* prompt instead, so a `dec*` item waiting on the user no longer stops prompts that have nothing to decide. Releasing unconditionally on resume is what made the play button look like a no-op: the released item was the first pending one in array order, so it was picked, re-blocked, and auto-send went straight back off. Items whose block can never resolve — a repeat count that is not a `prefix*` pattern, or an unreadable/empty todo set — are released rather than stranded; the gate then reports `exhausted` and the item finishes. Only `status` is touched, so an item with prior repetitions resumes on its counters rather than re-sending from the top. `decision-needed` is state-machine-managed: `tomAi_setQueueItemStatus` cannot set it.
 - **One gate decides whether the queue advances after a completion.** `decideAdvanceAfterCompletion(pauseAfter, autoSendEnabled)` (`src/utils/queueStep3Utils.ts`), reached through the manager's `_shouldAdvanceQueueAfter(item)`, answers both reasons the queue might stop — the queue is paused, or the item carries "pause after this" — and applies the flag's side effect of flipping auto-send off. A completion tail calls `sendNext()` / `delaySendNext()` **only** when it returns true.
-  - **All six completion sites go through it**: answer-wait timer, answer-file watcher, resume-from-pause, manual **Continue** (`advanceSendingItemWithoutAnswer`), `sendItem`, `resendLastPrompt`. Neither the pause nor the auto-send toggle may depend on *how* an item happened to finish. `queueAdvanceAfterCompletion.test.ts` asserts this against the manager *source* — `PromptQueueManager` imports `vscode` and cannot be instantiated under `node:test`, so the wiring is checked by scanning each `status = 'sent'` site for a guarded advance.
+  - **Every completion site goes through it**: resume-from-pause, manual **Continue** (`advanceSendingItemWithoutAnswer`), a manual status change (`changeItemStatus`), a process-move marker, `sendItem`, `resendLastPrompt`. Neither the pause nor the auto-send toggle may depend on *how* an item happened to finish. `queueAdvanceAfterCompletion.test.ts` asserts this against the manager *source* — `PromptQueueManager` imports `vscode` and cannot be instantiated under `node:test`, so the wiring is checked by scanning each `status = 'sent'` site for a guarded advance.
   - **`sendNext(force?)` starts only the runs whose auto-send is on**; the explicit escape hatches name the runs they kick even while paused (`force`): the health-check resume after a rate-limit / retry window (the runs of the items that became due), per-item `retryWaitingNow` / `retryRetryingNow` (the item's run), `retryAllErrors` (which re-enables the auto-send of the runs it retries first), and `sendItem` called directly by "send now". That is precisely why the check is mandatory in the completion tails — and why it lives in one method instead of being restated at each of them: a tail that restates only half the condition looks correct in isolation while letting a paused queue start the next item.
   - **"Pause after this" holds at item granularity, not stage granularity.** `item.pauseAfter` never shortens an item: the gate is consulted only where an item reaches `'sent'`, so all pre-prompts, every main-prompt repetition and all follow-ups run first.
   - **Sticky, not one-shot.** The flag stays on the item, so re-sending it pauses again. It is persisted under `meta.pause-after` and rendered inverted in the entry header — including on a finished item, so a leftover flag stays visible.
-- **Pre-prompts with anthropic transport**: each pre-prompt awaits its own direct call. Because direct calls are synchronous, the pre-prompt chain runs back-to-back without polling gaps. This is much faster than the Copilot flow, which waits 30-second poll intervals between stages. May surprise users — consider documenting in the queue editor's help text.
-- **Pre-prompt context carries automatically** (anthropic transport). The Anthropic handler already preserves turn history across calls: Direct / VS Code LM / Local LLM leaves use `rawTurns` + `compactedSummary` (appended on every non-isolated `sendMessage`), and the Agent SDK leaf uses its own session continuity via `default.session.json`. A pre-prompt's answer is therefore visible to the main prompt without any queue-level chaining or placeholder machinery — the user just writes pre-prompt and main prompt naturally, and the handler stitches them into one conversation. This is symmetric with how Copilot pre-prompts behave (Copilot carries session state via `workbench.action.chat.open`). No action needed at the queue layer.
-- **Template reference invalidated when transport changes.** Template names are meaningful only within one transport's store. Switching a queue item's transport in the editor clears its template selection and repopulates from the new transport's store. Do **not** auto-copy templates across stores — the two shapes overlap but aren't identical, and silent conversion is too magical.
-- **`toolApprovalMode` coercion covers every Anthropic leaf path.** Direct, Agent SDK, VS Code LM, Local LLM — all honour `'never'` when called from the queue. The coercion happens *before* `AnthropicHandler.sendMessage` dispatches into a leaf primitive, so the shared loop receives the already-coerced value. Each leaf primitive participates in the Anthropic handler's own approval gate rather than its own — which is why the Local LLM leaf uses `callLocalLlmOnce` (§4.4a): the pure HTTP call with no approval inside it.
-- **Concurrency**: the queue is strictly sequential (one `sending` item at a time). Anthropic transport doesn't change this.
+- **Pre-prompts**: each pre-prompt awaits its own call. Because a dispatch completes inline, the pre-prompt chain runs back-to-back without gaps.
+- **Pre-prompt context carries automatically.** The Anthropic handler preserves turn history across calls: Direct / VS Code LM / Local LLM leaves use `rawTurns` + `compactedSummary` (appended on every non-isolated `sendMessage`), and the Agent SDK leaf uses its own session continuity via `default.session.json`. A pre-prompt's answer is therefore visible to the main prompt without any queue-level chaining or placeholder machinery — the user just writes pre-prompt and main prompt naturally, and the handler stitches them into one conversation.
+- **A template reference holds whatever the profile.** Template ids name entries of the one store, so changing an item's profile or configuration leaves its template selection as it is.
+- **`toolApprovalMode` coercion covers every Anthropic leaf path.** Direct, Agent SDK, VS Code LM, Local LLM — all honour `'never'` when called from the queue. The coercion happens *before* `AnthropicHandler.sendMessage` dispatches into a leaf primitive, so the shared loop receives the coerced value. Each leaf primitive participates in the Anthropic handler's own approval gate rather than its own — which is why the Local LLM leaf uses `callLocalLlmOnce` (§4.4a): the pure HTTP call with no approval inside it.
+- **Concurrency**: each run's lane is strictly sequential (one `sending` item of the run at a time); two items also never run in the same session at once (`utils/queueLanes.ts`).
 - **Failure modes** (full pause/resume + error semantics in §4.18):
   - Anthropic API error (any leaf) → item status `'error'`, error message surfaced, **auto-send flipped off** (anti-cascade), item held at the front for "Resend" / "Set to Pending" (§4.18).
   - `vscode.lm.selectChatModels` returns no entry matching the configuration's stored `modelId` → surface "VS Code LM model not available", pause queue, do not retry. (The stored model was valid at configure-time but the provider extension may have been uninstalled.)
@@ -1122,56 +1016,49 @@ The Status Page's *Send prompt after reload* (Queue & Timer → After Reload, st
 
 ## 6. Step-by-step implementation order
 
-1. **Data model** — add the four optional fields (§4.1). One commit; no behaviour change yet.
-2. **New `vscodeLm` configuration type** (§4.2) — schema + JSON-schema + `SendToChatConfig` + Extension State Page editor with a configure-time model picker. No dispatch wiring yet.
-3. **Local LLM primitive** (§4.4a) — `callLocalLlmOnce(messages, tools, config)` on `LocalLlmManager`.
-4. **AnthropicHandler shared loop + leaf primitives** (§4.4) — generalise the Direct branch's agent loop to call a leaf primitive; plug in `callVsCodeLmOnce` and `callLocalLlmOnce`. Leaf primitives must feed the same live-trail / tool-approval / built-in-tool-persistence hooks the Direct branch already uses.
-5. **Anthropic profile config picker widens** (§4.3) — lists Anthropic + Local LLM configs with type labels. Resolver falls back across both stores.
-6. **Transport dispatcher + `sendItem()` branch** (§4.5, §4.6) — two-way. Default `'copilot'` preserves byte-identical behaviour.
-7. **Polling / reminder / answer-wait guards** (§4.7, §4.8) — skip anthropic items in all three.
-8. **ANTHROPIC/LLM panel queueing buttons** (§4.11) — mirror the Copilot section's two buttons; dispatch on `data-id="anthropic"`.
-9. **ANTHROPIC/LLM panel VS Code LM model dropdown + Refresh button** (§4.12) — informational only; conditional on active configuration type.
-10. **Queue editor UI** (§4.10) — queue-level dropdowns + per-item Advanced + auto-approve warning.
-11. **Tool surface extensions** (§4.13) — expose new fields in the add/update queue tools.
-12. **`renderTransportPicker()` helper** (§4.15) — new sibling to `getPromptEditorComponent`. Call sites are the queue editor and template editor.
-13. **Template editor — per-transport switcher** (§4.16) — swap store on transport change.
-14. **Extend the four prompt-template tools with `transport`** (§4.16) — default `'copilot'` for backward compat.
-15. **Documentation** — update `llm_tools.md`, `copilot_chat_integration.md` if it exists, and this doc's "current state" once implemented.
+The parts in the order they build on each other:
 
-Rough effort: **4–5 days** end-to-end. The two largest chunks are the Local LLM primitive + AnthropicHandler shared loop (steps 3–4) and the queue editor UI (step 10).
+1. **Data model** — the optional target fields (§4.1).
+2. **`vscodeLm` configuration type** (§4.2) — schema + JSON-schema + `SendToChatConfig`; the model triple is stored on the configuration.
+3. **Local LLM primitive** (§4.4a) — `callLocalLlmOnce(messages, tools, config)` on `LocalLlmManager`.
+4. **AnthropicHandler shared loop + leaves** (§4.4) — `sendViaVsCodeLm` and `sendViaLocalLlm` beside the Direct loop and the Agent SDK stream. Every leaf feeds the same live-trail / tool-approval / built-in-tool-persistence hooks.
+5. **Anthropic profile config picker** (§4.3) — lists Anthropic + Local LLM configs with type labels. The resolver falls back across both stores.
+6. **Dispatcher + stage loop** (§4.5, §4.6) — `dispatchStage` through `AnthropicHandler.sendMessage`; a dispatch completes inline.
+7. **Stage and health check** (§4.7, §4.8) — a stage is one awaited call; the 60 s health check restarts what is due.
+8. **ANTHROPIC/LLM panel queueing buttons** (§4.11) — Save to Queue and Queue next, for the default run and for the panel's target.
+9. **ANTHROPIC/LLM panel Available models overlay** (§4.12) — informational only.
+10. **Queue editor UI** (§4.10) — the run defaults row, the per-item and per-stage profile picks, the auto-approve warning.
+11. **Tool surface** (§4.13) — the target fields in the add/update queue tools.
+12. **Profile pickers** (§4.15) — the queue editor's places a profile is picked.
+13. **Template editor** (§4.16) — the one store, category `Anthropic — User Message`.
+14. **The four prompt-template tools** (§4.16) — on the one store, no transport.
 
 ## 7. Out of scope
 
-- **Further chat surfaces.** Any further model backend goes through the Anthropic profile layer (as a configuration an Anthropic profile references) rather than a parallel transport path; the two-transport model achieves consolidation at the profile layer.
-- **Parallel execution across transports** (a single ordered queue is sufficient).
-- **Cross-transport shared `ChatTransport` interface** — a two-way dispatcher plus an internal Anthropic fork is simpler and has no other reuse target.
-- **Streaming chunks to the queue** — each leaf primitive returns the full text of one round once done. If needed later, add `onChunk` callbacks inside the shared loop without touching the queue.
-- **Queue-level auto-chaining of pre-prompt answers** — not needed. The Anthropic handler already carries turn history (`rawTurns` for Direct / VS Code LM / Local LLM; session id for Agent SDK), so a pre-prompt's answer is available to the main prompt by virtue of the existing session behaviour. No placeholder dance, no toggle.
+- **Further chat surfaces.** Any further model backend goes through the Anthropic profile layer (as a configuration an Anthropic profile references) rather than a parallel transport path; consolidation happens at the profile layer.
+- **A second queue transport** and a shared `ChatTransport` interface — one dispatcher plus the Anthropic handler's internal fork is simpler and has no other reuse target.
+- **Streaming chunks to the queue** — each leaf primitive returns the full text of one round once done. If needed, `onChunk` callbacks go inside the shared loop without touching the queue.
+- **Queue-level auto-chaining of pre-prompt answers** — not needed. The Anthropic handler carries turn history (`rawTurns` for Direct / VS Code LM / Local LLM; session id for Agent SDK), so a pre-prompt's answer is available to the main prompt by virtue of the session behaviour. No placeholder dance, no toggle.
 
 ## 8. Acceptance checklist
 
-All items below are satisfied by the shipped implementation (six verification passes + typecheck clean).
-
-- [x] `QueuedPrompt.transport` accepts only `'copilot' | 'anthropic'`; no other values in the queue schema (`localLlm` is an Anthropic configuration transport, not a queue transport).
-- [x] Anthropic queue item with a `direct` config hits the existing Direct path.
-- [x] Anthropic queue item with an `agentSdk` config hits the existing Agent SDK path.
-- [x] Anthropic queue item with a `vscodeLm` config routes through `sendViaVsCodeLm` (full tool-use loop) and concatenates `{systemPrompt}\n\n{userText}`.
-- [x] Anthropic queue item whose `anthropicConfigId` points at a Local LLM config runs through `callLocalLlmOnce` under the Anthropic handler's shared loop (same concatenation rule, same approval gate, same live trail).
-- [x] All four Anthropic leaf paths write to `_ai/trail/anthropic/*` (single subsystem).
-- [x] All four Anthropic leaf paths honour the ANTHROPIC/LLM panel's live trail, tool approval (coerced to `'never'` for queue runs), and user-message template rules.
-- [x] Anthropic handler carries pre-prompt context into the main prompt automatically via `rawTurns` / Agent SDK session — no queue-level chaining code needed.
-- [x] VS Code LM model is resolved at configure-time (stored as `{vendor, family, modelId}` on the configuration); sends do NOT enumerate available models.
-- [x] ANTHROPIC/LLM panel has "Add to Queue" + "Open Queue Editor" buttons matching the Copilot section.
-- [x] ANTHROPIC/LLM panel surfaces an informational VS Code LM model dropdown + Refresh button when the active configuration is of type `vscodeLm`, and hides it otherwise. The dropdown does NOT retarget sends.
-- [x] Queue-dispatched anthropic items run with `toolApprovalMode = 'never'`.
-- [x] Queue editor's default-transport dropdown has two entries: Copilot and Anthropic.
-- [x] Queue editor's Anthropic config dropdown lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.
-- [x] Both transports take their templates from the one store (Anthropic — User Message in the template editor; the four template tools work on it); the Copilot Queue Wrapper is its own template-editor category.
-- [x] Existing Copilot queue items are byte-identical in behaviour (template wrapper, answer-file polling, reminders, answer-wait).
-- [x] Reminder + `answerWaitMinutes` fields are visibly disabled for anthropic-transport items.
-- [x] Selecting Anthropic transport shows the auto-approve-all warning.
-- [x] `tomAi_addQueueItem` ([:785](../src/tools/chat-enhancement-tools.ts#L785)), `tomAi_updateQueueItem` ([:1389](../src/tools/chat-enhancement-tools.ts#L1389)), `tomAi_addQueuePrePrompt` ([:871](../src/tools/chat-enhancement-tools.ts#L871)), `tomAi_updateQueuePrePrompt` ([:938](../src/tools/chat-enhancement-tools.ts#L938)), `tomAi_addQueueFollowUp` ([:1115](../src/tools/chat-enhancement-tools.ts#L1115)), `tomAi_updateQueueFollowUp` ([:1624](../src/tools/chat-enhancement-tools.ts#L1624)) accept `transport`, `anthropicProfileId`, `anthropicConfigId`.
-- [x] `tomAi_listQueue` ([:1275](../src/tools/chat-enhancement-tools.ts#L1275)) returns the new fields in its output.
-- [x] `tomAi_listPromptTemplates` ([:1920](../src/tools/chat-enhancement-tools.ts#L1920)), `tomAi_createPromptTemplate` ([:1959](../src/tools/chat-enhancement-tools.ts#L1959)), `tomAi_updatePromptTemplate` ([:2009](../src/tools/chat-enhancement-tools.ts#L2009)), `tomAi_deletePromptTemplate` ([:2075](../src/tools/chat-enhancement-tools.ts#L2075)) honour a `transport` field, defaulting to `copilot` when absent.
+- [x] `QueuedPrompt.transport` accepts only `'anthropic'`; a stored `copilot` is read as `anthropic`; no other values in the queue schema (`localLlm` is an Anthropic configuration transport, not a queue transport).
+- [x] A queue item with a `direct` config hits the Direct path.
+- [x] A queue item with an `agentSdk` config hits the Agent SDK path.
+- [x] A queue item with a `vscodeLm` config routes through `sendViaVsCodeLm` (full tool-use loop) and concatenates `{systemPrompt}\n\n{userText}`.
+- [x] A queue item whose `anthropicConfigId` points at a Local LLM config runs through `callLocalLlmOnce` under the Anthropic handler's shared loop (same concatenation rule, same approval gate, same live trail).
+- [x] All four leaf paths write to `_ai/trail/anthropic/*` (single subsystem).
+- [x] All four leaf paths honour the ANTHROPIC/LLM panel's live trail, tool approval (coerced to `'never'` for queue runs), and user-message template rules.
+- [x] The Anthropic handler carries pre-prompt context into the main prompt automatically via `rawTurns` / Agent SDK session — no queue-level chaining code needed.
+- [x] The VS Code LM model is stored as `{vendor, family, modelId}` on the configuration; sends do NOT enumerate available models.
+- [x] The ANTHROPIC/LLM panel has Save to Queue and Queue next buttons (default run and panel target) and the Open Prompt Queue button.
+- [x] The ANTHROPIC/LLM panel's Available models overlay is informational and does NOT retarget sends.
+- [x] Queue-dispatched items run with `toolApprovalMode = 'never'`.
+- [x] The queue editor's run defaults row has Model, Session and Template.
+- [x] The queue editor's configuration pick lists Anthropic configurations AND Local LLM configurations, each labelled by backing type.
+- [x] Every send takes its template from the one store (Anthropic — User Message in the template editor; the four template tools work on it).
+- [x] The Add form shows the auto-approve-all warning.
+- [x] `tomAi_addQueueItem`, `tomAi_updateQueueItem`, `tomAi_addQueuePrePrompt`, `tomAi_updateQueuePrePrompt`, `tomAi_addQueueFollowUp`, `tomAi_updateQueueFollowUp` ([prompt-queue-tools.ts](../src/tools/prompt-queue-tools.ts)) accept `transport` (`anthropic` only, may be left out), `anthropicProfileId`, `anthropicConfigId`.
+- [x] `tomAi_listQueue` returns the fields in its output.
+- [x] `tomAi_listPromptTemplates`, `tomAi_createPromptTemplate`, `tomAi_updatePromptTemplate`, `tomAi_deletePromptTemplate` ([prompt-template-tools.ts](../src/tools/prompt-template-tools.ts)) work on the one store and take no transport.
 - [x] A queue item with a stale/invalid `anthropicProfileId` or `anthropicConfigId` surfaces a clear error (shared `resolveAnthropicTargets` helper).
-- [x] `renderTransportPicker()` helper is used by the queue editor (queue-default row + Add form). The template editor uses the pre-existing Category dropdown, see §4.15 call-sites table.

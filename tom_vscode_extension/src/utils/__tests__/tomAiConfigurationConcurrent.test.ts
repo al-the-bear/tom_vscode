@@ -121,12 +121,12 @@ describe('the shared configuration, several writers', () => {
     }
 
     test('CW-2: a hand edit of another key is kept', async () => {
-        const { ws, file } = workspace({ copilot: { answerFolder: 'x' } });
+        const { ws, file } = workspace({ bridge: { requestTimeout: 4242 } });
         const tc = config(ws);
-        assert.equal(tc.getCopilot().answerFolder, 'x');
+        assert.equal(tc.getBridge().requestTimeout, 4242);
         // The view predates the hand edit (as in a window that has not read since).
         (tc as Json).refreshIfChanged = () => undefined;
-        fs.writeFileSync(file, JSON.stringify({ copilot: { answerFolder: 'x' }, hand: { edited: 1 } }, null, 2));
+        fs.writeFileSync(file, JSON.stringify({ bridge: { requestTimeout: 4242 }, hand: { edited: 1 } }, null, 2));
         await tc.saveTrail({ raw: { enabled: false } });
         const final = readFile(file);
         assert.deepEqual(final.hand, { edited: 1 }, 'the hand edit kept');

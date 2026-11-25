@@ -22,7 +22,7 @@ import { chatProviders, ChatDraftState, ChatSection } from '../handlers/chat/cha
  * handler) so draft persistence stays the one place that iterates
  * across every section when adding or removing one.
  */
-export const CHAT_SECTIONS: ChatSection[] = ['copilot', 'anthropic'];
+export const CHAT_SECTIONS: ChatSection[] = ['anthropic'];
 
 /**
  * The per-slot keep flags as stored: only the slots "1"–"9", only booleans.

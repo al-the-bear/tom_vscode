@@ -102,16 +102,6 @@ export interface SendToChatConfig {
          */
         dueReminderTime?: string;
     };
-    copilot?: {
-        /**
-         * The Copilot Queue Wrapper: the body (`${originalPrompt}`) put around
-         * every Copilot send that waits for an answer, making Copilot write the
-         * answer file (src/utils/copilotTemplates.ts). Unset: the default.
-         */
-        queueWrapper?: string;
-        answerFolder?: string;
-    };
-
     trail?: {
         /** The raw trail. */
         raw?: {
@@ -561,12 +551,10 @@ export interface SendToChatConfig {
 /**
  * On-disk shape of the Quest Refresh config block. One sub-block per chat
  * transport. All fields optional; {@link getQuestRefreshSettings} resolves them
- * against defaults. Copilot is wired into the config/UI but its auto-trigger is
- * deferred (see quest_refresh_implementation_plan.md, Open decision option 3).
+ * against defaults.
  */
 export interface QuestRefreshConfig {
     anthropic?: QuestRefreshPanelConfig;
-    copilot?: QuestRefreshPanelConfig;
 }
 
 /** Per-panel Quest Refresh configuration. Global (shared across quests). */
@@ -680,7 +668,7 @@ export function getMcpServerSettings(
 }
 
 /** Panel keys for Quest Refresh — one per chat transport. */
-export type QuestRefreshPanel = 'anthropic' | 'copilot';
+export type QuestRefreshPanel = 'anthropic';
 
 /** Fully-resolved per-panel Quest Refresh settings with defaults applied. */
 export interface ResolvedQuestRefreshPanel {
@@ -946,11 +934,8 @@ export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID = 'execute-todo';
 export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_NAME = 'Execute TODO';
 
 /**
- * Body for the seeded "Execute TODO" Anthropic user-message template. Mirrors
- * the Copilot "TODO Execution" built-in (questTodoPanel-handler.ts
- * `BUILTIN_TODO_TEMPLATES`) but wraps the Anthropic `${userMessage}` placeholder
- * instead of the Copilot `${originalPrompt}` one, so a TODO routed to the
- * Anthropic transport gets the same execution framing.
+ * Body for the seeded "Execute TODO" user-message template: the execution
+ * framing a todo is sent with, around the `${userMessage}` placeholder.
  */
 export const EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY =
     'Do the following TODO:\n\n${userMessage}\n\n' +
@@ -981,7 +966,7 @@ export function ensureExecuteTodoUserMessageTemplate(config: SendToChatConfig): 
     templates.push({
         id: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_ID,
         name: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_NAME,
-        description: 'Wraps a TODO routed to the Anthropic transport with execution instructions, mirroring the Copilot "TODO Execution" template.',
+        description: 'Wraps a TODO with execution instructions.',
         template: EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY,
     });
     return true;
@@ -1014,25 +999,4 @@ export function ensureExplainTodoUserMessageTemplate(config: SendToChatConfig): 
  */
 export function ensureSeededUserMessageTemplatesInConfig(config: SendToChatConfig): string[] {
     return ensureSeededUserMessageTemplates(config as never, EXECUTE_TODO_USER_MESSAGE_TEMPLATE_BODY);
-}
-
-// ============================================================================
-// Copilot Answer Folder Functions
-// ============================================================================
-
-/**
- * Get the Copilot chat answer folder (workspace-relative path string).
- * Reads from config `copilot.answerFolder`, defaults to `_ai/answers/copilot`.
- */
-export function getCopilotChatAnswerFolder(): string {
-    const config = loadSendToChatConfig();
-    return config?.copilot?.answerFolder || WsPaths.aiRelative('answersCopilot');
-}
-
-/**
- * Get the absolute path to the Copilot chat answer folder.
- * Falls back to `~/.tom/copilot-chat-answers/` when no workspace is open.
- */
-export function getCopilotChatAnswerFolderAbsolute(): string {
-    return WsPaths.resolveWorkspaceRelative(getCopilotChatAnswerFolder()) ?? WsPaths.home('copilotChatAnswers');
 }

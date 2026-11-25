@@ -17,7 +17,6 @@ import {
 } from './constants';
 import { COMPACT_TRAIL_DEFAULT_MAX_ENTRIES } from './compactTrailTrim';
 
-export type CopilotConfig = Record<string, unknown>;
 export type TrailConfig = Record<string, unknown>;
 export type BridgeConfig = Record<string, unknown>;
 export type TodoConfig = Record<string, unknown>;
@@ -25,7 +24,6 @@ export type FavoriteEntry = Record<string, unknown>;
 
 export interface TomAiConfigDefaults {
     userName: string;
-    copilot: CopilotConfig;
     trail: TrailConfig;
     bridge: BridgeConfig;
     todo: TodoConfig;
@@ -122,15 +120,12 @@ export class TomAiConfiguration {
     static get defaults(): Readonly<TomAiConfigDefaults> {
         return {
             userName: osLoginName(),
-            // Copilot's answer folder defaults to _ai/answers/copilot (getCopilotChatAnswerFolder) when unset.
-            copilot: {},
             trail: {
                 raw: {
                     enabled: true,
                     stripThinking: true,
                     paths: {
                         localLlm: '${ai}/trail/localllm',
-                        copilot: '${ai}/trail/copilot',
                         lmApi: '${ai}/trail/lm-api',
                     },
                 },
@@ -225,13 +220,11 @@ export class TomAiConfiguration {
         if (this.filesStamp() !== this.stamp) { this.reload(); }
     }
 
-    getCopilot(): CopilotConfig { return this.getSection<CopilotConfig>('copilot') ?? {}; }
     getTrail(): TrailConfig { return this.getSection<TrailConfig>('trail') ?? {}; }
     getBridge(): BridgeConfig { return this.getSection<BridgeConfig>('bridge') ?? {}; }
     getTodo(): TodoConfig { return this.getSection<TodoConfig>('todo') ?? {}; }
     getFavorites(): FavoriteEntry[] { return this.getSection<FavoriteEntry[]>('favorites') ?? []; }
 
-    async saveCopilot(config: CopilotConfig): Promise<void> { await this.updateSection('copilot', config); }
     async saveTrail(config: TrailConfig): Promise<void> { await this.updateSection('trail', config); }
     async saveBridge(config: BridgeConfig): Promise<void> { await this.updateSection('bridge', config); }
     async saveTodo(config: TodoConfig): Promise<void> { await this.updateSection('todo', config); }

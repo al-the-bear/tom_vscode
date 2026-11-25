@@ -95,7 +95,7 @@ export const LIST_PROMPT_PAIRS_TOOL: SharedToolDefinition<ListPromptPairsInput> 
     name: 'tomAi_listPromptPairs',
     displayName: 'List Prompt Pairs',
     description:
-        'List past prompt + answer pairs of a quest, newest first, with requestId, timestamp, subsystem, sizes and previews — from each Anthropic session\'s summary trail (subsystem `anthropic:<session>`) and the other subsystems\'. `subsystem` filters ("anthropic", "copilot", a prefix such as "localllm-*"); `limit` (default 50) / `offset` page; `sessions` picks Anthropic sessions (default this call\'s). Full bodies: tomAi_getPromptPair with the `requestId`.',
+        'List past prompt + answer pairs of a quest, newest first, with requestId, timestamp, subsystem, sizes and previews — from each Anthropic session\'s summary trail (subsystem `anthropic:<session>`) and the other subsystems\'. `subsystem` filters ("anthropic", a prefix such as "localllm-*"); `limit` (default 50) / `offset` page; `sessions` picks Anthropic sessions (default this call\'s). Full bodies: tomAi_getPromptPair with the `requestId`.',
     tags: ['history', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: {

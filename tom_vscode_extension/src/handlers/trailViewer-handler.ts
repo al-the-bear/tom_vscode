@@ -314,7 +314,7 @@ function discoverRawTrailFolders(rootFolder: string): TrailViewerFolderOption[] 
     }
 
     if (fs.existsSync(rootFolder)) {
-        // Level 1: Discover subsystem folders (copilot, localllm, lm-api, etc.)
+        // Level 1: Discover subsystem folders (anthropic, localllm, lm-api, etc.)
         const subsystemEntries = fs.readdirSync(rootFolder, { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
             .map((entry) => entry.name)
@@ -540,13 +540,13 @@ function getTrailRootFolder(): string {
     const paths = (raw.paths ?? {}) as Record<string, unknown>;
     
     // Get any configured path and extract the trail root (strip subsystem/quest parts)
-    const configured = paths.copilot ?? paths.localLlm ?? paths.lmApi;
+    const configured = paths.anthropic ?? paths.localLlm ?? paths.lmApi;
     if (typeof configured === 'string' && configured.trim().length > 0) {
-        // The configured path is like ${ai}/trail/copilot/${quest}
+        // The configured path is like ${ai}/trail/anthropic/${quest}
         // We want ${ai}/trail
         const resolved = resolveTrailPath(configured, {}, { mode: 'strip' });
         // Walk up from the resolved path to find the trail root (parent of subsystem folders)
-        // The resolved path would be like /workspace/_ai/trail/copilot
+        // The resolved path would be like /workspace/_ai/trail/anthropic
         const parts = resolved.split(path.sep);
         // Find 'trail' in the path and return up to there
         const trailIndex = parts.lastIndexOf('trail');
@@ -561,14 +561,14 @@ function getTrailRootFolder(): string {
     return WsPaths.ai('trail') ?? path.join(layoutWorkspaceFolder() ?? '', '_ai', 'trail');
 }
 
-function getConfiguredCopilotRawTrailFolder(): string | undefined {
+function getConfiguredRawTrailFolder(): string | undefined {
     // Return the trail root folder for the viewer
     return getTrailRootFolder();
 }
 
 function resolveRawTrailFolder(inputPath?: string): string | undefined {
     if (!inputPath) {
-        return getConfiguredCopilotRawTrailFolder();
+        return getConfiguredRawTrailFolder();
     }
 
     if (!fs.existsSync(inputPath)) {
@@ -582,11 +582,10 @@ function resolveRawTrailFolder(inputPath?: string): string | undefined {
 /**
  * Open or focus the Trail Viewer panel.
  *
- * @param preferredSubsystem Optional hint (e.g. 'copilot', 'anthropic') so the
+ * @param preferredSubsystem Optional hint (e.g. 'anthropic') so the
  *   caller can request a specific subsystem be pre-selected in the dropdown
  *   instead of the alphabetically-first discovered one. Used by the chat
- *   panel trail buttons so clicking from the copilot accordion pre-selects
- *   the copilot subsystem and clicking from anthropic pre-selects anthropic.
+ *   panel trail buttons so clicking from the anthropic section pre-selects anthropic.
  */
 export async function openTrailViewer(
     context: vscode.ExtensionContext,

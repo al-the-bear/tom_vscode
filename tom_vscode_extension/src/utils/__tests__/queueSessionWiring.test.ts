@@ -56,7 +56,6 @@ describe('queue session wiring', () => {
         const dispatch = body(queue, 'private async dispatchStage(');
         const ensure = dispatch.indexOf('this.ensureItemSession(resolved.item, resolved.session)');
         assert.ok(ensure > 0 && ensure < dispatch.indexOf('AnthropicHandler.instance.sendMessage('));
-        assert.ok(dispatch.indexOf("resolved.transport === 'copilot'") < ensure, 'only on the Anthropic transport');
         const make = body(queue, 'private ensureItemSession(');
         assert.match(make, /ensureSession\(this\.sessionsFolder\(\), spec, \(id\) => lookupProfile\(section, id\), item\.anthropicProfileId\)/);
         assert.match(make, /isRunDefaultSession\(sessionName\) \|\| sessionName === 'chat'/, 'chat and the runs\' default sessions (made with their run) are never created here');

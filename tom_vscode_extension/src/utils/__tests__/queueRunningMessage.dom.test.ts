@@ -99,12 +99,12 @@ describe('Prompt Queue editor — the speech bubble writes into the running prom
     test('RB-2: the live trail otherwise', (t) => {
         const { w, posted, doc } = setup(t, [
             item('p', 'pending'),
-            item('c', 'sending', { runningMessageUnavailable: 'it runs on Copilot, which takes no message while it runs' }),
+            item('c', 'sending', { runningMessageUnavailable: 'only an Agent SDK prompt takes a message while it runs, and none runs in its session now (another transport, or between two stages)' }),
         ]);
         assert.ok(!bubble(doc, 'p').classList.contains('queue-message-btn'));
         assert.match(bubble(doc, 'p').getAttribute('title'), /^Open the live trail of session /);
         assert.doesNotMatch(bubble(doc, 'p').getAttribute('title'), /No message/);
-        assert.match(bubble(doc, 'c').getAttribute('title'), /\. No message can go into this prompt: it runs on Copilot, which takes no message while it runs\.$/);
+        assert.match(bubble(doc, 'c').getAttribute('title'), /\. No message can go into this prompt: only an Agent SDK prompt takes a message while it runs, and none runs in its session now \(another transport, or between two stages\)\.$/);
         assert.match(bubble(doc, 'c').getAttribute('onclick'), /openItemLiveTrail\('c'\)/);
         w.openItemLiveTrail('c');
         assert.deepEqual(posted.filter((m) => m.type === 'openItemLiveTrail'), [{ type: 'openItemLiveTrail', id: 'c' }]);

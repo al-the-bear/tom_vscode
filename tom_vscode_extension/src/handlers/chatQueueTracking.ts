@@ -7,8 +7,8 @@
  *
  * A send ends one of three ways, and its item becomes `chat-sent` each time:
  * - its result (or its error) comes back;
- * - no result within the queue's response timeout (the queue editor's
- *   *Timeout*, default 60 minutes): the send is cancelled and ends with
+ * - no result within 60 minutes ({@link CHAT_SEND_TIMEOUT_MINUTES}): the
+ *   send is cancelled and ends with
  *   {@link chatTimeoutError};
  * - the user removes its item from the queue (abandonChatSend): the send is
  *   cancelled and ends with {@link CHAT_REMOVED_ERROR}.
@@ -42,7 +42,7 @@ export const CHAT_REMOVED_ERROR = 'stopped: its entry was removed from the promp
 
 /** The error a chat send ends with when it gets no result in time. */
 export function chatTimeoutError(minutes: number): string {
-    return `no result within ${minutes} minute${minutes === 1 ? '' : 's'} (the prompt queue's response timeout): the send was stopped`;
+    return `no result within ${minutes} minute${minutes === 1 ? '' : 's'} (a chat send's time limit): the send was stopped`;
 }
 
 /** The chat sends of this window that are running: item id → how to end them. */
@@ -61,10 +61,12 @@ export function abandonChatSend(id: string): boolean {
     return true;
 }
 
+/** A chat send without a result is stopped after this long. */
+export const CHAT_SEND_TIMEOUT_MINUTES = 60;
+
 interface ChatQueue {
     addChatItem(o: TrackedChatSend): string;
     completeChatItem(id: string, r: { answerText?: string; error?: string; usage?: LiveTrailTokenCounts }): void;
-    readonly responseFileTimeoutMinutes: number;
 }
 
 export async function trackChatSend<T extends { text?: string; usage?: LiveTrailTokenCounts }>(
@@ -73,7 +75,7 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     opts?: {
         /** Cancel the send (the panel's Stop): called when it is ended by timeout or removal, with its chat item id. */
         cancel?: (chatItemId?: string) => void;
-        /** Instead of the queue's response timeout (tests). */
+        /** Instead of the time limit of {@link CHAT_SEND_TIMEOUT_MINUTES} (tests). */
         timeoutMs?: number;
         /** The chat item the send is shown as, once made (an assist notes its closing answer on it). */
         onChatItem?: (id: string) => void;
@@ -88,7 +90,7 @@ export async function trackChatSend<T extends { text?: string; usage?: LiveTrail
     } catch {
         queue = undefined;
     }
-    const minutes = queue ? Math.max(1, Math.round(queue.responseFileTimeoutMinutes || 60)) : 60;
+    const minutes = CHAT_SEND_TIMEOUT_MINUTES;
     const timeoutMs = opts?.timeoutMs ?? minutes * 60_000;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Ended from outside: by the timeout or by removing the entry.

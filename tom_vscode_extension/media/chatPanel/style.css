@@ -1,19 +1,11 @@
 /* Chat panel (@CHAT, tomAi.chatPanel) panel-specific styles. */
 .profile-info { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 4px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; margin-top: 4px; max-height: 60px; overflow-y: auto; }
 .toolbar-spacer { flex: 1; min-width: 16px; }
-.answers-toolbar { background: rgba(200, 170, 0, 0.15); border: 1px solid rgba(200, 170, 0, 0.4); border-radius: 4px; padding: 4px 8px !important; }
-.answer-indicator { font-size: 12px; font-weight: 600; color: var(--vscode-editorWarning-foreground, #cca700); margin-right: 8px; }
 .checkbox-label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
 .checkbox-label input[type="checkbox"] { margin: 0; cursor: pointer; }
-.copilot-compact-toolbar { gap: 2px !important; }
-.copilot-compact-toolbar .compact-select { max-width: 90px; font-size: 11px; }
 .reusable-prompt-type { min-width: 90px; max-width: 130px; }
 .reusable-prompt-scope { min-width: 140px; max-width: 240px; }
 .reusable-prompt-file { min-width: 180px; max-width: 320px; }
-.copilot-compact-toolbar .compact-keep { margin-left: auto; }
-.copilot-compact-toolbar .icon-btn.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border-radius: 4px; }
-.copilot-compact-toolbar .icon-btn.primary:hover { background: var(--vscode-button-hoverBackground); }
-.copilot-compact-toolbar .icon-btn.queue-active { color: var(--vscode-editorWarning-foreground, #cca700); }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; background: rgba(0,0,0,0.4); display: flex; align-items: flex-start; justify-content: center; padding: 12px 0; }
 .modal-popup { position: relative; z-index: 201; width: 100%; max-width: 420px; background: var(--vscode-editorWidget-background, var(--vscode-panel-background)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); overflow-y: auto; max-height: calc(100vh - 24px); }
 .modal-popup-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; font-size: 14px; }
@@ -36,11 +28,6 @@
 .slot-btn:hover { background: var(--vscode-list-hoverBackground); }
 .slot-btn.active { background: #f2f2f2; color: #111; border-color: #c8c8c8; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08); }
 .slot-btn.active:hover { background: #f2f2f2; color: #111; border-color: #c8c8c8; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08); }
-.slot-btn.answer-ready { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: transparent; }
-.slot-btn.answer-ready:hover { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: transparent; }
-.slot-btn.answer-ready.active { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: #111; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
-.slot-btn.answer-ready.active:hover { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; border-color: #111; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
-.answer-slot-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; margin-left: 6px; background: var(--vscode-editorWarning-foreground, #cca700); color: #111; font-size: 11px; font-weight: 700; }
 
 /* The action bar's choices (the Prompt Queue editor's style): a field each, its label above, its value
    a link below; a click opens VS Code's picker. The width is limited; a long value ends in an ellipsis

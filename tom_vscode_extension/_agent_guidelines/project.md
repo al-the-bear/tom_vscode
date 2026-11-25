@@ -4,7 +4,7 @@
 
 `tom_vscode_extension` provides VS Code integration for Tom workflows:
 
-- multi-transport AI prompt tooling (Anthropic direct SDK, Claude Agent SDK, VS Code Copilot, Local LLM through Anthropic profiles),
+- AI prompt tooling through Anthropic profiles (Anthropic direct SDK, Claude Agent SDK, VS Code LM, Local LLM),
 - bridge-based automation for Dart / shell / workspace operations,
 - panel-based productivity UX (chat, workspace, sidebar notes, todos),
 - quest todo, markdown browser, and trail viewer custom editors,
@@ -33,7 +33,6 @@ User-facing (`doc/`):
 - [doc/user_guide.md](../doc/user_guide.md) — end-to-end feature guide.
 - [doc/quick_reference.md](../doc/quick_reference.md) — compact commands + shortcuts.
 - [doc/anthropic_handler.md](../doc/anthropic_handler.md) — Anthropic handler deep-dive.
-- [doc/copilot_chat_tools.md](../doc/copilot_chat_tools.md) — Copilot chat tooling reference.
 - [doc/chat_log_custom_editor.md](../doc/chat_log_custom_editor.md) — Markdown Browser + live trail.
 - [doc/file_and_prompt_placeholders.md](../doc/file_and_prompt_placeholders.md) — placeholder reference.
 

@@ -81,13 +81,11 @@ export interface RunDefaultDrafts {
 }
 
 /**
- * The one-time switch of the chat panel to "Run default": the Copilot template
- * (stored as the copilot draft's `profile`) and the ANTHROPIC/LLM user-message
- * template become "Run default". Answers a new object; the sections not there stay absent.
+ * The one-time switch of the chat panel to "Run default": the ANTHROPIC/LLM
+ * user-message template becomes "Run default". Answers a new object; the sections not there stay absent.
  */
 export function chatDraftsOnRunDefault<T extends RunDefaultDrafts>(drafts: T): T {
     const out: RunDefaultDrafts = { ...drafts };
-    out.copilot = { ...(drafts.copilot ?? {}), profile: RUN_DEFAULT_CHOICE };
     out.anthropic = { ...(drafts.anthropic ?? {}), userMessageTemplate: RUN_DEFAULT_CHOICE };
     return out as T;
 }

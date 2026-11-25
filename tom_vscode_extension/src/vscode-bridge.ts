@@ -692,10 +692,7 @@ export class DartBridgeClient {
                     break;
 
                 case 'sendToChatVce': {
-                    // The ANTHROPIC/LLM panel's profile, or Copilot with
-                    // `target: 'copilot'`. The scripting caller gets an answer
-                    // either way: Anthropic from the transport, Copilot from the
-                    // answer-file round-trip.
+                    // The ANTHROPIC/LLM panel's profile; the scripting caller gets the transport's answer.
                     const outcome = await sendToChatForScript(this.context, String(params.prompt || ''), scriptSendTarget(params.target));
                     result = {
                         success: outcome.ok,

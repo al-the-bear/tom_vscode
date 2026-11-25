@@ -160,7 +160,7 @@ export interface WindowStatusEntry {
     build?: BuildStatus;
     /** Which Dart-built binaries (tom_bs, tomspecs) the window has on its platform. */
     dartBinaries?: DartBinariesSummary;
-    /** queue / anthropic / copilot / … whose prompt is out. */
+    /** queue / anthropic / … whose prompt is out. */
     activeSubsystems: string[];
     role?: string;
     process?: WindowProcessPosition | null;

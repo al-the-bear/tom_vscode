@@ -7,7 +7,7 @@
  *   QL-3 on: per lane its first pending item, in queue order; a lane whose first item cannot start waits (its
  *        later items do not jump ahead); a busy lane starts nothing; another lane starts beside it
  *   QL-4 on: two prompts never share a conversation — an item in a session another sending item runs in waits,
- *        and the Copilot transport sends one item at a time; a process-move marker conflicts with nothing
+ *        a process-move marker conflicts with nothing
  *   QL-5 on: a held run starts nothing; the hold only applies with Queue per run on
  *   QL-6 the lane summaries: `default` first, every run of the quest and of the items, sending / pending / held;
  *        none with Queue per run off
@@ -23,9 +23,9 @@ import {
     type LaneItem, type LaneTarget,
 } from '../queueLanes';
 
-type It = LaneItem & { session?: string; copilot?: boolean };
+type It = LaneItem & { session?: string };
 const it = (id: string, status: string, run?: string, extra: Partial<It> = {}): It => ({ id, status, ...(run ? { run } : {}), ...extra });
-const target = (i: It): LaneTarget => i.copilot ? { transport: 'copilot' } : { transport: 'anthropic', session: i.session ?? `s-${i.id}` };
+const target = (i: It): LaneTarget => ({ session: i.session ?? `s-${i.id}` });
 const on = { perRun: true, heldRuns: [] as string[] };
 const off = { perRun: false, heldRuns: [] as string[] };
 const ids = (items: It[]): string[] => items.map((i) => i.id);
@@ -57,15 +57,14 @@ describe('queue lanes', () => {
         assert.deepEqual(ids(pickLaneStarts(blocked, on, target)), []);
     });
 
-    test('QL-4: on — sessions and the Copilot chat', () => {
+    test('QL-4: on — sessions', () => {
         const sameSession = [it('a', 'pending', 'r1', { session: 'work' }), it('b', 'pending', 'r2', { session: 'work' })];
         assert.deepEqual(ids(pickLaneStarts(sameSession, on, target)), ['a'], 'b waits for session work');
         assert.match(laneConflict(sameSession[1], [it('a', 'sending', 'r1', { session: 'work' })], on, target) ?? '', /session work is busy with a/);
-        const copilot = [it('a', 'pending', 'r1', { copilot: true }), it('b', 'pending', 'r2', { copilot: true }), it('c', 'pending', 'r3')];
-        assert.deepEqual(ids(pickLaneStarts(copilot, on, target)), ['a', 'c'], 'one Copilot item at a time');
-        assert.match(laneConflict(copilot[1], [it('a', 'sending', 'r1', { copilot: true })], on, target) ?? '', /Copilot chat is busy/);
-        const marker = it('m', 'pending', 'r2', { processMove: { to: 'next' }, copilot: true });
-        assert.deepEqual(ids(pickLaneStarts([it('a', 'sending', 'r1', { copilot: true }), marker], on, target)), ['m'], 'a marker sends no prompt');
+        const three = [it('a', 'pending', 'r1', { session: 'work' }), it('b', 'pending', 'r2', { session: 'work' }), it('c', 'pending', 'r3')];
+        assert.deepEqual(ids(pickLaneStarts(three, on, target)), ['a', 'c'], 'one item per session at a time');
+        const marker = it('m', 'pending', 'r2', { processMove: { to: 'next' }, session: 'work' });
+        assert.deepEqual(ids(pickLaneStarts([it('a', 'sending', 'r1', { session: 'work' }), marker], on, target)), ['m'], 'a marker sends no prompt');
     });
 
     test('QL-5: on — a held run', () => {

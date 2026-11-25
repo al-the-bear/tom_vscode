@@ -9,7 +9,7 @@
  *    - `issue:123` — GitHub/GitLab issue references
  *    - `test:my_test.dart::testName` — Test file + test name
  *    - `todo:quest-id/todo-id` — Todo item references
- *    - `trail:copilot/2026-03-02` — Trail entry references
+ *    - `trail:anthropic/2026-03-02` — Trail entry references
  *    - `quest:my-quest` — Quest references
  */
 
@@ -370,7 +370,7 @@ const todoLinkHandler: LinkHandler = {
 };
 
 /**
- * Trail link handler: trail:copilot/2026-03-02_143052
+ * Trail link handler: trail:anthropic/2026-03-02_143052
  */
 const trailLinkHandler: LinkHandler = {
     prefix: 'trail:',

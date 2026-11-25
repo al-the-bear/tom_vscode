@@ -33,7 +33,7 @@ describe('queue done-notification wiring', () => {
 
     test('DW-1: completion paths', () => {
         const hooks = queue.match(/await this\._afterItemDone\(/g) ?? [];
-        assert.equal(hooks.length, 6, 'answer-wait, answer-file, resume, continue, sendItem, resend');
+        assert.equal(hooks.length, 4, 'resume, continue, sendItem, resend');
         assert.equal((queue.match(/await this\._enqueueNextTemplateIterationIfNeeded\(/g) ?? []).length, 1, 'only inside the hook');
         const hook = body(queue, 'private async _afterItemDone(');
         assert.ok(hook.indexOf('_enqueueNextTemplateIterationIfNeeded') < hook.indexOf('_itemFinished'), 'the next iteration first');

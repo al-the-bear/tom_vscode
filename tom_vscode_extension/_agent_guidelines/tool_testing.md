@@ -326,7 +326,7 @@ drives every tool the other way round: through the standalone MCP server
 (`buildToolMcpServer` over the authenticated tool set, i.e. all of
 `ALL_SHARED_TOOLS`), called by a real MCP `Client` over an in-memory transport,
 with the live executors and the extension's stores started on a fake context
-(chat variables, process state, session todos, trail, reminders, timer, queue)
+(chat variables, process state, session todos, trail, timer, queue)
 — the code a chat panel or an external client runs.
 
 Its test mode is a **sandbox**: the workspace is a fresh copy of a small

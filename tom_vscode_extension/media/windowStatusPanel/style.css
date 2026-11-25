@@ -46,7 +46,7 @@ body {
     text-overflow: ellipsis;
 }
 
-/* Single line of three labelled status dots: queue · anthropic · copilot */
+/* Single line of two labelled status dots: queue · anthropic */
 .status-line {
     margin-top: 4px;
     display: flex;

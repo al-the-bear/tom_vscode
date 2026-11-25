@@ -5,7 +5,7 @@
  * default, window, run, role type, role, item, todo.
  *
  *   GL-1 every level is stored where it belongs and decides when it is the lowest that chooses; the selection names
- *        the level; a todo's `remove` sends nothing for its section; the Copilot text follows
+ *        the level; a todo's `remove` sends nothing for its section; the text sent follows
  *   GL-2 the window level is machine-local per quest and read back from its file (a reload reads the same file)
  *   GL-3 Set as quest default copies the window's choices into the shared file; Clear quest default empties it
  *   GL-4 the all-windows change: this window's level now, every other open window on this machine through a window
@@ -17,7 +17,7 @@
  *        at a level
  *   GL-7 kept in the item's entry file and the run's settings; the role files keep their choices when the editors
  *        save; the role schemas accept them
- *   GL-8 the wiring: the queue's Copilot send, the direct send and both chat panels take their levels
+ *   GL-8 the wiring: the queue's send, the handler's send and the chat panel take their levels
  */
 import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -86,7 +86,7 @@ import {
     setChatPanelChoices, setQuestDefaultChoices, setQuestDefaultFromWindow, setSectionChoiceInAllWindows, setWindowChoices,
     setWindowSectionChoice, windowChoices,
 } from '../../services/aspectChoiceLevels.js';
-import { readAspectSections, withAspectsForCopilot } from '../../services/aspectGuidelinesStore.js';
+import { aspectsForSend, readAspectSections } from '../../services/aspectGuidelinesStore.js';
 import { resolveAspects, type AspectLevelChoices } from '../../utils/aspectGuidelines.js';
 import { configureWindowRequests, sendWindowRequest, takeWindowRequests } from '../../services/windowRequests.js';
 import { RoleStore } from '../../services/roleStore.js';
@@ -174,11 +174,11 @@ describe('guideline choices per level', () => {
         assert.deepEqual(selectionOf(stageChoices(chosen)), { language: ['remove', 'todo'], night: ['on', 'item'] });
         chosen.repeatTodoId = 't2_aktl-plain';
         assert.deepEqual(selectionOf(stageChoices(chosen)).language, ['de', 'role'], 'a todo without choices adds none');
-        // What Copilot is sent follows: the item's night text, the todo's remove.
+        // What is sent follows: the item's night text (before the prompt), the todo's remove.
         chosen.repeatTodoId = 't1_aktl-chosen';
-        const text = withAspectsForCopilot('PROMPT', stageChoices(chosen));
-        assert.match(text, /NIGHT-ON[\s\S]*PROMPT/);
-        assert.doesNotMatch(text, /LANG-/);
+        const sent = aspectsForSend(path.join(WS, '_ai', 'aspect_guidelines'), 'agentSdk', { systemSegments: [], userContent: 'PROMPT' }, stageChoices(chosen), (t) => t);
+        assert.match(sent.userContent, /NIGHT-ON[\s\S]*PROMPT/);
+        assert.doesNotMatch([...sent.systemSegments, sent.userContent].join('\n'), /LANG-/);
         // Outside the queue: the live levels (quest default, window, the window's run, the chat role).
         assert.deepEqual(selectionOf(liveAspectChoices()).night, ['on', 'window']);
         queue().setRunGuidelines(undefined, TEST_RUN);
@@ -197,7 +197,6 @@ describe('guideline choices per level', () => {
         // The chat panels' sticky choices beside it.
         setChatPanelChoices('anthropic', { language: 'en' });
         assert.deepEqual(chatPanelChoices('anthropic'), { language: 'en' });
-        assert.equal(chatPanelChoices('copilot'), undefined);
         assert.deepEqual(chatSendAspectChoices('anthropic', TEST_RUN), { run: {}, item: { language: 'en' } });
         assert.deepEqual(selectionOf(liveAspectChoices(chatSendAspectChoices('anthropic', TEST_RUN))).language, ['en', 'item'], 'a chat send carries them as its item level');
         setChatPanelChoices('anthropic', undefined);
@@ -341,10 +340,10 @@ describe('guideline choices per level', () => {
 
     test('GL-8: the wiring', () => {
         const src = EXT('src', 'managers', 'promptQueueManager.ts');
-        assert.match(src, /withAspectsForCopilot\(unescapePlaceholders\(expandedText\), liveAspectChoices\(undefined, roleSource\)\)/, 'the queue\'s Copilot send');
+        assert.match(src, /runWithQueueRole\(roleSource, \(\) => AnthropicHandler\.instance\.sendMessage\(/, 'the queue\'s send runs as its stage\'s role source, whose levels the handler reads');
+        assert.doesNotMatch(src, /withAspectsForCopilot/, 'no Copilot send');
         assert.match(EXT('src', 'handlers', 'anthropic-handler.ts'), /liveAspectsForSend\(transport as AspectTransport, \{ systemSegments, userContent: '' \}, liveAspectChoices\(options\.aspectGuidelineChoices\),/, 'the direct, VS Code LM, Local LLM and Agent SDK sends');
         const chat = EXT('src', 'handlers', 'chatPanel-handler.ts');
-        assert.match(chat, /withAspectsForCopilot\(expanded, liveAspectChoices\(chatSendAspectChoices\('copilot', this\._chatRun\('copilot'\)\)\)\)/);
         assert.match(chat, /aspectGuidelineChoices: chatSendAspectChoices\('anthropic', this\._chatRun\('anthropic'\)\)/);
         assert.match(EXT('src', 'extension.ts'), /setAspectChoice: \(section, option\) => applyAspectChoiceRequest\(section, option\)/);
         const pkg = JSON.parse(EXT('package.json')) as { contributes: { commands: Array<{ command: string; title: string }> } };

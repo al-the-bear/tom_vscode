@@ -2,7 +2,7 @@
  * Prompt Queue Editor (§3.2)
  *
  * A command-opened webview panel that shows the ordered queue of
- * prompts destined for Copilot Chat.  Each item is editable with
+ * prompts.  Each item is editable with
  * status, expanded preview and reordering.
  *
  * Opened via `tomAi.editor.promptQueue` command.
@@ -26,8 +26,7 @@ import { loadSendToChatConfig, saveSendToChatConfig } from './handler_shared';
 import { compactionPickItems, compactionPickerState, setCompactionModel, type CompactionPickerConfig } from '../utils/compactionTarget';
 import { missingDirectApiKey, profileKeyStates } from '../utils/anthropicApiKeyCheck';
 import { addUserMessageTemplate, deleteUserMessageTemplate, editUserMessageTemplate } from './userMessageTemplateActions';
-import { userMessageTemplateOptions } from '../utils/copilotTemplates';
-import { renderTransportPicker } from '../utils/transportPicker';
+import { userMessageTemplateOptions } from '../utils/userMessageTemplateLookup';
 import { trackChatSend } from './chatQueueTracking';
 import { itemProfileView, profilePickEntries, QUEUE_DEFAULT_PICK, type ConfigurationLike, type ItemProfileView, type ProfileLike } from '../utils/queueItemProfile';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
@@ -185,13 +184,6 @@ function bindQueueEditorPanel(ctx: vscode.ExtensionContext, panel: vscode.Webvie
         init: {
             state: initialState,
             codiconsUri: webviewCodiconsUri.toString(),
-            addFormPickerHtml: renderTransportPicker({
-                idPrefix: 'addForm',
-                context: 'queue-default',
-                value: { transport: 'copilot' },
-                showTargets: true,
-                onChangeEvent: 'addFormTransportChanged',
-            }),
         },
     });
 
@@ -442,41 +434,15 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           sendState();
           return;
         }
-        case 'setQueueDefaultTransport': {
-          // Spec §4.10 header-row queue-level default. Persists to
-          // queue-settings.yaml so the setting survives reloads; new
-          // items without an explicit transport inherit it at
-          // dispatch time. The template here is transport-scoped
-          // (anthropic user-message template id or copilot template
-          // name) and gets stamped onto items when a queue template
-          // is dispatched into the queue.
-          const transport = (msg.transport === 'anthropic' ? 'anthropic' : 'copilot') as 'copilot' | 'anthropic';
-          const pid = typeof msg.anthropicProfileId === 'string' ? msg.anthropicProfileId : '';
-          const tplId = typeof msg.messageTemplateId === 'string' ? msg.messageTemplateId : '';
-          // The defaults of the run the editor's settings are for (settings per run).
-          const run = settingsRunOf(msg);
-          PromptQueueManager.instance.setDefaultTransport(transport, pid, undefined, run);
-          PromptQueueManager.instance.setDefaultMessageTemplate(tplId, run);
-          sendState();
-          return;
-        }
-        case 'pickQueueDefaultTransport':
         case 'pickQueueDefaultProfile':
         case 'pickQueueDefaultTemplate': {
-          // The context bar's Transport, Profile and Template: a VS Code picker each, for the tab's run.
+          // The context bar's Profile and Template: a VS Code picker each, for the tab's run.
           const pqm = PromptQueueManager.instance;
           const run = settingsRunOf(msg);
           const s = pqm.runQueueSettings(run);
-          const transport: 'copilot' | 'anthropic' = s.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
           const config = loadSendToChatConfig();
           const mark = (on: boolean) => (on ? '$(check) ' : '');
-          if (msg.type === 'pickQueueDefaultTransport') {
-            const picked = await vscode.window.showQuickPick([
-              { label: `${mark(transport === 'copilot')}Copilot`, value: 'copilot' as const, description: 'GitHub Copilot Chat' },
-              { label: `${mark(transport === 'anthropic')}Anthropic`, value: 'anthropic' as const, description: 'an Anthropic profile (direct API, Agent SDK, VS Code LM, local LLM)' },
-            ], { title: `Default transport of run ${run ?? 'default'}`, placeHolder: `Current: ${transport}` });
-            if (picked && picked.value !== transport) { pqm.setDefaultTransport(picked.value, s.defaultAnthropicProfileId ?? '', s.defaultAnthropicConfigId, run); }
-          } else if (msg.type === 'pickQueueDefaultProfile') {
+          if (msg.type === 'pickQueueDefaultProfile') {
             const keyless = new Map(profileKeyStates(config?.anthropic, process.env).map((k) => [k.id, k.noApiKey]));
             const current = s.defaultAnthropicProfileId ?? '';
             const picked = await vscode.window.showQuickPick([
@@ -487,7 +453,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               })),
             ], { title: `Default profile of run ${run ?? 'default'}`, placeHolder: `Current: ${current || '(default profile)'}` });
             // A picked profile derives its configuration (none kept from the old one).
-            if (picked && picked.value !== current) { pqm.setDefaultTransport(transport, picked.value, undefined, run); }
+            if (picked && picked.value !== current) { pqm.setDefaultTransport('anthropic', picked.value, undefined, run); }
           } else {
             const current = s.defaultMessageTemplateId ?? '';
             const picked = await vscode.window.showQuickPick([
@@ -597,19 +563,16 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'editItemTransport':
         case 'editPrePromptTransport':
         case 'editFollowUpTransport': {
-          // Spec §4.10 per-item + per-stage Advanced override. Same
-          // three-step QuickPick flow (transport → profile → config)
-          // regardless of scope; differs only in which manager method
-          // commits the result.
+          // The per-item + per-stage profile override: the same QuickPick
+          // flow (profile → configuration) whatever the scope; only the
+          // manager method that commits the result differs.
           const id = typeof msg.id === 'string' ? msg.id : '';
           if (!id) { return; }
           const pqm = PromptQueueManager.instance;
           const item = pqm.getById(id);
           if (!item) { return; }
 
-          // Resolve the current stage's transport + ids for "(current)"
-          // / "(default)" labelling.
-          let currentTransport: string = item.transport || 'copilot';
+          // The current stage's ids for "(current)" / "(default)" labelling.
           let currentProfile = item.anthropicProfileId;
           let currentConfig = item.anthropicConfigId;
           let scopeLabel = 'queue item';
@@ -617,7 +580,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const ppIndex = typeof msg.index === 'number' ? msg.index : -1;
             const pp = item.prePrompts?.[ppIndex];
             if (!pp) { return; }
-            currentTransport = pp.transport || currentTransport;
             currentProfile = pp.anthropicProfileId || currentProfile;
             currentConfig = pp.anthropicConfigId || currentConfig;
             scopeLabel = `pre-prompt #${ppIndex + 1}`;
@@ -625,54 +587,23 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const followUpId = typeof msg.followUpId === 'string' ? msg.followUpId : '';
             const fu = item.followUps?.find((f) => f.id === followUpId);
             if (!fu) { return; }
-            currentTransport = fu.transport || currentTransport;
             currentProfile = fu.anthropicProfileId || currentProfile;
             currentConfig = fu.anthropicConfigId || currentConfig;
             scopeLabel = `follow-up ${followUpId.slice(0, 8)}`;
           }
 
-          const transportPick = await vscode.window.showQuickPick(
-            [
-              { label: 'Copilot Chat', value: 'copilot' as const, description: 'Answer-file polling flow.' },
-              { label: 'Anthropic', value: 'anthropic' as const, description: 'Routes through AnthropicHandler.sendMessage; auto-approves tool calls.' },
-              // Spec §4.15 inherit semantics:
-              //   queue-item context  → "Inherit (queue default)"
-              //   queue-stage context → "Inherit (item)"
-              ...(msg.type === 'editItemTransport'
-                ? [{ label: 'Inherit (queue default)', value: 'inherit' as const, description: 'Use whatever the queue-level default transport is.' }]
-                : [{ label: 'Inherit from item', value: 'inherit' as const, description: 'Use the parent item\'s transport.' }]),
-            ],
-            { placeHolder: `Transport for ${scopeLabel} (current: ${currentTransport})`, ignoreFocusOut: true },
-          );
-          if (!transportPick) { return; }
-
-          const applyUpdate = (transport: 'copilot' | 'anthropic' | undefined, profileId: string, configId: string): void => {
+          const applyUpdate = (transport: 'anthropic' | undefined, profileId: string, configId: string): void => {
             if (msg.type === 'editItemTransport') {
-              // Spec §5 edge case — template names only resolve inside
-              // one transport's store. Changing the item's transport
-              // invalidates the cached template reference, so clear it
-              // along with the transport so the user picks a new one
-              // from the right store next time.
               pqm.updateItemTransport(id, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
-              pqm.updateItemTemplateAndWrapper(id, { template: '' }).catch(() => { /* best-effort */ });
             } else if (msg.type === 'editPrePromptTransport') {
               const ppIndex = typeof msg.index === 'number' ? msg.index : -1;
-              pqm.updatePrePrompt(id, ppIndex, { transport, anthropicProfileId: profileId, anthropicConfigId: configId, template: '' });
+              pqm.updatePrePrompt(id, ppIndex, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
             } else {
               const followUpId = typeof msg.followUpId === 'string' ? msg.followUpId : '';
-              pqm.updateFollowUpPrompt(id, followUpId, { transport, anthropicProfileId: profileId, anthropicConfigId: configId, template: '' });
+              pqm.updateFollowUpPrompt(id, followUpId, { transport, anthropicProfileId: profileId, anthropicConfigId: configId });
             }
             sendState();
           };
-
-          if (transportPick.value === 'inherit') {
-            applyUpdate(undefined, '', '');
-            return;
-          }
-          if (transportPick.value === 'copilot') {
-            applyUpdate('copilot', '', '');
-            return;
-          }
 
           const cfg = loadSendToChatConfig();
           const profiles = (cfg?.anthropic?.profiles ?? []).filter((p) => !!p && typeof p.id === 'string');
@@ -680,16 +611,26 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             vscode.window.showWarningMessage('No Anthropic profiles defined. Create one in the Extension State Page first.');
             return;
           }
-          const profilePickItems = profiles.map((p) => ({
-            label: p.name || p.id,
-            description: p.id === currentProfile ? '(current)' : p.isDefault ? '(default)' : '',
-            value: p.id,
-          }));
+          const INHERIT = '\u0000inherit';
+          const profilePickItems = [
+            msg.type === 'editItemTransport'
+              ? { label: 'Inherit (queue default)', value: INHERIT, description: 'No profile of its own: the run\'s default profile.' }
+              : { label: 'Inherit from item', value: INHERIT, description: 'No profile of its own: the item\'s profile.' },
+            ...profiles.map((p) => ({
+              label: p.name || p.id,
+              description: p.id === currentProfile ? '(current)' : p.isDefault ? '(default)' : '',
+              value: p.id,
+            })),
+          ];
           const profilePick = await vscode.window.showQuickPick(profilePickItems, {
-            placeHolder: 'Anthropic profile',
+            placeHolder: `Profile for ${scopeLabel}`,
             ignoreFocusOut: true,
           });
           if (!profilePick) { return; }
+          if (profilePick.value === INHERIT) {
+            applyUpdate(undefined, '', '');
+            return;
+          }
           const anthropicConfigs = (cfg?.anthropic?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
           const localLlmConfigs = ((cfg as { localLlm?: { configurations?: Array<{ id?: string; name?: string }> } })?.localLlm?.configurations ?? []).filter((c) => !!c && typeof c.id === 'string');
           const configPickItems = [
@@ -757,14 +698,8 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             const { expandTemplate } = await import('./promptTemplate.js');
             let previewContent = msg.text || '';
             const template = msg.template || '';
-            const answerWrapper = msg.answerWrapper || false;
-            // Spec §4.16 — preview applies the template from the same
-            // store a live dispatch would hit (copilot vs anthropic).
-            const transport: 'copilot' | 'anthropic' = msg.transport === 'anthropic' ? 'anthropic' : 'copilot';
             previewContent = await expandTemplate(previewContent);
-            // Anthropic items never apply the Copilot answer-wrapper.
-            const effectiveWrap = transport === 'copilot' ? answerWrapper : false;
-            previewContent = await applyTemplateWrapping(previewContent, template, effectiveWrap, transport);
+            previewContent = await applyTemplateWrapping(previewContent, template);
             await showPreviewPanel('Queue Item Preview', previewContent);
             return;
         }
@@ -773,10 +708,8 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
           const { expandTemplate } = await import('./promptTemplate.js');
           let previewContent = msg.text || '';
           const template = msg.template || '';
-          const transport: 'copilot' | 'anthropic' = msg.transport === 'anthropic' ? 'anthropic' : 'copilot';
           previewContent = await expandTemplate(previewContent);
-          // Anthropic follow-ups skip the Copilot answer-wrapper.
-          previewContent = await applyTemplateWrapping(previewContent, template, transport === 'copilot', transport);
+          previewContent = await applyTemplateWrapping(previewContent, template);
           await showPreviewPanel('Follow-up Prompt Preview', previewContent);
           return;
         }
@@ -989,10 +922,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
         case 'openItemLiveTrail': {
           // The item headline's icon: the live trail of the session the item runs in (live MD Browser).
           const session = typeof msg.id === 'string' ? PromptQueueManager.instance.stageSessionOf(msg.id) : undefined;
-          if (!session) {
-            void vscode.window.showInformationMessage('This item goes to Copilot, which writes no live trail.');
-            return;
-          }
+          if (!session) { return; }
           await runChatSessionAction('liveTrail', session);
           return;
         }
@@ -1091,11 +1021,7 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             break;
         }
         case 'updateItemTemplate':
-            // Auto-set answerWrapper based on template: true if any template selected, false if "(None)"
-            await qm.updateItemTemplateAndWrapper(msg.id, { 
-              template: msg.template,
-              answerWrapper: !!(msg.template && msg.template !== '(None)')
-            });
+            await qm.updateItemTemplate(msg.id, { template: msg.template });
             break;
         // The toolbar of a run's tab: every action acts on that run's items (`run`; none: the whole queue).
         case 'clearSent':
@@ -1233,38 +1159,21 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
             repeatIndex: msg.repeatIndex,
             repeatPrefix: msg.repeatPrefix,
             repeatSuffix: msg.repeatSuffix,
-            answerWaitMinutes: msg.answerWaitMinutes,
             templateRepeatCount: msg.templateRepeatCount,
             templateRepeatIndex: msg.templateRepeatIndex,
           });
           break;
-        case 'setResponseTimeout':
-          qm.setRunQueueSettings(settingsRunOf(msg), { responseTimeoutMinutes: Math.max(5, parseInt(String(msg.minutes || '60'), 10) || 60) });
-          sendState();
-          break;
         case 'addPrompt':
             try {
                 console.log('[QueueEditor] addPrompt received, text length:', msg.text?.length);
-                const addTransport = msg.transport === 'anthropic' ? 'anthropic' as const : undefined;
-                // Add-to-Queue form now carries the message template
-                // via `messageTemplateId` (from the transport picker).
-                // Keep the legacy `template` field as a fallback in case
-                // some caller still sends it.
-                const addTemplate = (typeof msg.messageTemplateId === 'string' && msg.messageTemplateId)
-                    ? msg.messageTemplateId
-                    : msg.template;
                 await qm.enqueue({
                     originalText: msg.text || '',
-                    template: addTemplate,
-                    // Copilot answer-wrapper is a Copilot-only construct
-                    // (spec §4.7). Anthropic items skip it.
-                    answerWrapper: addTransport === 'anthropic' ? false : (msg.answerWrapper || false),
+                    template: msg.template,
                     repeatCount: normalizeRepeatCountInput(msg.repeatCount),
                     repeatPrefix: typeof msg.repeatPrefix === 'string' ? msg.repeatPrefix : undefined,
                     repeatSuffix: typeof msg.repeatSuffix === 'string' ? msg.repeatSuffix : undefined,
                     deferSend: true,
-                    // Multi-transport fields (spec §4.10).
-                    transport: addTransport,
+                    // The profile picked in the add form (none: the run's default).
                     anthropicProfileId: typeof msg.anthropicProfileId === 'string' && msg.anthropicProfileId ? msg.anthropicProfileId : undefined,
                     anthropicConfigId: typeof msg.anthropicConfigId === 'string' && msg.anthropicConfigId ? msg.anthropicConfigId : undefined,
                     // The run picked in the add form (default the window's current run); an unknown one is refused.
@@ -1300,7 +1209,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               originalText: msg.text,
               template: msg.template,
               repeatCount: msg.repeatCount,
-              answerWaitMinutes: msg.answerWaitMinutes,
             });
             break;
           }
@@ -1317,7 +1225,6 @@ async function handleMessageUnsafe(msg: any): Promise<void> {
               text: msg.text,
               template: msg.template,
               repeatCount: msg.repeatCount,
-              answerWaitMinutes: msg.answerWaitMinutes,
             });
             break;
           }
@@ -1417,7 +1324,7 @@ function profileViewOf(item: QueuedPrompt, catalogue: { profiles: ProfileLike[];
     try { resolved = PromptQueueManager.instance.resolvedProfileOf(item.id); } catch { /* not ready */ }
     return itemProfileView({
         status: item.status, ownTransport: item.transport, ownProfileId: item.anthropicProfileId,
-        resolved: resolved ?? { transport: item.transport ?? 'copilot', anthropicProfileId: item.anthropicProfileId },
+        resolved: resolved ?? { transport: 'anthropic', anthropicProfileId: item.anthropicProfileId },
         ...catalogue,
     });
 }
@@ -1440,7 +1347,7 @@ export async function pickItemProfile(id: string): Promise<void> {
     }
     const picked = await vscode.window.showQuickPick(profilePickEntries(catalogue.profiles, catalogue.configurations, view), {
         title: 'Profile of this queue item',
-        placeHolder: view.own ? `Its profile: ${view.name}` : view.transport === 'anthropic' ? `No profile of its own — it runs with ${view.name}` : 'No profile of its own — it runs on Copilot (the queue default)',
+        placeHolder: view.own ? `Its profile: ${view.name}` : `No profile of its own — it runs with ${view.name}`,
         matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true,
     });
     if (!picked) { return; }
@@ -1470,15 +1377,9 @@ function runningMessageOf(item: QueuedPrompt): { canMessageRunning: true } | { r
         const qm = PromptQueueManager.instance;
         if (qm.canMessageRunningItem(item.id) || qm.canMessageWaitingItem(item.id)) { return { canMessageRunning: true }; }
         return {
-            runningMessageUnavailable: stageTransportOf(item) === 'copilot'
-                ? 'it runs on Copilot, which takes no message while it runs'
-                : 'only an Agent SDK prompt takes a message while it runs, and none runs in its session now (another transport, or between two stages)',
+            runningMessageUnavailable: 'only an Agent SDK prompt takes a message while it runs, and none runs in its session now (another transport, or between two stages)',
         };
     } catch { return {}; }
-}
-
-function stageTransportOf(item: QueuedPrompt): string | undefined {
-    try { return PromptQueueManager.instance.stageTransportOf(item.id); } catch { return item.lastDispatched?.transport ?? item.transport; }
 }
 
 /** The question a sending item's turn waits in: when it was asked, as a label. */
@@ -1719,8 +1620,6 @@ function buildState(): Record<string, unknown> {
     let autoStart = false;
     let autoPause = true;
     let autoContinue = false;
-  let responseTimeoutMinutes = 60;
-    let queueDefaultTransport: 'copilot' | 'anthropic' = 'copilot';
     let queueDefaultAnthropicProfileId = '';
     let queueDefaultMessageTemplateId = '';
     let queueDefaultSession = '';
@@ -1742,8 +1641,6 @@ function buildState(): Record<string, unknown> {
         autoStart = qm.autoStartEnabled;
         autoPause = qm.autoPauseEnabled;
         autoContinue = qm.autoContinueEnabled;
-        responseTimeoutMinutes = qm.responseFileTimeoutMinutes;
-        queueDefaultTransport = qm.defaultTransport;
         queueDefaultAnthropicProfileId = qm.defaultAnthropicProfileId || '';
         queueDefaultMessageTemplateId = qm.defaultMessageTemplateId || '';
         queueDefaultSession = qm.defaultAgentSdkSession || '';
@@ -1776,7 +1673,7 @@ function buildState(): Record<string, unknown> {
     let anthropicConfigs: Array<{ id: string; name?: string; transport?: string }> = [];
     try {
         const config = loadSendToChatConfig();
-        // The Copilot template dropdowns: the one template store, by id.
+        // The template dropdowns: the one template store, by id.
         promptTemplates = userMessageTemplateOptions(config).map((t) => t.id);
         // Anthropic profiles + configurations (spec §4.10). Also
         // surface Local LLM configurations per §4.3 so the queue
@@ -1843,12 +1740,11 @@ function buildState(): Record<string, unknown> {
                 // What its turn asks (questions, pickers, MD Browser asks): answered in the item's ask panel (vscimpb173).
                 ...(item.status === 'sending' && itemAskViews(item.id).length ? { askViews: itemAskViews(item.id) } : {}),
                 // Interrupt for continuation (vscimpb112): the soft interrupt's request or hold, the question its
-                // turn waits in (the ❓ tooltip), and the transport (a Copilot item has no hold point).
+                // turn waits in (the ❓ tooltip).
                 ...(softInterruptViewOf(item) ? { softInterruptView: softInterruptViewOf(item) } : {}),
                 // A held item (todo-blocked): Continue (a walk or GROUP item) and Run anyway.
                 ...(item.status === 'todo-blocked' ? { blockedActions: PromptQueueManager.instance.blockedItemActions(item.id) } : {}),
                 ...(questionViewOf(item) ? { questionView: questionViewOf(item) } : {}),
-                ...(item.status === 'sending' ? { interruptTransport: stageTransportOf(item) } : {}),
                 // The todos it runs: a walk queued before items carried the field shows it too.
                 ...(!item.todoIdPattern && todoIdPatternOf(item) ? { todoIdPattern: todoIdPatternOf(item) } : {}),
                 // A GROUP item's members with → / ✓ / checkbox (vscimpb129).
@@ -1862,7 +1758,6 @@ function buildState(): Record<string, unknown> {
         autoStart,
         autoPause,
         autoContinue,
-        responseTimeoutMinutes,
         promptTemplates,
         // The compaction / memory-extraction model pickers above the queue,
         // the same state as the Status Page's History Compaction dropdowns.
@@ -1892,7 +1787,6 @@ function buildState(): Record<string, unknown> {
             } catch { return []; }
         })(),
         // Queue-level default transport (spec §4.10 header row).
-        queueDefaultTransport,
         queueDefaultAnthropicProfileId,
         queueDefaultMessageTemplateId,
         queueDefaultSession,

@@ -262,20 +262,11 @@ function renderEntry(item, idx) {
     var repeatSuffix = (typeof item.repeatSuffix === 'string') ? item.repeatSuffix : '';
     var templateRepeatCountRaw = item.templateRepeatCount;
     var templateRepeatCountDisplay = templateRepeatCountRaw ? String(templateRepeatCountRaw) : '1';
-    // Spec §4.16 — template dropdown filters by the item's effective
-    // transport. Anthropic items pull from the anthropic user-message
-    // templates store; Copilot items stay on the Copilot store.
+    // The template dropdown lists the user-message templates.
     // Queue-template editor (editorMode='template') no longer exposes
     // a per-item template — all main prompts inherit the queue-level
     // template at queue-dispatch time.
-    var mpIsAnthropic = item.transport === 'anthropic';
-    var mpTplOptions = mpIsAnthropic
-      ? (anthropicUserMessageTemplates || []).map(function(t) {
-          return '<option value="' + escapeHtml(t.id) + '"' + ((item.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
-        }).join('')
-      : (promptTemplates || []).map(function(name) {
-          return '<option value="' + escapeHtml(name) + '"' + ((item.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
-        }).join('');
+    var mpTplOptions = promptTemplateOptionsHtml(item.template);
     var showTemplateSelect = editorMode !== 'template';
     var templateSelectHtml = showTemplateSelect
       ? ('<label style="font-size:0.85em;font-weight:600;" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">Prompt template:</label>' +
@@ -285,16 +276,10 @@ function renderEntry(item, idx) {
            mpTplOptions +
          '</select>')
       : '';
-    // The answer wait acts on Copilot answer files only: shown for a Copilot item.
-    var itemIsCopilot = stageTransportOf(item) === 'copilot';
     templateRow = '<div class="template-row">' +
       templateSelectHtml +
       '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Queue Repeats:</span>' +
       '<input type="text" value="' + escapeHtml(repeatCountDisplay) + '" style="width:50px" placeholder="1 or var" title="Number or variable name (e.g. batchCount)" onchange="updateItemRepeat(\'' + safeId + '\', { repeatCount: this.value })">' +
-      (itemIsCopilot
-        ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait (min):</span>' +
-          '<input class="copilot-only" type="number" min="0" step="1" value="' + Math.max(0, parseInt(String(item.answerWaitMinutes || 0), 10) || 0) + '" style="width:33px" title="Minutes to wait before auto-advancing (0 = wait for answer file)" onchange="updateItemRepeat(\'' + safeId + '\', { answerWaitMinutes: this.value })">'
-        : '') +
     '</div>' +
     '<div class="repeat-affix-row">' +
       '<label style="font-size:0.8em;opacity:0.9;">Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>' +
@@ -479,20 +464,18 @@ function renderEntry(item, idx) {
           // a sending item the next repetition uses the new transport/
           // profile. Distinct from the staged-only gear below, which opens
           // the full transport picker.
-          (isChat ? '' : '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set transport/profile to the queue default (dropdowns above). Works while repeating — the next repetition uses it."></span>') +
+          (isChat ? '' : '<span class="codicon codicon-arrow-circle-down" style="cursor:pointer;color:#000;" onclick="applyQueueDefaultTransport(\'' + safeId + '\')" title="Set the profile to the default of its run. Works while repeating — the next repetition uses it."></span>') +
           // Staged-only: once an item is pending or sending, the
-          // manager rejects transport updates (isEditableStatus). Hide
+          // manager rejects profile updates (isEditableStatus). Hide
           // the gear so users don't click a no-op.
-          (isStaged ? '<span class="codicon codicon-settings" style="cursor:pointer;color:#000;" onclick="editItemTransport(\'' + safeId + '\')" title="Change transport (Copilot / Anthropic + profile + config)"></span>' : '') +
-          // Agent SDK session of an Anthropic item: the session's name (the
-          // queue default when unset); staged / pending items can change it.
-          ((item.transport || (typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot')) === 'anthropic'
-            ? '<span class="queue-session-chip" style="' + (relocatable ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
+          (isStaged ? '<span class="codicon codicon-settings" style="cursor:pointer;color:#000;" onclick="editItemTransport(\'' + safeId + '\')" title="Change its profile and configuration"></span>' : '') +
+          // The item's session: its name (the queue default when unset);
+          // staged / pending items can change it.
+          ('<span class="queue-session-chip" style="' + (relocatable ? 'cursor:pointer;' : '') + 'color:#000;display:inline-flex;align-items:center;gap:2px;"'
               + (relocatable ? ' onclick="event.stopPropagation();relocateItem(\'' + safeId + '\')"' : '')
               + ' title="' + escapeHtml(chipSession.tooltip) + (item.session ? '' : ' (queue default)') + (relocatable ? ' — click to change its run, session and place' : '') + '">'
               + '<span class="codicon codicon-comment-discussion"></span><span style="font-size:0.85em;">'
-              + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>'
-            : '') +
+              + escapeHtml(chipSessionName) + (chipSession.marked ? '*' : '') + '</span></span>') +
           // The role the item runs as (gsel3, gsel11): its todo's, its own, its process step's or its
           // run's default, with where it comes from; a staged or pending item can set, change or clear its own.
           (!isChat ? queueRoleChip(item, safeId, isStaged || isPending) : '') +
@@ -1181,14 +1164,25 @@ function toggleBackgroundTasks(id) {
   if (typeof render === 'function') { render(); }
 }
 
-/** The transport a stage runs on: its own, else the item's, else the queue default. */
-function stageTransportOf(item, stage) {
-  var queueDefault = typeof queueDefaultTransport !== 'undefined' ? queueDefaultTransport : 'copilot';
-  return (stage && stage.transport) || item.transport || queueDefault;
+/**
+ * The options of a Prompt template dropdown: the user-message templates, by
+ * name where the page has them (`anthropicUserMessageTemplates`), else by id
+ * (`promptTemplates`), `selected` marked.
+ */
+function promptTemplateOptionsHtml(selected) {
+  var named = typeof anthropicUserMessageTemplates !== 'undefined' && Array.isArray(anthropicUserMessageTemplates) ? anthropicUserMessageTemplates : [];
+  if (named.length) {
+    return named.map(function(t) {
+      return '<option value="' + escapeHtml(t.id) + '"' + ((selected || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
+    }).join('');
+  }
+  return (typeof promptTemplates !== 'undefined' && Array.isArray(promptTemplates) ? promptTemplates : []).map(function(name) {
+    return '<option value="' + escapeHtml(name) + '"' + ((selected || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
+  }).join('');
 }
 
 /** The title of the Prompt template dropdowns. */
-var PROMPT_TEMPLATE_TITLE = 'The prompt template that wraps this prompt (the template store the ANTHROPIC/LLM panel\'s User Prompt uses). The Copilot answer wrapper is applied separately, always.';
+var PROMPT_TEMPLATE_TITLE = 'The prompt template that wraps this prompt (the template store the ANTHROPIC/LLM panel\'s User Prompt uses).';
 
 function renderAnswerBlock(item, safeId) {
   var answerBlock = '';
@@ -1340,9 +1334,7 @@ function renderItemProfile(item, safeId) {
     view = { own: true, transport: 'anthropic', id: item.anthropicProfileId, name: item.anthropicProfileId, canPick: false };
   }
   if (!view) return '';
-  var runsWith = view.transport === 'anthropic'
-    ? (view.name || view.id || 'the default profile') + (view.detail ? ' (' + view.detail + ')' : '')
-    : 'Copilot';
+  var runsWith = (view.name || view.id || 'the default profile') + (view.detail ? ' (' + view.detail + ')' : '');
   var click = view.canPick ? ' onclick="event.stopPropagation();pickItemProfile(\'' + safeId + '\')"' : '';
   if (view.own) {
     return '<span class="queue-profile-chip' + (view.canPick ? ' pickable' : '') + '" data-profile="' + escapeHtml(String(view.id || '')) + '"' + click
@@ -1415,14 +1407,13 @@ function renderPrePrompts(item, status) {
     var ppRepeatCountDisplay = ppRepeatCountRaw ? String(ppRepeatCountRaw) : '1';
     var ppRepeatLabel = formatRepeatLabel(ppRepeatCountRaw, pp.repeatIndex, pp.resolvedRepeatCount);
     var ppSkipBtn = (isActive && ppRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeItemId + '\')" title="Skip to next PP iteration"></span>' : '';
-    var ppAnswerWait = Math.max(0, parseInt(String(pp.answerWaitMinutes || 0), 10) || 0);
     return '<div class="preprompt-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="preprompt-item-head">' +
         '<span>' + doneMark + 'Pre-prompt #' + (idx + 1) + (pp.template ? ' [' + escapeHtml(templateLabel) + ']' : '') + (ppRepeatLabel ? ' [PP ' + ppRepeatLabel + ppSkipBtn + ']' : '') +
         (pp.transport === 'anthropic' ? ' <span style="background:#4a9eff;color:#fff;padding:1px 4px;border-radius:3px;font-size:9px;">[anthropic' + (pp.anthropicProfileId ? ':' + escapeHtml(pp.anthropicProfileId) : '') + ']</span>' : '') +
         '</span>' +
         '<span class="followup-tools">' +
-          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editPrePromptTransport(\'' + safeItemId + '\', ' + idx + ')" title="Change transport (stage override)"></span>' : '') +
+          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editPrePromptTransport(\'' + safeItemId + '\', ' + idx + ')" title="Change its profile (stage override)"></span>' : '') +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removePrePrompt(\'' + safeItemId + '\', ' + idx + ')" title="Delete pre-prompt"></span>' : '') +
         '</span>' +
       '</div>' +
@@ -1434,13 +1425,7 @@ function renderPrePrompts(item, status) {
                  '<select onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'template\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
                    runDefaultTemplateOption(item, pp.template) +
                    '<option value=""' + (!pp.template || pp.template === '(None)' ? ' selected' : '') + '>(None)</option>' +
-                   ((pp.transport || item.transport) === 'anthropic'
-                     ? (anthropicUserMessageTemplates || []).map(function(t) {
-                         return '<option value="' + escapeHtml(t.id) + '"' + ((pp.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>';
-                       }).join('')
-                     : (promptTemplates || []).map(function(name) {
-                         return '<option value="' + escapeHtml(name) + '"' + ((pp.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>';
-                       }).join('')) +
+                   promptTemplateOptionsHtml(pp.template) +
                  '</select>')
               : '';
             return '<textarea onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'text\', this.value)">' + escapeHtml(pp.text || '') + '</textarea>' +
@@ -1448,10 +1433,6 @@ function renderPrePrompts(item, status) {
             ppTplHtml +
             '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
             '<input type="text" value="' + escapeHtml(ppRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'repeatCount\', this.value)">' +
-            (stageTransportOf(item, pp) === 'copilot'
-              ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
-                '<input class="copilot-only" type="number" min="0" step="1" value="' + ppAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updatePrePromptField(\'' + safeItemId + '\', ' + idx + ', \'answerWaitMinutes\', this.value)">'
-              : '') +
           '</div>';
           })()
         : '<div class="preprompt-content" style="margin:4px 0; white-space:pre-wrap;">' + escapeHtml(pp.text || '') + '</div>') +
@@ -1488,7 +1469,6 @@ function renderFollowUps(item, status) {
     var fuRepeatCountDisplay = fuRepeatCountRaw ? String(fuRepeatCountRaw) : '1';
     var fuRepeatLabel = formatRepeatLabel(fuRepeatCountRaw, f.repeatIndex, f.resolvedRepeatCount);
     var fuSkipBtn = (isActive && fuRepeatLabel) ? ' <span class="codicon codicon-debug-step-over" style="cursor:pointer;font-size:11px;" onclick="event.stopPropagation();continueSending(\'' + safeItemId + '\')" title="Skip to next FU iteration"></span>' : '';
-    var fuAnswerWait = Math.max(0, parseInt(String(f.answerWaitMinutes || 0), 10) || 0);
     return '<div class="followup-item' + (isActive ? ' is-active' : '') + '">' +
       '<div class="followup-item-head">' +
         '<span>' + doneMark + 'Follow-up #' + (idx + 1) + (f.template ? (' [' + escapeHtml(templateLabel) + ']') : '') + (fuRepeatLabel ? ' [FU ' + fuRepeatLabel + fuSkipBtn + ']' : '') +
@@ -1496,7 +1476,7 @@ function renderFollowUps(item, status) {
         '</span>' +
         '<span class="followup-tools">' +
           '<span class="codicon codicon-eye" style="cursor:pointer;" onclick="previewFollowUp(\'' + safeItemId + '\', \'' + safeFollowUpId + '\')" title="Preview follow-up"></span>' +
-          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editFollowUpTransport(\'' + safeItemId + '\', \'' + safeFollowUpId + '\')" title="Change transport (stage override)"></span>' : '') +
+          (isEditable ? '<span class="codicon codicon-settings" style="cursor:pointer;" onclick="editFollowUpTransport(\'' + safeItemId + '\', \'' + safeFollowUpId + '\')" title="Change its profile (stage override)"></span>' : '') +
           (isEditable ? '<span class="codicon codicon-trash" style="cursor:pointer;" onclick="removeFollowUp(\'' + safeItemId + '\', \'' + safeFollowUpId + '\')" title="Delete follow-up"></span>' : '') +
         '</span>' +
       '</div>' +
@@ -1508,9 +1488,7 @@ function renderFollowUps(item, status) {
                  '<select onchange="updateFollowUpTemplate(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', this.value)" title="' + escapeHtml(PROMPT_TEMPLATE_TITLE) + '">' +
                    runDefaultTemplateOption(item, f.template) +
                    '<option value=""' + (!f.template || f.template === '(None)' ? ' selected' : '') + '>(None)</option>' +
-                   ((f.transport || item.transport) === 'anthropic'
-                     ? (anthropicUserMessageTemplates || []).map(function(t){ return '<option value="' + escapeHtml(t.id) + '"' + ((f.template || '') === t.id ? ' selected' : '') + '>' + escapeHtml(t.name || t.id) + '</option>'; }).join('')
-                     : (promptTemplates || []).map(function(name){ return '<option value="' + escapeHtml(name) + '"' + ((f.template || '') === name ? ' selected' : '') + '>' + escapeHtml(formatPromptTemplateName(name)) + '</option>'; }).join('')) +
+                   promptTemplateOptionsHtml(f.template) +
                  '</select>')
               : '';
             return '<textarea onchange="updateFollowUp(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', this.value)">' + escapeHtml(f.originalText || '') + '</textarea>' +
@@ -1519,10 +1497,6 @@ function renderFollowUps(item, status) {
               fuTplHtml +
               '<span style="font-size:0.8em;opacity:0.85;margin-left:8px;">Repeats:</span>' +
               '<input type="text" value="' + escapeHtml(fuRepeatCountDisplay) + '" style="width:40px" placeholder="1" title="Number or variable name" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'repeatCount\', this.value)">' +
-              (stageTransportOf(item, f) === 'copilot'
-                ? '<span class="copilot-only" style="font-size:0.8em;opacity:0.85;margin-left:8px;">Answer Wait:</span>' +
-              '<input class="copilot-only" type="number" min="0" step="1" value="' + fuAnswerWait + '" style="width:33px" title="Minutes to wait" onchange="updateFollowUpField(\'' + safeItemId + '\', \'' + safeFollowUpId + '\', \'answerWaitMinutes\', this.value)">'
-                : '') +
             '</div>' +
           '</div>';
           })()
@@ -1639,10 +1613,6 @@ function interruptButtonTitle(item) {
   var view = item && item.softInterruptView;
   if (view && view.phase === 'requested' && !view.unlimited) { return 'Soft interrupt requested (waits up to 15 s) — click again to wait for the hold point without a limit; a third click is the hard interrupt'; }
   if (view) { return (view.unlimited && view.phase === 'requested' ? 'Waiting without a limit for the hold point' : 'Held for continuation') + ' — click again for a hard interrupt now'; }
-  var transport = item && (item.interruptTransport || (item.lastDispatched && item.lastDispatched.transport) || item.transport);
-  if (transport !== 'anthropic') {
-    return 'Interrupt for continuation: a Copilot prompt has no hold point — it is interrupted at once (hard) and resent when auto-send is re-enabled';
-  }
   return 'Interrupt for continuation: soft first — the next tool result is held and the turn goes on where it stopped when auto-send is re-enabled; a hard interrupt after 15 s without a hold point. A second click waits for the hold point without a limit, a third is the hard interrupt';
 }
 

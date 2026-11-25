@@ -4,7 +4,7 @@ Three interrelated features for automating and scheduling AI prompts:
 
 | Feature | Handler / Manager | UI entry |
 |---------|-------------------|----------|
-| Prompt Queue | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) + [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) | `@CHAT` Copilot / ANTHROPIC/LLM panel → "Add to Queue" / "Open Queue Editor" |
+| Prompt Queue | [promptQueueManager.ts](../src/managers/promptQueueManager.ts) + [queueEditor-handler.ts](../src/handlers/queueEditor-handler.ts) | `@CHAT` ANTHROPIC/LLM panel → "Add to Queue" / "Open Queue Editor" |
 | Timed Requests | [timerEngine.ts](../src/managers/timerEngine.ts) + dedicated panel in `@WS` | Timed Requests tab in `@WS` |
 | Queue Template Editor | [queueTemplateEditor-handler.ts](../src/handlers/queueTemplateEditor-handler.ts) | Command `tomAi.openQueueTemplateEditor` |
 
@@ -14,7 +14,7 @@ Three interrelated features for automating and scheduling AI prompts:
 
 ### Overview
 
-The queue is a **strictly sequential, ordered list** of `QueuedPrompt` items. One item is `'sending'` at a time; the next `'pending'` item only starts once the current one reaches `'sent'` or `'error'`. Items can interleave Copilot and Anthropic transports within the same queue.
+The queue is a **strictly sequential, ordered list** of `QueuedPrompt` items. One item is `'sending'` at a time; the next `'pending'` item only starts once the current one reaches `'sent'` or `'error'`. Every item is sent through the Anthropic handler, with the profile it resolves to.
 
 ### Storage
 
@@ -31,8 +31,8 @@ staged → pending → sending → sent
 
 - `staged` — item exists but is not yet in the active run (held by the user).
 - `pending` — queued and waiting for the item ahead to finish.
-- `sending` — currently dispatching (may be polling for Copilot or awaiting the Anthropic API). Shown as **`SENDING <KIND> (PAUSED)`** in the editor (status and kind in one label, e.g. `SENDING TODO (PAUSED)`) when the item is mid-flight but auto-send was turned off (see pause/resume below).
-- `sent` — all stages complete; `answerText` set for Anthropic items.
+- `sending` — currently dispatching (awaiting the Anthropic handler). Shown as **`SENDING <KIND> (PAUSED)`** in the editor (status and kind in one label, e.g. `SENDING TODO (PAUSED)`) when the item is mid-flight but auto-send was turned off (see pause/resume below).
+- `sent` — all stages complete; `answerText` holds the answer.
 - `error` — dispatch failed; `error` field holds the message; **auto-send is flipped off** so the failure doesn't cascade into the following pending items.
 
 ### Pause / resume and error handling
@@ -43,7 +43,7 @@ resumes from the interrupted repetition rather than restarting the item or
 skipping a rep.
 
 - **Pause finishes the current rep, then holds.** Turning auto-send off lets the
-  in-flight repetition complete (`DispatchOutcome = 'dispatched' | 'done' | 'paused'`);
+  in-flight repetition complete (`DispatchOutcome = 'done' | 'paused'`);
   the item stays `'sending'` with its counters intact and the editor shows
   `SENDING <KIND> (PAUSED)`. The first dispatch of an item is always allowed even with
   auto-send off, so an explicit "Send" is never blocked.
@@ -65,99 +65,69 @@ Full mechanics (pure helpers `itemHasInFlightProgress` / `applyErrorTransition` 
 `move(id, 'front')` "Send next" affordance) are documented in
 [multi_transport_prompt_queue_revised.md §4.18](../doc/multi_transport_prompt_queue_revised.md).
 
-### Transports
+### Transport
 
-Two transports per item (and per pre-prompt / follow-up stage):
+Every item, pre-prompt and follow-up stage is sent through the Anthropic handler (`transport: 'anthropic'`); which API runs — direct, Agent SDK, VS Code LM or a Local LLM — follows from the configuration of the profile the stage resolves to.
 
-#### Copilot transport
+1. `_buildExpandedText()` applies the named template (from the one store, `anthropic.userMessageTemplates`).
+2. `dispatchStage()` resolves `(profile, configuration)` via `resolveAnthropicTargets`, coerces `toolApprovalMode = 'never'`, calls `AnthropicHandler.instance.sendMessage()` and awaits the answer text.
+3. The answer is stored as `answerText` on the item (or on the stage), and the dispatch loop goes on with the next stage; a dispatch always completes inline.
 
-1. `_buildExpandedText()` applies the named template (from the one store, `anthropic.userMessageTemplates`) and wraps the text in the Copilot Queue Wrapper (`copilot.queueWrapper`, default built in), unless the item sets `answerWrapper: false`.
-2. `dispatchStage()` extracts `expectedRequestId`, calls `workbench.action.chat.open`, returns `{ mode: 'polled', expectedRequestId }`.
-3. `pollForExpectedAnswer()` watches `_ai/answers/copilot/` for a file whose `requestId` matches. Polling interval: 30 s. Background watchdog: 60 s.
-4. Additional Copilot-only features: `reminderEnabled` (ReminderSystem generates follow-up prompts after a timeout), `answerWaitMinutes` (auto-advance after N minutes without an answer).
-
-#### Anthropic transport
-
-1. `_buildExpandedText()` applies the named template; **no** answer-wrapper injection.
-2. `dispatchStage()` resolves `(profile, configuration)` via `resolveAnthropicTargets`, coerces `toolApprovalMode = 'never'`, calls `AnthropicHandler.instance.sendMessage()`, returns `{ mode: 'direct', answerText }`.
-3. `sendItem()` stores `answerText` on the item, calls `sendNext()` synchronously — no polling.
-4. Reminders, `answerWaitMinutes`, and the answer-file polling loop are **all skipped**.
-
-**Pre-prompt context propagation (Anthropic).** The Anthropic handler appends each turn to `rawTurns` / `compactedSummary` within the handler's session state. A pre-prompt's answer is therefore automatically visible to the main prompt without any queue-level stitching — the user writes them as natural consecutive prompts.
+**Pre-prompt context propagation.** The Anthropic handler appends each turn to `rawTurns` / `compactedSummary` within the handler's session state. A pre-prompt's answer is therefore automatically visible to the main prompt without any queue-level stitching — the user writes them as natural consecutive prompts.
 
 ### Stage resolution — three tiers
 
-For every stage (pre-prompt / main / follow-up), transport resolves as:
+For every stage (pre-prompt / main / follow-up), the profile resolves as:
 
 ```
-stage.transport  →  item.transport  →  queue defaultTransport  →  'copilot'
+stage profile  →  item profile  →  session's profile  →  the run's default profile
 ```
 
-`dispatchStage()` inside `promptQueueManager.ts` applies this chain before dispatching.
+and the configuration as the stage's, else the item's, else the run's default configuration, else the profile's own. `resolveStageTransport()` inside `promptQueueManager.ts` applies this chain before `dispatchStage()` sends.
 
 ### Queue YAML fields
 
 Per-item (and per-stage) fields:
 
 ```yaml
-# Copilot
-transport: copilot
-template: my-template-name
-answer-wrapper: true
-repeat-count: 3
-answer-wait-minutes: 10
-reminder-enabled: true
-reminder-template-id: my-reminder
-
-# Anthropic  
 transport: anthropic
+template: my-template-name
+repeat-count: 3
 anthropic-profile-id: software-engineer
 anthropic-config-id: claude-sonnet-46   # Anthropic OR Local LLM config id
 answer-text: "…captured response…"      # written by dispatcher on success
 ```
 
-Queue-level defaults in `queue-settings.yaml`:
+A run's defaults in `queue-settings.yaml`:
 
 ```yaml
-default-transport: anthropic
 default-anthropic-profile-id: software-engineer
 default-anthropic-config-id: claude-sonnet-46
 ```
 
-All fields are additive-optional (no migration required for existing queues).
+All fields are optional.
 
 ### Queue editor (`queueEditor-handler.ts`)
 
 The queue editor webview (opened via "Open Queue Editor") provides:
 
-**Header row — queue defaults.** A transport picker showing the queue's default transport, profile, and config. Changing these updates `queue-settings.yaml`.
+**Header row — the run's defaults.** A context bar showing the defaults the run's items take: Model (the Anthropic profile), Session and Template. Each value is a link that opens a VS Code picker; a change updates `queue-settings.yaml`.
 
 **Per-item rows.** Each item shows:
 - Status badge, prompt preview, repeat count, template name.
-- A **gear icon** → three-step VS Code QuickPick: transport (Copilot / Anthropic / Inherit) → profile → config. Selecting "Inherit" clears the item's transport fields so it falls through to the queue default.
-- Reminder + answer-wait controls, **disabled with tooltip** when transport is `'anthropic'` (those are Copilot-only).
+- Its profile: a chip with the profile's name when it has one of its own, else an icon button naming the profile it runs with; a click opens the profile picker.
+- A **gear icon** (staged items) → VS Code QuickPick: profile (or "Inherit (queue default)") → configuration → session. Selecting "Inherit" clears the item's profile and configuration so it falls through to the run's default.
 - Answer text preview (truncated + expand button) when `answerText` is present, with the two markdown preview buttons (`.qe-md-btn`: the overlay of `media/shared/mdOverlay.js` after the host's `renderMarkdown`, or `openMarkdownPreview` in the editor area).
 
-**Per-stage overrides.** Pre-prompt and follow-up rows each have their own gear icon → same QuickPick with "Inherit from item" as the inherit option.
+**Per-stage overrides.** Pre-prompt and follow-up rows each have their own gear icon → the same profile → configuration QuickPick with "Inherit from item" as the inherit option.
 
-**Auto-approve warning.** When the user picks Anthropic at any tier, a notice renders below the transport picker:
+**Auto-approve warning.** The Add form carries a notice beside its Profile select:
 
-> ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored. The queue cannot pause for the approval bar.
+> ⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored.
 
-**Template dropdown.** Lists the one template store (the user-message templates) for either transport. Changing transport clears the template selection.
+**Template dropdown.** Lists the one template store (the user-message templates).
 
-**Add form.** New items inherit transport from the queue default unless the user overrides in the form's own transport picker.
-
-### `renderTransportPicker` component
-
-Utility at [src/utils/transportPicker.ts](../src/utils/transportPicker.ts). Renders an HTML fragment with transport dropdown + conditional profile/config dropdowns and the auto-approve warning. Used by the queue editor's header row and Add form. Per-item / per-stage overrides use the QuickPick flow instead (keeps item rows compact).
-
-| Context | Options | Inherit option? |
-|---------|---------|----------------|
-| `queue-default` | Copilot, Anthropic | No |
-| `queue-item` | Inherit (queue default), Copilot, Anthropic | Yes |
-| `queue-stage` | Inherit (item), Copilot, Anthropic | Yes |
-| `template-editor` | Copilot, Anthropic | No |
+**Add form.** A **Profile** select: a profile for the new item, or `(default profile)` — the default profile of its run.
 
 ### Tool surface
 
@@ -179,7 +149,7 @@ Queue MCP tools for AI agents:
 | `tomAi_sendQueuedPrompt` | Force-send a specific item |
 | `tomAi_addQueueFollowUp` | Add follow-up to existing item |
 
-Add/update tools accept `transport`, `anthropicProfileId`, `anthropicConfigId` fields. `tomAi_listQueue` returns them.
+Add/update tools accept `anthropicProfileId` and `anthropicConfigId` (`transport` accepts only `anthropic` and may be left out). `tomAi_listQueue` returns them.
 
 ---
 
@@ -215,7 +185,7 @@ interface TimedRequest {
 
 ### Dispatch
 
-A due timed request is enqueued into the prompt queue as a `pending` item of type `timed` and runs there with the queue's default transport (an entry carries no transport of its own). Its `template` is the entry's template (the one store, `config.anthropic.userMessageTemplates`; `(None)` without one), applied to `originalText` like any item's. The item names its entry in `timedEntryId` (entry file meta: `type: timed`, `timed-entry-id`; `src/utils/timedQueueItems.ts`): the engine skips an entry that still has a staged, pending or sending item, and pausing an entry removes its staged and pending items. An entry file of an earlier build, which marked the item by the template `timed:<entry id>`, reads as a timed item of that entry with no template.
+A due timed request is enqueued into the prompt queue as a `pending` item of type `timed` and runs there with the queue's default profile (an entry carries no profile of its own). Its `template` is the entry's template (the one store, `config.anthropic.userMessageTemplates`; `(None)` without one), applied to `originalText` like any item's. The item names its entry in `timedEntryId` (entry file meta: `type: timed`, `timed-entry-id`; `src/utils/timedQueueItems.ts`): the engine skips an entry that still has a staged, pending or sending item, and pausing an entry removes its staged and pending items. An entry file of an earlier build, which marked the item by the template `timed:<entry id>`, reads as a timed item of that entry with no template.
 
 ### Persistence
 
@@ -254,7 +224,7 @@ Source: [queueTemplateEditor-handler.ts](../src/handlers/queueTemplateEditor-han
 ```
 
 - **Left sidebar** — list of templates. Toolbar: New, Copy, Rename, Open YAML, Delete.
-- **Right panel** — shared queue-entry editor (same component as the queue editor's item form). All fields are editable: transport, profile, config, main prompt, pre-prompts, follow-ups, templates, reminders, repeat count, etc.
+- **Right panel** — shared queue-entry editor (same component as the queue editor's item form). The main prompt, pre-prompts, follow-ups and repeat count are editable.
 - **Bottom bar** — **Queue Prompt** copies the template (with the current prompt text filled in) into the live queue as a new `staged` item. **Save** persists edits back to the template file.
 
 ### Template files
@@ -266,7 +236,7 @@ meta:
   name: My Template Name
   description: Optional description
 prompt:
-  template: my-copilot-template
+  template: my-template
   transport: anthropic
   anthropic-profile-id: software-engineer
   anthropic-config-id: claude-sonnet-46
@@ -276,14 +246,12 @@ prompt:
     - text: "Verification step"
 ```
 
-### Transport on templates
+### Profile and template when a template is queued
 
-Templates carry the same transport fields as live queue items. When the template is queued, the transport settings are copied verbatim. The `renderTransportPicker` is wired in the template editor's Add/edit form via the `template-editor` context (no inherit option — templates always specify their own transport or leave it unset to default to `'copilot'`).
+When a template is queued, every main prompt, pre-prompt and follow-up of it takes the prompt queue's default message template and default profile as they are at that moment (`transport: anthropic`, `anthropic-profile-id`).
 
-In practice, the **Global Template Editor** (Category dropdown, separate from the queue template editor) covers the Copilot and Anthropic user-message template stores. The Queue Template Editor is about queue-level workflow templates (full queue entry structure), not about text-transformation templates.
+The **Global Template Editor** (Category dropdown, separate from the queue template editor) covers the user-message template store. The Queue Template Editor is about queue-level workflow templates (full queue entry structure), not about text-transformation templates.
 
 ### Operational notes
 
-- When a template's transport is changed, the template editor clears the template-name selection and repopulates from the new transport's store (same rule as the live queue editor).
-- The `queueTransport` from the template's settings is stamped onto every pre-prompt and follow-up when opening a template in the editor, so transport is consistently visible at the stage level.
 - Templates can encode complex multi-stage workflows (many pre-prompts + follow-ups) for one-click queuing of repeated processes.

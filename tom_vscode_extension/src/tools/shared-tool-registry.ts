@@ -46,7 +46,7 @@ export interface SharedToolDefinition<TInput = Record<string, unknown>> {
     requiresApproval?: boolean;
 
     /**
-     * Whether users can reference the tool directly in Copilot Chat
+     * Whether users can reference the tool directly in VS Code's chat
      * via `#toolName`. Defaults to false.
      */
     canBeReferencedInPrompt?: boolean;
@@ -59,7 +59,7 @@ export interface SharedToolDefinition<TInput = Record<string, unknown>> {
      * model — the direct Anthropic API: text, image and document blocks (an
      * image or a PDF the model looks at). `undefined` means "no rich answer
      * for this input" and {@link execute} answers instead. Other transports
-     * (Local LLM, VS Code LM, the Agent SDK's MCP server, Copilot) never call
+     * (Local LLM, VS Code LM, the Agent SDK's MCP server) never call
      * it and keep `execute`'s text.
      */
     executeRich?: (input: TInput) => Promise<RichToolResult | undefined>;

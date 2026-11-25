@@ -45,13 +45,13 @@ describe('run default choice', () => {
     });
 
     test('RDC-3: the chat panel drafts', () => {
-        const drafts = { copilot: { text: 'hi', profile: 'fast' }, anthropic: { text: 'x', profile: 'opus', userMessageTemplate: 'fast' } };
+        const drafts = { other: { text: 'hi', profile: 'fast' }, anthropic: { text: 'x', profile: 'opus', userMessageTemplate: 'fast' } };
         const out = chatDraftsOnRunDefault(drafts);
         assert.deepEqual(out, {
-            copilot: { text: 'hi', profile: RUN_DEFAULT_CHOICE },
+            other: { text: 'hi', profile: 'fast' },
             anthropic: { text: 'x', profile: 'opus', userMessageTemplate: RUN_DEFAULT_CHOICE },
-        }, 'the templates switch, the Anthropic profile stays');
-        assert.equal(drafts.copilot.profile, 'fast', 'the input is not changed');
-        assert.deepEqual(chatDraftsOnRunDefault({}), { copilot: { profile: RUN_DEFAULT_CHOICE }, anthropic: { userMessageTemplate: RUN_DEFAULT_CHOICE } });
+        }, 'the template switches, the Anthropic profile stays; another stored section stays as it is');
+        assert.equal(drafts.anthropic.userMessageTemplate, 'fast', 'the input is not changed');
+        assert.deepEqual(chatDraftsOnRunDefault({}), { anthropic: { userMessageTemplate: RUN_DEFAULT_CHOICE } });
     });
 });

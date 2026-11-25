@@ -21,9 +21,7 @@ import type { PromptQueueManager } from '../managers/promptQueueManager';
 import { resolveTodoButtonTemplate, todoButtonTemplateUse, TODO_BUTTON_TEMPLATE_INFO, type TodoButtonTemplateUse } from '../utils/todoButtonTemplates';
 import { queuedTodoPatterns, todoIdPatternMatches, todoIdPatternOf, todoQueueMarkEntries, todoQueueMarkTitle, type QueueItemForMarks } from '../utils/todoQueueMarks';
 import { wireQuestHintMessages } from './questHint-handler';
-import { copilotQueueWrapper, fillTemplate, fillWrapper, userMessageTemplateBody } from '../utils/copilotTemplates';
 import * as vscode from 'vscode';
-import { withAspectsForCopilot } from '../services/aspectGuidelinesStore';
 import { questShortDescription, windowWorkspaceQuests, workspaceQuestChoices } from '../services/aiWorkspaceLive';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -63,12 +61,10 @@ import { restoreTodos } from '../utils/todoArchive';
 import { defaultTodoPanelScope, isPlainScope, normalizeTodoPanelScope, questPrefixShown, resolveScopeQuests, retiredKindOf, scopeButtonText, scopeFileScope, todoPanelScopeKey, type TodoPanelScope, type TodoPanelScopeKind } from '../utils/todoPanelScope';
 import { FINALIZER_INDEX, newGroupTodoId, todoIdInputError, numberIn, renamesReachFinalizer, todoIdPrefix, todoMoveNeedsIdChoice, todoMoveOptions, todoMovePickerTitle, todoOriginOfRelativePath, todoPrefixChoices, todoPrefixPreview, todoRenames, validateTodoPrefix, type TodoMoveOrigin } from '../utils/todoDestinationPicker';
 import { getExternalApplicationForFile, openInExternalApplication, resolvePathVariables } from './handler_shared';
-import { expandTemplate } from './promptTemplate';
 import { loadSendToChatConfig } from '../utils/sendToChatConfig';
 import { isRunDefaultChoice, itemTemplateOfChoice } from '../utils/runDefaultChoice';
-import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, todoSendBlock, type StackedTodoFragment, type TodoSendTransport } from '../utils/todoSendTargets';
+import { buildStackedTodoPrompt, buildTodoSendTemplateChoices, todoSendBlock, type StackedTodoFragment } from '../utils/todoSendTargets';
 import { todoYamlBlock } from '../utils/todoIterationRecord';
-import { unescapePlaceholders } from '../utils/placeholderEscape';
 import { wireCompletionMessages } from '../utils/completionWiring';
 import { todoFormUnchanged } from '../utils/todoFormSave';
 import { groupPromptDirs } from '../services/groupPromptDirs';
@@ -778,14 +774,14 @@ export function setSessionTodosProvider(provider: QuestTodoEmbeddedViewProvider)
     _sessionTodosProvider = provider;
 }
 
-/** Refresh the session todo panel (e.g. after copilot tool adds a session todo). */
+/** Refresh the session todo panel (e.g. after a tool adds a session todo). */
 export function refreshSessionPanel(): void {
     _sessionTodosProvider?.refresh();
 }
 
 /**
  * Delete a session todo by moving it to the -deleted / -archived sibling
- * of the session file (TRA01 semantics; called from copilot tools).
+ * of the session file (TRA01 semantics; called from the tools).
  * Returns true when the todo was moved.
  */
 export function deleteSessionTodoToFile(todoId: string): boolean {
@@ -2207,12 +2203,9 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             return true;
         }
         case 'qtGetTemplates': {
-            // The send button + template dropdown follow the prompt queue's
-            // current transport (Bug 3): copilot → copilot todo templates,
-            // anthropic → anthropic user-message templates.
+            // The template dropdown: the user-message templates, "Run default" naming the run's template.
             const config = loadSendToChatConfig();
-            const { transport, templateId } = await _queueSendTarget();
-            const choices = buildTodoSendTemplateChoices(transport, config ?? undefined, templateId);
+            const choices = buildTodoSendTemplateChoices('anthropic', config ?? undefined, await _runDefaultTemplateId());
             post({
                 type: 'qtTemplates',
                 templates: choices.templates,
@@ -2243,7 +2236,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             }]);
             return true;
         }
-        case 'qtSendCurrentTodoToCopilot': {
+        case 'qtSendCurrentTodoToChat': {
             const questId = effectiveQuestId(msg.questId);
             const todoId = String(msg.todoId || '');
             if (!todoId) {
@@ -2257,7 +2250,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             }
             if (_isRepeatedTodoAction(`${questId}/${todo.id}`, 'send', String(msg.template || '__none__'), `sent: todo ${todo.id}`)) { return true; }
             const todoPrompt = buildStackedTodoPrompt([_todoPromptFragment(todo, questId, msg.sourceFile)]);
-            await _sendTodoPromptViaQueueTransport(todoPrompt, String(msg.template || '__none__'), [todo.id], instance);
+            await _sendTodoPromptToChat(todoPrompt, String(msg.template || '__none__'), [todo.id], instance);
             return true;
         }
         case 'qtQueueTodoGroup': {
@@ -2362,7 +2355,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             if (missing.length) {
                 vscode.window.showWarningMessage(`Skipping missing stacked todos: ${missing.join(', ')}`);
             }
-            await _sendTodoPromptViaQueueTransport(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'), fragments.map((f) => f.ref.split('/').pop() ?? f.ref), instance);
+            await _sendTodoPromptToChat(buildStackedTodoPrompt(fragments), String(msg.template || '__none__'), fragments.map((f) => f.ref.split('/').pop() ?? f.ref), instance);
             return true;
         }
         case 'qtOpenInEditor': {
@@ -3320,12 +3313,6 @@ function _openYamlFile(questId: string, file: string): void {
 
 /** Built-in template texts used when config doesn't define them. */
 /**
- * Read the prompt queue's current send target — the transport the Quest TODO
- * send button + template dropdown should follow (Bug 3), plus the queue's
- * default (transport-scoped) message-template id. Defaults to copilot when the
- * queue manager is unavailable.
- */
-/**
  * A todo detail button (Send / Queue, Guide me): the todo with the template of
  * `use` (the Status Page's Todo buttons setting), on Anthropic whatever the
  * queue's transport — sent now in the @CHAT panel, or added to the queue staged.
@@ -3525,69 +3512,47 @@ async function _runDefaultTemplate(run: string): Promise<string> {
     } catch { return '__none__'; }
 }
 
-async function _queueSendTarget(): Promise<{ transport: TodoSendTransport; templateId?: string }> {
+/** The default template of this window's run (its queue settings), for the "Run default" label. */
+async function _runDefaultTemplateId(): Promise<string | undefined> {
     try {
         const { PromptQueueManager } = await import('../managers/promptQueueManager.js');
-        const qm = PromptQueueManager.instance;
-        // The queue defaults of this window's run (queue settings per run, vscimpb60a).
-        const defaults = qm.runQueueSettings(_windowRuns().windowRun);
-        return {
-            transport: defaults.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot',
-            templateId: defaults.defaultMessageTemplateId || undefined,
-        };
+        return PromptQueueManager.instance.runQueueSettings(_windowRuns().windowRun).defaultMessageTemplateId || undefined;
     } catch {
-        return { transport: 'copilot' };
+        return undefined;
     }
 }
 
 /**
  * Send a fully built todo prompt (single or stacked, incl. the REQUIRED
- * responseValue footer) via the prompt queue's currently selected transport
- * (Bug 3): the Anthropic chat transport when the queue targets Anthropic
- * (template body applied as the user-message wrapper), Copilot chat otherwise
- * (template applied through the ${originalPrompt} / answer-file expansion).
+ * responseValue footer) in the ANTHROPIC/LLM chat, the template body applied
+ * as the user-message wrapper.
  */
-async function _sendTodoPromptViaQueueTransport(todoPrompt: string, selectedTemplate: string, todoIds: string[] = [], instance = 'panel'): Promise<void> {
+async function _sendTodoPromptToChat(todoPrompt: string, selectedTemplate: string, todoIds: string[] = [], instance = 'panel'): Promise<void> {
     const config = loadSendToChatConfig();
-    const { transport } = await _queueSendTarget();
-    if (transport === 'anthropic') {
-        const ctx = _extensionContext;
-        if (!ctx) {
-            vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
-            return;
-        }
-        const { runAnthropicSend } = await import('./sendToChatRouter.js');
-        // In a free session of this window's runs, asked for (vscimpb139).
-        const sendTarget = await pickTodoSendTarget(instance);
-        if (!sendTarget) { return; }
-        // "Run default": the default template of the run it is sent in, looked up now.
-        const template = isRunDefaultChoice(selectedTemplate) ? (await _runDefaultTemplate(sendTarget.run)) : selectedTemplate;
-        const tplBody = (template && template !== '__none__')
-            ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === template)?.template
-            : undefined;
-        const outcome = await _sendTodoInTarget(sendTarget, (session) => runAnthropicSend(ctx, todoPrompt, {
-            source: 'todo panel', session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
-            // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
-            onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
-        }));
-        if (outcome.rejected) {
-            vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
-        } else if (!outcome.ok && outcome.error) {
-            vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
-        }
+    const ctx = _extensionContext;
+    if (!ctx) {
+        vscode.window.showErrorMessage('Extension context unavailable — cannot send to Anthropic.');
         return;
     }
-
-    // A todo button waits for the answer: the template (one store) inside the
-    // Copilot Queue Wrapper (src/utils/copilotTemplates.ts).
-    // "Run default": the default template of this window's run, looked up now.
-    const body = userMessageTemplateBody(config, isRunDefaultChoice(selectedTemplate) ? (await _queueSendTarget()).templateId ?? '' : selectedTemplate);
-    const inner = body ? await expandTemplate(fillTemplate(body, todoPrompt)) : todoPrompt;
-    const expanded = await expandTemplate(fillWrapper(copilotQueueWrapper(config), inner));
-
-    // The record's `$${` (escaped against the passes above) become `${` here, where the text leaves.
-    // The aspect guidelines go before the prompt: Copilot has no system prompt of its own (gsel2).
-    await vscode.commands.executeCommand('workbench.action.chat.open', { query: withAspectsForCopilot(unescapePlaceholders(expanded)) });
+    const { runAnthropicSend } = await import('./sendToChatRouter.js');
+    // In a free session of this window's runs, asked for (vscimpb139).
+    const sendTarget = await pickTodoSendTarget(instance);
+    if (!sendTarget) { return; }
+    // "Run default": the default template of the run it is sent in, looked up now.
+    const template = isRunDefaultChoice(selectedTemplate) ? (await _runDefaultTemplate(sendTarget.run)) : selectedTemplate;
+    const tplBody = (template && template !== '__none__')
+        ? config?.anthropic?.userMessageTemplates?.find((t) => t.id === template)?.template
+        : undefined;
+    const outcome = await _sendTodoInTarget(sendTarget, (session) => runAnthropicSend(ctx, todoPrompt, {
+        source: 'todo panel', session, run: sendTarget.run, ...(tplBody ? { userMessageTemplate: tplBody } : {}),
+        // Sent by the panel's buttons: the todos' done notifications (DP-part-done-notification-1).
+        onChatItem: (chatItemId) => { void _recordChatQueuedBy(chatItemId); },
+    }));
+    if (outcome.rejected) {
+        vscode.window.showWarningMessage(busySessionWarning(outcome.busySession ?? sendTarget.session));
+    } else if (!outcome.ok && outcome.error) {
+        vscode.window.showErrorMessage(`Send to Anthropic failed: ${outcome.error}`);
+    }
 }
 
 /**

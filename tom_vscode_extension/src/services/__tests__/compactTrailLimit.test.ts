@@ -10,9 +10,8 @@
  *   CTL-3 TrailService.writeSummaryPrompt / writeSummaryAnswer: a file far over the limit (an older build's, 1,774
  *         entries against 1,000) is back at the limit after one write, the new entry on top; without a setting the
  *         default 2000 holds
- *   CTL-4 the transports' writer paths: the local LLM / LM API logging (logPrompt, logResponse, writeTrailFile) and
- *         the Copilot answer logging (logCopilotAnswer) keep the limit; every other writer of the pair (the Anthropic
- *         handler, the Copilot trail service, the prompt queue's answer files) writes through TrailService, and no
+ *   CTL-4 the transports' writer paths: the local LLM / LM API logging (logPrompt, logResponse, writeTrailFile)
+ *         keeps the limit; the other writer of the pair (the Anthropic handler) writes through TrailService, and no
  *         other source file writes a compact trail header or trims one its own way
  */
 
@@ -152,14 +151,6 @@ describe('the compact trail limit', () => {
         await logging.writeTrailFile('x.answer.md', 'a', 'local', 'default', { questId: 'qs' });
         assert.deepEqual([turns(scripted.prompts), turns(scripted.answers)], [5, 5], 'writeTrailFile');
 
-        // Copilot answer files.
-        const copilot = svc.getSummaryFilePath('answers', { type: 'copilot' }, undefined);
-        assert.ok(copilot, 'the Copilot answers file resolves');
-        fs.mkdirSync(path.dirname(copilot), { recursive: true });
-        fs.writeFileSync(copilot, trailText('ANSWER', 40));
-        logging.logCopilotAnswer('/ws/answer.json', { generatedMarkdown: 'x' });
-        assert.equal(turns(copilot), 5, 'Copilot answer logging');
-
         // The other writers go through TrailService; nothing else writes or trims a compact trail.
         const writers = new Map<string, number>();
         for (const file of sourceFiles(SRC)) {
@@ -174,7 +165,7 @@ describe('the compact trail limit', () => {
                 assert.doesNotMatch(text, /function trim\w*TrailFile|trimTrailFile\(/, `${rel} has no trim of its own`);
             }
         }
-        for (const rel of ['handlers/anthropic-handler.ts', 'services/copilotTrailService.ts', 'services/trailLogging.ts', 'managers/promptQueueManager.ts']) {
+        for (const rel of ['handlers/anthropic-handler.ts', 'services/trailLogging.ts']) {
             assert.ok(writers.has(rel), `${rel} writes through TrailService`);
         }
         const service = fs.readFileSync(path.join(SRC, 'services', 'trailService.ts'), 'utf8');

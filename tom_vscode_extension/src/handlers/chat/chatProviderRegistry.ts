@@ -1,17 +1,12 @@
 /**
  * Chat-provider registry — Wave 3.3 starter.
  *
- * The `@CHAT` webview has five subpanels (Anthropic, Tom AI Chat,
- * AI Conversation, Copilot, Local LLM). Several message handlers in
- * `chatPanel-handler.ts` used to branch on `section === 'anthropic'`
- * vs. "everything else" because the Anthropic subpanel has actions
- * the others don't (its own trail summary viewer, its own session-
- * history file, its own draft extras — model / config /
- * userMessageTemplate on top of the common draft+template pair).
- *
- * The plan calls for collapsing those branches into a provider-map
- * lookup so adding a sixth subpanel stops being a grep-and-branch
- * exercise. This module is the landing place: a tiny registry keyed
+ * The `@CHAT` webview's chat subpanel (Anthropic) has actions of its own
+ * (its trail summary viewer, its session-history file, its draft extras —
+ * model / config / userMessageTemplate on top of the common draft+template
+ * pair). The message handlers in `chatPanel-handler.ts` look them up in a
+ * provider map, so adding a subpanel is not a grep-and-branch exercise.
+ * This module is the landing place: a tiny registry keyed
  * by section id, where each provider declares the hooks it
  * implements. Unregistered hooks fall back to the handler's existing
  * "default" path.
@@ -24,7 +19,7 @@
  */
 
 /** Subpanel id as it appears on webview messages. Stable. */
-export type ChatSection = 'anthropic' | 'copilot';
+export type ChatSection = 'anthropic';
 
 /**
  * Shape of the persisted prompt-panel draft for a section. Sections
@@ -72,8 +67,7 @@ export interface ChatProvider {
     /**
      * Send a reusable prompt's expanded contents through this
      * section's normal send path — used by the "play" icon next to
-     * reusable-prompt entries. Default for sections without a hook
-     * is "send via Copilot" (the review's backwards-compat choice).
+     * reusable-prompt entries.
      */
     sendReusablePrompt?: (content: string, state: ChatDraftState | undefined) => Promise<void>;
 

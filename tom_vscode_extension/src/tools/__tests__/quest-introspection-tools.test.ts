@@ -9,7 +9,7 @@
  *
  * Strategy: a real on-disk fixture under `os.tmpdir()` holding the
  * smallest shape that tells the tools apart — **2 quests + 3 projects** plus a
- * realistic spread of category folders (prompts, answers, notes,
+ * realistic spread of category folders (prompts, notes,
  * roles, guidelines) so `listDocuments` can be exercised against each
  * one. Real `fs` walks keep the test honest about path-traversal +
  * "recursive returns every file" semantics; the only fake is a
@@ -82,8 +82,9 @@ before(() => {
     write('_ai/prompt/start.md', '# start\n');
     write('_ai/prompt/templates/quest.md', '# template\n');
     write('_ai/prompt/.hidden.md', 'should be skipped\n');
-    // answers
+    // a folder beside the categories (no category of its own)
     write('_ai/answers/copilot/2026/jan/answer1.md', 'a1\n');
+    write('_ai/prompt/archive/2026/jan/old.md', 'old\n');
     // notes
     write('_ai/notes/note1.md', 'n1\n');
     write('_ai/notes/note2.md', 'n2\n');
@@ -156,7 +157,6 @@ const documentSource: DocumentSource = {
     resolveCategoryFolder(category: DocumentCategory) {
         const map: Record<DocumentCategory, string> = {
             prompts:    '_ai/prompt',
-            answers:    '_ai/answers/copilot',
             roles:      '_ai/roles',
             guidelines: '_copilot_guidelines',
         };
@@ -412,10 +412,9 @@ describe('listDocumentsImpl', () => {
         assert.deepEqual(r.files, ['dart/coding.md', 'index.md']);
     });
 
-    test('each of the 4 categories resolves to the correct workspace-relative folder', async () => {
+    test('each of the 3 categories resolves to the correct workspace-relative folder', async () => {
         const expectations: Record<DocumentCategory, string> = {
             prompts:    '_ai/prompt',
-            answers:    '_ai/answers/copilot',
             roles:      '_ai/roles',
             guidelines: '_agent_guidelines (or _copilot_guidelines)',
         };
@@ -428,13 +427,13 @@ describe('listDocumentsImpl', () => {
 
     test('hidden files are skipped (`.hidden.md` not in result)', async () => {
         const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'prompts' }));
-        // Fixture wrote start.md + templates/quest.md + .hidden.md
-        assert.deepEqual(r.files, ['start.md', 'templates/quest.md']);
+        // Fixture wrote start.md + templates/quest.md + archive/2026/jan/old.md + .hidden.md
+        assert.deepEqual(r.files, ['archive/2026/jan/old.md', 'start.md', 'templates/quest.md']);
     });
 
     test('recursive walk: nested folders surface as posix paths', async () => {
-        const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'answers' }));
-        assert.deepEqual(r.files, ['2026/jan/answer1.md']);
+        const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'prompts', subPath: 'archive' }));
+        assert.deepEqual(r.files, ['2026/jan/old.md']);
     });
 
     test('subPath narrows the walk (no traversal)', async () => {
@@ -487,7 +486,13 @@ describe('listDocumentsImpl', () => {
     test('the removed `notes` category (`_ai/notes`) is refused, saying where notes are now', async () => {
         const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'notes' as DocumentCategory }));
         assert.equal(r.ok, false);
-        assert.match(r.error, /Unknown category "notes" \(one of: prompts, answers, roles, guidelines\)/);
+        assert.match(r.error, /Unknown category "notes" \(one of: prompts, roles, guidelines\)/);
         assert.match(r.error, /_ai\/notes is no longer part of the workspace/);
+    });
+
+    test('the removed `answers` category is refused', async () => {
+        const r = JSON.parse(await listDocumentsImpl(documentSource, { category: 'answers' as DocumentCategory }));
+        assert.equal(r.ok, false);
+        assert.match(r.error, /Unknown category "answers" \(one of: prompts, roles, guidelines\)/);
     });
 });

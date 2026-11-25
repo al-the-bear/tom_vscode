@@ -1,10 +1,9 @@
 /**
  * Send-a-TODO-to-chat target helpers.
  *
- * The Quest TODO panel's "Send to Chat" button follows the prompt queue's
- * currently selected transport (`PromptQueueManager`'s `defaultTransport`):
- * Copilot chat or the Anthropic transport. The template dropdown lists the one
- * template store, the Anthropic user-message templates, for both.
+ * The Quest TODO panel's "Send to Chat" button sends on the Anthropic
+ * transport. The template dropdown lists the one template store, the
+ * Anthropic user-message templates.
  *
  * This module owns the pure, vscode-free decision of *which templates to offer
  * and which one is pre-selected* for a given transport, so it can be unit
@@ -13,7 +12,7 @@
 
 import { RUN_DEFAULT_CHOICE, runDefaultLabel } from './runDefaultChoice';
 
-export type TodoSendTransport = 'copilot' | 'anthropic';
+export type TodoSendTransport = 'anthropic';
 
 export interface TodoTemplateOption {
     id: string;
@@ -79,9 +78,7 @@ export interface TodoTemplateSourceConfig {
 
 /**
  * Build the dropdown options + pre-selected id for the Quest TODO send button.
- * Both transports offer the one template store, the Anthropic user-message
- * templates; on Copilot the send is put into the Copilot Queue Wrapper as well
- * (src/utils/copilotTemplates.ts), so there is no wrapper option to pick.
+ * It offers the one template store, the Anthropic user-message templates.
  *
  * "Run default" comes first and is preselected: the item gets no template of
  * its own and takes its run's default template when it is sent (a direct send

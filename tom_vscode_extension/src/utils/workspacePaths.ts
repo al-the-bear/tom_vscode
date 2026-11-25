@@ -84,25 +84,19 @@ const AI_SUBPATHS: Record<string, string> = {
     processes:           'processes',
     local:               'local',
     schemas:             'schemas/yaml',
-    copilot:             'copilot',
     chatReplies:         'chat_replies',
     attachments:         'attachments',
-    answersCopilot:      'answers/copilot',
     queue:               'queue',
     prompt:              'prompt',
     memory:              'memory',
     trail:               'trail',
     // Trail sub-folders (inside local/ etc.)
-    trailCopilot:        'copilot/trail',
 };
 
 /** Map of logical names → relative paths inside HOME_TOM_FOLDER. */
 const HOME_SUBPATHS: Record<string, string> = {
     vscodeConfig:               'vscode/tom_vscode_extension.json',
-    copilotChatAnswers:         'copilot-chat-answers',
     chatReplies:                'chat_replies',
-    copilotAnswers:             'copilot-answers',
-    copilotPrompts:             'copilot-prompts',
 };
 
 // ============================================================================
@@ -340,8 +334,6 @@ export class WsPaths {
             rolesPath:           ai ? path.join(ai, 'roles') : '',
             wsConfigPath:        config,
             wsConfigFolder:      WORKSPACE_CONFIG_FOLDER,
-            // Copilot answer file folder (workspace-relative)
-            copilotAnswerFolder: `${aiFolder}/${AI_SUBPATHS['answersCopilot']}`,
         };
     }
 

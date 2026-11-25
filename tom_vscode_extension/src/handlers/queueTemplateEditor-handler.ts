@@ -28,7 +28,7 @@ import {
 } from '../storage/queueFileStorage';
 import { loadSendToChatConfig } from './handler_shared';
 import { loadWebviewHtml } from '../utils/webviewLoader';
-import { userMessageTemplateOptions } from '../utils/copilotTemplates';
+import { userMessageTemplateOptions } from '../utils/userMessageTemplateLookup';
 import { inStoredOrder, moveInStoredOrder } from '../services/editorListOrder';
 import { moveDirection } from '../utils/listOrder';
 
@@ -315,7 +315,6 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     id: templateId,
     originalText: mainPrompt?.['prompt-text'] || '',
     template: mainPrompt?.template || '(None)',
-    answerWrapper: mainPrompt?.['answer-wrapper'] || false,
     status: 'staged',
     type: 'normal',
     createdAt: (meta as any).created || new Date().toISOString(),
@@ -323,7 +322,6 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
     repeatIndex: Math.max(0, Math.round(Number(mainPrompt?.['repeat-index'] || 0))),
     repeatPrefix: mainPrompt?.['repeat-prefix'] || '',
     repeatSuffix: mainPrompt?.['repeat-suffix'] || '',
-    answerWaitMinutes: Math.max(0, Math.round(Number(mainPrompt?.['answer-wait-minutes'] || 0))),
     templateRepeatCount: typeof mainPrompt?.['template-repeat-count'] === 'string' ? mainPrompt['template-repeat-count'] : (mainPrompt?.['template-repeat-count'] ? Math.max(0, Math.round(Number(mainPrompt['template-repeat-count']))) : undefined),
     templateRepeatIndex: mainPrompt?.['template-repeat-index'] ? Math.max(0, Math.round(Number(mainPrompt['template-repeat-index']))) : undefined,
     prePrompts: prePrompts.map(pp => ({
@@ -331,14 +329,12 @@ function docToTemplateItem(templateId: string, doc: QueueFileYaml): Record<strin
       template: pp.template || '',
       status: 'pending',
       repeatCount: pp['repeat-count'],
-      answerWaitMinutes: pp['answer-wait-minutes'],
     })),
     followUps: followUps.map(fu => ({
       id: fu.id || generateId(),
       originalText: fu['prompt-text'] || '',
       template: fu.template || '',
       repeatCount: fu['repeat-count'],
-      answerWaitMinutes: fu['answer-wait-minutes'],
       createdAt: new Date().toISOString(),
     })),
     followUpIndex: 0,
@@ -355,12 +351,10 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
     type: 'main',
     'prompt-text': item.originalText || '',
     template: item.template && item.template !== '(None)' ? item.template : undefined,
-    'answer-wrapper': item.answerWrapper || undefined,
     'repeat-count': item.repeatCount || 0,
     'repeat-index': Math.max(0, Math.round(Number(item.repeatIndex || 0))),
     'repeat-prefix': item.repeatPrefix || undefined,
     'repeat-suffix': item.repeatSuffix || undefined,
-    'answer-wait-minutes': Math.max(0, Math.round(Number(item.answerWaitMinutes || 0))) || undefined,
     'template-repeat-count': item.templateRepeatCount || undefined,
     'template-repeat-index': item.templateRepeatIndex || undefined,
     'pre-prompt-refs': [] as string[],
@@ -377,7 +371,6 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
       'prompt-text': pp.text || '',
       template: pp.template || undefined,
       'repeat-count': pp.repeatCount || undefined,
-      'answer-wait-minutes': pp.answerWaitMinutes || undefined,
     };
     prompts.push(ppYaml);
     main['pre-prompt-refs']!.push(ppId);
@@ -393,7 +386,6 @@ function templateItemToDoc(item: any, existingDoc?: QueueFileYaml): QueueFileYam
       'prompt-text': fu.originalText || '',
       template: fu.template || undefined,
       'repeat-count': fu.repeatCount || undefined,
-      'answer-wait-minutes': fu.answerWaitMinutes || undefined,
     };
     prompts.push(fuYaml);
     main['follow-up-refs']!.push(fuId);
@@ -525,7 +517,7 @@ async function queueFromTemplate(msg: any): Promise<void> {
       delete main.execution;
     }
 
-    // Stamp the queue-level transport + message template onto every
+    // Stamp the queue-level profile + message template onto every
     // prompt in the batch at dispatch time — main prompts AND their
     // pre- and follow-up stages. The queue template editor no longer
     // stores per-item templates; they all inherit from the prompt
@@ -535,19 +527,14 @@ async function queueFromTemplate(msg: any): Promise<void> {
     try {
       const queueModule = await import('../managers/promptQueueManager.js');
       const qm = queueModule.PromptQueueManager.instance;
-      const queueTransport: 'copilot' | 'anthropic' = qm?.defaultTransport === 'anthropic' ? 'anthropic' : 'copilot';
       const queueTemplate = qm?.defaultMessageTemplateId || '';
       const queueProfile = qm?.defaultAnthropicProfileId || '';
       const STAMPED_TYPES = new Set(['main', 'preprompt', 'followup']);
       for (const p of prompts) {
         if (!p || !STAMPED_TYPES.has(p.type)) { continue; }
         p['template'] = queueTemplate;
-        p['transport'] = queueTransport;
-        if (queueTransport === 'anthropic') {
-          p['anthropic-profile-id'] = queueProfile || undefined;
-        } else {
-          delete p['anthropic-profile-id'];
-        }
+        p['transport'] = 'anthropic';
+        p['anthropic-profile-id'] = queueProfile || undefined;
       }
     } catch { /* queue manager not ready — leave template as stored */ }
 

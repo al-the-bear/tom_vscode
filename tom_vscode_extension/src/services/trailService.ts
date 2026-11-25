@@ -18,7 +18,6 @@ export function questHistoryRoot(quest: string): string {
 
 export type TrailSubsystem =
     | { type: 'localLlm'; configName: string }
-    | { type: 'copilot' }
     | { type: 'lmApi'; model: string }
     /**
      * Anthropic subsystem. An optional `category` places files in a
@@ -48,7 +47,6 @@ interface RawTrailConfig {
     stripThinking?: boolean;
     paths?: {
         localLlm?: string;
-        copilot?: string;
         lmApi?: string;
         anthropic?: string;
         mcp?: string;
@@ -147,11 +145,11 @@ export class TrailService {
         const timestamp = new Date().toISOString();
 
         let payload = answer;
-        // Both copilot and anthropic emit a human-readable metadata block so the
-        // trail loader's copilot-format parser can recover `variables:` (and thus
-        // any `#TODO=` references) from the answer. Other subsystems keep the raw
-        // `### metadata json` wrapper, which the loader parses on its own branch.
-        if (subsystem.type === 'copilot' || subsystem.type === 'anthropic') {
+        // Anthropic emits a human-readable metadata block so the trail loader
+        // can recover `variables:` (and thus any `#TODO=` references) from the
+        // answer. Other subsystems keep the raw `### metadata json` wrapper,
+        // which the loader parses on its own branch.
+        if (subsystem.type === 'anthropic') {
             const metadataBlock = this.buildHumanReadableMetadataBlock(metadata);
             if (metadataBlock.length > 0) {
                 payload = `${answer}\n\n${metadataBlock.join('\n\n')}`;
@@ -285,7 +283,6 @@ export class TrailService {
             stripThinking: raw.stripThinking === true,
             paths: {
                 localLlm: raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}',
-                copilot: raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}',
                 lmApi: raw.paths?.lmApi ?? '${ai}/trail/lm-api/${quest}',
                 anthropic: raw.paths?.anthropic ?? '${ai}/trail/anthropic/${quest}',
                 mcp: raw.paths?.mcp ?? '${ai}/trail/mcp/${quest}',
@@ -310,9 +307,6 @@ export class TrailService {
         switch (subsystem.type) {
             case 'localLlm':
                 base = raw.paths?.localLlm ?? '${ai}/trail/localllm/${quest}';
-                break;
-            case 'copilot':
-                base = raw.paths?.copilot ?? '${ai}/trail/copilot/${quest}';
                 break;
             case 'anthropic': {
                 const catSuffix = subsystem.category ? `/${subsystem.category}` : '';
@@ -453,9 +447,6 @@ export class TrailService {
     }
 
     private getSubsystemName(subsystem: TrailSubsystem): string {
-        if (subsystem.type === 'copilot') {
-            return 'copilot';
-        }
         if (subsystem.type === 'localLlm') {
             return `localllm-${subsystem.configName}`;
         }

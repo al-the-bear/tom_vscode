@@ -13,7 +13,6 @@ export {
     getConfigPath,
     getWorkspaceStructure,
     ensureBridgeRunning,
-    sendCopilotRequest,
     validateDartFile,
     getFilePath,
     showAnalysisResult,
@@ -23,8 +22,6 @@ export {
 } from './handler_shared';
 
 // Command handlers
-export { sendToChatHandler } from './sendToChat-handler';
-export { SendToChatAdvancedManager } from './copilotTemplates-handler';
 export { executeInTomAiBuildHandler } from './executeInTomAiBuild-handler';
 export { executeAsScriptHandler } from './executeAsScript-handler';
 export { restartBridgeHandler, initializeBridgeClient, switchBridgeProfileHandler } from './restartBridge-handler';

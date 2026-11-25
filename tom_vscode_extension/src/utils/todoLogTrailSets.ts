@@ -3,8 +3,8 @@
  *
  * The summary trail pairs (`*.prompts.md` / `*.answers.md`) are written per
  * Anthropic session, in `history/sessions/<session>/` of the quest; the
- * quest's `history/` folder itself holds the pairs of the other subsystems
- * (Copilot). The view reads both: one set per pair, keyed `<session>/<name>`
+ * quest's `history/` folder itself holds the pairs of the other subsystems.
+ * The view reads both: one set per pair, keyed `<session>/<name>`
  * for a session's pair and `<name>` for the folder's own.
  *
  * vscode-free; `discover` is the trail editor's discoverTrailSets.

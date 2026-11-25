@@ -361,12 +361,12 @@ direct-SDK alike), the placeholders `${compactedSummary}`, `${rawTurns}`, and
 ## 5. Local LLM configuration (`localLlm` section)
 
 The section holds one key: `configurations` (§5.1), the Local LLM
-endpoints the Anthropic profiles and compaction run on. Every other key — the
-endpoint, model, sampling and trail settings, `models`, `profiles`,
-`expansionProfile` — belonged to the removed Local LLM panel; `npm run
-migrate:ai-formats` removes them (format version 7). `tools`, the settings of
-the removed tools `tomAi_askCopilot` / `tomAi_askBigBrother`, goes in format
-version 8, which also takes their names out of every tool list. A configuration's own keys of the same names
+endpoints the Anthropic profiles and compaction run on. No other key of the
+section is read — the endpoint, model, sampling and trail settings, `models`,
+`profiles`, `expansionProfile`; `npm run migrate:ai-formats` deletes them
+(format version 7). The key `tools` goes in format version 8, which also takes
+the tool names `tomAi_askCopilot` and `tomAi_askBigBrother`, which name no
+tool, out of every tool list. A configuration's own keys of the same names
 are its settings and stay.
 
 ### 5.1 `configurations[]` — full configuration entries
@@ -485,9 +485,6 @@ Anthropic profile: in its session (history, summary trail, live trail, tool
 results, memory). The last assembled request is dumped to the `localllm` raw
 trail bucket, since the wire endpoint is the local model.
 
-Copilot has no sessions either: `_ai/quests/<quest>/history/<quest>.copilot.{prompts,answers}.md`
-and `_ai/trail/copilot/<quest>/`, one set per quest.
-
 ## 6. Anthropic configuration (`anthropic` section)
 
 | Field | Effect |
@@ -566,7 +563,7 @@ The two files are validated against `src/config/role-type.schema.json` and `role
 A prompt gets the guideline aspects chosen for it, aspect by aspect (one
 choice per aspect): aspect-oriented prompting, where a prompt is given only the guidelines it
 needs. Every prompt the extension sends gets them: on every Anthropic
-transport (direct, Agent SDK, VS Code LM, Local LLM) and on Copilot. A
+transport (direct, Agent SDK, VS Code LM, Local LLM). A
 sub-agent's isolated send gets none.
 
 **The store** is `_ai/aspect_guidelines/`, shared by every quest and machine.
@@ -590,7 +587,7 @@ default: trail only      # the choice used when no level chooses; absent: nothin
 choices:                 # the order; choice files not listed follow by name
   - trail only
   - name: answer tool    # a choice with its condition (gsel20)
-    when: prompt.transport != "copilot"
+    when: prompt.transport != "localLlm"
 remove_when: prompt.kind == "timed"   # while it holds the aspect sends nothing
 order: 5                 # its place among the aspects, lowest first; absent: after those with one, by id
 ```
@@ -675,7 +672,7 @@ prompt is prepared, with the template expression language (`${{ … }}`,
 `src/utils/templateExpression.ts` `evaluateCondition`); the chosen choice is
 sent only while it holds, and nothing steps in for it. `remove_when:` holding
 sends nothing for the aspect. They read the prompt facts — `prompt.transport`
-(direct / agentSdk / copilot / localLlm / vscodeLm), `prompt.kind` (chat /
+(direct / agentSdk / localLlm / vscodeLm), `prompt.kind` (chat /
 queue / todo / proceed / timed, from the queue stage's context), `prompt.todo`,
 `prompt.role`, `prompt.roleType`, `prompt.run`, `prompt.process`,
 `prompt.quest`, `prompt.workspace`, `prompt.night` (the effective choices of
@@ -713,7 +710,7 @@ choices a caller passes in `aspectGuidelineChoices`.
 
 **The guideline picker** (`media/shared/aspectPicker.js`) sets the window, all
 windows, a run, a queue item and a todo from the Prompt Queue editor and the
-todo editor, and each @CHAT subpanel's sticky choices — the item level of its
+todo editor, and the @CHAT ANTHROPIC/LLM subpanel's sticky choices — the item level of its
 sends — from the @CHAT panel (level `chat` with `panel`, gsel6; user guide
 § Aspect guidelines). The pages get the aspects and
 the shared levels from `services/aspectPickerState.ts` and post
@@ -741,8 +738,6 @@ aspect:
 
 - **System aspects:** one segment of the system prompt.
 - **User aspects:** before the prompt text, separated from it by `---`.
-- **Copilot:** it has no system prompt of its own, so the system aspects and
-  then the user aspects go before the prompt text.
 
 The raw prompt trail (`.userprompt.md`) shows the text as it was sent.
 

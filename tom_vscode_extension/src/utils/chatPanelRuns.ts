@@ -1,6 +1,6 @@
 /**
  * The run picker of the @CHAT chat subpanels (vscimpb48): each subpanel
- * (ANTHROPIC/LLM, Copilot) works on a process run of the quest of its own,
+ * (ANTHROPIC/LLM) works on a process run of the quest of its own,
  * kept per window and quest; the PROCESS view's current run may differ.
  *
  * The run decides what the panel shows and what its sends go to: the
@@ -15,9 +15,9 @@ import { DEFAULT_RUN, normalizeRun } from './processRuns';
 import { runSessionName } from './runSessions';
 
 /** The subpanels that pick a run. */
-export type ChatRunSection = 'anthropic' | 'copilot';
+export type ChatRunSection = 'anthropic';
 
-export const CHAT_RUN_SECTIONS: readonly ChatRunSection[] = ['anthropic', 'copilot'];
+export const CHAT_RUN_SECTIONS: readonly ChatRunSection[] = ['anthropic'];
 
 /** The workspaceState key of a subpanel's run in a quest. */
 export function chatRunKey(quest: string, section: ChatRunSection): string {

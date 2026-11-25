@@ -3,8 +3,8 @@ import * as vscode from 'vscode';
 /**
  * Workspace-state backed draft store for notepad providers that keep
  * their content in VS Code's `workspaceState` memento rather than in a
- * file on disk (Copilot / Local LLM / AI Conversation / Tom AI Chat
- * panel drafts).
+ * file on disk (Local LLM / AI Conversation / Tom AI Chat panel
+ * drafts).
  *
  * Each instance owns one key and handles debounced save-on-change
  * semantics externally — providers call `save()` when the user edits,

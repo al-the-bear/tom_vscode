@@ -1,6 +1,6 @@
 /**
  * Aspect guidelines reach the sent prompt (gsel2): through the real AnthropicHandler on every transport, each against
- * a fake model that records what it was sent, and on Copilot through the send it opens. The workspace's
+ * a fake model that records what it was sent. The workspace's
  * `_ai/aspect_guidelines/` has a system section (`answer_mode`, default `brief`) and a user section (`night`, default
  * `quiet`).
  *
@@ -12,7 +12,6 @@
  *   AGT-5 the levels a send carries: an item's option replaces the default, a todo's `remove` sends nothing for its
  *         section
  *   AGT-6 an isolated send (a sub-agent) gets no aspect text
- *   AGT-7 Copilot: both sections before the prompt text, in what the Send to Copilot command opens
  */
 /* eslint-disable @typescript-eslint/naming-convention -- Ollama wire fields */
 
@@ -39,7 +38,7 @@ put('answer_mode/detailed.md', 'ASPECT-SYSTEM-DETAILED: answer in detail.\n');
 put('night/aspect.yaml', 'name: Night\nplacement: user\ndefault: quiet\n');
 put('night/quiet.md', 'ASPECT-USER-QUIET: nobody is there to answer questions.\n');
 
-const { stub, spies } = installVscodeStub({ workspaceFolders: [ws] });
+const { stub } = installVscodeStub({ workspaceFolders: [ws] });
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const vscode = require('vscode');
 
@@ -50,8 +49,6 @@ import { __setAgentSdkForTests } from '../agent-sdk-transport.js';
 import { fakeSuccessSdk } from './_agentSdkFake.js';
 import { TrailService } from '../../services/trailService.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
-import { withAspectsForCopilot } from '../../services/aspectGuidelinesStore.js';
-import { openCopilotChat } from '../sendToChatRouter.js';
 import type { AspectLevelChoices } from '../../utils/aspectGuidelines.js';
 
 TrailService.init({} as never);
@@ -195,16 +192,5 @@ describe('aspect guidelines in the sent prompt', () => {
         assert.match(sentSystem, /BASE-SYSTEM\./);
         assert.doesNotMatch(sentSystem, /ASPECT-/);
         assert.doesNotMatch(sentUser, /ASPECT-/);
-    });
-
-    test('AGT-7: Copilot', async () => {
-        const text = withAspectsForCopilot('COPILOT-PROMPT');
-        assert.match(text, /^## Aspect guidelines[\s\S]*ASPECT-SYSTEM-BRIEF[\s\S]*ASPECT-USER-QUIET[\s\S]*\n---\n\nCOPILOT-PROMPT$/);
-        assert.equal(withAspectsForCopilot('X', { window: { answer_mode: 'remove', night: 'remove' } }), 'X', 'nothing chosen: the prompt as it is');
-        spies.clear();
-        await openCopilotChat('COPILOT-PROMPT');
-        const opened = spies.byMethod('commands.executeCommand').find((c) => c.args[0] === 'workbench.action.chat.open');
-        assert.ok(opened, 'Copilot Chat opened');
-        assert.match(String((opened.args[1] as { query: string }).query), /ASPECT-SYSTEM-BRIEF[\s\S]*ASPECT-USER-QUIET[\s\S]*COPILOT-PROMPT/);
     });
 });

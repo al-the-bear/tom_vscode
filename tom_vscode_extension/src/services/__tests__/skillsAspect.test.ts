@@ -5,7 +5,7 @@
  *   SA-1 `${skills-list}` resolves to the block the system prompt carried before (heading, instruction, one line
  *        per skill)
  *   SA-2 a direct send carrying tomAi_loadSkill with `skills: all` (the default) gets exactly that block in its
- *        system segment; without the tool, on the Agent SDK and on Copilot none (as before)
+ *        system segment; without the tool and on the Agent SDK none (as before)
  *   SA-3 `skills` removed on a level: no skills list on direct and Agent SDK; tomAi_loadSkill still loads
  *   SA-4 the aspect in `_ai/aspect_guidelines/skills/` reads: placement system, default all, text `${skills-list}`
  */
@@ -68,7 +68,8 @@ describe('the skills list as an aspect (gsel21)', () => {
         assert.equal(send('direct', ['tomAi_readFile']), 'Profile.', 'a send without tomAi_loadSkill: none, as before');
         assert.equal(send('agentSdk', ['tomAi_loadSkill']), 'Profile.', 'the Agent SDK loads skills itself: none, as before');
         assert.equal(send('localLlm', ['tomAi_loadSkill']).includes(BLOCK), true, 'the other own-loop transports: the block');
-        assert.equal(skillsListFor('copilot', ['tomAi_loadSkill'], ws), '', 'Copilot: none');
+        assert.equal(skillsListFor('agentSdk', ['tomAi_loadSkill'], ws), '', 'the Agent SDK: none');
+        assert.equal(skillsListFor('direct', ['tomAi_readFile'], ws), '', 'without the tool: none');
         assert.equal(send('direct', ['tomAi_loadSkill'], { window: { skills: 'all' } }).includes(BLOCK), true, 'chosen explicitly: the same');
     });
 

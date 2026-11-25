@@ -48,7 +48,7 @@ describe('the removed _ai folders', () => {
         assert.doesNotMatch(read('src', 'utils', 'workspacePaths.ts'), /^\s*notes:/m, 'WsPaths has no notes key');
         assert.doesNotMatch(read('src', 'handlers', 'documentPicker.ts'), /NOTES:/);
         assert.doesNotMatch(read('src', 'tools', 'chat-enhancement-tools.ts'), /case 'notes'|'_ai\/notes'/);
-        assert.match(read('src', 'tools', 'quest-introspection-tools.ts'), /export type DocumentCategory = 'prompts' \| 'answers' \| 'roles' \| 'guidelines';/);
+        assert.match(read('src', 'tools', 'quest-introspection-tools.ts'), /export type DocumentCategory = 'prompts' \| 'roles' \| 'guidelines';/);
     });
 
     test('AR-2: the scripting bridge refuses notes and clarifications', () => {

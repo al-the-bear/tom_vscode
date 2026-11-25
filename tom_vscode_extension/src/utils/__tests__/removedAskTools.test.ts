@@ -9,7 +9,7 @@
  *   RAT-3 the migration: the workspace config and the user overlay, a quest's extension_config and a role type
  *         are listed, then written; the stamp becomes the build's version (8 or later); a second run lists nothing for the step
  *   RAT-4 nothing registers or lists the tools any more: the registry, the tool categories, the default tool
- *         list, package.json, the Status Page; the Status Page keeps the Copilot answer folder
+ *         list, package.json, the Status Page (which has no Copilot answer folder either)
  */
 
 import test, { describe } from 'node:test';
@@ -93,9 +93,8 @@ describe('removed tools tomAi_askCopilot / tomAi_askBigBrother', () => {
         assert.equal(fs.existsSync(path.join(EXT, 'src/tools/local-llm-tools-config.ts')), false);
         const page = read('src/handlers/statusPage-handler.ts');
         assert.doesNotMatch(page, /askCopilot|askBigBrother|AskCopilot|AskBigBrother/);
-        assert.match(page, /data-collapse="copilotAnswers"[\s\S]*id="sp-copilot-answerFolder"[\s\S]*data-status-action="updateCopilotAnswerFolder"/);
-        assert.match(page, /case 'updateCopilotAnswerFolder':\n\s+await updateCopilotAnswerFolder\(message\.settings \|\| \{\}\);/);
-        assert.match(read('media/statusPage/listeners.js'), /action === 'updateCopilotAnswerFolder'[\s\S]*getElementById\('sp-copilot-answerFolder'\)/);
+        assert.doesNotMatch(page, /copilotAnswers|sp-copilot-answerFolder|updateCopilotAnswerFolder/);
+        assert.doesNotMatch(read('media/statusPage/listeners.js'), /updateCopilotAnswerFolder|sp-copilot-answerFolder/);
         assert.doesNotMatch(read('src/utils/sendToChatConfig.ts'), /askCopilot|askBigBrother/);
     });
 });

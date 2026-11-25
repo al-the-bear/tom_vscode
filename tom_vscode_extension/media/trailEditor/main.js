@@ -102,7 +102,6 @@
         var quests = Object.keys(idx);
         function subsystemRank(name) {
             if (name === 'unknown') return 0;
-            if (name === 'copilot') return 2;
             return 1;
         }
         for (var q = 0; q < quests.length; q++) {
@@ -638,7 +637,6 @@
         out.sort(function(a, b) {
             function rank(name) {
                 if (name === 'unknown') return 0;
-                if (name === 'copilot') return 2;
                 return 1;
             }
             var rankCmp = rank(a.subsystem) - rank(b.subsystem);

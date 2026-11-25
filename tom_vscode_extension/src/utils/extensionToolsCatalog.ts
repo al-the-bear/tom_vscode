@@ -45,7 +45,7 @@ export interface ToolEntry {
 export const EXTENSION_TOOLS: readonly ToolEntry[] = [
     // (1) Prompts & templates
     { id: 'promptTemplates', label: 'Prompt Template Editor', group: 'prompts', icon: 'symbol-snippet', command: 'tomAi.editor.promptTemplates',
-        purpose: 'Every template in one editor: Copilot and Anthropic message templates, profiles, configurations, user-message templates, assist prompts.' },
+        purpose: 'Every template in one editor: the message templates, profiles, configurations, user-message templates, assist prompts.' },
     { id: 'queueTemplates', label: 'Queue-Template Editor', group: 'prompts', icon: 'list-ordered', command: 'tomAi.editor.queueTemplates',
         purpose: 'Queue templates (`*.template.queue.yaml`): an item with its pre-prompts and follow-ups, kept to queue again.' },
     { id: 'reusablePrompts', label: 'Reusable Prompt Editor', group: 'prompts', icon: 'note', command: 'tomAi.editor.reusablePrompts',

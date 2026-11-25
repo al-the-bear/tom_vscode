@@ -63,44 +63,44 @@ function cfg(): TomAiConfiguration {
 describe('TomAiConfiguration follows hand edits', () => {
     beforeEach(() => {
         fs.rmSync(userConfig, { force: true });
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://one' } }));
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1001 } }));
     });
 
     test('TC-1: a hand edit of a section is seen without a reload', () => {
         const c = cfg();
-        assert.equal(c.getCopilot().answerFolder, 'http://one');
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://two' }, todo: { defaultColumns: ['x'] } }));
-        assert.equal(c.getCopilot().answerFolder, 'http://two');
+        assert.equal(c.getBridge().requestTimeout, 1001);
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1002 }, todo: { defaultColumns: ['x'] } }));
+        assert.equal(c.getBridge().requestTimeout, 1002);
         assert.deepEqual(c.getSection<Record<string, unknown>>('todo')?.defaultColumns, ['x']);
     });
 
     test('TC-2: an unchanged file is not read again', (t) => {
         const c = cfg();
-        c.getCopilot();
+        c.getBridge();
         const read = t.mock.method(FsUtils, 'safeReadFile');
-        for (let i = 0; i < 5; i++) { c.getCopilot(); c.getTrail(); }
+        for (let i = 0; i < 5; i++) { c.getBridge(); c.getTrail(); }
         assert.equal(read.mock.callCount(), 0, 'no read while neither file changed');
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://three' } }));
-        assert.equal(c.getCopilot().answerFolder, 'http://three');
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1003 } }));
+        assert.equal(c.getBridge().requestTimeout, 1003);
         assert.equal(read.mock.callCount(), 1, 'one read for the one change');
     });
 
     test('TC-3: a file that disappears or appears', () => {
         const c = cfg();
-        assert.equal(c.getCopilot().answerFolder, 'http://one');
+        assert.equal(c.getBridge().requestTimeout, 1001);
         fs.rmSync(wsConfig);
-        assert.equal(c.getCopilot().answerFolder, TomAiConfiguration.defaults.copilot.answerFolder, 'defaults once it is gone');
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://back' } }));
-        assert.equal(c.getCopilot().answerFolder, 'http://back');
+        assert.equal(c.getBridge().requestTimeout, TomAiConfiguration.defaults.bridge.requestTimeout, 'defaults once it is gone');
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1004 } }));
+        assert.equal(c.getBridge().requestTimeout, 1004);
     });
 
     test('TC-4: a save, then a hand edit', async () => {
         const c = cfg();
-        await c.saveCopilot({ answerFolder: 'http://saved' });
-        assert.equal(c.getCopilot().answerFolder, 'http://saved');
-        assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).copilot.answerFolder, 'http://saved');
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://edited' } }));
-        assert.equal(c.getCopilot().answerFolder, 'http://edited');
+        await c.saveBridge({ requestTimeout: 1005 });
+        assert.equal(c.getBridge().requestTimeout, 1005);
+        assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).bridge.requestTimeout, 1005);
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1006 } }));
+        assert.equal(c.getBridge().requestTimeout, 1006);
     });
 
     test('TC-5: a hand edit of the user-global overlay', () => {
@@ -114,19 +114,19 @@ describe('TomAiConfiguration follows hand edits', () => {
 
     test('TC-6: an unparsable hand edit', () => {
         const c = cfg();
-        handEdit(wsConfig, '{ "copilot": ');
-        assert.equal(c.getCopilot().answerFolder, TomAiConfiguration.defaults.copilot.answerFolder);
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://fixed' } }));
-        assert.equal(c.getCopilot().answerFolder, 'http://fixed');
+        handEdit(wsConfig, '{ "bridge": ');
+        assert.equal(c.getBridge().requestTimeout, TomAiConfiguration.defaults.bridge.requestTimeout);
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1007 } }));
+        assert.equal(c.getBridge().requestTimeout, 1007);
     });
 
     test('TC-7: a save writes only the saved section', async () => {
         handEdit(userConfig, 'todo:\n  defaultColumns: [mine]\n');
-        handEdit(wsConfig, JSON.stringify({ copilot: { answerFolder: 'http://one' }, custom: { keep: 1 } }));
+        handEdit(wsConfig, JSON.stringify({ bridge: { requestTimeout: 1001 }, custom: { keep: 1 } }));
         const c = cfg();
         await c.saveTrail({ raw: { enabled: false } });
         const onDisk = JSON.parse(fs.readFileSync(wsConfig, 'utf-8'));
-        assert.deepEqual(Object.keys(onDisk).sort(), ['copilot', 'custom', 'trail']);
+        assert.deepEqual(Object.keys(onDisk).sort(), ['bridge', 'custom', 'trail']);
         assert.deepEqual(onDisk.trail, { raw: { enabled: false } });
         assert.deepEqual(onDisk.custom, { keep: 1 }, 'another section the file had');
         // The layers merge deep: the saved key sits on the defaults' other keys of the section.
@@ -138,7 +138,7 @@ describe('TomAiConfiguration follows hand edits', () => {
     test('TC-8: after a save, an overlay edit is still seen', async () => {
         handEdit(userConfig, 'todo:\n  defaultColumns: [first]\n');
         const c = cfg();
-        await c.saveCopilot({ answerFolder: 'http://saved' });
+        await c.saveBridge({ requestTimeout: 1005 });
         handEdit(userConfig, 'todo:\n  defaultColumns: [second]\n');
         assert.deepEqual(c.getTodo().defaultColumns, ['second']);
         assert.equal(JSON.parse(fs.readFileSync(wsConfig, 'utf-8')).todo, undefined);
@@ -146,8 +146,8 @@ describe('TomAiConfiguration follows hand edits', () => {
 
     test('TC-9: a save while the file does not parse is refused', async () => {
         const c = cfg();
-        handEdit(wsConfig, '{ "copilot": { "answerFolder": "http://half"');
+        handEdit(wsConfig, '{ "bridge": { "requestTimeout": 1008');
         await assert.rejects(() => c.saveTrail({ raw: { enabled: false } }), /does not parse/);
-        assert.equal(fs.readFileSync(wsConfig, 'utf-8'), '{ "copilot": { "answerFolder": "http://half"');
+        assert.equal(fs.readFileSync(wsConfig, 'utf-8'), '{ "bridge": { "requestTimeout": 1008');
     });
 });

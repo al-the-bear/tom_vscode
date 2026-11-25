@@ -10,7 +10,7 @@
  *   AG-4 defaults: a section's default applies when no level chooses; none and no choice: nothing; an entry naming
  *        no option of the section (or no section) is skipped, the level above decides
  *   AG-5 the text: system and user parts under the heading, a `### <section>: <option>` per section, in the
- *        sections' order; placement on the Anthropic transports and on Copilot (no system prompt)
+ *        sections' order; placement on the transports
  *   AG-6 recursive placeholders: an option's `${file-…}` whose file names another `${file-…}` (and `${guidelines-…}`)
  *   AG-7 the schema accepts the store's aspect.yaml and refuses what the reader refuses (`options`, the key
  *        before format version 10, among them); `order` is a number
@@ -169,12 +169,8 @@ describe('aspect guidelines', () => {
                 userContent: `${assembled.user}\n\n---\n\nDo it.`,
             }, transport);
         }
-        assert.deepEqual(placeAspects('copilot', prompt, assembled), {
-            systemSegments: ['Base.'],
-            userContent: `${assembled.system}\n\n${assembled.user}\n\n---\n\nDo it.`,
-        }, 'copilot: both before the prompt');
         assert.deepEqual(placeAspects('direct', prompt, { system: '', user: '' }), { systemSegments: ['Base.'], userContent: 'Do it.' }, 'nothing to add');
-        assert.equal(placeAspects('copilot', prompt, { system: 'S', user: '' }).userContent, 'S\n\n---\n\nDo it.');
+        assert.deepEqual(placeAspects('direct', prompt, { system: 'S', user: '' }), { systemSegments: ['Base.', 'S'], userContent: 'Do it.' }, 'a system part alone leaves the user content as it is');
     });
 
     test('AG-6: placeholders resolve recursively', () => {

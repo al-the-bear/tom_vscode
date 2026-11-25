@@ -141,7 +141,7 @@ After creating the configuration, reload VS Code:
 | Folder | Purpose |
 | --- | --- |
 | `.tom/` | Extension configuration files |
-| `_ai/trail/` | Copilot prompt/answer trail logs |
+| `_ai/trail/` | Prompt/answer trail logs |
 | `_ai/quests/` | Quest folders (structured project work) |
 | `_ai/prompt/` | Reusable prompt templates |
 | `_ai/roles/` | AI role definitions |

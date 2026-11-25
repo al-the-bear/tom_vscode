@@ -11,7 +11,7 @@
  *        NEEDED; ⏳ WAITING UNTIL …; a hard-interrupted item keeps INTERRUPTED
  *   SE-4 the button shows what the next press does: before it the soft-first tooltip (disconnect icon); after the
  *        first click "click again to wait … without a limit" (watch icon); waiting without a limit or held "click
- *        again for a hard interrupt now" (stop icon) — toolbar and row; a Copilot item's says it has no hold point
+ *        again for a hard interrupt now" (stop icon) — toolbar and row; an item stored with the transport `copilot` has the same button
  *   SE-6 the soft interrupt panel on the item: "Waiting for a moment to interrupt softly" — up to 15 s, or no limit
  *        — and when held its hold; Hard interrupt now and Cancel interruption post hardInterruptNow /
  *        cancelSoftInterrupt; the row label says (NO LIMIT); none without a soft interrupt
@@ -145,8 +145,9 @@ describe('Prompt Queue editor — interrupt for continuation', () => {
         const freshBtn = fresh.document.getElementById('interruptForContinuationBtn');
         assert.ok(freshBtn.querySelector('.codicon-debug-disconnect'));
         assert.match(freshBtn.title, /soft first — the next tool result is held.*hard interrupt after 15 s without a hold point\. A second click waits for the hold point without a limit, a third is the hard interrupt/);
-        const copilot = setup(t, [sending({ id: 'c', transport: 'copilot', interruptTransport: 'copilot', lastDispatched: { kind: 'main', expandedText: 'x', transport: 'copilot' } })]);
-        assert.match(copilot.document.getElementById('interruptForContinuationBtn').title, /Copilot prompt has no hold point — it is interrupted at once \(hard\)/);
+        // An item stored with the former `copilot` transport runs on the one transport: the same button.
+        const stored = setup(t, [sending({ id: 'c', transport: 'copilot', lastDispatched: { kind: 'main', expandedText: 'x', transport: 'copilot' } })]);
+        assert.equal(stored.document.getElementById('interruptForContinuationBtn').title, freshBtn.title);
     });
 
     test('SE-6: the soft interrupt panel', (t) => {

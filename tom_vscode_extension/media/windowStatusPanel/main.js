@@ -43,7 +43,7 @@
      * line of labelled dots. A subsystem with no status entry shows an
      * idle (grey) dot; otherwise orange = prompt sent / waiting, green =
      * answer received. */
-    var SUBSYSTEMS = ['queue', 'anthropic', 'copilot'];
+    var SUBSYSTEMS = ['queue', 'anthropic'];
 
     /* The servers the window runs (CLI / MCP with their ports), after the dots;
      * `servers` and `gone` are computed by the extension from the heartbeat. */

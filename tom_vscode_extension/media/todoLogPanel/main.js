@@ -21,7 +21,6 @@
     var entryList = document.getElementById('entryList');
     var entryCount = document.getElementById('entryCount');
     var refreshBtn = document.getElementById('refreshBtn');
-    var openTrailFilesBtn = document.getElementById('openTrailFilesBtn');
     var openTrailViewerBtn = document.getElementById('openTrailViewerBtn');
 
     function escapeHtml(text) {
@@ -104,10 +103,6 @@
 
     refreshBtn.addEventListener('click', function () {
         vscode.postMessage({ type: 'loadTodoExchanges' });
-    });
-
-    openTrailFilesBtn.addEventListener('click', function () {
-        vscode.postMessage({ type: 'openTrailFiles' });
     });
 
     openTrailViewerBtn.addEventListener('click', function () {

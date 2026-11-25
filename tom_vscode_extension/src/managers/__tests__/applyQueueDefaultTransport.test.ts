@@ -8,7 +8,7 @@ import {
 
 describe('applyQueueDefaultTransportToItem - adopt queue-default transport/profile', () => {
     test('copies the queue-default transport + profile onto the item', () => {
-        const item: QueueTransportTarget = { transport: 'copilot' };
+        const item: QueueTransportTarget = {};
         applyQueueDefaultTransportToItem(item, {
             transport: 'anthropic',
             anthropicProfileId: 'prof-a',
@@ -26,29 +26,20 @@ describe('applyQueueDefaultTransportToItem - adopt queue-default transport/profi
             anthropicConfigId: 'stale-config',
         };
         applyQueueDefaultTransportToItem(item, {
-            transport: 'copilot',
+            transport: 'anthropic',
             anthropicProfileId: '   ',
             anthropicConfigId: '',
         });
-        assert.equal(item.transport, 'copilot');
+        assert.equal(item.transport, 'anthropic');
         assert.equal(item.anthropicProfileId, undefined, 'stale profile override must be cleared');
         assert.equal(item.anthropicConfigId, undefined, 'stale config override must be cleared');
-    });
-
-    test('unknown transport value is coerced to copilot', () => {
-        const item: QueueTransportTarget = {};
-        applyQueueDefaultTransportToItem(item, {
-            // Simulate a malformed persisted default.
-            transport: 'bogus' as unknown as 'copilot',
-        });
-        assert.equal(item.transport, 'copilot');
     });
 
     test('leaves non-transport fields (status, repeat counters, template, text) untouched — repetition continuity', () => {
         // Extra fields model a currently-repeating item; the button must not
         // disturb its place in the repetition or its content.
         const item = {
-            transport: 'copilot' as 'copilot' | 'anthropic',
+            transport: undefined as 'anthropic' | undefined,
             anthropicProfileId: undefined as string | undefined,
             anthropicConfigId: undefined as string | undefined,
             status: 'sending',
@@ -68,8 +59,8 @@ describe('applyQueueDefaultTransportToItem - adopt queue-default transport/profi
     });
 
     test('returns the same item reference it mutated', () => {
-        const item: QueueTransportTarget = { transport: 'copilot' };
-        const result = applyQueueDefaultTransportToItem(item, { transport: 'copilot' });
+        const item: QueueTransportTarget = {};
+        const result = applyQueueDefaultTransportToItem(item, { transport: 'anthropic' });
         assert.equal(result, item);
     });
 });

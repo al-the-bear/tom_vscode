@@ -12,8 +12,8 @@
  *        next prompt (the pause gate); resuming it starts it; each run's auto-send is in the settings file
  *        (`runs-by-quest.<quest>`), no lane keys
  *   QM-6 an error in one run (an item the API refuses) pauses only that run; the other run's next item sends
- *   QM-7 each run's defaults: transport, profile, configuration, session, prompt template,
- *        Copilot answer timeout and walk continuations are the item's run's
+ *   QM-7 each run's defaults: profile, configuration, session, prompt template and walk continuations are the
+ *        item's run's; the transport is always anthropic
  *   QM-8 Auto-Pause per run: a run whose lane empties pauses (Auto-Pause on); a run with it off goes on
  *   QM-9 Auto-Start and Auto-Continue per run at activation: a run with Auto-Start sends, one without starts
  *        paused, one with Auto-Continue and an interrupted item gets its 30 s start; a run created later
@@ -187,7 +187,7 @@ describe('lanes and settings per run', () => {
 
     test('QM-3: two runs of different processes move independently', async () => {
         clean();
-        // Each run's own defaults: on the Copilot transport (the start values) the two would share the one chat.
+        // Each run's own defaults.
         queue().setRunQueueSettings('ra', { defaultTransport: 'anthropic', autoSend: false });
         queue().setRunQueueSettings('rb', { defaultTransport: 'anthropic', autoSend: false });
         assert.equal(store().createRun('ra', 'design', 'user', true).ok, true);
@@ -265,17 +265,16 @@ describe('lanes and settings per run', () => {
         clean();
         queue().setRunQueueSettings('r1', {
             defaultTransport: 'anthropic', defaultAnthropicProfileId: 'p1', defaultAnthropicConfigId: 'c1', defaultAgentSdkSession: 'work',
-            defaultMessageTemplateId: 't1', responseTimeoutMinutes: 30, walkContinuations: 4,
+            defaultMessageTemplateId: 't1', walkContinuations: 4,
         });
-        queue().setRunQueueSettings('r2', { defaultTransport: 'copilot', responseTimeoutMinutes: 120, walkContinuations: 0 });
+        queue().setRunQueueSettings('r2', { walkContinuations: 0 });
         const plain = (run: string): Promise<QueuedPrompt> => queue().enqueue({ originalText: `x ${run}`, run, deferSend: true } as never);
         const i1 = await plain('r1');
         const i2 = await plain('r2');
         const t1 = (queue() as Json).resolveStageTransportAsQueued(i1);
         const t2 = (queue() as Json).resolveStageTransportAsQueued(i2);
         assert.deepEqual([t1.transport, t1.anthropicProfileId, t1.anthropicConfigId, t1.session], ['anthropic', 'p1', 'c1', 'work@r1']);
-        assert.equal(t2.transport, 'copilot');
-        assert.deepEqual([queue().responseTimeoutMinutesFor(i1), queue().responseTimeoutMinutesFor(i2)], [30, 120], 'the Copilot answer timeout of the run');
+        assert.equal(t2.transport, 'anthropic', 'a run that names no transport: anthropic, the one there is');
         assert.deepEqual([queue().walkContinuationsOf(i1), queue().walkContinuationsOf(i2)], [4, 0], 'walk continuations of the run');
         assert.equal(queue().runQueueSettings('r1').defaultMessageTemplateId, 't1');
         queue().setDefaultMessageTemplate('t2', 'r2');
@@ -334,10 +333,11 @@ describe('lanes and settings per run', () => {
         (queue() as Json).restoreSettings();
         const d = queue().runQueueSettings('default');
         assert.deepEqual(
-            [d.responseTimeoutMinutes, d.autoSend, d.autoStart, d.autoPause, d.autoContinue, d.walkContinuations, d.defaultTransport, d.defaultAnthropicProfileId, d.defaultAgentSdkSession, d.defaultMessageTemplateId],
-            [30, true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
+            [d.autoSend, d.autoStart, d.autoPause, d.autoContinue, d.walkContinuations, d.defaultTransport, d.defaultAnthropicProfileId, d.defaultAgentSdkSession, d.defaultMessageTemplateId],
+            [true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
             'the old keys are the default run\'s',
         );
+        assert.equal('responseTimeoutMinutes' in d, false, 'the old answer timeout key is not a setting any more');
         assert.equal(queue().runQueueSettings('brandnew').defaultAnthropicProfileId, 'pOld', 'and a new run\'s start values');
         queue().setRunQueueSettings('r1', { autoPause: true });
         const written = readQueueSettings() as Json;
@@ -361,23 +361,23 @@ describe('lanes and settings per run', () => {
             'compaction-model: keep-me', 'runs:', '  default:', '    auto-send-enabled: false', '  other:', '    default-transport: anthropic', '',
         ].join('\n'));
         (queue() as Json).restoreSettings();
+        assert.equal(queue().startQueueSettings().defaultTransport, 'anthropic', 'a stored copilot transport is read as anthropic');
         queue().setRunQueueSettings('src', {
             autoPause: false, autoContinue: true, defaultTransport: 'anthropic', defaultAnthropicProfileId: 'pNew',
-            defaultAgentSdkSession: 'sNew', defaultMessageTemplateId: undefined, responseTimeoutMinutes: 15, walkContinuations: 1,
+            defaultAgentSdkSession: 'sNew', defaultMessageTemplateId: undefined, walkContinuations: 1,
         });
         const before = readQueueSettings() as Json;
         const otherBefore = queue().runQueueSettings('other');
         const defaultBefore = queue().runQueueSettings('default');
         assert.ok(queue().defaultQueueSettingsDiff('src').length > 0, 'src differs from the start values');
         const changed = queue().setDefaultQueueSettings('src');
-        assert.deepEqual(changed.sort(), ['autoContinue', 'autoPause', 'defaultAgentSdkSession', 'defaultAnthropicProfileId', 'defaultMessageTemplateId', 'defaultTransport', 'responseTimeoutMinutes']);
+        assert.deepEqual(changed.sort(), ['autoContinue', 'autoPause', 'defaultAgentSdkSession', 'defaultAnthropicProfileId', 'defaultMessageTemplateId']);
         const written = readQueueSettings() as Json;
         assert.equal(written['auto-pause-enabled'], false);
         assert.equal(written['auto-continue-enabled'], true);
         assert.equal(written['default-transport'], 'anthropic');
         assert.equal(written['default-anthropic-profile-id'], 'pNew');
         assert.equal(written['default-agent-sdk-session'], 'sNew');
-        assert.equal(written['response-timeout-minutes'], 15);
         assert.equal(written['default-message-template-id'], '', 'an unset template is written unset');
         assert.equal(written['walk-continuations'], 3, 'the walk continuations are not a tab setting');
         assert.equal(written['compaction-model'], 'keep-me', 'other keys stay');
@@ -392,8 +392,8 @@ describe('lanes and settings per run', () => {
             assert.equal(queue().runQueueSettings('src').walkContinuations, 1, 'src keeps its own');
             const fresh = queue().runQueueSettings('created-later');
             assert.deepEqual(
-                [fresh.autoPause, fresh.autoContinue, fresh.defaultTransport, fresh.defaultAnthropicProfileId, fresh.defaultAgentSdkSession, fresh.defaultMessageTemplateId, fresh.responseTimeoutMinutes, fresh.walkContinuations],
-                [false, true, 'anthropic', 'pNew', 'sNew', undefined, 15, 3],
+                [fresh.autoPause, fresh.autoContinue, fresh.defaultTransport, fresh.defaultAnthropicProfileId, fresh.defaultAgentSdkSession, fresh.defaultMessageTemplateId, fresh.walkContinuations],
+                [false, true, 'anthropic', 'pNew', 'sNew', undefined, 3],
                 `a run created later starts from the new values${reread ? ' (read again)' : ''}`,
             );
         }
@@ -531,7 +531,7 @@ describe('lanes and settings per run', () => {
         // tomAi_listQueue: a run's settings and every run's auto-send.
         const access = {
             items: () => queue().items as never, autoSendEnabled: () => queue().autoSendEnabled,
-            responseFileTimeoutMinutes: () => queue().responseFileTimeoutMinutes, pendingCount: () => 0,
+            pendingCount: () => 0,
             runSettings: (run?: string) => ({
                 run: run ?? queue().windowRun, settings: { ...queue().runQueueSettings(run) },
                 runs: ['default', 'r2'].map((r) => ({ run: r, autoSend: queue().runQueueSettings(r).autoSend })),
@@ -547,7 +547,7 @@ describe('lanes and settings per run', () => {
         const handler = fs.readFileSync(path.join(EXT_ROOT, 'src', 'handlers', 'queueEditor-handler.ts'), 'utf8');
         assert.match(handler, /qm\.setRunQueueSettings\(run, \{ \[key\]: !qm\.runQueueSettings\(run\)\[key\] \}\);/);
         assert.match(handler, /case 'setSettingsRun':/);
-        assert.match(handler, /setDefaultTransport\(transport, pid, undefined, run\)/);
+        assert.match(handler, /setDefaultTransport\('anthropic', picked\.value, undefined, run\)/);
         assert.doesNotMatch(handler, /case 'setRunHeld':/, 'the lane strip and its message are gone: a tab\'s play / pause is its run\'s auto-send');
         assert.match(handler, /\.\.\.queueLaneState\(\),/);
         const html = fs.readFileSync(path.join(EXT_ROOT, 'media', 'queueEditor', 'index.html'), 'utf8');

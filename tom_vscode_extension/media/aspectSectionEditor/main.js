@@ -269,7 +269,7 @@ function render() {
     + '<div class="field"><label class="title" for="secPlacement">Placement</label><select id="secPlacement">'
     + '<option value="system"' + (d.placement !== 'user' ? ' selected' : '') + '>System prompt</option>'
     + '<option value="user"' + (d.placement === 'user' ? ' selected' : '') + '>User prompt (before the prompt text)</option>'
-    + '</select><div class="hint">Copilot has no system prompt: there both go before the prompt text.</div></div>'
+    + '</select></div>'
     + '<div class="field"><label class="title" for="secDefault">Default choice</label><select id="secDefault">' + defaultOptionsHtml(d) + '</select>'
     + '<div class="hint">Chosen when no level chooses.</div></div>'
     + '<div class="field"><label class="title" for="secOrder">Order</label><input type="number" id="secOrder" value="' + escapeHtml(d.order || '') + '" placeholder="by id">'

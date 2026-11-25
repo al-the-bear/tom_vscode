@@ -16,9 +16,7 @@
 
   The codicons stylesheet is injected at runtime by main.js from
   window.__INIT__.codiconsUri (no placeholder exists for node_modules assets).
-  The add form's transport-picker fragment is rendered host-side and injected into
-  #addTransportRow from window.__INIT__ by main.js,
-  then wired by transportPicker.js (loaded last). Component scripts load before
+  Component scripts load before
   main.js so their global functions exist when main.js's init runs; they read
   main.js's host globals at call-time (classic-script shared global scope).
 -->
@@ -56,29 +54,9 @@
   <button class="ctx-btn-icon" onclick="openQueueTemplates()" title="Queue Templates"><span class="codicon codicon-symbol-file"></span></button>
   <button class="ctx-btn-icon" id="makeDefaultBtn" onclick="makeRunSettingsDefault()" title="Make this run's settings the default for new runs"><span class="codicon codicon-pinned"></span></button>
 </div>
-<!-- The run's defaults for its items: transport, model (the Anthropic profile), session, template. -->
+<!-- The run's defaults for its items: model (the Anthropic profile), session, template. -->
 <div class="context-bar" id="runDefaultsBar">
   <span id="runDefaultsSummary" class="context-summary"></span>
-</div>
-<!-- Queue-level default transport (spec §4.10 header row). Persists
-     in the queue-settings YAML; new items without an explicit transport
-     inherit this at dispatch. Per-item / per-stage overrides still win.
-     Picker markup is rendered host-side and injected here by main.js. -->
-<!-- The run's Copilot answer timeout: only while its default transport is Copilot. -->
-<div class="context-bar" id="copilotDefaultsRow">
-  <span id="copilotQueueSettings" class="copilot-only">
-  <label style="font-size:0.85em;opacity:0.85;">Answer Timeout:</label>
-  <select id="responseTimeout" onchange="setResponseTimeout(this.value)">
-    <option value="5">5 Minutes</option>
-    <option value="10">10 Minutes</option>
-    <option value="15">15 Minutes</option>
-    <option value="30">30 Minutes</option>
-    <option value="60">60 Minutes</option>
-    <option value="120">120 Minutes</option>
-    <option value="240">240 Minutes</option>
-    <option value="480">480 Minutes</option>
-  </select>
-  </span>
 </div>
 <div class="toolbar">
   <button class="ctx-btn-icon" onclick="toggleAddForm()" title="Add to Queue"><span class="codicon codicon-add"></span></button>
@@ -106,8 +84,8 @@
   <label>Prompt</label>
   <textarea id="addText" data-completion="on" placeholder="Type a prompt to add to the queue..." rows="3"></textarea>
   <div class="add-options">
-    <label title="The prompt template that wraps the prompt (the template store the ANTHROPIC/LLM panel's User Prompt uses). The Copilot answer wrapper is applied separately, always.">Prompt template:</label>
-    <select id="addTemplate" title="The prompt template that wraps the prompt; the Copilot answer wrapper is applied separately, always."><option value="">(None)</option></select>
+    <label title="The prompt template that wraps the prompt (the template store the ANTHROPIC/LLM panel's User Prompt uses).">Prompt template:</label>
+    <select id="addTemplate" title="The prompt template that wraps the prompt."><option value="">(None)</option></select>
     <button class="ctx-btn-icon" onclick="addPromptTemplate()" title="Add Template"><span class="codicon codicon-add"></span></button>
     <button class="ctx-btn-icon" onclick="editPromptTemplate()" title="Edit Template"><span class="codicon codicon-edit"></span></button>
     <button class="ctx-btn-icon" onclick="deletePromptTemplate()" title="Delete Template"><span class="codicon codicon-trash"></span></button>
@@ -120,11 +98,11 @@
     <label style="margin-right:6px;">Queue Repeats:</label>
     <input id="addRepeatCount" type="text" value="1" style="width:80px" title="Total number of times to send this prompt (number or variable name)"/>
   </div>
-  <!-- Multi-transport picker (spec §4.10 / §4.15). Pins the staged
-       item to either Copilot (answer-file polling) or Anthropic
-       (direct AnthropicHandler.sendMessage dispatch). Markup is
-       rendered host-side and injected here by main.js. -->
-  <div class="add-options" id="addTransportRow"></div>
+  <div class="add-options">
+    <label for="addProfile" style="margin-right:6px;" title="The Anthropic profile the item runs with; (default profile): the default profile of its run">Profile:</label>
+    <select id="addProfile" title="The Anthropic profile the item runs with; (default profile): the default profile of its run"><option value="">(default profile)</option></select>
+    <span style="font-size:11px;color:var(--vscode-notificationsWarningIcon-foreground);margin-left:6px;">⚠️ Queue runs auto-approve every tool call — the profile's approval setting is ignored.</span>
+  </div>
   <div class="add-options" style="display:block;">
     <label style="display:block;margin-bottom:4px;">Repeat Prefix (supports ${repeatNumber}, ${repeatIndex}, ${repeatCount})</label>
     <textarea id="addRepeatPrefix" data-completion="on" rows="2" placeholder="Optional text added before repeated prompt body"></textarea>
@@ -155,7 +133,6 @@
 <script src="{{sharedUri}}/queueEntryMessageHandlers.js"></script>
 <script src="{{baseUri}}/main.js"></script>
 <script src="{{sharedUri}}/completion.js"></script>
-<script src="{{baseUri}}/transportPicker.js"></script>
 <script src="{{baseUri}}/fallback.js"></script>
 </body>
 </html>
