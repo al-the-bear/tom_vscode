@@ -2,7 +2,9 @@
  * The window's layout (`getLayout`) and `WsPaths` on it: the first folder is
  * the workspace folder whatever editor is active, the `tomAi.layout.*`
  * settings and the `tomAi.aiFolder` alias are honoured, `${tomRoot}` is a
- * resolver variable, and a marker file change recomputes the layout.
+ * resolver variable, and a marker file change recomputes the layout. VS Code is
+ * loaded once: a `require('vscode')` that fails later (the extension folder
+ * replaced by a reinstall under the running window) does not reach the layout.
  */
 
 import { test, describe, beforeEach } from 'node:test';
@@ -36,6 +38,26 @@ describe('getLayout and WsPaths', () => {
         installVscodeStub({ workspaceFolders: [ws, second], configuration: {} });
         vscodeStub.window.activeTextEditor = undefined;
         layoutMod.resetLayoutForTests();
+    });
+
+    test('VS Code is loaded once: a later require failure (a reinstall) does not reach getLayout', () => {
+        assert.equal(WsPaths.aiRoot, path.join(top, '_ai'));
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Module = require('module') as { _load: (request: string, ...rest: unknown[]) => unknown };
+        const load = Module._load;
+        Module._load = function (request: string, ...rest: unknown[]) {
+            if (request === 'vscode') {
+                throw new Error("ENOENT: no such file or directory, access '.../out/utils/workspaceLayout.js'");
+            }
+            return load.call(this, request, ...rest);
+        };
+        try {
+            layoutMod.resetLayoutForTests();
+            assert.equal(WsPaths.aiRoot, path.join(top, '_ai'), 'the layout is computed with the module loaded before');
+            assert.equal(layoutMod.getLayout()?.root, top);
+        } finally {
+            Module._load = load;
+        }
     });
 
     test('the first folder wins; an active editor in the second folder changes nothing', () => {

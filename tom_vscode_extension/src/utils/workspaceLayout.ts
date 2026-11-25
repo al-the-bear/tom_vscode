@@ -323,9 +323,13 @@ export const FIRST_FOLDER_HINT =
 // The window's layout (VS Code)
 // ============================================================================
 
-// Loaded on first use, so the pure resolver above runs without VS Code.
+// Loaded on first use, so the pure resolver above runs without VS Code — and loaded once: VS Code's `require('vscode')`
+// checks that the calling module's file exists on every call, and reinstalling the extension replaces its folder
+// (same version, same path) under a running window, so a repeated require from the heartbeat failed with ENOENT on
+// `out/utils/workspaceLayout.js` for as long as the install took.
+let vscodeModule: typeof import('vscode') | undefined;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const vscodeApi = (): typeof import('vscode') => require('vscode');
+const vscodeApi = (): typeof import('vscode') => (vscodeModule ??= require('vscode') as typeof import('vscode'));
 
 /** The settings that change the layout. */
 export const LAYOUT_SETTINGS = [
