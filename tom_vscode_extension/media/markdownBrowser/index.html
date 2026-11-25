@@ -29,7 +29,7 @@
     <!-- tomAi_askInMdBrowser: the agent's buttons and "Keep this file", above everything (askBar.js) -->
     <div class="ask-bar" id="askBar" hidden></div>
 
-    <!-- Action Bar -->
+    <!-- Action Bar: one panel; its groups and their elements wrap onto more lines when the panel is narrow -->
     <div class="action-bar">
         <div class="picker-area">
             {{pickerHtml}}
@@ -147,36 +147,36 @@
                 <span class="codicon codicon-debug-step-over"></span>
             </button>
         </div>
+        <!-- File info and search: part of the one action bar, wrapping like the rest -->
+        <div class="file-info">
+            <span class="file-path" id="filePath">No file selected</span>
+            <span class="line-pos" id="linePos" title="Line at the top of the view / lines in the document"></span>
+            <button class="icon-btn" id="docBackBtn" disabled title="Back to where you were in this document">
+                <span class="codicon codicon-chevron-left"></span>
+            </button>
+            <button class="icon-btn" id="docForwardBtn" disabled title="Forward within this document">
+                <span class="codicon codicon-chevron-right"></span>
+            </button>
+            <span class="search-box">
+                <input id="searchInput" class="search-input" type="search" placeholder="Search in document" title="Search in this document (Enter: next, Shift+Enter: previous, Esc: clear)" />
+                <button class="search-clear" id="searchClearBtn" title="Clear search">
+                    <span class="codicon codicon-close"></span>
+                </button>
+            </span>
+            <select id="searchScope" class="search-scope" title="Search in: the whole document, or only the errors (blocks an import could not place)">
+                <option value="all">All</option>
+                <option value="errors">Errors</option>
+            </select>
+            <span id="searchCount" class="search-count"></span>
+            <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)">
+                <span class="codicon codicon-arrow-up"></span>
+            </button>
+            <button class="icon-btn" id="searchNextBtn" disabled title="Next match (Enter)">
+                <span class="codicon codicon-arrow-down"></span>
+            </button>
+        </div>
     </div>
 
-    <!-- File info -->
-    <div class="file-info-bar">
-        <span class="file-path" id="filePath">No file selected</span>
-        <span class="line-pos" id="linePos" title="Line at the top of the view / lines in the document"></span>
-        <button class="icon-btn" id="docBackBtn" disabled title="Back to where you were in this document">
-            <span class="codicon codicon-chevron-left"></span>
-        </button>
-        <button class="icon-btn" id="docForwardBtn" disabled title="Forward within this document">
-            <span class="codicon codicon-chevron-right"></span>
-        </button>
-        <span class="search-box">
-            <input id="searchInput" class="search-input" type="search" placeholder="Search in document" title="Search in this document (Enter: next, Shift+Enter: previous, Esc: clear)" />
-            <button class="search-clear" id="searchClearBtn" title="Clear search">
-                <span class="codicon codicon-close"></span>
-            </button>
-        </span>
-        <select id="searchScope" class="search-scope" title="Search in: the whole document, or only the errors (blocks an import could not place)">
-            <option value="all">All</option>
-            <option value="errors">Errors</option>
-        </select>
-        <span id="searchCount" class="search-count"></span>
-        <button class="icon-btn" id="searchPrevBtn" disabled title="Previous match (Shift+Enter)">
-            <span class="codicon codicon-arrow-up"></span>
-        </button>
-        <button class="icon-btn" id="searchNextBtn" disabled title="Next match (Enter)">
-            <span class="codicon codicon-arrow-down"></span>
-        </button>
-    </div>
 
     <!-- The hint "the document has n errors", until the reader scrolls -->
     <div class="error-hint" id="errorHint" role="button" tabindex="0" hidden></div>

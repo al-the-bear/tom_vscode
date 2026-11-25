@@ -17,23 +17,38 @@ body {
 
 /* ---- Action Bar ---- */
 .action-bar {
+    /* One panel for every action, the file and the search: its groups and their elements wrap onto more lines
+       when the panel is narrow, so every element stays visible. */
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     padding: 6px 12px;
-    gap: 8px;
+    gap: 4px 8px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBar-background);
     flex-shrink: 0;
 }
 .action-bar .picker-area {
-    flex: 1;
+    flex: 1 1 200px;
+    min-width: 0;
     display: flex;
     align-items: center;
 }
 .action-bar .nav-area {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     align-items: center;
+}
+.action-bar .file-info {
+    flex: 1 1 320px;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
 }
 .icon-btn {
     background: none;
@@ -58,18 +73,9 @@ body {
 }
 
 /* ---- File Info Bar ---- */
-.file-info-bar {
-    padding: 4px 12px;
-    border-bottom: 1px solid var(--vscode-panel-border);
-    font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-}
-.file-info-bar .file-path {
-    flex: 1;
+.action-bar .file-info .file-path {
+    flex: 1 1 160px;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -251,7 +257,7 @@ body.mdb-edit-mode .mdb-block-actions { display: flex; }
 /* Sections around the view (and the last ones left) stay rendered: no blank pages when scrolling on. */
 .markdown-body .mdb-large > .mdb-section.mdb-near { content-visibility: visible; }
 .line-pos { font-size: 11px; white-space: nowrap; color: var(--vscode-descriptionForeground); min-width: 110px; text-align: right; }
-.file-info-bar .file-path[data-progress]::after { content: ' — ' attr(data-progress); }
+.action-bar .file-info .file-path[data-progress]::after { content: ' — ' attr(data-progress); }
 
 /* ---- Folding ---- */
 .markdown-body .mdb-folded-away { display: none; }
