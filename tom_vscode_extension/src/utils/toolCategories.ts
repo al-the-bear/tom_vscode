@@ -266,6 +266,10 @@ export const CATEGORY_MAP: Record<string, string[]> = {
         'tomAi_specSyncReport',
     ],
     'TomSpecs (edit)': [
+        'tomAi_specBackfill',
+        'tomAi_specPrefill',
+        'tomAi_specDeriveFields',
+        'tomAi_specRenameId',
         'tomAi_specAddNode',
         'tomAi_specApplyEdits',
         'tomAi_specAssignCommentIds',

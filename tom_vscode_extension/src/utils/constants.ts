@@ -229,6 +229,10 @@ export const AVAILABLE_LLM_TOOLS = [
     'tomAi_specImportAnswers',
     // TomSpecs document set (the bundled tomspecs :spec-sync-report …)
     'tomAi_specSyncReport',
+    'tomAi_specBackfill',
+    'tomAi_specPrefill',
+    'tomAi_specDeriveFields',
+    'tomAi_specRenameId',
     // CodeSpecs (Phase 4: spec → code-generation inputs)
     'tomAi_specCodeSpecsAreas',
     'tomAi_specCodeSpecsRouting',

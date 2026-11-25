@@ -825,10 +825,12 @@ test SK-6 compares them with the bundled binary's own run).
 
 A project's specification documents read side by side: the Blueprint and the
 Phase 3 documents it is detailed in (`@DetailedIn`, `@SyncedWith`), the document
-set of the runtimes (`SpecDocumentSet`, `tom_specs_model_rules.md` §9.7). The
-tools run the bundled `tomspecs` document-set commands (`:spec-sync-report`;
-`spec_sync_cli.dart` in tom_specs_clitool) with `--json` and read the one JSON
-object they print (`readSpecJsonRun`, `src/services/spec-checks.ts`).
+set of the runtimes (`SpecDocumentSet`, `tom_specs_model_rules.md` §9.7): the
+validation and the four operations on it. The tools run the bundled `tomspecs`
+document-set commands (`:spec-sync-report`, `:spec-backfill`, `:spec-prefill`,
+`:spec-derive-fields`, `:spec-rename-id`; `spec_sync_cli.dart` in
+tom_specs_clitool) with `--json` and read the one JSON object they print
+(`readSpecJsonRun`, `src/services/spec-checks.ts`).
 
 **The set.** Every tool takes exactly one of `files` (the documents,
 `*.tomspecs.yaml` or SOM Markdown; files of one root are fragments, assembled) and
@@ -846,6 +848,26 @@ removed whatever happens, and the command runs on the copies; paths in its
 output are named as the files they stand for. Each document's `revision` is
 the one its copy was made from.
 
+**How a write runs: in stages, never showing an intermediate state**
+(part-tools section 4 of the section_automation idea). The command writes the
+copies (its own stage in a scratch folder, `--stage-folder`). The tool then
+checks what changed: each changed document's new stage — its YAML and its
+rendition `<stem>.tomspecs.md`, each through a temporary file and a rename — is
+written into the **step folder** (`stageFolder`, default the last step folder of
+the document's phase folder in process order, e.g. `03_01_01_Questions Round`,
+`W2_05_Result`; none there: `noStageFolder`), and only when the stage is complete
+are the document of record and its rendition written, through the store. Before
+anything runs, a document whose revision differs from `expectedRevision` /
+`expectedRevisions` is refused (`revisionConflict`), a document stamped with a
+newer model than the extension's (`modelTooNew`); a written document dirty in an
+editor is refused (`dirtyInEditor`), and for `tomAi_specBackfill` a read one too;
+a Markdown document or one assembled from fragments is read, never written
+(`readOnly`). `dryRun` answers the changes and the `diff`, cut at 2,000 lines
+(`diffTruncated`, `diffLinesLeftOut`), and writes nothing. The lists (`changes`,
+`left`, `findings`, `unresolved`) hold at most `limit` (200) entries, with their
+counts (`changesCount`, …) always complete. Every operation is idempotent: a
+second run writes nothing (`written: false`, `changeCount: 0`).
+
 **Refusals** `{ok: false, code, error}`: `binaryMissing` (no `tomspecs` for this
 platform, with `expected`, `help` and `page`), `binaryOutdated` (the bundled
 binary does not know the command: rebuild the extension's binaries with
@@ -854,10 +876,20 @@ be built: no Blueprint, two documents of one root, a document with no root or
 two, the CodeSpecs projection — `refusal`, `documents` as files, `className`),
 `usageError` (an unknown pair, neither or both of `files` / `specRoot`, a spec
 root without documents), `timedOut` (past `SPEC_CHECKS_TIMEOUT_MS`, 5 minutes),
-`failed` (the command ended otherwise, e.g. a crash: its stderr in `error`).
+`failed` (the command ended otherwise, e.g. a crash: its stderr in `error`). The
+writes add `setHasMarks` (backfill on a set holding marks or comment / question
+blocks: `placeCount`, `placeCountsByDocument`, `places`), `readOnly`,
+`dirtyInEditor`, `revisionConflict`, `modelTooNew`, `noStageFolder`, `exists`
+(prefill: a new target appeared meanwhile; renameId: `to` exists), `rootMismatch`
+(prefill: the target holds another root) and `verification` (the command's YAML
+did not decode back to the document: nothing is written).
 
 | Tool | Description | Agent SDK | Direct | VS Code LM | Local LLM |
 | ---- | ----------- | --------- | ------ | ---------- | --------- |
+| `tomAi_specBackfill` | The Phase 3 documents' values into the Blueprint as plain values (`:spec-backfill`): no marks, no author; writes the Blueprint only, staged. `path` narrows it to a Blueprint path. A set holding marks is refused (`setHasMarks`). `changes` (value, element added / removed, derived, revision), `left` (the findings it does not resolve, with their reason), `leftCountsByCode`, `validation`, `rendition`; `dryRun` the diff. Approval. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specDeriveFields` | The derived places of one document (`:spec-derive-fields`): inverses, extracted links, derived values, summaries, counts; as review marks signed `agent_<role>` (default; `author`, `at`) or plain (`marked: false`). `dryRun` with `changeCount: 0` is the check "nothing left to derive". Approval. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specPrefill` | A Phase 3 document started from the Blueprint (`:spec-prefill`): every pair it holds nothing of filled once, then its derived places; `root`, `target` (default under `specRoot`: `<project>.<abbreviation>.tomspecs.yaml`). Filled, never overwritten (`rootMismatch`, `exists`); `findings` are the agent's work list. Approval. | ✅ | ✅ | ⚪ | ✅ |
+| `tomAi_specRenameId` | A section id renamed in every document of the set at once (`:spec-rename-id`): the item's id and every link naming it; refused when `to` exists. Every changed document staged and written. Approval. | ✅ | ✅ | ⚪ | ✅ |
 | `tomAi_specSyncReport` | The document-set validation (`:spec-sync-report`): pair by pair, the Blueprint against the Phase 3 documents, and each document's own findings (`validateDocument`, `validateLinks`). Read-only. `documents` with name, file, root, revision, model version and `dirty` (open with unsaved changes: reported, not refused); `countsByCode` / `countsByResolution` / `findingCount` cover the whole set; `codes`, `resolutions`, `includeInfo` filter the listed findings, `limit` (200) / `offset` page them; `output` writes the full report JSON (a gate's evidence). One document in `files`: its link check, every pair not started. | ✅ | ✅ | ⚪ | ✅ |
 
 ### 4.24 Plain DocSpecs Markdown
@@ -1577,6 +1609,14 @@ Apply several edits to one TomSpecs document as ONE change: one approval, one wr
 
 Give every comment block without an id the next free `C-<n>`, in document order, so each can be cited and resolved (SpecReviewAnnotations.assignCommentIds). Answers the ids as `assigned` ([] when every comment has one); nothing else changes. Look first with tomAi_specOutline (paths, editability, revision) or tomAi_specReflect (what the model allows at a path). Answers `{ok, written, revision, …, validation: {introduced, resolved, underPath, total}}` — validation found by the runtime's validateDocument, compared before and after the edit across the whole document (a stated count that no longer matches is `countMismatch`) — plus `staleReviewPaths` for YAML review entries left without a node, and `diff` on a dry run. A refused edit writes nothing and returns `{ok:false, code, error}`; the document must be editable (see readOnlyReason in tomAi_specOutline). A path that does not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind, children}}`: the nearest node that does, with its child paths. For more than one change use tomAi_specApplyEdits: one approval, one write, all or nothing.
 
+### `tomAi_specBackfill`
+
+The Phase 3 documents' values carried into the Blueprint as plain values: `tomspecs :spec-backfill <the copies> [--pairs] [--path] --stage-folder <scratch> --json`, then the staged write of § 4.23b. It writes no marks and so takes no author; it writes the Blueprint only. A set still holding inline marks or comment / question blocks is refused (`setHasMarks`): backfill carries the end state of an accepted review, so the marks are decided first (`tomAi_specDecideMarks`, `tomAi_specRemoveAllAnnotations`). A document of the set dirty in an editor refuses it too (it would carry values the editor is about to replace).
+
+**Answer:** `{ok, written, dryRun, file, revision, rendition, changeCount, changes: [{pair, kind, path, field, old, new}], changesCount, left: [{code, pair, blueprint, detail, holder, resolution, info, reason}], leftCount, leftCountsByCode, validation: {introduced, resolved, total}, stageFolders, diff?, diffTruncated?, diffLinesLeftOut?}`. `kind` is `value`, `elementAdded`, `elementRemoved`, `derived` or `revision` (the Blueprint's revision history gains an entry). `left` are the findings backfill does not resolve (an `agent` finding: corrected with the edit tools). `validation` compares the TypeScript runtime's `validateDocument` before and after.
+
+**Arguments:** `files` / `specRoot` (the set); `pairs`; `path` (only findings at or below this Blueprint path); `expectedRevision` (the Blueprint's); `expectedRevisions` (`{file: revision}` of the documents it reads); `stageFolder`; `dryRun`; `limit`.
+
 ### `tomAi_specClearSection`
 
 Remove every value under a path (content, form fields, headlines, codeSpecs, list items). The node itself stays part of the model. Answers `{ok, written, revision, …, validation: {introduced, resolved, underPath, total}}` — validation found by the runtime's validateDocument, compared before and after the edit across the whole document (a stated count that no longer matches is `countMismatch`) — plus `staleReviewPaths` for YAML review entries left without a node, and `diff` on a dry run. A refused edit writes nothing and returns `{ok:false, code, error}`; the document must be editable (see readOnlyReason in tomAi_specOutline). A path that does not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind, children}}`: the nearest node that does, with its child paths. For more than one change use tomAi_specApplyEdits: one approval, one write, all or nothing.
@@ -1619,6 +1659,14 @@ Accept or reject inline marks (SOM §11.9.3): accepting takes the change (an ins
 **Arguments:**
 
 - `path`: With `all`: only marks at or below this path. A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
+
+### `tomAi_specDeriveFields`
+
+The derived places of one document: `tomspecs :spec-derive-fields <the copy> [--unmarked] [--author] [--at] --stage-folder <scratch> --json`, then the staged write of § 4.23b. The derived places are the inverses of links, the links extracted from text, derived values, summaries and counts, filled in three steps. With `marked` (the default) they are written as review marks, signed `author` (default `agent_<role>`, the role you work in: an operation's marks are the agent's work) at `at` (default now); `marked: false` writes plain values, for a document that is new.
+
+**Answer:** `{ok, written, dryRun, file, marked, author, revision, rendition, changeCount, changes: [{step, kind, path, field, old, new}], changesCount, unresolved: [{path, code}], unresolvedCount, validation, stageFolders, diff?}`. `dryRun: true` with `changeCount: 0` is the closing-item check of the tom_specs process: nothing left to derive.
+
+**Arguments:** `file` (one document, no set); `marked`; `author`; `at`; `expectedRevision`; `stageFolder`; `dryRun`; `limit`.
 
 ### `tomAi_specEditComment`
 
@@ -1682,6 +1730,16 @@ The instance tree of a TomSpecs document under `path` (default: the root), pre-o
 
 - `path`: Start node. Default: the document root. A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
 
+### `tomAi_specPrefill`
+
+A Phase 3 document started from the Blueprint: `tomspecs :spec-prefill <the copies> --root <type> --target <file> [--pairs] --stage-folder <scratch> --json`, then the staged write of § 4.23b. Every pair of `root` the document holds nothing of yet is filled once from the Blueprint, then its derived places; a pair whose anchor holds a value is skipped, so a second run writes nothing.
+
+**The target:** `target`, or under `specRoot` by default `phase3_detailed_specifications/<project>.<abbreviation>.tomspecs.yaml`, the project taken from the Blueprint's file name (`tom_uam.sbp.tomspecs.yaml` → `tom_uam.rsp.tomspecs.yaml` for `RSP`); with `files` it is required. A target that exists must be a document of `root` (else `rootMismatch`) and joins the set; it is filled, never overwritten. A new target is written YAML only (with its rendition) and is refused when a file appears there between staging and writing (`exists`).
+
+**Answer:** `{ok, created, written, dryRun, file, revision, rendition, filledPairs, skippedPairs, derivedChangeCount, findingCount, findings: [{path, code}], findingsCount, stageFolders, diff?}`. The findings are the agent's work list.
+
+**Arguments:** `files` / `specRoot`; `root` (required: the section id, e.g. `RSP`, or the type); `target`; `pairs`; `expectedRevision` (when the target exists); `stageFolder`; `dryRun`; `limit`.
+
 ### `tomAi_specReflect`
 
 What the TomSpecs model says, no document needed. By `path`: the node kind, its field (kind, type, section-id pattern, form fields with types and enum domains, headline, doc comment, annotations such as @MapsTo, @DetailedIn and @CodeSpecKind) and its class with every child field; for a list, the item class. By `className`: that class. With `file`, also `addable` / `notAddable`: the child segments the runtime's add rule (checkAddNode) accepts under `path` in that document now, and why the others are refused (e.g. a single child already present). `brief: true` drops doc comments and annotations. A path that does not resolve returns `{ok:false, code:"unresolvedPath", nearest:{path, kind, children}}`: the nearest node that does, with its child paths. Editor counterparts: doc_reflect, model_get_section, model_children.
@@ -1701,6 +1759,14 @@ Remove a list item and every value under it. The other items keep their paths. E
 **Arguments:**
 
 - `itemPath`: A document path: the root section id, then field segments (a field's @SectionId, else its name) and list items `<LIST>-<n>`, e.g. `SBP/introductionAndScope/requirements/functionalRequirements/FRE-REQU-LST-1`. Take paths from tomAi_specOutline rather than composing them.
+
+### `tomAi_specRenameId`
+
+A section id renamed in every document of the set at once: `tomspecs :spec-rename-id <the copies> --from <id> --to <id> --json` — the item's own id and every link naming it. Refused when `to` exists already (`exists`, the documents naming it). Every changed document is staged into its step folder and then written, as in § 4.23b (the command has no stage folder of its own: the tool stages).
+
+**Answer:** `{ok, written, dryRun, changeCount, changes: [{document, kind, path, field, old, new}], changesCount, files: [{file, revision, rendition}], stageFolders, diff?}`.
+
+**Arguments:** `files` / `specRoot`; `from`, `to` (required); `expectedRevisions`; `stageFolder`; `dryRun`; `limit`.
 
 ### `tomAi_specRender`
 

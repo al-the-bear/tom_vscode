@@ -29,6 +29,7 @@ const WRITERS = [
     'tomAi_specAddNode',
     'tomAi_specApplyEdits',
     'tomAi_specAssignCommentIds',
+    'tomAi_specBackfill',
     'tomAi_specClearSection',
     'tomAi_specCodeSpecsMap',
     'tomAi_specCodeSpecsPlanTodos',
@@ -39,6 +40,7 @@ const WRITERS = [
     'tomAi_specCreateDocument',
     'tomAi_specDecideConflicts',
     'tomAi_specDecideMarks',
+    'tomAi_specDeriveFields',
     'tomAi_specEditComment',
     'tomAi_specEditMarkComment',
     'tomAi_specImportAnswers',
@@ -46,9 +48,11 @@ const WRITERS = [
     'tomAi_specInsertQuestion',
     'tomAi_specMergeReviews',
     'tomAi_specMoveListItem',
+    'tomAi_specPrefill',
     'tomAi_specQuestionRegister',
     'tomAi_specRemoveAllAnnotations',
     'tomAi_specRemoveListItem',
+    'tomAi_specRenameId',
     'tomAi_specResolveAnnotation',
     'tomAi_specReviewRoundCreate',
     'tomAi_specSetAnswer',
@@ -76,7 +80,7 @@ const COUNTERPARTS: Array<[string, string[]]> = [
 
 describe('the spec tools as a set', () => {
     test('SS-1: registered, selectable, grouped in the pickers', () => {
-        assert.equal(specTools.length, 65);
+        assert.equal(specTools.length, 69);
         const categories = ['TomSpecs', 'TomSpecs (edit)', 'DocSpecs', 'CodeSpecs'];
         for (const t of specTools) {
             assert.ok((AVAILABLE_LLM_TOOLS as readonly string[]).includes(t.name), `${t.name} is not selectable`);
@@ -116,7 +120,9 @@ describe('the spec tools as a set', () => {
         }
         const singleEdits = somTools.filter((t) => !t.readOnly && !['tomAi_specApplyEdits', 'tomAi_specCreateDocument', 'tomAi_specConvert', 'tomAi_specWriteAnswers', 'tomAi_specReviewRoundCreate', 'tomAi_specMergeReviews', 'tomAi_specDecideConflicts',
             // The process checks' writes rewrite files whole, through the check: no batch counterpart.
-            'tomAi_specImportAnswers', 'tomAi_specQuestionRegister'].includes(t.name));
+            'tomAi_specImportAnswers', 'tomAi_specQuestionRegister',
+            // The document-set operations write whole documents through the bundled tomspecs, staged.
+            'tomAi_specBackfill', 'tomAi_specPrefill', 'tomAi_specDeriveFields', 'tomAi_specRenameId'].includes(t.name));
         assert.equal(singleEdits.length, 20);
         for (const t of singleEdits) {
             assert.match(t.description, /tomAi_specApplyEdits/, `${t.name}: does not point to the batch for more than one change`);

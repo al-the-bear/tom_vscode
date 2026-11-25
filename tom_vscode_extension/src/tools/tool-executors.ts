@@ -1302,7 +1302,7 @@ export const ALL_SHARED_TOOLS: SharedToolDefinition<any>[] = [
     ...CODESPECS_VALIDATE_TOOLS,  // CodeSpecs validate a trio (bundled binary), authoring-step context (read-only)
     CODESPECS_MAP_TOOL,           // CodeSpecs stage 5: map each generation unit from the IR (bundled tomspecs :ir-map; writer)
     ...SPEC_CHECKS_TOOLS,         // TomSpecs process checks (bundled tomspecs :spec-*): required fields, registers, coverage, authorization; import answers (approval)
-    ...SPEC_SYNC_TOOLS,           // TomSpecs document set (bundled tomspecs :spec-sync-report …): the set's validation
+    ...SPEC_SYNC_TOOLS,           // TomSpecs document set (bundled tomspecs :spec-sync-report …): the set's validation; backfill, prefill, derive fields, rename id (approval, staged)
     ...CODESPECS_PLAN_TOOLS,      // CodeSpecs Stage C: the csopen / csproj / csgen todo tree (approval)
     ...CODESPECS_WORKFLOW_TOOLS,  // CodeSpecs: where a document is in Phase 4; the workflow guides and runbooks
     ...SESSION_TOOLS,             // Named Agent SDK sessions: list and create (queue items name theirs with `session`)

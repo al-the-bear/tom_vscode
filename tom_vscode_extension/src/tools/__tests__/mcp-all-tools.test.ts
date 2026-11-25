@@ -465,6 +465,11 @@ function inputs(): Record<string, Input> {
         tomAi_specImportAnswers: { file: SPEC, rendition: 'specs/meridian.md', dryRun: true },
         // The document set of the one sandbox document: its own findings, every pair not started.
         tomAi_specSyncReport: { files: [SPEC] },
+        // The document-set writes as dry runs on the one sandbox document: nothing is written.
+        tomAi_specBackfill: { files: [SPEC], dryRun: true },
+        tomAi_specPrefill: { files: [SPEC], root: 'RSP', target: 'specs/meridian.rsp.tomspecs.yaml', dryRun: true },
+        tomAi_specDeriveFields: { file: SPEC, dryRun: true },
+        tomAi_specRenameId: { files: [SPEC], from: 'NO-SUCH-ID', to: 'NO-SUCH-ID-2', dryRun: true },
         tomAi_specCreateDocument: { file: 'specs/new.tomspecs.yaml', root: 'SBP' },
         tomAi_createSession: { name: 'mcp-test' },
     };
