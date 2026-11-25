@@ -104,6 +104,8 @@
    long enough that 60px showed two or three lines. `resize: vertical` keeps
    this a starting height, not a cap. */
 .qt-form-row textarea { resize: vertical; min-height: 90px; }
+/* The title: three lines high, so a long title can be read whole (one line all the same: it wraps). */
+.qt-form-row textarea.qt-title-field { min-height: 0; resize: vertical; line-height: 1.4; }
 .qt-form-actions { display: flex; gap: 6px; padding-top: 8px; }
 .qt-form-actions button { padding: 3px 8px; height: 22px; border-radius: 3px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; font-family: inherit; }
 .qt-form-actions button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border, transparent); }

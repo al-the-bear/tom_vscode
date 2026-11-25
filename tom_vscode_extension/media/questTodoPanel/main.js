@@ -2090,7 +2090,7 @@ function qtRenderDetail(todo) {
 
     pane.innerHTML = '<div class="qt-detail-form">' +
         qtFormRow('ID', '<span class="qt-id-row"><input id="qt-d-id" value="' + qtEsc(todo.id) + '" readonly class="qt-readonly">' + qtIdEditButton(todo) + '</span>') +
-        qtFormRow('Title', '<input id="qt-d-title" value="' + qtEsc(todo.title || '') + '">') +
+        qtFormRow('Title', qtTitleField(todo.title || '')) +
         qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on">' + qtEsc(todo.description || '') + '</textarea>') +
         '<div class="qt-inline-row">' +
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions(todo.status) + '</select>' + qtDecisionChip({
@@ -2130,6 +2130,7 @@ function qtRenderDetail(todo) {
         '<button class="icon-btn" id="qt-btn-delete" style="color:var(--vscode-errorForeground);">🗑️ Delete</button>' +
         '</div></div>';
 
+    qtWireTitleField();
     ['qt-d-title','qt-d-desc','qt-d-notes'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('input', qtAutoSave);
@@ -3183,7 +3184,7 @@ function qtCollectFormData() {
     var createdValue = createdEl ? createdEl.value.trim() : '';
     var dueEl = document.getElementById('qt-d-due-date');
     return {
-        title: document.getElementById('qt-d-title') ? document.getElementById('qt-d-title').value : '',
+        title: document.getElementById('qt-d-title') ? qtOneLine(document.getElementById('qt-d-title').value) : '',
         status: document.getElementById('qt-d-status') ? document.getElementById('qt-d-status').value : '',
         priority: document.getElementById('qt-d-priority') ? document.getElementById('qt-d-priority').value || undefined : undefined,
         // The role the todo runs in; '' (Default role) clears it on an existing todo, writes nothing on a new one.
@@ -3233,7 +3234,7 @@ function qtShowNewTodoForm(id) {
         qtFormRow('Created', '<div style="display:flex;gap:4px;align-items:center;">' +
             '<input type="date" id="qt-d-created" value="' + qtEsc(today) + '" style="flex:1;">' +
             '<button class="icon-btn" id="qt-d-created-pick" title="Select date"><span class="codicon codicon-calendar"></span></button></div>') +
-        qtFormRow('Title', '<input id="qt-d-title" value="">') +
+        qtFormRow('Title', qtTitleField('')) +
         qtFormRow('Description' + qtMdButtons('desc', 'Description'), '<textarea id="qt-d-desc" data-completion="on"></textarea>') +
         '<div class="qt-inline-row">' +
         qtFormRow('Status', '<select id="qt-d-status">' + qtStatusOptions('not-started') + '</select>') +
@@ -3254,6 +3255,7 @@ function qtShowNewTodoForm(id) {
         '<button class="primary" id="qt-btn-create"><span class="codicon codicon-add"></span> Create</button>' +
         '<button class="qt-btn-secondary" id="qt-btn-cancel-create">Cancel</button>' +
         '</div></div>';
+    qtWireTitleField();
 
     document.getElementById('qt-d-tag-input').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && this.value.trim()) {
@@ -3302,6 +3304,41 @@ function qtIdEditButton(todo) {
     return '<button type="button" class="icon-btn qt-id-edit-btn" id="qt-d-id-edit" data-qt-rename="' + qtEsc(todo.id) + '"' +
         ' data-qt-rename-file="' + qtEsc(todo._sourceFile || todo.sourceFile || '') + '"' +
         ' title="Rename this todo: a new id, references in the quest follow"><span class="codicon codicon-edit"></span></button>';
+}
+
+/**
+ * The title field of the detail and new-todo forms: three lines high, so a long title can be read whole. A title is
+ * one line all the same: the text wraps, Enter adds no line break, and a line break pasted in becomes a space.
+ * @param {string} title
+ * @returns {string}
+ */
+function qtTitleField(title) {
+    return '<textarea id="qt-d-title" class="qt-title-field" rows="3" spellcheck="true">' + qtEsc(title) + '</textarea>';
+}
+
+/**
+ * A title as one line: line breaks become spaces.
+ * @param {string} text
+ * @returns {string}
+ */
+function qtOneLine(text) {
+    return String(text || '').replace(/\s*[\r\n]+\s*/g, ' ');
+}
+
+/** The title field keeps one line: no Enter, pasted line breaks flattened. */
+function qtWireTitleField() {
+    var el = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('qt-d-title'));
+    if (!el) { return; }
+    var field = el;
+    field.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); } });
+    field.addEventListener('input', function() {
+        var flat = qtOneLine(field.value);
+        if (flat !== field.value) {
+            var at = field.selectionStart;
+            field.value = flat;
+            field.selectionStart = field.selectionEnd = Math.min(at, flat.length);
+        }
+    });
 }
 
 function qtFormRow(label, input) { return '<div class="qt-form-row"><label>' + label + '</label>' + input + '</div>'; }
