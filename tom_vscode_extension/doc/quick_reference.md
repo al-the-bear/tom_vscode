@@ -94,7 +94,7 @@
 - Sort picker **Group by prefix** checkbox (default on, saved with the panel state): off = one plain list in the chosen order
 - List opens fully collapsed on every script load (window reload / VS Code restart); expansion is never persisted
 - Collapse all / Expand all: toolbar buttons `qt-btn-collapse-all` / `qt-btn-expand-all`
-- 👁 `qt-btn-group-members`: **Group todo members** hidden / shown — hidden, a member of a group todo shows only under its group todo, not again in its prefix group or among the other todos (kept with the panel's state)
+- 👁 `qt-btn-group-members`: **Group todo members** hidden / shown — hidden, a member of a group todo, and the group todo itself, shows only in its group's section, not again in its prefix group or among the other todos (kept with the panel's state)
 - 👤 `qt-btn-only-mine`: only the user's own todos (`user_action: true`), every group open; again: all todos. Filter section **User action** (yes / no). User-action titles are purple (the left border is the status: blue in progress, yellow blocked)
 - ⛓️ beside the status icon: the todo blocks open todos (its `blocking`, the reverse of their `blocked_by`, kept in step by every save; hover for the list). The detail form shows it as a read-only **Blocking** row. Filter section **Blocking** (yes / no)
 - Filter **Date Ranges**: Created, Updated, Completed (`completed_date`; a todo without one is hidden while a Completed bound is set)

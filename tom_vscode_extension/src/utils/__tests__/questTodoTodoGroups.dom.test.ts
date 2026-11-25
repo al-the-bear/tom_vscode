@@ -17,9 +17,10 @@
  *   TGP-7 qtTodoGroupsOf (grouping.js): the groups by title, progress over all members, members marked foreign
  *   TGP-9 a group todo's 🔁 (its header and its tile, as a prefix group's): the host picks the group prompt and queues
  *         a GROUP item (qtQueueGroupTodoPrompt); a done group todo has none
- *   TGP-10 the "Group todo members" toggle: hidden, a member shows only under its group todo — not again in its
- *         prefix group or among the other todos —, the others stay; shown again on a second click; the choice is
- *         saved with the panel's state and restored
+ *   TGP-10 the "Group todo members" toggle: hidden, a member — and the group todo itself — shows only in its
+ *         group's section, not again in its prefix group or among the other todos, so a prefix group made of group
+ *         todos and their members disappears as a whole; the others stay; shown again on a second click; the choice
+ *         is saved with the panel's state and restored
  */
 
 import test, { describe } from 'node:test';
@@ -253,7 +254,11 @@ describe('group todo walks and members in the todo panel', () => {
         const btn = window.document.getElementById('qt-btn-group-members');
         assert.match(btn.title, /^Group todo members: shown/);
         btn.click();
-        assert.deepEqual([rows('rel3-tag'), rows('rel2-changelog'), rows('misc1-other'), rows('rel1-release')], [1, 1, 1, 1], 'hidden: only under the group todo; the others and the group todo stay');
+        assert.deepEqual([rows('rel3-tag'), rows('rel2-changelog'), rows('misc1-other'), rows('rel1-release')], [1, 1, 1, 0], 'hidden: only under the group todo; the group todo only as its section\'s header; the others stay');
+        assert.ok(header(window), 'the group todo still heads its section');
+        const prefixGroups = () => [...window.document.querySelectorAll('#qt-list-pane .qt-group-header')].map((h: any) => h.getAttribute('data-qt-group'));
+        assert.ok(!prefixGroups().some((g: string) => g.startsWith('rel')), 'the rel prefix group (only the group todo and its members) is gone');
+        assert.ok(prefixGroups().some((g: string) => g.startsWith('misc')), 'the other prefix group stays');
         assert.ok(window.document.querySelector('#qt-list-pane .qt-todogroup-members .qt-todo-item[data-qt-id="rel3-tag"]'), 'the member under its group todo');
         assert.match(btn.title, /^Group todo members: hidden/);
         assert.equal(btn.getAttribute('aria-pressed'), 'true');

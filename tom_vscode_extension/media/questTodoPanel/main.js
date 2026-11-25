@@ -1235,14 +1235,20 @@ function qtListHtml(filtered, renderOrder, groups, quest, grouped) {
     // quests use gives two groups, and a group todo's members are its own quest's.
     var perQuest = !quest && qtScopeMulti;
     // Todo groups (vscimpb126): a group todo heads its members, in `comprised_of`
-    // order; a member also stays in its prefix group (shown twice) unless the
-    // "Group todo members" toggle hides it there. Members are not in
-    // renderOrder, so a shift-click range never counts a row twice.
+    // order; a member — and the group todo itself — also stays in its prefix
+    // group (shown twice) unless the "Group todo members" toggle hides it there.
+    // Members are not in renderOrder, so a shift-click range never counts a row
+    // twice.
     var todoGroups = !grouped ? [] : perQuest ? qtTodoGroupsByQuest(filtered, qtQuestKey) : qtTodoGroupsOf(filtered, quest || qtCurrentQuestId);
     var below = filtered;
     if (grouped && qtHideGroupMembers && todoGroups.length) {
+        // Hidden below: every member row, and every group todo (it heads its own section above), so a prefix
+        // group made of group todos and their members disappears as a whole.
         var memberRows = [];
-        todoGroups.forEach(function(g) { g.members.forEach(function(m) { if (m.row) memberRows.push(m.row); }); });
+        todoGroups.forEach(function(g) {
+            memberRows.push(g.todo);
+            g.members.forEach(function(m) { if (m.row) memberRows.push(m.row); });
+        });
         below = filtered.filter(function(t) { return memberRows.indexOf(t) < 0; });
     }
     var prefixGroups = !grouped ? [] : perQuest ? qtGroupTodosByQuestPrefix(below, qtQuestKey) : qtGroupTodosByPrefix(below);
@@ -1726,8 +1732,8 @@ function qtUpdateGroupMembersButton() {
     btn.classList.toggle('active-indicator', qtHideGroupMembers);
     btn.setAttribute('aria-pressed', qtHideGroupMembers ? 'true' : 'false');
     btn.title = 'Group todo members: ' + (qtHideGroupMembers
-        ? 'hidden below — a member shows only under its group todo, not again in its prefix group or among the other todos'
-        : 'shown — a member shows under its group todo and again in its prefix group or among the other todos')
+        ? 'hidden below — a member, and the group todo itself, shows only in its group\'s section, not again in its prefix group or among the other todos'
+        : 'shown — a member, and the group todo itself, shows in its group\'s section and again in its prefix group or among the other todos')
         + ' (with the list grouped). Click to ' + (qtHideGroupMembers ? 'show them again' : 'hide them') + '.';
     var icon = btn.querySelector('.codicon');
     if (icon) { icon.className = 'codicon ' + (qtHideGroupMembers ? 'codicon-eye-closed' : 'codicon-eye'); }
