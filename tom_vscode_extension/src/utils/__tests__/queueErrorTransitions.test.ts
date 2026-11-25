@@ -125,8 +125,6 @@ describe('applyResetToPending', () => {
             status: 'error',
             error: 'boom',
             warning: { kind: 'rate_limit', message: 'try later', at: '2026-01-01T00:00:00.000Z' },
-            requestId: 'req-1',
-            expectedRequestId: 'req-1',
             sentAt: '2026-01-01T00:00:30.000Z',
         };
 
@@ -136,8 +134,6 @@ describe('applyResetToPending', () => {
         assert.equal(item.status, 'pending');
         assert.equal(item.error, undefined);
         assert.equal(item.warning, undefined);
-        assert.equal(item.requestId, undefined);
-        assert.equal(item.expectedRequestId, undefined);
         assert.equal(item.sentAt, undefined);
     });
 
@@ -437,8 +433,6 @@ describe('applyInterruptForContinuation', () => {
             prePrompts: [{ status: 'sent', repeatIndex: 1 }],
             followUps: [{ repeatIndex: 1 }],
             lastDispatched: last,
-            requestId: 'req-1',
-            expectedRequestId: 'req-1',
             sentAt: '2026-09-17T10:00:00.000Z',
             inFlightRepetition: { stage: 'main' },
             awaitingAnswer: true,
@@ -457,8 +451,6 @@ describe('applyInterruptForContinuation', () => {
         assert.equal(item.followUps[0].repeatIndex, 1);
         assert.equal(item.lastDispatched, last);
         // Transient send-tracking belongs to the cancelled dispatch.
-        assert.equal(item.requestId, undefined);
-        assert.equal(item.expectedRequestId, undefined);
         assert.equal(item.sentAt, undefined);
         assert.equal(item.inFlightRepetition, undefined);
         assert.equal(item.awaitingAnswer, false);

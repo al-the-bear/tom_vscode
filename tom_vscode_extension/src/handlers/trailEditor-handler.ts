@@ -32,7 +32,6 @@ export interface TrailEntry {
     content: string;       // markdown body (without metadata)
     // Metadata — prompts
     templateName?: string;
-    answerWrapper?: string;
     // Metadata — answers
     comments?: string;
     variables?: string;
@@ -523,12 +522,8 @@ function parseFallbackSummaryContent(content: string, expectedType: 'PROMPT' | '
 
         if (expectedType === 'PROMPT') {
             const templateMatch = chunk.match(/(?:^|\n)TEMPLATE:\s*(.+)/);
-            const wrapperMatch = chunk.match(/(?:^|\n)ANSWER-WRAPPER:\s*(.+)/);
             if (templateMatch) {
                 entry.templateName = templateMatch[1].trim();
-            }
-            if (wrapperMatch) {
-                entry.answerWrapper = wrapperMatch[1].trim();
             }
             const metaStart = chunk.search(/(?:^|\n)(?:TEMPLATE:|ANSWER-WRAPPER:|REQUEST-ID:)/);
             if (metaStart > 0) {
@@ -587,14 +582,10 @@ function parseEntryBody(body: string, type: 'PROMPT' | 'ANSWER', requestId: stri
     if (type === 'PROMPT') {
         // Extract TEMPLATE: and ANSWER-WRAPPER: from the end
         const templateMatch = body.match(/\nTEMPLATE:\s*(.+)/);
-        const wrapperMatch = body.match(/\nANSWER-WRAPPER:\s*(.+)/);
         if (templateMatch) {
             entry.templateName = templateMatch[1].trim();
             // Remove metadata lines from displayed content
             entry.content = body.substring(0, body.indexOf('\nTEMPLATE:')).trim();
-        }
-        if (wrapperMatch) {
-            entry.answerWrapper = wrapperMatch[1].trim();
         }
     } else {
         // Check for ### metadata JSON block (used by localLlm and lmApi trails)
@@ -756,9 +747,6 @@ function buildHtml(
             `<div class="meta-row"><div class="meta-key">Sequence</div><div class="meta-value">${escapeHtml(String(firstEntry.sequence))}</div></div>`,
             firstEntry.type === 'PROMPT'
                 ? `<div class="meta-row"><div class="meta-key">Template</div><div class="meta-value">${escapeHtml(firstEntry.templateName || '(none)')}</div></div>`
-                : '',
-            firstEntry.type === 'PROMPT'
-                ? `<div class="meta-row"><div class="meta-key">Answer Wrapper</div><div class="meta-value">${escapeHtml(firstEntry.answerWrapper || '(none)')}</div></div>`
                 : '',
         ].join('')
         : '<div class="meta-title">Metadata</div><div class="empty-state" style="height:auto; padding:12px 0;">No entry selected</div>';

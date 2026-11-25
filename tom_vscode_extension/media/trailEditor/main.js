@@ -358,7 +358,6 @@
 
         if (entry.type === 'PROMPT') {
             html += metaRow('Template', entry.templateName || '(none)');
-            html += metaRow('Answer Wrapper', entry.answerWrapper || '(none)');
         } else {
             if (entry.comments) { html += metaRow('Comment', entry.comments); }
             if (entry.variables) { html += metaVariablesRow('Chat Values', entry.variables); }
@@ -717,7 +716,6 @@
         html += '<div class="meta-row"><div class="meta-key">Sequence</div><div class="meta-value">' + escapeHtml(String(entry.sequence)) + '</div></div>';
         if (entry.type === 'PROMPT') {
             html += '<div class="meta-row"><div class="meta-key">Template</div><div class="meta-value">' + escapeHtml(entry.templateName || '(none)') + '</div></div>';
-            html += '<div class="meta-row"><div class="meta-key">Answer Wrapper</div><div class="meta-value">' + escapeHtml(entry.answerWrapper || '(none)') + '</div></div>';
         }
         metaPanel.innerHTML = html;
     }

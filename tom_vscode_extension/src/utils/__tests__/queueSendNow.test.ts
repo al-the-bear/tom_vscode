@@ -33,8 +33,6 @@ function finishedItem(): RunStateItem & { originalText: string; repeatCount: str
         repeatIndex: 7,
         resolvedRepeatCount: 9,
         repeatTodoId: 'dsa7_ajwe-x',
-        requestId: 'r1',
-        expectedRequestId: 'r2',
         followUpIndex: 1,
         error: 'old',
         warning: 'old',
@@ -69,7 +67,7 @@ describe('queueSendNow', () => {
         assert.deepEqual(item.followUps, [{ repeatIndex: 0, resolvedRepeatCount: undefined }]);
         assert.equal(item.repeatTodoId, undefined, 'the todo walk starts over');
         assert.equal(item.resolvedRepeatCount, undefined);
-        for (const k of ['requestId', 'expectedRequestId', 'error', 'warning', 'lastDispatched', 'inFlightRepetition'] as const) {
+        for (const k of ['error', 'warning', 'lastDispatched', 'inFlightRepetition'] as const) {
             assert.equal(item[k], undefined, k);
         }
         assert.equal(item.awaitingAnswer, false);

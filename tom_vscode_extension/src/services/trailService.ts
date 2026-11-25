@@ -122,8 +122,7 @@ export class TrailService {
         const entry =
             `=== PROMPT ${requestId} ${timestamp} ${sequence} ===\n\n` +
             `${metadata.prompt}\n\n` +
-            `TEMPLATE: ${metadata.templateName || '(none)'}\n` +
-            `ANSWER-WRAPPER: ${metadata.answerWrapper || 'no'}\n\n`;
+            `TEMPLATE: ${metadata.templateName || '(none)'}\n\n`;
         this.prependEntry(target, entry);
         trimCompactTrailFile(target, this.getMaxSummaryEntries());
     }
@@ -409,10 +408,9 @@ export class TrailService {
         return `${hex()}_${hex()}`;
     }
 
-    private extractPromptMetadata(corePrompt: string): { prompt: string; templateName: string; answerWrapper: string; requestId?: string } {
+    private extractPromptMetadata(corePrompt: string): { prompt: string; templateName: string; requestId?: string } {
         const lines = corePrompt.split('\n');
         let templateName = '(none)';
-        let answerWrapper = 'no';
         let requestId: string | undefined;
         let promptEnd = lines.length;
 
@@ -420,11 +418,6 @@ export class TrailService {
             const line = lines[i].trim();
             if (line.startsWith('REQUEST-ID:')) {
                 requestId = line.substring('REQUEST-ID:'.length).trim();
-                promptEnd = i;
-                continue;
-            }
-            if (line.startsWith('ANSWER-WRAPPER:')) {
-                answerWrapper = line.substring('ANSWER-WRAPPER:'.length).trim() || 'no';
                 promptEnd = i;
                 continue;
             }
@@ -443,7 +436,7 @@ export class TrailService {
         }
 
         const prompt = lines.slice(0, promptEnd).join('\n').trimEnd();
-        return { prompt, templateName, answerWrapper, requestId };
+        return { prompt, templateName, requestId };
     }
 
     private getSubsystemName(subsystem: TrailSubsystem): string {

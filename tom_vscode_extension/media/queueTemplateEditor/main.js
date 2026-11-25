@@ -4,8 +4,7 @@
 // src/handlers/queueTemplateEditor-handler.ts (Phase B.14 webview restructuring).
 //
 // Host-scope script: it declares the page globals (vscode, currentItems,
-// promptTemplates, editorMode, detailsExpanded,
-// responseTimeoutMinutes, …) consumed by the shared queue-entry component
+// promptTemplates, editorMode, detailsExpanded, …) consumed by the shared queue-entry component
 // (media/shared/queueEntry{Utils,RenderFunctions,MessageHandlers}.js), and it
 // calls + overrides the functions those partials define — so no-undef is
 // disabled. The component scripts load BEFORE this one (their globals exist
@@ -42,7 +41,6 @@ var selectedId = __INITIAL__.selectedId || '';
 var currentItems = __INITIAL__.currentItem ? [__INITIAL__.currentItem] : [];
 var promptTemplates = __INITIAL__.promptTemplates || [];
 var anthropicUserMessageTemplates = __INITIAL__.anthropicUserMessageTemplates || [];
-var responseTimeoutMinutes = 60;
 var detailsExpanded = {};
 var editorMode = 'template';
 

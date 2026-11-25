@@ -30,7 +30,7 @@ import { parse, stringify } from 'yaml';
  *   3  profile thinking keys: thinking / effort / legacyThinkingBudgetTokens
  *   4  the explain-and-ask template renamed explain-todo (Explain TODO)
  *   5  Local LLM profiles as Anthropic profiles; the removed panels' files deleted
- *   6  copilot.templates removed; the Answer Wrapper as copilot.queueWrapper
+ *   6  copilot.templates removed
  *   7  the Local LLM panel's top-level localLlm keys removed; the Telegram
  *      notification settings nothing reads removed from the quest configs
  *      and the ${{ … }} placeholders in the expression language, not JavaScript

@@ -9,8 +9,6 @@ describe('applyCrashRecovery', () => {
             {
                 id: 'a',
                 status: 'sending',
-                requestId: 'req-123',
-                expectedRequestId: 'req-123',
             },
         ];
 
@@ -18,8 +16,6 @@ describe('applyCrashRecovery', () => {
 
         assert.equal(count, 1);
         assert.equal(items[0].status, 'pending');
-        assert.equal(items[0].requestId, undefined);
-        assert.equal(items[0].expectedRequestId, undefined);
     });
 
     test('clears the in-flight repetition snapshot', () => {

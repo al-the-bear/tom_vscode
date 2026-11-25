@@ -215,8 +215,6 @@ export interface ResetToPendingItem {
     status?: string;
     error?: string;
     warning?: QueueItemWarningLike;
-    requestId?: string;
-    expectedRequestId?: string;
     sentAt?: string;
     /**
      * Snapshot of the last dispatch — preserved across the reset so
@@ -266,8 +264,6 @@ export function applyResetToPending(item: ResetToPendingItem): boolean {
     item.status = 'pending';
     item.error = undefined;
     item.warning = undefined;
-    item.requestId = undefined;
-    item.expectedRequestId = undefined;
     item.sentAt = undefined;
 
     // Roll back the counter for the stage that was in flight when
@@ -438,8 +434,6 @@ function stringifyError(err: unknown): string {
  */
 export interface InterruptForContinuationItem {
     status?: string;
-    requestId?: string;
-    expectedRequestId?: string;
     sentAt?: string;
     inFlightRepetition?: unknown;
     awaitingAnswer?: boolean;
@@ -480,8 +474,6 @@ export function applyInterruptForContinuation(item: InterruptForContinuationItem
     }
     item.status = 'interrupted';
     item.awaitingAnswer = false;
-    item.requestId = undefined;
-    item.expectedRequestId = undefined;
     item.sentAt = undefined;
     item.inFlightRepetition = undefined;
     item.error = undefined;

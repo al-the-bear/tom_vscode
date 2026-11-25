@@ -51,8 +51,7 @@
  *     from a format version below 5, what only those panels wrote is deleted.
  *     Format version 5;
  *   - `copilot.templates` and `copilot.defaultTemplate` are removed from that
- *     config and the user overlay, nothing of them copied; only an own Answer
- *     Wrapper becomes `copilot.queueWrapper` (copilotTemplates.ts). Format
+ *     config and the user overlay, nothing of them copied. Format
  *     version 6;
  *   - the Local LLM panel's top-level `localLlm` keys (ollamaUrl, model,
  *     temperature, stripThinkingTags, resultTemplate, the trail settings,
@@ -709,7 +708,7 @@ class Run {
         }
     }
 
-    /** `copilot.templates` and `copilot.defaultTemplate` removed; an own Answer Wrapper kept as `copilot.queueWrapper`. */
+    /** `copilot.templates` and `copilot.defaultTemplate` removed. */
     copilotTemplates(): void {
         this.editConfigFiles('copilot-templates', (parsed) => ({ config: parsed, done: dropCopilotTemplates(parsed) }));
     }

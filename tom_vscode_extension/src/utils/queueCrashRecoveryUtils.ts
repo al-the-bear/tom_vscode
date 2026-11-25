@@ -5,11 +5,8 @@
  * been interrupted by a VS Code crash or window reload — nothing can
  * legitimately be mid-send at load time (no dispatcher is running yet).
  *
- * We demote such items back to `pending` and clear transient send-tracking
- * fields (requestId / expectedRequestId / the in-flight
- * repetition snapshot) so the item looks like a fresh pending entry to the
- * dispatcher and the answer-file poll loop can't match an unrelated future
- * answer to the stale request.
+ * We demote such items back to `pending` and clear the in-flight repetition
+ * snapshot so the item looks like a fresh pending entry to the dispatcher.
  *
  * We deliberately preserve:
  *   - `lastDispatched` — the Resend button reads this to replay the
@@ -24,8 +21,6 @@
 export type CrashRecoveryItem = {
     id?: string;
     status?: string;
-    requestId?: string | undefined;
-    expectedRequestId?: string | undefined;
     /**
      * Snapshot of the counter advance made by the dispatch that the crash
      * interrupted. See `rollbackInFlightRepetition` — it only ever describes a
@@ -49,8 +44,6 @@ export function applyCrashRecovery(items: CrashRecoveryItem[]): number {
     for (const item of items) {
         if (item.status !== 'sending') { continue; }
         item.status = 'pending';
-        item.requestId = undefined;
-        item.expectedRequestId = undefined;
         item.inFlightRepetition = undefined;
         item.backgroundWait = undefined;
         item.waitingFor = undefined;

@@ -3302,7 +3302,7 @@ export class PromptQueueManager {
      *  - Releases any approval-bar awaiters via
      *    `AnthropicHandler.abortPendingApprovals()`.
      *  - Reverts the item to `staged` via `setStatus`, which clears
-     *    `requestId`/`expectedRequestId`/`sentAt` and
+     *    `sentAt` and
      *    flips any `sent` pre-prompts back to `pending`.
      *
      * Returns `true` if a sending item was found and/or an active
