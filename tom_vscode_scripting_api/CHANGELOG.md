@@ -1,3 +1,15 @@
+## 7.0.0
+
+- **Breaking:** `TomDocumentApi.listNotes`, `readNote` and `writeNote` and the
+  folders `DocumentFolder.notes` and `DocumentFolder.clarifications` are
+  removed. `_ai/notes/` and the `_ai/clarifications…` folders are no longer part
+  of a Tom workspace, and the extension's scripting bridge refuses these calls.
+  Notes are the quest's (`quest-notes.<quest>.md`) or the workspace notes; a
+  document belongs in its quest folder (`listQuestDocuments`,
+  `readQuestDocument`, `writeQuestDocument`).
+- `DocumentFolder.fromString` falls back to `DocumentFolder.quest` for an
+  unknown value.
+
 ## 6.0.0
 
 - Requires `tom_todo_model` ^4.1.0, the item model: a todo file with the 4.x

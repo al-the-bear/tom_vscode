@@ -510,7 +510,7 @@ Future<bool> runDocumentsExample(VSCodeAdapter adapter) async {
 (`dart`, `cloud`, `d4rt`, the root level, …); `readGuideline(name)` returns a
 `DocumentContent` whose `.content` is the file body. `listTrail(limit:)` reads
 the recent prompt/answer pairs — the same trail the live-trail and history files
-are built from. The API also has typed accessors for prompts, answers, notes, and
+are built from. The API also has typed accessors for prompts, answers and
 quest documents, plus generic `read`/`write`/`delete` — the concept stays on the
 read side.
 

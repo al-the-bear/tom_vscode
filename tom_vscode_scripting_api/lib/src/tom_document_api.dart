@@ -3,7 +3,6 @@
 /// Provides operations for accessing and manipulating:
 /// - Prompts (_ai/prompt/)
 /// - Answers (_ai/answers/)
-/// - Notes (_ai/notes/)
 /// - Trail entries (_ai/trail/)
 /// - Guidelines (_copilot_guidelines/)
 /// - Quest documents (_ai/quests/{questId}/)
@@ -20,11 +19,9 @@ import 'vscode_adapter.dart';
 enum DocumentFolder {
   prompt('prompt'),
   answers('answers'),
-  notes('notes'),
   trail('trail'),
   guidelines('guidelines'),
   quest('quest'),
-  clarifications('clarifications'),
   botConversations('bot_conversations'),
   sendToChat('send_to_chat');
 
@@ -34,7 +31,7 @@ enum DocumentFolder {
   static DocumentFolder fromString(String value) {
     return DocumentFolder.values.firstWhere(
       (f) => f.value == value,
-      orElse: () => DocumentFolder.notes,
+      orElse: () => DocumentFolder.quest,
     );
   }
 }
@@ -415,35 +412,6 @@ abstract class TomDocumentApi {
       'name': name,
     });
     return DocumentContent.fromJson(result);
-  }
-
-  // --------------------------------------------------------------------------
-  // Notes Operations
-  // --------------------------------------------------------------------------
-
-  /// List note files.
-  static Future<DocumentListResult> listNotes({String? pattern}) async {
-    final result = await _requireAdapter.sendRequest('doc.listNotesVce', {
-      'pattern': ?pattern,
-    });
-    return DocumentListResult.fromJson(result);
-  }
-
-  /// Read a note file.
-  static Future<DocumentContent> readNote(String filename) async {
-    final result = await _requireAdapter.sendRequest('doc.readNoteVce', {
-      'filename': filename,
-    });
-    return DocumentContent.fromJson(result);
-  }
-
-  /// Write a note file.
-  static Future<bool> writeNote(String filename, String content) async {
-    final result = await _requireAdapter.sendRequest('doc.writeNoteVce', {
-      'filename': filename,
-      'content': content,
-    });
-    return (result)['success'] as bool? ?? false;
   }
 
   // --------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 /// Run:  dart run bin/run_example.dart documents
 ///
 /// `TomDocumentApi` is the extension's typed view of the `_ai/` and
-/// `_copilot_guidelines/` document tree: prompts, answers, notes, the trail,
+/// `_copilot_guidelines/` document tree: prompts, answers, the trail,
 /// the guidelines, and per-quest documents — each with list / read / write
 /// operations. This concept stays read-only: it lists the guidelines (with
 /// their categories), reads the first one to prove content round-trips, and

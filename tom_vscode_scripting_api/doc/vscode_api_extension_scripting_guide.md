@@ -134,7 +134,7 @@ Models: `TimedRequest`, `ScheduledTime`, plus scheduling enums.
 ## `TomDocumentApi` — documents
 
 A generic document store plus typed accessors for the well-known Tom document
-folders (prompts, answers, trail, guidelines, notes, quest docs). Bridge
+folders (prompts, answers, trail, guidelines, quest docs). Bridge
 methods: `doc.*Vce`.
 
 ```dart
@@ -147,7 +147,7 @@ await TomDocumentApi.write(folder, 'name.md', 'content');
 await TomDocumentApi.delete(folder, 'name.md');
 final there = await TomDocumentApi.exists(folder, 'name.md');
 
-// Typed accessors exist for prompts / answers / trail / guidelines / notes /
+// Typed accessors exist for prompts / answers / trail / guidelines /
 // quest docs.
 ```
 
@@ -234,7 +234,7 @@ Model: `SendToChatResult`.
 | Drive the prompt queue | `TomQueueApi` |
 | Schedule a prompt for later | `TomTimedApi` |
 | Read/write quest or session todos | `TomTodoApi` |
-| Read/write Tom documents (prompts, trail, notes…) | `TomDocumentApi` |
+| Read/write Tom documents (prompts, trail, quest docs…) | `TomDocumentApi` |
 | Discover projects / quests / set the active quest | `TomWorkspaceApi` |
 | Invoke a Tom tool or fetch tools JSON | `TomToolsApi` |
 | Run a full agentic loop with tools & permissions | the [Agent SDK](vscode_api_anthropic_agent_sdk_guide.md) |
