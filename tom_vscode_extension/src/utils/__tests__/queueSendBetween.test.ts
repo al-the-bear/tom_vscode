@@ -10,6 +10,9 @@
  *   SB-5 the order: the marked item moves directly in front of the loop item, everything else stays
  *   SB-6 where Queue next puts an item: directly under the sending item, in front of the first pending
  *        item when that comes earlier or nothing is sending, at the end when there is neither
+ *   SB-7 a GROUP item's walk (`group:<quest>/<id>`) is a loop, a TODO item (`todo:<quest>/<id>`) is not; the
+ *        item that may go between is the next one of the loop's own run — sent items, chat sends and other
+ *        runs' items between them do not count, an item of another run never goes between
  */
 
 import test, { describe } from 'node:test';
@@ -78,5 +81,24 @@ describe('send between iterations', () => {
         assert.equal(nextQueuePosition([{ id: 's', status: 'staged' }, { id: 'p', status: 'pending' }]), 1, 'nothing sending: in front of the first pending');
         assert.equal(nextQueuePosition([{ id: 's', status: 'staged' }, { id: 'd', status: 'sent' }]), 2, 'neither: at the end');
         assert.equal(nextQueuePosition([]), 0);
+    });
+
+    test('SB-7: GROUP walks, and the loop of the item\'s own run', () => {
+        assert.equal(isLoopItem({ id: 'g', status: 'sending', repeatCount: 'group:q1/grp7' }), true, 'a GROUP walk');
+        assert.equal(isLoopItem({ id: 't', status: 'sending', repeatCount: 'todo:q1/t7' }), false, 'a TODO item runs one todo');
+        const q: BetweenQueueItem[] = [
+            { id: 'old', status: 'sent', run: 'r1' },
+            { id: 'loop', status: 'sending', repeatCount: 'group:q1/grp7', run: 'r1' },
+            { id: 'other', status: 'pending', run: 'r2' },
+            { id: 'chat', status: 'chat-sent', run: 'r1' },
+            { id: 'done', status: 'sent', run: 'r1' },
+            { id: 'next', status: 'pending', run: 'r1' },
+            { id: 'later', status: 'pending', run: 'r1' },
+        ];
+        assert.equal(runningLoopAbove(q, 'next')?.id, 'loop', 'the second item of run r1');
+        assert.equal(runningLoopAbove(q, 'later'), undefined, 'not the next one of its run');
+        assert.equal(runningLoopAbove(q, 'other'), undefined, 'another run has no loop running');
+        assert.deepEqual(toggleSendBetween(q, 'next'), ['next']);
+        assert.equal(toggleSendBetween(q, 'other').length, 0);
     });
 });

@@ -933,7 +933,8 @@ function moveBlockedReason(item) {
 function openMoveItemsOverlay() {
   closeMoveItemsOverlay();
   const run = settingsRun();
-  const items = currentItems.filter(function(i) { return tabRunOf(i) === run; });
+  // Finished items (sent, chat sends) are not listed: they have nothing left to move.
+  const items = currentItems.filter(function(i) { return tabRunOf(i) === run && i.status !== 'sent' && i.status !== 'chat' && i.status !== 'chat-sent'; });
   const targets = processRuns.filter(function(r) { return r !== run; });
   const overlay = document.createElement('div');
   overlay.className = 'move-items-overlay';

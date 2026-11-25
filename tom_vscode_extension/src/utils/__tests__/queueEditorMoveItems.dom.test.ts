@@ -4,7 +4,7 @@
  *
  *   QM-1 the toolbar button opens an overlay over the queue with the tab's items only, each with a peek of its
  *        prompt; staged and pending items have a checkbox, a sending item and an item of a Proceed run are greyed
- *        with the reason; the target select offers the quest's other runs
+ *        with the reason; sent items and chat sends are not listed; the target select offers the quest's other runs
  *   QM-2 Select all checks every movable item (and is indeterminate on a partial pick); Move posts
  *        `moveItemsToRun` with the picked ids and the target run and closes the overlay; Move is disabled while
  *        nothing is picked; Escape and Cancel close it without posting
@@ -62,6 +62,8 @@ const ITEMS = [
     { ...base, id: 'c', originalText: 'Running', expandedText: 'Running', status: 'sending' },
     { ...base, id: 'd', originalText: 'Proceed', expandedText: 'Proceed', processRun: { run: 'chg1' } },
     { ...base, id: 'e', originalText: 'Other run', expandedText: 'Other run', run: 'chg2' },
+    { ...base, id: 'f', originalText: 'Done', expandedText: 'Done', status: 'sent' },
+    { ...base, id: 'g', originalText: 'Chat', expandedText: 'Chat', status: 'chat-sent' },
 ];
 
 describe('queue editor: move items to another run', () => {
@@ -74,7 +76,7 @@ describe('queue editor: move items to another run', () => {
         const overlay = w.document.getElementById('moveItemsOverlay');
         assert.ok(overlay, 'the overlay opens');
         const boxes = [...overlay.querySelectorAll('input[data-move-id]')] as Win[];
-        assert.deepEqual(boxes.map((b) => b.getAttribute('data-move-id')), ['a', 'b', 'c', 'd'], 'the tab\'s items only');
+        assert.deepEqual(boxes.map((b) => b.getAttribute('data-move-id')), ['a', 'b', 'c', 'd'], 'the tab\'s items only, none that is finished (sent, chat sends)');
         assert.deepEqual(boxes.map((b) => b.disabled), [false, false, true, true]);
         assert.match(overlay.textContent, /only staged and pending items move/);
         assert.match(overlay.textContent, /belongs to a Proceed run/);

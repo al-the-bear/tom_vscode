@@ -10,7 +10,8 @@
  *        set back to not-started and runs; a stale met entry on a not-started todo blocks nothing
  *   TB-3 a blocked todo further down holds nothing yet: the todos before it run, the walk holds when it reaches it
  *   TB-4 a plain item that names its todo (`todoIdPattern`, the todo panel's Queue button) is held the same way
- *        before its prompt goes out; a free todo's item is sent; a releasable one is released and sent
+ *        before its prompt goes out; the items queued after it in its run wait behind it (resumed or not), and
+ *        once its blocker is completed it is sent first, then they follow in their order
  *   TB-5 a todo marked `blocked` with nothing that says why holds the item too
  *   TB-6 a walk runs an in-progress todo of its series that no running item works on (a stale claim) and does not
  *        hold a later todo that waits for it: both run, in order
@@ -26,6 +27,9 @@
  *   TB-11 the run's `autoResumeHeld` off: released, not resumed
  *   TB-12 a walk held at a `decision-needed` todo: once every decision of the todo is answered (its status left
  *         as it was), the todo is set to not-started, the item is released and its run goes on by itself
+ *   TB-13 send between iterations on a GROUP walk: the pending item after the running GROUP item is flagged
+ *         `canSendBetween`-able (runningLoopAbove) and, marked during the first member's turn, is sent after it,
+ *         before the second member
  */
 
 import test, { after, describe } from 'node:test';
@@ -67,6 +71,7 @@ import { PromptQueueManager, type QueuedPrompt } from '../../managers/promptQueu
 import { AnthropicHandler } from '../../handlers/anthropic-handler.js';
 import { AskUserRegistry } from '../../services/askUserRegistry.js';
 import { findTodoById, updateTodo } from '../../managers/questTodoManager.js';
+import { runningLoopAbove } from '../../utils/queueSendBetween.js';
 import { holdingState, queueHoldingDraft } from '../../services/userNotificationEmitter.js';
 import { TomAiConfiguration } from '../../utils/tomAiConfiguration.js';
 import { setExtensionPath } from '../../handlers/handler_shared.js';
@@ -240,21 +245,21 @@ describe('a queue item whose todo is blocked', () => {
         assert.equal(turns.length, 0, 'its prompt does not go out');
         assert.equal(live(blocked).status, 'todo-blocked');
         assert.equal(live(blocked).blockedOn, 'todo te1_x waits for gate5 (in-progress)');
-        // A free todo's item and a releasable one's are sent (the held item does not stop them once the run is resumed).
+        // The items queued after it wait behind it, even with the run resumed: its run keeps its order.
         const free = await add('te2_x');
         const releasable = await add('te3_x');
         queue().autoSendEnabled = true;
         await wait(500);
-        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['te2_x', 'te3_x']);
-        assert.equal(live(free).status, 'sent');
-        assert.equal(live(releasable).status, 'sent');
+        assert.equal(turns.length, 0, 'nothing after the held item runs before it');
+        assert.equal(live(free).status, 'pending');
+        assert.equal(live(releasable).status, 'pending');
         assert.equal(live(blocked).status, 'todo-blocked', 'still held');
-        // Its blocker completed: released and sent.
+        // Its blocker completed: released and sent first, then the others in their order.
         setStatus('gate5', 'completed');
         queue().autoSendEnabled = true;
-        await wait(400);
-        assert.equal(live(blocked).status, 'sent');
-        assert.equal(todoIdIn(String(turns[turns.length - 1].userText)), 'te1_x');
+        await wait(700);
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['te1_x', 'te2_x', 'te3_x']);
+        for (const i of [blocked, free, releasable]) { assert.equal(live(i).status, 'sent'); }
     });
 
     test('TB-5: blocked without a blocker named', async () => {
@@ -421,6 +426,38 @@ describe('a queue item whose todo is blocked', () => {
         // The run went on by itself (Auto-Pause switches it off again once its lane is empty).
         assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText))), ['tp1_x', 'tp2_x']);
         assert.equal(live(item).status, 'sent');
+        reset();
+    });
+
+    test('TB-13: send between iterations on a GROUP walk', async () => {
+        reset();
+        fs.writeFileSync(path.join(QDIR, `todos.tq.${QUEST}.todo.yaml`), [
+            'todos:',
+            '  - id: tqg_x', '    title: the group', '    description: the group', '    status: group', '    priority: medium', '    created: 2026-11-25',
+            '    comprised_of:', '      - tq1_x', '      - tq2_x',
+            '  - id: tq1_x', '    title: todo tq1_x', '    description: do tq1_x', '    status: not-started', '    priority: medium', '    created: 2026-11-25',
+            '  - id: tq2_x', '    title: todo tq2_x', '    description: do tq2_x', '    status: not-started', '    priority: medium', '    created: 2026-11-25',
+            '',
+        ].join('\n'));
+        const walk = await queue().enqueue({ originalText: 'work on ${repeatTodoId}', repeatCount: `group:${QUEST}/tqg_x`, transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-tq', deferSend: true, initialStatus: 'pending' } as never);
+        const between = await queue().enqueue({ originalText: 'between the members', transport: 'anthropic', anthropicProfileId: 'sdk', session: 's-between', deferSend: true, initialStatus: 'pending' } as never);
+        const plain = script;
+        let flagged: boolean | undefined;
+        script = (opts, n) => {
+            if (n === 1) {
+                flagged = runningLoopAbove(queue().items as never, between.id)?.id === walk.id;
+                queue().toggleSendBetween(between.id);
+            }
+            return plain(opts, n);
+        };
+        try {
+            queue().autoSendEnabled = true;
+            await wait(900);
+        } finally { script = plain; }
+        assert.equal(flagged, true, 'the item after the running GROUP walk may go between its iterations');
+        assert.deepEqual(turns.map((t) => todoIdIn(String(t.userText)) ?? 'between'), ['tq1_x', 'between', 'tq2_x']);
+        assert.equal(live(walk).status, 'sent');
+        assert.equal(live(between).status, 'sent');
         reset();
     });
 });

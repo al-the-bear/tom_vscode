@@ -11,6 +11,8 @@
  *   QL-5 on: a held run starts nothing; the hold only applies with Queue per run on
  *   QL-6 the lane summaries: `default` first, every run of the quest and of the items, sending / pending / held;
  *        none with Queue per run off
+ *   QL-7 an item held at its todo (todo-blocked, decision-needed) is its lane's next item: nothing after it in its
+ *        lane starts (on and off); other lanes go on; staged and sent items are passed as before
  */
 
 import test, { describe } from 'node:test';
@@ -84,5 +86,13 @@ describe('queue lanes', () => {
             { run: 'r3', sending: 0, pending: 1, held: false },
         ]);
         assert.deepEqual(laneSummaries(items, ['default'], off), []);
+    });
+
+    test('QL-7: a held item keeps its lane waiting', () => {
+        for (const held of ['todo-blocked', 'decision-needed']) {
+            const items = [it('a', 'sent', 'r1'), it('b', held, 'r1'), it('c', 'pending', 'r1'), it('d', 'staged', 'r2'), it('e', 'pending', 'r2')];
+            assert.deepEqual(ids(pickLaneStarts(items, on, target)), ['e'], `${held}: r1 waits behind b, r2 goes on`);
+            assert.deepEqual(ids(pickLaneStarts(items, off, target)), [], `${held}: the single lane waits`);
+        }
     });
 });

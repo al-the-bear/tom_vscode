@@ -13,6 +13,11 @@
  * - a lane takes its items in queue order: its first pending item is its
  *   next one, and when that one cannot start the lane waits (never skips
  *   ahead), so a run's process-move marker still runs after its step's items;
+ * - an item held at its todo ({@link HELD_LANE_STATUSES}: blocked, waiting for
+ *   decisions) is its lane's next item too: the lane waits until it is
+ *   released, so a later item never runs before it (todos queued in order of
+ *   their dependencies stay in that order; move an item to another run to
+ *   run it meanwhile);
  * - a held run (Pause per run) starts nothing; its sending item stops before
  *   its next prompt, as with auto-send off;
  * - two prompts never share a conversation: an item does not start while
@@ -26,6 +31,9 @@
  */
 
 import { DEFAULT_RUN, normalizeRun } from './processRuns';
+
+/** Statuses of an item held at its todo: it stays its lane's next item, the lane waits behind it. */
+export const HELD_LANE_STATUSES: readonly string[] = ['todo-blocked', 'decision-needed'];
 
 /** The lane of every item while Queue per run is off. */
 export const SINGLE_LANE = '';
@@ -103,7 +111,8 @@ export function laneConflict<T extends LaneItem>(
 /**
  * The items to start now, in queue order: per lane its first pending item,
  * when its lane is free, its run not held and it conflicts with nothing
- * sending or chosen before it. With Queue per run off: the first pending item
+ * sending or chosen before it. A held item ({@link HELD_LANE_STATUSES}) before
+ * it takes the lane's turn: the lane starts nothing. With Queue per run off: the first pending item
  * while nothing sends — at most one.
  */
 export function pickLaneStarts<T extends LaneItem>(
@@ -115,9 +124,12 @@ export function pickLaneStarts<T extends LaneItem>(
     const seenLanes = new Set<string>();
     const starts: T[] = [];
     for (const item of items) {
-        if (item.status !== 'pending') { continue; }
+        const held = HELD_LANE_STATUSES.includes(item.status);
+        if (item.status !== 'pending' && !held) { continue; }
         const lane = laneOf(item, opts.perRun);
         if (seenLanes.has(lane)) { continue; }
+        // Held at its todo: the lane's next item all the same — nothing after it starts.
+        if (held) { seenLanes.add(lane); continue; }
         // The lane's next item: whether it starts or not, the lane's later items wait for it.
         seenLanes.add(lane);
         if (isLaneHeld(item, opts)) { continue; }
