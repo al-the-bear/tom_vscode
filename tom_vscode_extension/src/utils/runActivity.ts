@@ -6,17 +6,22 @@
  * A run's state, from its queue items, the window's open user interactions
  * (services/userInteractions) and its auto-send — the most specific wins:
  *
- *   waiting for user  > waiting for event > waiting on task > running > paused > idle
+ *   waiting for user  > interrupted > waiting for event > waiting on task > running > paused > idle
  *
  * - `waiting for user`: an ask, approval, plan proposal, picker or MD Browser
  *   ask of the run is open (named by its title), or an item of the run is held
  *   on its todo's open decisions (`decision-needed`);
+ * - `interrupted`: an item of the run is held for continuation (`interrupted`,
+ *   it resends when the run is resumed) or soft-interrupted (its turn stops at
+ *   the next hold point, or is held there): the run does not go on by itself;
  * - `waiting for event`: the run's turn waits in tomAi_waitFor (reason, until);
  * - `waiting on task`: the run's turn waits for its own background tasks or
  *   command streams (named);
  * - `running`: an item of the run is sending, or pending items are about to
  *   be sent (auto-send on);
- * - `paused`: the run's auto-send is off (with its pending count);
+ * - `paused`: the run's auto-send is off (with its pending count) — also while
+ *   its item is still `sending` between two iterations of a walk or a repeat
+ *   (no answer in flight: it goes on only once the run is resumed);
  * - `idle`: nothing pending.
  *
  * vscode-free and pure.
@@ -25,10 +30,10 @@
 import { itemRun } from './queueLanes';
 import { normalizeRun } from './processRuns';
 
-export type RunActivityState = 'waiting for user' | 'waiting for event' | 'waiting on task' | 'running' | 'paused' | 'idle';
+export type RunActivityState = 'waiting for user' | 'interrupted' | 'waiting for event' | 'waiting on task' | 'running' | 'paused' | 'idle';
 
 /** The states, the most specific first: when several apply, the first wins. */
-export const RUN_STATE_PRECEDENCE: readonly RunActivityState[] = ['waiting for user', 'waiting for event', 'waiting on task', 'running', 'paused', 'idle'];
+export const RUN_STATE_PRECEDENCE: readonly RunActivityState[] = ['waiting for user', 'interrupted', 'waiting for event', 'waiting on task', 'running', 'paused', 'idle'];
 
 /** A queue item, as far as the run state reads it. */
 export interface RunActivityItem {
@@ -45,6 +50,10 @@ export interface RunActivityItem {
     waitingFor?: { reason: string; until: string };
     /** Its turn waits for its own background work. */
     backgroundWait?: { items?: ReadonlyArray<{ description?: string; command?: string; id?: string }> };
+    /** A soft interrupt of its turn: requested (waits for a hold point) or held (`heldAt`). */
+    softInterrupt?: { requestedAt?: number; heldAt?: number };
+    /** A prompt of a `sending` item is genuinely in flight; unset between two iterations. */
+    awaitingAnswer?: boolean;
 }
 
 /** An open user interaction, as far as the run state reads it. */
@@ -119,12 +128,25 @@ export function runActivity(
     ];
     if (asks.length || decisions.length) { return { state: 'waiting for user', detail: listOf([...asks, ...decisions]), pending }; }
 
+    // Held for continuation, or soft-interrupted: it does not go on by itself.
+    const held = own.find((i) => i.status === 'interrupted');
+    if (held) { return { state: 'interrupted', detail: `${oneLine(held.originalText ?? held.id, 60)} — resends when the run is resumed`, pending }; }
+    const soft = own.find((i) => i.status === 'sending' && i.softInterrupt);
+    if (soft?.softInterrupt) {
+        return { state: 'interrupted', detail: `${oneLine(soft.originalText ?? soft.id, 60)} — ${soft.softInterrupt.heldAt ? 'held at a hold point' : 'stops at the next hold point'}`, pending };
+    }
+
     const event = active.find((i) => i.waitingFor);
     if (event?.waitingFor) { return { state: 'waiting for event', detail: `${event.waitingFor.reason} (until ${event.waitingFor.until})`, pending }; }
 
     const tasks = active.flatMap((i) => i.backgroundWait?.items ?? []).map((w) => w.description || w.command || w.id || 'background work');
     if (tasks.length) { return { state: 'waiting on task', detail: listOf(tasks), pending }; }
 
+    // A walk or repeat paused between iterations: still `sending`, but no answer in flight and its run paused.
+    const between = paused ? active.find((i) => i.status === 'sending' && !i.awaitingAnswer) : undefined;
+    if (between && active.every((i) => i.status !== 'sending' || !i.awaitingAnswer)) {
+        return { state: 'paused', detail: `between iterations: ${oneLine(between.originalText ?? between.id, 60)}${pending ? `, ${pending} pending` : ''}`, pending };
+    }
     if (active.length) { return { state: 'running', detail: oneLine(active[0].originalText ?? active[0].id), pending }; }
     if (paused) { return { state: 'paused', detail: `${pending} pending`, pending }; }
     if (pending) { return { state: 'running', detail: `${pending} pending, about to be sent`, pending }; }

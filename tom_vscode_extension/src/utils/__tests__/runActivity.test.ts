@@ -3,7 +3,10 @@
  *
  *   RA-1 each state alone: waiting for user (an interaction, a decision-needed item), waiting for event, waiting on
  *        task, running (sending; pending with auto-send on), paused, idle
- *   RA-2 the most specific wins: user > event > task > running > paused > idle
+ *   RA-2 the most specific wins: user > interrupted > event > task > running > paused > idle
+ *   RA-7 an item held for continuation or soft-interrupted (requested or held) makes the run interrupted, not running;
+ *        a walk paused between iterations (sending, no answer in flight, its run paused) is paused, one with its
+ *        answer in flight still running
  *   RA-3 only the run's own items and interactions count; process-move markers are no pending work
  *   RA-4 the heartbeat entry: run, process, position (only with a process), subject, current; every run of the quest
  *   RA-5 tomAi_getQuestWindowStatus answers the window's `runs` as written
@@ -40,12 +43,12 @@ describe('the run state', () => {
     });
 
     test('RA-2: the most specific wins', () => {
-        assert.deepEqual([...RUN_STATE_PRECEDENCE], ['waiting for user', 'waiting for event', 'waiting on task', 'running', 'paused', 'idle']);
+        assert.deepEqual([...RUN_STATE_PRECEDENCE], ['waiting for user', 'interrupted', 'waiting for event', 'waiting on task', 'running', 'paused', 'idle']);
         const all = [item('a', 'sending', { waitingFor: WAIT, backgroundWait: TASKS }), item('b', 'pending')];
         assert.equal(runActivity('r1', all, [ask], true).state, 'waiting for user');
         assert.equal(runActivity('r1', all, [], true).state, 'waiting for event');
         assert.equal(runActivity('r1', [item('a', 'sending', { backgroundWait: TASKS })], [], true).state, 'waiting on task');
-        assert.equal(runActivity('r1', [item('a', 'sending')], [], true).state, 'running', 'a sending item of a paused run runs');
+        assert.equal(runActivity('r1', [item('a', 'sending', { awaitingAnswer: true })], [], true).state, 'running', 'a sending item of a paused run runs while its answer is in flight');
         const many = runActivity('r1', [], [ask, { run: 'r1', title: 'Approve?' }, { run: 'r1', title: 'Plan' }], false);
         assert.equal(many.detail, 'Which option?; Approve? (+1 more)');
     });
@@ -73,6 +76,24 @@ describe('the run state', () => {
         const answer = buildQuestWindowStatus({ states: [state], sessionsOf: () => [], config: undefined, noApiKey: new Set(), thisHost: 'h', thisMachine: 'm1', thisWindowId: 'w1_m1', nowMs: 2000 });
         assert.deepEqual(answer.windows[0].runs, runs);
         assert.equal(answer.windows[0].runs![0].state, 'waiting for user');
+    });
+});
+
+describe('interrupted and paused between iterations', () => {
+    test('RA-7: what does not go on by itself', () => {
+        const pending = item('p', 'pending');
+        const held = runActivity('r1', [item('a', 'interrupted'), pending], [], false);
+        assert.deepEqual([held.state, held.pending], ['interrupted', 1], 'held for continuation, with items pending and auto-send on: not running');
+        assert.match(held.detail ?? '', /resends when the run is resumed/);
+        const requested = runActivity('r1', [item('a', 'sending', { awaitingAnswer: true, softInterrupt: { requestedAt: 1 } })], [], false);
+        assert.deepEqual([requested.state, /stops at the next hold point/.test(requested.detail ?? '')], ['interrupted', true], 'a soft interrupt requested');
+        const atHold = runActivity('r1', [item('a', 'sending', { softInterrupt: { requestedAt: 1, heldAt: 2 } })], [], false);
+        assert.match(atHold.detail ?? '', /held at a hold point/);
+        assert.equal(runActivity('r1', [item('a', 'interrupted')], [ask], false).state, 'waiting for user', 'a question still comes first');
+        const between = runActivity('r1', [item('w', 'sending', { awaitingAnswer: false }), pending], [], true);
+        assert.deepEqual([between.state, /^between iterations: /.test(between.detail ?? ''), between.pending], ['paused', true, 1], 'a walk paused between iterations');
+        assert.equal(runActivity('r1', [item('w', 'sending', { awaitingAnswer: true })], [], true).state, 'running', 'its answer still in flight: running, it pauses after');
+        assert.equal(runActivity('r1', [item('w', 'sending', { awaitingAnswer: false })], [], false).state, 'running', 'auto-send on: it goes on by itself');
     });
 });
 

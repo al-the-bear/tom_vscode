@@ -100,6 +100,7 @@ export function runStateText(r: TodoRunChoice): string {
     const pending = r.pending ? `, ${r.pending} pending` : '';
     if (r.state === 'idle') { return `idle${pending}`; }
     if (r.state === 'paused') { return `paused${pending}`; }
+    if (r.state === 'interrupted') { return `interrupted${r.detail ? `: ${r.detail}` : ''}${pending}`; }
     return `busy — ${r.state}${r.detail ? `: ${r.detail}` : ''}${pending}`;
 }
 

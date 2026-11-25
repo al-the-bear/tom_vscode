@@ -27,6 +27,7 @@ body {
 .state-waiting-for-user { color: var(--vscode-editorError-foreground, #f14c4c); }
 .state-waiting-for-event { color: var(--vscode-charts-purple, #b180d7); }
 .state-waiting-on-task { color: var(--vscode-charts-blue, #3794ff); }
+.state-interrupted { color: var(--vscode-charts-orange, #d18616); }
 .state-running { color: var(--vscode-charts-green, #3fb950); }
 .state-paused { color: var(--vscode-editorWarning-foreground, #cca700); }
 .state-idle { color: var(--vscode-descriptionForeground); }
