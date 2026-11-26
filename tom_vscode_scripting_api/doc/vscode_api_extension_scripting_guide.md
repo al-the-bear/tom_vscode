@@ -132,9 +132,10 @@ Models: `TimedRequest`, `ScheduledTime`, plus scheduling enums.
 
 ## `TomDocumentApi` — documents
 
-A generic document store plus typed accessors for the well-known Tom document
-folders (prompts, answers, trail, guidelines, quest docs). Bridge
-methods: `doc.*Vce`.
+A generic document store plus typed accessors for the Tom document folders
+(`DocumentFolder`: `prompt` — the active quest's saved prompts, `trail` — the
+raw-trail root `_ai/trail/`, `guidelines`, `quest`), the quest documents and
+the quest's trail. Bridge methods: `doc.*Vce`.
 
 ```dart
 TomDocumentApi.setAdapter(adapter);
@@ -146,11 +147,25 @@ await TomDocumentApi.write(folder, 'name.md', 'content');
 await TomDocumentApi.delete(folder, 'name.md');
 final there = await TomDocumentApi.exists(folder, 'name.md');
 
-// Typed accessors exist for prompts / answers / trail / guidelines /
-// quest docs.
+// The trail: this host's prompt/answer turns of the window's quest
+// (_ai/quests/<quest>/history/trail.<host>.md), newest first.
+final trail = await TomDocumentApi.listTrail(limit: 5);
+for (final turn in trail.entries) {
+  print('${turn.time} ${turn.session} ${turn.model}: ${turn.prompt}');
+}
+// One turn by its request id, from any host's trail of the quest (or null).
+final turn = await TomDocumentApi.getTrailEntry(trail.entries.first.id);
 ```
 
-Models: `DocumentFolder` enum, `DocumentInfo`, `TrailEntry`, `GuidelineInfo`.
+`listTrail` takes `questId` (default the window's quest; it throws in a
+window without one), `since` (an ISO date-time: only the turns sent after it)
+and `limit` (default 20); `totalCount` counts every turn after `since`. A
+`TrailEntry` is the turn: `id` (the request id), `questId`, `file`, `time`,
+`host`, `session`, `profile`, `model`, `prompt`, `answer`. Sub-agent runs and
+sessions whose *trail and memory* setting is off write no turns.
+
+Models: `DocumentFolder` enum, `DocumentInfo`, `TrailEntry`, `TrailListResult`,
+`GuidelineInfo`.
 
 ---
 
@@ -233,7 +248,7 @@ Model: `SendToChatResult`.
 | Drive the prompt queue | `TomQueueApi` |
 | Schedule a prompt for later | `TomTimedApi` |
 | Read/write quest or session todos | `TomTodoApi` |
-| Read/write Tom documents (prompts, trail, quest docs…) | `TomDocumentApi` |
+| Read/write Tom documents (prompts, guidelines, quest docs…), read the trail | `TomDocumentApi` |
 | Discover projects / quests / set the active quest | `TomWorkspaceApi` |
 | Invoke a Tom tool or fetch tools JSON | `TomToolsApi` |
 | Run a full agentic loop with tools & permissions | the [Agent SDK](vscode_api_anthropic_agent_sdk_guide.md) |

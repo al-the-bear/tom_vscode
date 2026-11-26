@@ -40,7 +40,7 @@ surface is testable against fakes.
 ```yaml
 # pubspec.yaml
 dependencies:
-  tom_vscode_scripting_api: ^8.0.0
+  tom_vscode_scripting_api: ^9.0.0
 ```
 
 ```bash

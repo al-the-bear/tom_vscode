@@ -3,7 +3,8 @@
 /// Provides operations for accessing and manipulating:
 /// - Saved prompts: the active quest's `_ai/quests/{questId}/prompt/` folder
 ///   (the prompt operations throw in a window without a quest)
-/// - Trail entries (_ai/trail/)
+/// - The trail: the prompt/answer turns of a quest's host trail
+///   (`_ai/quests/{questId}/history/trail.{host}.md`)
 /// - Guidelines: the root's and the workspace folder's guidelines folder
 ///   (`_agent_guidelines/`, or the older `_copilot_guidelines/`)
 /// - Quest documents (_ai/quests/{questId}/)
@@ -21,9 +22,7 @@ enum DocumentFolder {
   prompt('prompt'),
   trail('trail'),
   guidelines('guidelines'),
-  quest('quest'),
-  botConversations('bot_conversations'),
-  sendToChat('send_to_chat');
+  quest('quest');
 
   final String value;
   const DocumentFolder(this.value);
@@ -121,52 +120,93 @@ class DocumentContent {
   }
 }
 
-/// Trail entry (prompt/answer pair).
+/// One prompt/answer turn of a quest's host trail
+/// (`_ai/quests/{questId}/history/trail.{host}.md`): the prompt as the user or
+/// the queue sent it and the turn's final answer.
 class TrailEntry {
+  /// The request id the prompt was sent with (unique per turn).
   final String id;
-  final String? requestId;
-  final String promptFile;
-  final String? answerFile;
-  final String? promptContent;
-  final String? answerContent;
-  final String? timestamp;
-  final String? questId;
+
+  /// The quest whose trail holds the turn.
+  final String questId;
+
+  /// The host trail file the turn is in.
+  final String file;
+
+  /// ISO time the prompt was sent.
+  final String time;
+
+  /// The machine (host slug) that sent it.
+  final String host;
+
+  /// The session it ran in, e.g. `default@default`.
+  final String session;
+
+  /// The Anthropic profile it ran with.
+  final String profile;
+
+  /// The model that answered.
+  final String model;
+
+  /// The prompt as sent.
+  final String prompt;
+
+  /// The turn's final answer.
+  final String answer;
 
   TrailEntry({
     required this.id,
-    this.requestId,
-    required this.promptFile,
-    this.answerFile,
-    this.promptContent,
-    this.answerContent,
-    this.timestamp,
-    this.questId,
+    required this.questId,
+    required this.file,
+    required this.time,
+    required this.host,
+    required this.session,
+    required this.profile,
+    required this.model,
+    required this.prompt,
+    required this.answer,
   });
 
   factory TrailEntry.fromJson(Map<String, dynamic> json) {
+    String text(String key) => json[key] as String? ?? '';
     return TrailEntry(
-      id: json['id'] as String? ?? '',
-      requestId: json['requestId'] as String?,
-      promptFile: json['promptFile'] as String? ?? '',
-      answerFile: json['answerFile'] as String?,
-      promptContent: json['promptContent'] as String?,
-      answerContent: json['answerContent'] as String?,
-      timestamp: json['timestamp'] as String?,
-      questId: json['questId'] as String?,
+      id: text('id'),
+      questId: text('questId'),
+      file: text('file'),
+      time: text('time'),
+      host: text('host'),
+      session: text('session'),
+      profile: text('profile'),
+      model: text('model'),
+      prompt: text('prompt'),
+      answer: text('answer'),
     );
   }
+
+  /// A turn answer, or null when the extension found none (it answers `null`,
+  /// which reaches the adapter as an empty map).
+  static TrailEntry? fromJsonOrNull(Map<String, dynamic> json) =>
+      json['id'] == null ? null : TrailEntry.fromJson(json);
 }
 
-/// Result of listing trail entries.
+/// Result of listing the trail: this host's turns of a quest, newest first.
 class TrailListResult {
   final List<TrailEntry> entries;
+
+  /// Every turn after `since` (all without it), before the limit.
   final int totalCount;
+
+  /// The quest whose trail was listed.
   final String? questId;
+
+  /// The host whose trail was listed (this machine).
+  final String? host;
 
   TrailListResult({
     required this.entries,
     required this.totalCount,
     this.questId,
+    this.host,
   });
 
   factory TrailListResult.fromJson(Map<String, dynamic> json) {
@@ -178,6 +218,7 @@ class TrailListResult {
           [],
       totalCount: json['totalCount'] as int? ?? 0,
       questId: json['questId'] as String?,
+      host: json['host'] as String?,
     );
   }
 }
@@ -339,7 +380,12 @@ abstract class TomDocumentApi {
   // Trail Operations
   // --------------------------------------------------------------------------
 
-  /// List trail entries (prompt/answer pairs).
+  /// This host's turns of a quest's trail, newest first.
+  ///
+  /// [questId] defaults to the window's quest (the call throws in a window
+  /// without one); [since] (an ISO date-time) keeps the turns sent after it;
+  /// [limit] caps the list (default 20 — a turn holds the whole prompt and
+  /// answer). [TrailListResult.totalCount] counts every turn after [since].
   static Future<TrailListResult> listTrail({
     String? questId,
     int? limit,
@@ -353,21 +399,31 @@ abstract class TomDocumentApi {
     return TrailListResult.fromJson(result);
   }
 
-  /// Get a specific trail entry by ID.
-  static Future<TrailEntry?> getTrailEntry(String entryId) async {
+  /// The turn whose id is [entryId] in any host's trail of the quest
+  /// ([questId], default the window's quest), or null.
+  static Future<TrailEntry?> getTrailEntry(
+    String entryId, {
+    String? questId,
+  }) async {
     final result = await _requireAdapter.sendRequest('doc.getTrailEntryVce', {
       'entryId': entryId,
+      'questId': ?questId,
     });
-    return TrailEntry.fromJson(result);
+    return TrailEntry.fromJsonOrNull(result);
   }
 
-  /// Find trail entry by request ID.
-  static Future<TrailEntry?> findTrailByRequestId(String requestId) async {
+  /// The turn sent with the request id [requestId] in any host's trail of the
+  /// quest ([questId], default the window's quest), or null. A turn's id is its
+  /// request id, so this is [getTrailEntry] by another name.
+  static Future<TrailEntry?> findTrailByRequestId(
+    String requestId, {
+    String? questId,
+  }) async {
     final result = await _requireAdapter.sendRequest(
       'doc.findTrailByRequestIdVce',
-      {'requestId': requestId},
+      {'requestId': requestId, 'questId': ?questId},
     );
-    return TrailEntry.fromJson(result);
+    return TrailEntry.fromJsonOrNull(result);
   }
 
   // --------------------------------------------------------------------------

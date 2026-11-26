@@ -15,7 +15,7 @@ connected. The detail lives in three companion guides:
 | ----- | ------ |
 | [vscode_api_vscode_scripting_guide.md](vscode_api_vscode_scripting_guide.md) | Scripting **VS Code itself** — commands, windows, workspace, files, editors, language model, chat participants, and the high-level `VsCodeHelper`. |
 | [vscode_api_anthropic_agent_sdk_guide.md](vscode_api_anthropic_agent_sdk_guide.md) | Scripting the **Anthropic Agent SDK** — streaming `query()`, `Options`, messages, in-process MCP tools, and the `canUseTool` permission callback. |
-| [vscode_api_extension_scripting_guide.md](vscode_api_extension_scripting_guide.md) | Scripting the **extension's own features** — local LLM prompts, bot conversations, todos, the prompt queue, timed requests, documents, workspace metadata, tools, and send-to-chat. |
+| [vscode_api_extension_scripting_guide.md](vscode_api_extension_scripting_guide.md) | Scripting the **extension's own features** — todos, the prompt queue, timed requests, documents and the quest trail, workspace metadata, tools, and send-to-chat. |
 
 ---
 

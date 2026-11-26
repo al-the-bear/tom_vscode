@@ -1,3 +1,26 @@
+## 9.0.0
+
+The trail operations read the quest's host trail; the folders that are no
+longer part of a Tom workspace leave the document API.
+
+- **Breaking:** `TrailEntry` is a turn of the host trail
+  `_ai/quests/<quest>/history/trail.<host>.md`: `id` (the request id),
+  `questId`, `file`, `time`, `host`, `session`, `profile`, `model`, `prompt`
+  and `answer`. `requestId`, `promptFile`, `answerFile`, `promptContent`,
+  `answerContent` and `timestamp` are removed.
+- `TomDocumentApi.listTrail` answers this host's turns of the quest (default
+  the window's quest), newest first, after `since`, at most `limit` (default
+  20); `TrailListResult.totalCount` counts every turn after `since`, and
+  `TrailListResult.host` names the host. It listed the raw-trail root's files
+  before.
+- `getTrailEntry` and `findTrailByRequestId` find a turn by its id in any
+  host's trail of the quest and answer null when none holds it (they always
+  answered null before); both take an optional `questId`.
+- **Breaking:** `DocumentFolder.botConversations` (`_ai/bot_conversations`,
+  removed with the `_ai` cleanup) and `DocumentFolder.sendToChat`
+  (`_ai/send_to_chat`, which nothing wrote) are removed; the extension refuses
+  both folders with the reason.
+
 ## 8.0.0
 
 The Tom extension has one transport, the Anthropic handler: the Copilot
