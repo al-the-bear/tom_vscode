@@ -8,7 +8,8 @@
 # DartScript and CodeSpecs validation although the Dart SDK was there. So:
 #
 #   tom_ensure_node          Node.js >= 20 on PATH, loading nvm (its default,
-#                            else Node 20) when node is missing or too old;
+#                            else the newest Node it has, else it installs
+#                            Node 20) when node is missing or too old;
 #                            prints why and returns 1 when there is none.
 #   tom_find_dart <dir>      runs the lookup in <dir>: prints the folder that
 #                            holds `dart` and returns 0; returns 1 when no Dart
@@ -42,14 +43,16 @@ tom_ensure_node() {
         nvm use default >/dev/null 2>&1 || true
         major="$(tom_node_major)"
         if [ "$major" -lt 20 ]; then
-            if nvm list 2>/dev/null | grep -q "v20"; then
-                echo "📦 Switching to Node.js 20..."
-                nvm use 20 >/dev/null 2>&1 || true
+            # The newest Node nvm has installed (`node` is nvm's alias for it).
+            nvm use node >/dev/null 2>&1 || true
+            major="$(tom_node_major)"
+            if [ "$major" -ge 20 ]; then
+                echo "📦 Switching to Node.js $(node --version) (the newest nvm has)..."
             else
                 echo "📦 Installing Node.js 20 (LTS)..."
                 nvm install 20 && nvm use 20 >/dev/null 2>&1 || true
+                major="$(tom_node_major)"
             fi
-            major="$(tom_node_major)"
         fi
     fi
     if [ "$major" -ge 20 ]; then

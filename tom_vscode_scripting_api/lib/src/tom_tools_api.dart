@@ -7,8 +7,7 @@
 ///   JSON argument map, receiving the tool's string result.
 /// - [getToolsJson] — generate the Anthropic-shaped tools JSON to inject into
 ///   a prompt. The set reflects the currently active Anthropic profile's tool
-///   settings. When the configured Send-to-Chat target is Copilot, the list
-///   is empty.
+///   settings.
 ///
 /// ## Gating contract (enforced server-side)
 ///
@@ -16,9 +15,7 @@
 /// scoped to the **currently active Anthropic profile**:
 ///
 /// - The available tools are exactly the profile's tool set
-///   (`toolsEnabled` / `enabledTools`).
-/// - When the Send-to-Chat target is Copilot, **no** tools are available — the
-///   list is empty and every invoke is refused.
+///   (`toolsEnabled` / `enabledTools`); a name outside it is refused.
 ///
 /// The gate lives **inside the VS Code extension**, not in this Dart API. This
 /// package is a thin pass-through: it performs **no** client-side filtering and
@@ -100,8 +97,8 @@ abstract class TomToolsApi {
   ///
   /// **Gated by the active Anthropic profile, enforced server-side.** Only
   /// tools the current profile permits can be invoked; a name the profile hides
-  /// — or any name while the Send-to-Chat target is Copilot — is refused inside
-  /// the extension **before** the executor runs, returning an error string.
+  /// is refused inside the extension **before** the executor runs, returning an
+  /// error string.
   /// This package applies no filtering of its own; the extension is the sole
   /// authority. The set of invokable tools matches the names returned by
   /// [getToolsJson].
@@ -119,8 +116,7 @@ abstract class TomToolsApi {
   /// Generate the Anthropic-shaped tools JSON for the active profile.
   ///
   /// Reflects the currently active Anthropic profile's tool settings
-  /// (`toolsEnabled` / `enabledTools`). Returns an empty list when the
-  /// configured Send-to-Chat target is Copilot.
+  /// (`toolsEnabled` / `enabledTools`).
   ///
   /// The returned set is resolved **server-side** by the extension and is the
   /// authoritative list of invokable tools: the same gate scopes [invokeTool],
@@ -138,8 +134,7 @@ abstract class TomToolsApi {
   /// for pre-validating a name before calling [invokeTool].
   ///
   /// Backed by the same `tools.getJsonVce` op as [getToolsJson] (so it honours
-  /// the identical server-side gate: active-profile scoped, empty for the
-  /// Copilot target). This is an ergonomic shortcut only — the extension still
+  /// the identical server-side gate, scoped to the active profile). This is an ergonomic shortcut only — the extension still
   /// re-checks on [invokeTool], so skipping the pre-check is always safe.
   static Future<List<String>> listAllowedToolNames() async {
     final tools = await getToolsJson();

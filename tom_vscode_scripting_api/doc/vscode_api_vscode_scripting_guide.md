@@ -326,11 +326,14 @@ await VsCodeHelper.hotReload();
 await VsCodeHelper.runFlutterApp();
 ```
 
-### Copilot helpers
+### Language-model helpers (`vscode.lm`)
+
+VS Code's own language-model API (the models of the vendor `copilot` by
+default), not a transport of the Tom extension; for a send with trail, session
+and tools use `TomChatApi.sendToChat`.
 
 ```dart
 final answer = await VsCodeHelper.askCopilot('How do I parse YAML in Dart?');
-final reply  = await VsCodeHelper.askCopilotChat('Refactor the selection');
 final models = await VsCodeHelper.getCopilotModels();
 await VsCodeHelper.selectCopilotModel('gpt-4o');
 
@@ -339,9 +342,6 @@ await VsCodeHelper.reviewCode('lib/parser.dart');
 await VsCodeHelper.generateTests('lib/parser.dart');
 await VsCodeHelper.fixCode('lib/parser.dart');
 ```
-
-> `askCopilotChat` works by dispatching to Copilot chat and polling
-> `~/.tom/copilot-chat-answers/<windowId>_answer.json` for the reply.
 
 ### Editor edits
 

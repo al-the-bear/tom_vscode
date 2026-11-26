@@ -746,7 +746,6 @@ export class DartBridgeClient {
                 case 'queue.clearSentVce':
                 case 'queue.updateStatusVce':
                 case 'queue.updateTextVce':
-                case 'queue.updateReminderVce':
                 case 'queue.moveToVce':
                 case 'queue.moveUpVce':
                 case 'queue.moveDownVce':
@@ -776,8 +775,6 @@ export class DartBridgeClient {
                 case 'doc.listPromptsVce':
                 case 'doc.readPromptVce':
                 case 'doc.createPromptVce':
-                case 'doc.listAnswersVce':
-                case 'doc.readAnswerVce':
                 case 'doc.listTrailVce':
                 case 'doc.getTrailEntryVce':
                 case 'doc.findTrailByRequestIdVce':

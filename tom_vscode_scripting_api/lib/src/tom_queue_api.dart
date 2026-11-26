@@ -1,6 +1,6 @@
 /// Tom Queue API for scripting access to the prompt queue.
 ///
-/// Provides operations for managing the Copilot prompt queue:
+/// Provides operations for managing the extension's prompt queue:
 /// - List queued prompts
 /// - Add prompts to the queue
 /// - Remove prompts from the queue
@@ -37,8 +37,7 @@ enum QueuedPromptStatus {
 /// Type of a queued prompt.
 enum QueuedPromptType {
   normal('normal'),
-  timed('timed'),
-  reminder('reminder');
+  timed('timed');
 
   final String value;
   const QueuedPromptType(this.value);
@@ -56,20 +55,12 @@ class QueuedFollowUp {
   final String id;
   final String originalText;
   final String? template;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
-  final bool? reminderEnabled;
   final String createdAt;
 
   QueuedFollowUp({
     required this.id,
     required this.originalText,
     this.template,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
-    this.reminderEnabled,
     required this.createdAt,
   });
 
@@ -78,10 +69,6 @@ class QueuedFollowUp {
       id: json['id'] as String,
       originalText: json['originalText'] as String? ?? '',
       template: json['template'] as String?,
-      reminderTemplateId: json['reminderTemplateId'] as String?,
-      reminderTimeoutMinutes: json['reminderTimeoutMinutes'] as int?,
-      reminderRepeat: json['reminderRepeat'] as bool?,
-      reminderEnabled: json['reminderEnabled'] as bool?,
       createdAt: json['createdAt'] as String? ?? '',
     );
   }
@@ -90,11 +77,6 @@ class QueuedFollowUp {
     'id': id,
     'originalText': originalText,
     if (template != null) 'template': template,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
     'createdAt': createdAt,
   };
 }
@@ -103,7 +85,6 @@ class QueuedFollowUp {
 class QueuedPrompt {
   final String id;
   final String template;
-  final bool? answerWrapper;
   final String originalText;
   final String expandedText;
   final QueuedPromptStatus status;
@@ -111,13 +92,6 @@ class QueuedPrompt {
   final String createdAt;
   final String? sentAt;
   final String? error;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
-  final bool? reminderEnabled;
-  final bool? reminderQueued;
-  final int? reminderSentCount;
-  final String? lastReminderAt;
   final String? requestId;
   final String? expectedRequestId;
   final List<QueuedFollowUp>? followUps;
@@ -126,7 +100,6 @@ class QueuedPrompt {
   QueuedPrompt({
     required this.id,
     required this.template,
-    this.answerWrapper,
     required this.originalText,
     required this.expandedText,
     required this.status,
@@ -134,13 +107,6 @@ class QueuedPrompt {
     required this.createdAt,
     this.sentAt,
     this.error,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
-    this.reminderEnabled,
-    this.reminderQueued,
-    this.reminderSentCount,
-    this.lastReminderAt,
     this.requestId,
     this.expectedRequestId,
     this.followUps,
@@ -151,7 +117,6 @@ class QueuedPrompt {
     return QueuedPrompt(
       id: json['id'] as String,
       template: json['template'] as String? ?? '(None)',
-      answerWrapper: json['answerWrapper'] as bool?,
       originalText: json['originalText'] as String? ?? '',
       expandedText: json['expandedText'] as String? ?? '',
       status: QueuedPromptStatus.fromString(
@@ -161,13 +126,6 @@ class QueuedPrompt {
       createdAt: json['createdAt'] as String? ?? '',
       sentAt: json['sentAt'] as String?,
       error: json['error'] as String?,
-      reminderTemplateId: json['reminderTemplateId'] as String?,
-      reminderTimeoutMinutes: json['reminderTimeoutMinutes'] as int?,
-      reminderRepeat: json['reminderRepeat'] as bool?,
-      reminderEnabled: json['reminderEnabled'] as bool?,
-      reminderQueued: json['reminderQueued'] as bool?,
-      reminderSentCount: json['reminderSentCount'] as int?,
-      lastReminderAt: json['lastReminderAt'] as String?,
       requestId: json['requestId'] as String?,
       expectedRequestId: json['expectedRequestId'] as String?,
       followUps: (json['followUps'] as List?)
@@ -180,7 +138,6 @@ class QueuedPrompt {
   Map<String, dynamic> toJson() => {
     'id': id,
     'template': template,
-    if (answerWrapper != null) 'answerWrapper': answerWrapper,
     'originalText': originalText,
     'expandedText': expandedText,
     'status': status.value,
@@ -188,14 +145,6 @@ class QueuedPrompt {
     'createdAt': createdAt,
     if (sentAt != null) 'sentAt': sentAt,
     if (error != null) 'error': error,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-    if (reminderQueued != null) 'reminderQueued': reminderQueued,
-    if (reminderSentCount != null) 'reminderSentCount': reminderSentCount,
-    if (lastReminderAt != null) 'lastReminderAt': lastReminderAt,
     if (requestId != null) 'requestId': requestId,
     if (expectedRequestId != null) 'expectedRequestId': expectedRequestId,
     if (followUps != null)
@@ -236,31 +185,15 @@ class QueueListResult {
 class QueueItemInput {
   final String promptText;
   final String? template;
-  final bool? answerWrapper;
-  final bool? reminderEnabled;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
 
   QueueItemInput({
     required this.promptText,
     this.template,
-    this.answerWrapper,
-    this.reminderEnabled,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
   });
 
   Map<String, dynamic> toJson() => {
     'promptText': promptText,
     if (template != null) 'template': template,
-    if (answerWrapper != null) 'answerWrapper': answerWrapper,
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
   };
 }
 
@@ -268,28 +201,15 @@ class QueueItemInput {
 class FollowUpInput {
   final String promptText;
   final String? template;
-  final bool? reminderEnabled;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
 
   FollowUpInput({
     required this.promptText,
     this.template,
-    this.reminderEnabled,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
   });
 
   Map<String, dynamic> toJson() => {
     'promptText': promptText,
     if (template != null) 'template': template,
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
   };
 }
 
@@ -401,25 +321,6 @@ abstract class TomQueueApi {
     return QueuedPrompt.fromJson(result);
   }
 
-  /// Update reminder settings for a queue item.
-  static Future<QueuedPrompt> updateReminder(
-    String itemId, {
-    bool? enabled,
-    String? templateId,
-    int? timeoutMinutes,
-    bool? repeat,
-  }) async {
-    final result = await _requireAdapter
-        .sendRequest('queue.updateReminderVce', {
-          'itemId': itemId,
-          'enabled': ?enabled,
-          'templateId': ?templateId,
-          'timeoutMinutes': ?timeoutMinutes,
-          'repeat': ?repeat,
-        });
-    return QueuedPrompt.fromJson(result);
-  }
-
   // --------------------------------------------------------------------------
   // Queue Reorder Operations
   // --------------------------------------------------------------------------
@@ -480,10 +381,6 @@ abstract class TomQueueApi {
     String followUpId, {
     String? text,
     String? template,
-    bool? reminderEnabled,
-    String? reminderTemplateId,
-    int? reminderTimeoutMinutes,
-    bool? reminderRepeat,
   }) async {
     final result = await _requireAdapter
         .sendRequest('queue.updateFollowUpVce', {
@@ -491,10 +388,6 @@ abstract class TomQueueApi {
           'followUpId': followUpId,
           'text': ?text,
           'template': ?template,
-          'reminderEnabled': ?reminderEnabled,
-          'reminderTemplateId': ?reminderTemplateId,
-          'reminderTimeoutMinutes': ?reminderTimeoutMinutes,
-          'reminderRepeat': ?reminderRepeat,
         });
     return QueuedFollowUp.fromJson(result);
   }
@@ -503,7 +396,7 @@ abstract class TomQueueApi {
   // Queue Processing Operations
   // --------------------------------------------------------------------------
 
-  /// Trigger sending the next pending prompt to Copilot.
+  /// Trigger sending the next pending prompt (the queue's run loop).
   static Future<bool> sendNext() async {
     final result = await _requireAdapter.sendRequest('queue.sendNextVce', {});
     return (result)['sent'] as bool? ?? false;

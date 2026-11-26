@@ -91,21 +91,6 @@ class VsCodeHelper {
     return '$year$month${day}_$hour$minute$second';
   }
 
-  /// Generate a short timestamp ID for internal use
-  ///
-  /// Format: yymmdd-hhmmss (e.g., 260201-143042)
-  /// Used as default requestId for askCopilotChat.
-  static String _generateShortTimestampId() {
-    final now = DateTime.now();
-    final year = (now.year % 100).toString().padLeft(2, '0');
-    final month = now.month.toString().padLeft(2, '0');
-    final day = now.day.toString().padLeft(2, '0');
-    final hour = now.hour.toString().padLeft(2, '0');
-    final minute = now.minute.toString().padLeft(2, '0');
-    final second = now.second.toString().padLeft(2, '0');
-    return '$year$month$day-$hour$minute$second';
-  }
-
   // ============================================================================
   // Convenience Functions - Direct access to common operations
   // ============================================================================
@@ -532,10 +517,16 @@ class VsCodeHelper {
   }
 
   // ==========================================================================
-  // GitHub Copilot Integration Helpers
+  // VS Code language-model helpers (vscode.lm)
   // ==========================================================================
 
-  /// Ask GitHub Copilot a question (D4rt-safe version)
+  /// Ask a VS Code language model a question (D4rt-safe version)
+  ///
+  /// Uses VS Code's language-model API (`vscode.lm`): the first model
+  /// `selectChatModels` offers, else a model of the vendor `copilot`; the
+  /// answer text is returned to the script. This is VS Code's own API, not a
+  /// transport of the Tom extension (for a send with trail, session and tools
+  /// use `TomChatApi.sendToChat`).
   ///
   /// This method performs the entire LM request in JavaScript to avoid
   /// D4rt deserialization issues with `List<LanguageModelChat>`.
@@ -608,239 +599,10 @@ class VsCodeHelper {
     return result.toString();
   }
 
-  /// Ask Copilot Chat a question and wait for the response
-  ///
-  /// This method sends the prompt to the Copilot Chat UI (visible to user)
-  /// and polls for the response. The model is asked to write its response
-  /// to `data[generatedMarkdown]` and any comments to `data[comments]`.
-  ///
-  /// Benefits over direct LM API:
-  /// - User can see and control the chat
-  /// - Chat has access to workspace tools (@workspace, file reading, etc.)
-  /// - User can manually select the model
-  ///
-  /// [prompt] - The question or instruction to send (if customResponseInstructions is true,
-  ///            prompt should already contain complete instructions for how to respond)
-  /// [requestId] - Unique identifier for this request (used in answer file).
-  ///               If not provided, defaults to timestamp format: yymmdd-hhmmss
-  /// [pollIntervalSeconds] - How often to check for response (default: 10)
-  /// [timeoutSeconds] - Maximum wait time (default: 7200 = 2 hours)
-  /// [customResponseInstructions] - If true, prompt already contains response instructions,
-  ///                                 don't add default suffix (default: false)
-  ///
-  /// Returns a Map with the following keys:
-  /// - 'generatedMarkdown': String - The main response text (always present)
-  /// - 'comments': String - Optional additional notes or metadata
-  /// - 'references': `List<String>` - File paths Copilot referenced while forming response
-  /// - 'requestedAttachments': `List<String>` - File paths user explicitly requested
-  static Future<Map<String, dynamic>> askCopilotChat(
-    String prompt, {
-    String? requestId,
-    int pollIntervalSeconds = 10,
-    int timeoutSeconds = 7200,
-    bool customResponseInstructions = false,
-  }) async {
-    final vscode = getVSCode();
-
-    // Generate requestId from timestamp if not provided
-    final effectiveRequestId = requestId ?? _generateShortTimestampId();
-
-    // Get windowId for file naming
-    final windowId = await getWindowId();
-
-    // Use absolute path in ~/.tom/copilot-chat-answers/ for reliability
-    // This avoids workspace folder detection issues
-    final answerFileName = '${windowId}_answer.json';
-
-    // Build the suffix that instructs the model to write to the answer file
-    // Skip if caller provided custom response instructions
-    final suffix = customResponseInstructions
-        ? ''
-        : '''
-
----
-IMPORTANT: When you have completed your response, write your answer to the file:
-~/.tom/copilot-chat-answers/$answerFileName
-
-The file must be valid JSON with this structure:
-{
-  "requestId": "$effectiveRequestId",
-  "generatedMarkdown": "<your response as a JSON-escaped string>",
-  "comments": "<optional comments>",
-  "references": ["<optional array of file paths that are relevant context for the response>"],
-  "requestedAttachments": ["<optional array of file paths the user explicitly requested>"]
-}
-
-Field descriptions:
-- generatedMarkdown: Your main response text (required)
-- comments: Any additional notes or metadata (optional)
-- references: Files you referenced while forming your response (optional, include workspace-relative paths)
-- requestedAttachments: Files the user explicitly asked you to provide/attach (optional, include workspace-relative paths)
-
-Request ID: $effectiveRequestId
-''';
-
-    final fullPrompt = '$prompt$suffix';
-
-    // Delete existing answer file before sending (to ensure we detect a fresh file)
-    await vscode.adapter.sendRequest(
-      'executeScriptVce',
-      {
-        'script': '''
-        const fs = context.require('fs');
-        const path = context.require('path');
-        const os = context.require('os');
-        
-        const homeDir = os.homedir();
-        const answerFolder = path.join(homeDir, '.tom', 'copilot-chat-answers');
-        const filePath = path.join(answerFolder, params.answerFileName);
-        
-        // Create folder if it doesn't exist
-        if (!fs.existsSync(answerFolder)) {
-          fs.mkdirSync(answerFolder, { recursive: true });
-        }
-        
-        // Delete existing file if present
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          return { deleted: true, path: filePath };
-        }
-        return { deleted: false, path: filePath };
-      ''',
-        'params': {'answerFileName': answerFileName},
-      },
-      scriptName: 'askCopilotChat.deleteOldAnswer',
-      timeout: Duration(seconds: 30),
-    );
-
-    // Send to Copilot Chat
-    await vscode.adapter.sendRequest(
-      'executeScriptVce',
-      {
-        'script': '''
-        await context.vscode.commands.executeCommand('workbench.action.chat.open', {
-          query: params.prompt
-        });
-        return 'sent';
-      ''',
-        'params': {'prompt': fullPrompt},
-      },
-      scriptName: 'askCopilotChat.send',
-      timeout: Duration(seconds: 120),
-    );
-
-    if (HelperLogging.debugLogging) {
-      print('[COPSND] Sent to Copilot Chat, waiting for response...');
-    }
-
-    // Poll for response
-    final startTime = DateTime.now();
-    final timeout = Duration(seconds: timeoutSeconds);
-    final pollInterval = Duration(seconds: pollIntervalSeconds);
-
-    while (DateTime.now().difference(startTime) < timeout) {
-      // Wait before polling
-      await Future.delayed(pollInterval);
-
-      // Check for response in ~/.tom/copilot-chat-answers/ using Node.js fs
-      final result = await vscode.adapter.sendRequest(
-        'executeScriptVce',
-        {
-          'script': '''
-          const fs = context.require('fs');
-          const path = context.require('path');
-          const os = context.require('os');
-          
-          const homeDir = os.homedir();
-          const answerFolder = path.join(homeDir, '.tom', 'copilot-chat-answers');
-          const filePath = path.join(answerFolder, params.answerFileName);
-          
-          try {
-            // Check if file exists using Node.js fs
-            if (!fs.existsSync(filePath)) {
-              return { found: false, reason: 'no answer file', path: filePath };
-            }
-            
-            // File exists - wait 500ms to ensure it's fully written
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Read the file using Node.js fs
-            const content = fs.readFileSync(filePath, 'utf8');
-            
-            if (!content.trim()) {
-              return { found: false, reason: 'empty file' };
-            }
-            
-            // Parse as JSON
-            let parsed;
-            try {
-              parsed = JSON.parse(content);
-            } catch (e) {
-              return { found: false, reason: 'invalid JSON: ' + e.message };
-            }
-            
-            if (parsed.requestId !== params.requestId) {
-              return { found: false, reason: 'request id mismatch', expected: params.requestId, got: parsed.requestId };
-            }
-            
-            if (parsed.generatedMarkdown) {
-              return { 
-                found: true, 
-                generatedMarkdown: parsed.generatedMarkdown,
-                comments: parsed.comments || '',
-                references: parsed.references || [],
-                requestedAttachments: parsed.requestedAttachments || []
-              };
-            }
-            
-            return { found: false, reason: 'generatedMarkdown not found' };
-          } catch (e) {
-            return { found: false, reason: 'error: ' + e.message };
-          }
-        ''',
-          'params': {
-            'requestId': effectiveRequestId,
-            'answerFileName': answerFileName,
-          },
-        },
-        scriptName: 'askCopilotChat.poll',
-        timeout: Duration(seconds: 120),
-      );
-
-      // The result is wrapped: {success: true, result: {found: true, ...}}
-      // Extract the inner result - result is always Map<String, dynamic>
-      final innerResult = result['result'];
-
-      if (innerResult is Map && innerResult['found'] == true) {
-        if (HelperLogging.debugLogging) {
-          print('[COPRCV] Response received from Copilot Chat');
-        }
-        // Extract references and requestedAttachments as List<String>
-        final references = innerResult['references'];
-        final requestedAttachments = innerResult['requestedAttachments'];
-        return {
-          'generatedMarkdown':
-              innerResult['generatedMarkdown']?.toString() ?? '',
-          'comments': innerResult['comments']?.toString() ?? '',
-          'references': references is List
-              ? references.map((e) => e.toString()).toList()
-              : <String>[],
-          'requestedAttachments': requestedAttachments is List
-              ? requestedAttachments.map((e) => e.toString()).toList()
-              : <String>[],
-        };
-      }
-    }
-
-    throw Exception(
-      'Timeout waiting for Copilot Chat response after $timeoutSeconds seconds',
-    );
-  }
-
   /// Ask a specific language model a question by model ID
   ///
   /// Use this when you need to specify a particular model rather than
-  /// using the default first available Copilot model.
+  /// using the first available model of [vendor] (`vscode.lm`).
   ///
   /// If modelId is 'auto' or empty, uses the first available model.
   static Future<String> askModel(
@@ -913,7 +675,7 @@ Request ID: $effectiveRequestId
     return response.text;
   }
 
-  /// Get code suggestion from Copilot
+  /// Get a code suggestion from a VS Code language model ([askCopilot])
   static Future<String> getCopilotSuggestion(
     String code,
     String instruction, {
@@ -934,7 +696,7 @@ Please provide the modified code.
     return await askCopilot(prompt, timeoutSeconds: timeoutSeconds);
   }
 
-  /// Get code explanation from Copilot
+  /// Get a code explanation from a VS Code language model ([askCopilot])
   static Future<String> explainCode(
     String code, {
     int timeoutSeconds = 300,
@@ -950,7 +712,7 @@ $code
     return await askCopilot(prompt, timeoutSeconds: timeoutSeconds);
   }
 
-  /// Get code review from Copilot
+  /// Get a code review from a VS Code language model ([askCopilot])
   static Future<String> reviewCode(
     String code, {
     int timeoutSeconds = 300,
@@ -972,7 +734,7 @@ Focus on:
     return await askCopilot(prompt, timeoutSeconds: timeoutSeconds);
   }
 
-  /// Generate tests for code using Copilot
+  /// Generate tests for code with a VS Code language model ([askCopilot])
   static Future<String> generateTests(
     String code, {
     int timeoutSeconds = 300,
@@ -990,7 +752,7 @@ Use appropriate testing framework and cover edge cases.
     return await askCopilot(prompt, timeoutSeconds: timeoutSeconds);
   }
 
-  /// Get fix suggestions from Copilot
+  /// Get fix suggestions from a VS Code language model ([askCopilot])
   static Future<String> fixCode(
     String code,
     String error, {
@@ -1011,7 +773,7 @@ Please provide a fixed version of the code.
     return await askCopilot(prompt, timeoutSeconds: timeoutSeconds);
   }
 
-  /// Select a specific Copilot model
+  /// Select a VS Code language model (`vscode.lm`; vendor `copilot` unless [vendor] is given)
   static Future<LanguageModelChat?> selectCopilotModel({
     String? family,
     String? vendor,
@@ -1028,7 +790,7 @@ Please provide a fixed version of the code.
     return models.isNotEmpty ? models.first : null;
   }
 
-  /// Get list of available Copilot models
+  /// List the VS Code language models of the vendor `copilot` (`vscode.lm`)
   static Future<List<LanguageModelChat>> getCopilotModels({
     int timeoutSeconds = 120,
   }) async {

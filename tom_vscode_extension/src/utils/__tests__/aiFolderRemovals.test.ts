@@ -14,6 +14,9 @@
  *   AR-4 `${memory-shared}` resolves to nothing (an old template does not show the raw placeholder)
  *   AR-5 nothing in src/ or media/ names `_ai/notes`, `_ai/clarifications` or `_ai/memory/shared` except to say
  *        they are gone
+ *   AR-6 the scripting bridge handles no operation of the removed Copilot answer files and reminders: no
+ *        `queue.updateReminderVce`, `doc.listAnswersVce`, `doc.readAnswerVce` case (router or handler), the
+ *        `answers` folder refused; `askCopilotVce` and the `lm.*` operations stay (VS Code's own language-model API)
  */
 
 import test, { describe } from 'node:test';
@@ -94,5 +97,17 @@ describe('the removed _ai folders', () => {
                 assert.match(line, /no longer part of|gone|not read/, `${path.relative(ROOT, file)} names _ai/${m[1]} only to say it is gone: ${line.trim()}`);
             }
         }
+    });
+
+    test('AR-6: no answer-file or reminder operation in the scripting bridge', () => {
+        const handler = read('src', 'handlers', 'tomScriptingBridge-handler.ts');
+        const router = read('src', 'vscode-bridge.ts');
+        for (const op of ['queue.updateReminderVce', 'doc.listAnswersVce', 'doc.readAnswerVce']) {
+            assert.equal(handler.includes(`'${op}'`), false, `handler: ${op}`);
+            assert.equal(router.includes(`'${op}'`), false, `router: ${op}`);
+        }
+        assert.match(handler, /case 'answers':\s*\/\/[^\n]*\n\s*throw new Error\('_ai\/answers is no longer part of the workspace/);
+        assert.doesNotMatch(handler, /WsPaths\.ai\('answers'\)/);
+        assert.match(router, /case 'askCopilotVce':/, 'askCopilot stays (decision (a))');
     });
 });

@@ -15,6 +15,8 @@
  *   ND-6 tom_refuse_degrading_install: a build without Dart nobody asked for does not replace an installed
  *        extension with tom_bs; --no-dart / TOM_NO_DART=1, or no tom_bs installed, let it through
  *   ND-7 the .ps1 scripts check node first and tell the lookup's 1 from any other exit
+ *   ND-8 nvm's default too old, a newer Node installed (and `nvm list` naming v20 only as an uninstalled LTS
+ *        alias): tom_ensure_node takes the newest installed one and installs nothing
  */
 
 import test, { after, describe } from 'node:test';
@@ -86,6 +88,32 @@ describe('node and the Dart SDK in the install scripts', () => {
         const oldNoNvm = bash(`source "${HELPER}"; tom_ensure_node`, { PATH: `${old.dir}:${SYSTEM_PATH}` });
         assert.equal(oldNoNvm.status, 1);
         assert.match(oldNoNvm.stdout, /Node\.js 18 is below the required 20/);
+    });
+
+    test('ND-8: the newest Node nvm has, when its default is too old', () => {
+        const old = fakeNode('nvm-default-old', { version: 'v12.14.1' });
+        const newest = fakeNode('nvm-newest', { version: 'v22.22.0' });
+        const home = path.join(base, 'home-with-old-default');
+        fs.mkdirSync(path.join(home, '.nvm'), { recursive: true });
+        const installs = path.join(home, 'installs.log');
+        // `use default` is the old Node, `use node` the newest installed; 20 is not installed, though `list` names it.
+        fs.writeFileSync(path.join(home, '.nvm', 'nvm.sh'), [
+            'nvm() {',
+            '  case "$1 $2" in',
+            `    "use default") export PATH="${old.dir}:$PATH" ;;`,
+            `    "use node") export PATH="${newest.dir}:$PATH" ;;`,
+            '    "use 20") return 3 ;;',
+            `    "install 20") echo install >> "${installs}"; return 3 ;;`,
+            '    "list "*) echo "->     v12.14.1 *"; echo "       v22.22.0 *"; echo "lts/iron -> v20.19.5 (-> N/A)" ;;',
+            '  esac',
+            '}',
+            '',
+        ].join('\n'));
+        const r = bash(`source "${HELPER}"; tom_ensure_node && command -v node`, { PATH: `${old.dir}:${SYSTEM_PATH}`, HOME: home });
+        assert.equal(r.status, 0, r.stdout + r.stderr);
+        assert.match(r.stdout, /Switching to Node\.js v22\.22\.0 \(the newest nvm has\)/);
+        assert.match(r.stdout, new RegExp(`${newest.dir}/node`));
+        assert.equal(fs.existsSync(installs), false, 'nothing installed');
     });
 
     test('ND-3: tom_find_dart tells "no Dart SDK" from a lookup that could not run', () => {

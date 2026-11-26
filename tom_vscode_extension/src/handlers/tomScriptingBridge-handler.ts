@@ -387,11 +387,6 @@ export class TomScriptingBridgeHandler {
                 return item || null;
             }
 
-            case 'queue.updateReminderVce': {
-                // Queue reminders are gone (al_the_bear ai_format_migration AC-22): the call changes nothing.
-                throw new Error('Queue reminders are no longer part of the prompt queue: queue.updateReminderVce does nothing.');
-            }
-
             case 'queue.moveToVce': {
                 // moveTo is not directly supported - use move('up'/'down') multiple times
                 // For now, just return the current position
@@ -597,16 +592,6 @@ export class TomScriptingBridgeHandler {
                 return { path: filePath };
             }
 
-            case 'doc.listAnswersVce': {
-                const answersDir = WsPaths.ai('answers') || path.join(wsRoot, '_ai', 'answers');
-                const searchDir = params.subfolder ? path.join(answersDir, params.subfolder) : answersDir;
-                return this.listDocuments(searchDir, params.pattern, false);
-            }
-
-            case 'doc.readAnswerVce': {
-                return this.readDocument(params.path);
-            }
-
             case 'doc.listTrailVce': {
                 return this.listTrailEntries(params.questId, params.limit, params.since);
             }
@@ -671,8 +656,8 @@ export class TomScriptingBridgeHandler {
                 basePath = this.questPromptDir();
                 break;
             case 'answers':
-                basePath = WsPaths.ai('answers') || path.join(wsRoot, '_ai', 'answers');
-                break;
+                // The Copilot answer files are gone with the Copilot transport (al_the_bear ai_format_migration AC-1).
+                throw new Error('_ai/answers is no longer part of the workspace: the Copilot answer files are gone with the Copilot transport.');
             case 'trail':
                 basePath = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
                 break;

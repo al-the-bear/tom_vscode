@@ -82,7 +82,6 @@ await TomQueueApi.remove(id);
 
 await TomQueueApi.updateStatus(id, status);
 await TomQueueApi.updateText(id, 'new text');
-await TomQueueApi.updateReminder(id, /* … */);
 
 // Reordering
 await TomQueueApi.moveTo(id, index);
@@ -201,14 +200,14 @@ final names     = await TomToolsApi.listAllowedToolNames();
 
 Model: `ToolDefinitionJson`.
 
-> Tool availability is **profile-gated**: when the active target is Copilot, no
-> tools are exposed. `listAllowedToolNames` reflects the current gating.
+> Tool availability is **profile-gated**: the active Anthropic profile's tool set,
+> nothing else. `listAllowedToolNames` reflects the current gating.
 
 ---
 
 ## `TomChatApi` — send to chat
 
-Send a prompt to the active chat target (Anthropic or Copilot) and get the
+Send a prompt to the ANTHROPIC/LLM chat panel (its active profile) and get the
 reply. Bridge method: `sendToChatVce`.
 
 ```dart
