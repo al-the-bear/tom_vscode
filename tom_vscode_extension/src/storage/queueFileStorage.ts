@@ -72,6 +72,8 @@ export interface QueueExecutionState {
      * expanded text without touching repetition counters. Cleared only
      * when the item is re-staged / re-sent from scratch.
      */
+    /** Every stage the item sent (utils/sentPrompts.ts `sentRecordsToYaml`). */
+    'sent-prompts'?: Array<Record<string, unknown>>;
     'last-dispatched'?: {
         kind: 'prePrompt' | 'main' | 'followUp';
         /** Zero-based index into `pre-prompt-refs` when kind === 'prePrompt'. */

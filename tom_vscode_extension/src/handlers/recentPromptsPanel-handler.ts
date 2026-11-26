@@ -19,6 +19,8 @@ import * as vscode from 'vscode';
 import { reportException, loadSendToChatConfig } from './handler_shared.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
+import { getQueueFolder } from '../storage/queueFileStorage';
+import { readSentText } from '../utils/sentPrompts';
 import { collectRecentPrompts, RECENT_PROMPTS_LIMIT, type RecentPromptLookups, type RecentPromptSourceItem } from '../utils/recentPrompts';
 import { WsPaths } from '../utils/workspacePaths';
 import { ALL_TODO_FILES } from '../utils/todoArchiveNames';
@@ -86,11 +88,18 @@ function webviewOptions(ctx: vscode.ExtensionContext): vscode.WebviewOptions {
     };
 }
 
-function onMessage(msg: { type?: string; title?: string; markdown?: string }): void {
+function onMessage(msg: { type?: string; title?: string; markdown?: string; ref?: string }): void {
     try {
         if (msg?.type === 'ready') { post(); return; }
         if (msg?.type === 'renderMarkdown') {
             void panel?.webview.postMessage({ type: 'markdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(String(msg.markdown || '')) });
+        }
+        if (msg?.type === 'showSentText') {
+            // A stage's user message or system prompt as sent (utils/sentPrompts.ts), shown as Markdown.
+            const folder = getQueueFolder();
+            const text = folder && msg.ref ? readSentText(folder, String(msg.ref)) : undefined;
+            const markdown = text ?? '_This text is no longer kept (the store keeps the texts the queue\'s items still name)._';
+            void panel?.webview.postMessage({ type: 'markdownHtml', title: String(msg.title || ''), html: renderQuestLogMarkdown(markdown) });
         }
     } catch (error) {
         reportException('recentPrompts.onMessage', error, { type: msg?.type });

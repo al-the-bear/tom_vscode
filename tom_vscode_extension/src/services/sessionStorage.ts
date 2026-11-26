@@ -171,7 +171,8 @@ export function readToolResultRetentionMarker(folder: string): ToolResultRetenti
  * derived files (relative to the `_ai` root). Untracked: a host's session
  * storage `history/<host>/sessions/` (class D), the derived history of the
  * quest (`history/compacted_history.md`, `history.json`, `history.md`,
- * `history.watermark.json`; class C), the refresh notes and every live trail.
+ * `history.watermark.json`; class C), a host's history build lock
+ * (`history/.build.<host>.lock`), the refresh notes and every live trail.
  * Tracked: the session files `history/<host>/<name>.session.json` and the
  * host trails `history/trail.<host>.md`. The `_ai` format migration removes
  * a tracked file of these kinds from the index (formatV11/hostSessions.ts).
@@ -182,6 +183,7 @@ export const SESSION_STORAGE_GITIGNORE_RULES: readonly string[] = [
     'quests/*/history/history.json',
     'quests/*/history/history.md',
     'quests/*/history/history.watermark.json',
+    'quests/*/history/.build.*.lock',
     'quests/*/quest_refresh.*.md',
     'quests/*/history/**/live-trail.md',
 ];

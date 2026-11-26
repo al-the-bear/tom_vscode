@@ -7,6 +7,10 @@
 // iteration into its prompts, a prompt into its text and the start of its answer
 // with Full text (both in full, in the page) and Markdown (posts renderMarkdown;
 // the host answers markdownHtml, shown with the shared tomMdOverlayShow).
+// A prompt shows the user's prompt as queued. A row's As sent (n) opens the
+// stages exactly as sent (row.sent, src/utils/sentPrompts.ts): label, time,
+// sizes, and the user message / system prompt (posts showSentText {ref, title};
+// the host answers markdownHtml).
 // What is expanded is kept across refreshes and in the webview state.
 /* global acquireVsCodeApi, tomMdOverlayShow */
 (function () {
@@ -27,6 +31,8 @@
     var open = saved.open || {};
     /** Prompts shown in full. */
     var full = saved.full || {};
+    /** Rows whose As sent list is open. */
+    var openSent = saved.openSent || {};
     var state = INIT.state || null;
 
     function esc(text) {
@@ -45,7 +51,7 @@
         var t = String(text || '');
         return t.length > max ? t.slice(0, max).replace(/\s+$/, '') + '…' : t;
     }
-    function persist() { vscode.setState({ open: open, full: full }); }
+    function persist() { vscode.setState({ open: open, full: full, openSent: openSent }); }
     function fold(isOpen) { return '<span class="fold codicon codicon-chevron-' + (isOpen ? 'down' : 'right') + '"></span>'; }
     function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
@@ -71,13 +77,12 @@
         var h = '<div class="prompt" data-prompt="' + esc(key) + '">'
             + '<div class="head" data-toggle="' + esc(key) + '">' + fold(isOpen)
             + '<span class="title">' + esc(p.label) + '</span>'
-            + (p.expanded ? '' : '<span class="tag" title="The queue keeps the text as queued for this prompt, not its expanded text">as queued</span>')
             + '<span class="meta">' + esc(time(p.at)) + '</span></div>';
         if (isOpen) {
             var whole = !!full[key];
             var answer = p.answer || '';
             h += '<div class="body">'
-                + '<div class="label">' + (p.expanded ? 'Prompt as sent' : 'Prompt as queued') + '</div>'
+                + '<div class="label">Prompt (as queued)</div>'
                 + '<pre class="prompt-text">' + esc(whole ? p.text : start(p.text, PROMPT_START_CHARS)) + '</pre>'
                 + '<div class="label">Answer</div>'
                 + (answer
@@ -105,6 +110,32 @@
         return h + '</div>';
     }
 
+    function chars(n) {
+        if (n === undefined || n === null) { return ''; }
+        return n >= 1000 ? (Math.round(n / 100) / 10) + 'k chars' : n + ' chars';
+    }
+
+    /** The row's stages exactly as sent: label, time, sizes, the two texts on demand. */
+    function sentHtml(row) {
+        var sent = row.sent || [];
+        if (!sent.length) { return ''; }
+        var isOpen = !!openSent[row.id];
+        var h = '<div class="sent" data-sent-row="' + esc(row.id) + '">'
+            + '<button class="sent-toggle" data-sent-toggle="' + esc(row.id) + '" title="The stages exactly as sent: the user message and the system prompt">'
+            + fold(isOpen) + 'As sent (' + sent.length + ')</button>';
+        if (isOpen) {
+            h += '<div class="sent-list">' + sent.slice().reverse().map(function (r) {
+                return '<div class="sent-entry">'
+                    + '<span class="title">' + esc(r.label) + '</span>'
+                    + '<span class="meta">' + esc(time(r.sentAt)) + '</span>'
+                    + (r.promptRef ? '<button data-sent-ref="' + esc(r.promptRef) + '" data-sent-title="' + esc(r.label + ' — user message as sent') + '" title="The user message as sent">User message ' + esc(chars(r.promptChars)) + '</button>' : '<span class="muted">(not kept)</span>')
+                    + (r.systemRef ? '<button data-sent-ref="' + esc(r.systemRef) + '" data-sent-title="' + esc(r.label + ' — system prompt') + '" title="The system prompt as sent">System prompt ' + esc(chars(r.systemChars)) + '</button>' : '')
+                    + '</div>';
+            }).join('') + '</div>';
+        }
+        return h + '</div>';
+    }
+
     function rowHtml(row) {
         var isOpen = !!open[row.id];
         var h = '<div class="row" data-row="' + esc(row.id) + '">'
@@ -114,7 +145,8 @@
             + '<span class="meta count">' + plural(row.promptCount, 'prompt') + '</span>'
             + '<span class="meta">' + esc(time(row.sentAt)) + '</span></div>'
             + settingsHtml(row.settings)
-            + (row.lastAnswerStart ? '<div class="answer-start">' + esc(row.lastAnswerStart) + '</div>' : '');
+            + (row.lastAnswerStart ? '<div class="answer-start">' + esc(row.lastAnswerStart) + '</div>' : '')
+            + sentHtml(row);
         if (isOpen) {
             h += '<div class="children">' + row.nodes.map(function (node, n) { return nodeHtml(row, node, n); }).join('') + '</div>';
         }
@@ -145,6 +177,19 @@
     document.addEventListener('click', function (e) {
         var target = e.target instanceof Element ? e.target : null;
         if (!target) { return; }
+        var sentRef = target.closest('[data-sent-ref]');
+        if (sentRef) {
+            vscode.postMessage({ type: 'showSentText', ref: sentRef.getAttribute('data-sent-ref'), title: sentRef.getAttribute('data-sent-title') });
+            return;
+        }
+        var sentToggle = target.closest('[data-sent-toggle]');
+        if (sentToggle) {
+            var id = sentToggle.getAttribute('data-sent-toggle');
+            if (openSent[id]) { delete openSent[id]; } else { openSent[id] = true; }
+            persist();
+            render();
+            return;
+        }
         var action = target.closest('[data-action]');
         if (action) {
             var key = action.getAttribute('data-key');
@@ -158,7 +203,7 @@
                 vscode.postMessage({
                     type: 'renderMarkdown',
                     title: p.label,
-                    markdown: '## Prompt' + (p.expanded ? '' : ' (as queued)') + '\n\n' + p.text + '\n\n## Answer\n\n' + (p.answer || '_(no answer kept)_'),
+                    markdown: '## Prompt (as queued)\n\n' + p.text + '\n\n## Answer\n\n' + (p.answer || '_(no answer kept)_'),
                 });
             }
             return;

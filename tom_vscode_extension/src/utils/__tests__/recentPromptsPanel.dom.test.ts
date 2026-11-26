@@ -4,9 +4,11 @@
  *   RPP-1 one collapsed row per item: kind, todos or first line, settings, time, prompt count, answer start; the bar
  *         counts prompts and items; it posts `ready`
  *   RPP-2 expand / collapse: a row shows its iterations and single prompts, an iteration its prompts, a prompt its
- *         text (as sent or as queued) and the start of its answer; a refresh keeps what is expanded
+ *         text as queued and the start of its answer; a refresh keeps what is expanded
  *   RPP-3 Full text shows prompt and answer in full in the page (and shortens again)
  *   RPP-4 Markdown posts `renderMarkdown` with the prompt and the answer; the host's `markdownHtml` opens the shared overlay
+ *   RPP-5 As sent (n): a row with sent records opens them (newest first, label, time, sizes); User message / System
+ *         prompt post `showSentText` with the text's reference; a row without records has no As sent
  */
 
 import test, { describe } from 'node:test';
@@ -31,6 +33,10 @@ const ITEMS: RecentPromptSourceItem[] = [
         repeatCount: 'abc*', walkedTodos: ['abc1', 'abc2'], run: 'rel1', session: 'work', template: 'execute-todo',
         repetitionAnswers: [{ key: 'abc1', text: 'one done', at: '2026-11-20T09:30:00.000Z' }, { key: 'abc2', text: LONG_ANSWER, at: '2026-11-20T10:00:00.000Z' }],
         lastDispatched: { kind: 'main', expandedText: 'EXPANDED for abc2', dispatchedAt: '2026-11-20T09:40:00.000Z' },
+        sentPrompts: [
+            { label: 'Main prompt — todo abc1', sentAt: '2026-11-20T09:20:00.000Z', promptRef: '0123456789abcdef0123', systemRef: 'abcdef0123456789abcd', promptChars: 1500, systemChars: 42000 },
+            { label: 'Main prompt — todo abc2', sentAt: '2026-11-20T09:40:00.000Z', promptRef: '1123456789abcdef0123', promptChars: 900 },
+        ],
     },
     { id: 'chat', status: 'chat-sent', chatSource: 'panel', originalText: 'Hello\nmore', expandedText: 'Hello\nmore', createdAt: '2026-11-20T08:00:00.000Z', sentAt: '2026-11-20T08:00:00.000Z', answerText: 'Hi back' },
 ];
@@ -84,14 +90,13 @@ describe('Recent Prompts page', () => {
         click(head(doc, 'walk|1'));
         click(head(doc, 'walk|1|0'));
         const body = doc.querySelector('[data-prompt="walk|1|0"] .body');
-        assert.equal(body.querySelector('.label').textContent, 'Prompt as sent');
-        assert.equal(body.querySelector('.prompt-text').textContent, 'EXPANDED for abc2');
+        assert.equal(body.querySelector('.label').textContent, 'Prompt (as queued)');
+        assert.equal(body.querySelector('.prompt-text').textContent, 'Work the todo', 'the user\'s prompt, not its text as sent');
         assert.ok(body.querySelector('.answer-text').textContent.endsWith('…'), 'the start of the answer');
-        // The first iteration's prompt is the text as queued.
+        // The first iteration's prompt is the text as queued too.
         click(head(doc, 'walk|0'));
         click(head(doc, 'walk|0|0'));
-        assert.equal(doc.querySelector('[data-prompt="walk|0|0"] .tag').textContent, 'as queued');
-        assert.equal(doc.querySelector('[data-prompt="walk|0|0"] .label').textContent, 'Prompt as queued');
+        assert.equal(doc.querySelector('[data-prompt="walk|0|0"] .label').textContent, 'Prompt (as queued)');
         // A refresh (the queue changed) keeps what is expanded.
         send(window, stateOf([...ITEMS, { id: 'new', status: 'sent', originalText: 'Newer', createdAt: '2026-11-20T11:00:00.000Z', sentAt: '2026-11-20T11:00:00.000Z', answerText: 'ok' }]));
         assert.deepEqual([...doc.querySelectorAll('.row')].map((r: Win) => r.dataset.row), ['new', 'walk', 'chat']);
@@ -122,11 +127,27 @@ describe('Recent Prompts page', () => {
         const msg = posted[posted.length - 1];
         assert.equal(msg.type, 'renderMarkdown');
         assert.equal(msg.title, 'Chat send (panel)');
-        assert.equal(msg.markdown, '## Prompt\n\nHello\nmore\n\n## Answer\n\nHi back');
+        assert.equal(msg.markdown, '## Prompt (as queued)\n\nHello\nmore\n\n## Answer\n\nHi back');
         send(window, { type: 'markdownHtml', title: 'Chat send (panel)', html: '<p>rendered</p>' });
         const overlay = doc.querySelector('.tom-md-overlay');
         assert.ok(overlay.classList.contains('visible'));
         assert.equal(overlay.querySelector('.tom-md-title').textContent, 'Chat send (panel)');
         assert.equal(overlay.querySelector('.tom-md-body').innerHTML, '<p>rendered</p>');
+    });
+
+    test('RPP-5: As sent', (t) => {
+        const { doc, posted } = setup(t);
+        assert.equal(doc.querySelector('[data-sent-row="chat"]'), null, 'no records, no As sent');
+        const toggle = doc.querySelector('[data-sent-toggle="walk"]');
+        assert.match(toggle.textContent, /As sent \(2\)/);
+        assert.equal(doc.querySelector('.sent-list'), null, 'collapsed');
+        click(toggle);
+        const entries = [...doc.querySelectorAll('[data-sent-row="walk"] .sent-entry')];
+        assert.deepEqual(entries.map((e: Win) => e.querySelector('.title').textContent), ['Main prompt — todo abc2', 'Main prompt — todo abc1'], 'newest first');
+        const buttons = [...entries[1].querySelectorAll('button')].map((b: Win) => b.textContent);
+        assert.deepEqual(buttons, ['User message 1.5k chars', 'System prompt 42k chars']);
+        click(entries[1].querySelector('[data-sent-ref="abcdef0123456789abcd"]'));
+        assert.deepEqual(posted[posted.length - 1], { type: 'showSentText', ref: 'abcdef0123456789abcd', title: 'Main prompt — todo abc1 — system prompt' });
+        assert.equal(entries[0].querySelectorAll('button').length, 1, 'no system prompt kept: one button');
     });
 });

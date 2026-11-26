@@ -74,7 +74,7 @@ describe('per-session storage wiring', () => {
         assert.match(seed, /this\.runQuestHistoryBuild\(questId, \{ extract: false \}\)/, 'no history yet: the first build');
         assert.doesNotMatch(seed, /shared/, 'no session is excluded');
         assert.match(body(handler, 'private loadQuestHistory('), /loadQuestHistoryBlocks\(questFolder, this\.oldSessionHistoryFolder\(questId\)\)/);
-        assert.match(body(handler, 'async rebuildQuestHistoryAndMemory('), /this\.runQuestHistoryBuild\(quest, \{ extract: true \}\)/);
+        assert.match(body(handler, 'async rebuildQuestHistoryAndMemory('), /this\.runQuestHistoryBuild\(quest, \{ extract: true, fromScratch: opts\.fromScratch, onLocked: 'wait' \}\)/, 'extracts, waits for another window\'s build');
         assert.doesNotMatch(handler, /recreateHistoryFromTrail|recreateMemoryFromTrail|rebuildHistoryFromTrail|saveBlocksToDisk|persistSessionHistory/, 'nothing writes a session\'s compacted history');
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
         assert.match(panel, /case 'rebuildHistoryAndMemory':[\s\S]{0,800}handler\.rebuildQuestHistoryAndMemory\(\)/);

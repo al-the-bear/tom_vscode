@@ -16,6 +16,11 @@
  *   QH-8 the notice: another host's turns newer than its watermark time → notice, once per change; this host's own
  *        trail → none; a change of a file that is no trail → nothing checked
  *   QH-9 applyCompactionOutput and the quest's history.md
+ *   QH-10 the build lock `history/.build.<host>.lock`: held while a build runs and released after it (also after a
+ *        failure); a second build of the host skips (`locked`) or waits until the first is done; a lock not touched
+ *        for 10 minutes is taken over; another host's lock does not stop this one
+ *   QH-11 from scratch: the derived history and the watermark are deleted under the lock, then every input is folded
+ *        again (every host's trail, the whole todo archive, no maxInputs limit); the timestamped copies stay
  */
 
 import test, { describe } from 'node:test';
@@ -27,7 +32,10 @@ import * as path from 'node:path';
 import { appendHostTrailTurn, type HostTrailTurn } from '../hostTrail.js';
 import {
     ARCHIVED_TODO_HISTORY_FIELDS,
+    HISTORY_BUILD_LOCK_STALE_MS,
+    acquireHistoryBuildLock,
     archivedTodoRecord,
+    historyBuildLockFile,
     buildQuestHistory,
     consolidateTurns,
     consolidatedTrail,
@@ -334,5 +342,88 @@ describe('the quest history', () => {
         assert.match(written, /^# Quest history — `q`/);
         assert.match(written, /_Covers mbp up to 2026-11-25T10:00:01\.000Z\._/);
         assert.ok(fs.readdirSync(path.join(quest, 'history')).some((f) => /^\d{8}_\d{6}\.history\.json$/.test(f)), 'the archive copy');
+    });
+
+    test('QH-10: one build per host at a time', async () => {
+        const quest = sandbox();
+        appendHostTrailTurn(quest, turn('a1', 'mbp', at(25, 1)), 2000);
+        const lockFile = historyBuildLockFile(quest, 'mbp');
+        assert.equal(path.relative(quest, lockFile), path.join('history', '.build.mbp.lock'));
+
+        // Held while the build runs, gone after it.
+        let heldDuring = false;
+        const b = builder(quest, { now: undefined, compact: async () => { heldDuring = fs.existsSync(lockFile); return 'summary'; } });
+        await buildQuestHistory(b.opts);
+        assert.ok(heldDuring, 'held while folding');
+        assert.ok(!fs.existsSync(lockFile), 'released');
+
+        // Released after a failure, too.
+        appendHostTrailTurn(quest, turn('a2', 'mbp', at(25, 2)), 2000);
+        const failing = builder(quest, { now: undefined, compact: async () => { throw new Error('HTTP 500'); } });
+        assert.equal((await buildQuestHistory(failing.opts)).failed, 'HTTP 500');
+        assert.ok(!fs.existsSync(lockFile));
+
+        // Another window holds it: skip, or wait until it is released.
+        const held = acquireHistoryBuildLock(quest, 'mbp');
+        assert.ok(held);
+        assert.equal(acquireHistoryBuildLock(quest, 'mbp'), undefined, 'one holder');
+        const skipper = builder(quest, { now: undefined, onLocked: 'skip' });
+        const skipped = await buildQuestHistory(skipper.opts);
+        assert.equal(skipped.locked, true);
+        assert.equal(skipper.calls.length, 0);
+        const other = acquireHistoryBuildLock(quest, 'bomber');
+        assert.ok(other, 'another host\'s lock is its own');
+        other!.release();
+
+        const waiter = builder(quest, { now: undefined, onLocked: 'wait', lockPollMs: 10 });
+        let done = false;
+        const waiting = buildQuestHistory(waiter.opts).then((r) => { done = true; return r; });
+        await new Promise((r) => setTimeout(r, 60));
+        assert.equal(done, false, 'waits while the lock is held');
+        assert.equal(waiter.calls.length, 0);
+        held!.release();
+        const r = await waiting;
+        assert.equal(r.locked, undefined);
+        assert.equal(r.turns, 1, 'folds once the lock is free');
+        assert.ok(!fs.existsSync(lockFile));
+
+        // A lock not touched for 10 minutes is taken over.
+        fs.writeFileSync(lockFile, '{"pid":1}\n');
+        const old = new Date(Date.now() - HISTORY_BUILD_LOCK_STALE_MS - 1000);
+        fs.utimesSync(lockFile, old, old);
+        const takeover = acquireHistoryBuildLock(quest, 'mbp');
+        assert.ok(takeover, 'stale lock taken over');
+        assert.equal(JSON.parse(fs.readFileSync(lockFile, 'utf8')).pid, process.pid);
+        takeover!.touch();
+        assert.ok(Date.now() - fs.statSync(lockFile).mtimeMs < 5000, 'touch refreshes its time');
+        takeover!.release();
+        assert.equal(HISTORY_BUILD_LOCK_STALE_MS, 10 * 60 * 1000);
+    });
+
+    test('QH-11: a build from scratch', async () => {
+        const quest = sandbox();
+        for (let i = 1; i <= 3; i++) { appendHostTrailTurn(quest, turn(`x${i}`, 'mbp', at(25, i)), 2000); }
+        appendHostTrailTurn(quest, turn('y1', 'bomber', at(25, 4)), 2000);
+        writeArchive(quest, '  - id: t1\n    title: T\n    status: completed\n    completed_date: 2026-11-20\n');
+        await buildQuestHistory(builder(quest, { archive: true }).opts);
+        const copies = (): string[] => fs.readdirSync(path.join(quest, 'history')).filter((f) => /^\d{8}_\d{6}\.history\./.test(f));
+        assert.equal(copies().length, 2);
+        assert.equal((await buildQuestHistory(builder(quest).opts)).folded, 0, 'covered');
+
+        let lockedWhileReset = false;
+        const scratch = builder(quest, {
+            fromScratch: true,
+            maxInputs: 2,
+            chunkSize: 10,
+            log: () => { lockedWhileReset ||= fs.existsSync(historyBuildLockFile(quest, 'mbp')); },
+        });
+        const r = await buildQuestHistory(scratch.opts);
+        assert.ok(lockedWhileReset, 'the reset runs under the lock');
+        assert.deepEqual(r.reset?.map((f) => path.basename(f)).sort(), ['compacted_history.md', 'history.json', 'history.md', 'history.watermark.json']);
+        assert.deepEqual([r.folded, r.turns, r.todos, r.skipped], [5, 4, 1, 0], 'everything again, no maxInputs limit');
+        assert.equal(scratch.calls[0].length, 9, 'four turns of two messages, one todo');
+        assert.deepEqual(readHistoryWatermark(quest)?.hosts, { mbp: at(25, 3), bomber: at(25, 4) });
+        assert.ok(fs.existsSync(questCompactedHistoryFile(quest)));
+        assert.equal(copies().length, 2, 'the timestamped copies stay');
     });
 });

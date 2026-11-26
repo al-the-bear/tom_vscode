@@ -10,10 +10,12 @@
  * {@link RECENT_PROMPTS_LIMIT} prompts are shown, the oldest prompts of the
  * last row cut when it crosses the limit.
  *
- * What a prompt shows as sent: the queue keeps the expanded text of the last
- * prompt an item dispatched (`lastDispatched`) and of a chat send, and a
- * continuation is the queue's fixed continuation prompt; for every other
- * prompt it keeps the text as queued (`expanded: false`). Its answer is
+ * What a prompt shows is the user's prompt as queued (the stage's own text; a
+ * continuation is the queue's fixed continuation prompt; a chat send the text
+ * typed): what was asked, without the templates and placeholders around it.
+ * The prompts exactly as sent — the user message and the system prompt — are
+ * the row's `sent` records (utils/sentPrompts.ts), the panel's *As sent*
+ * view, for prompt analysis. A prompt's answer is
  * the stage's answer (`answerText` of the pre-prompt / follow-up: the last of
  * its repetitions), the iteration's answer (`repetitionAnswers`, with the
  * answers of a walk iteration's turns before its last in `earlier`), the
@@ -26,6 +28,7 @@ import { deriveQueueItemKind, parseQueueItemKind, type QueueItemKind } from './q
 import { parseTodoWalk } from './queueStep3Utils';
 import type { RepetitionAnswer } from './repetitionAnswers';
 import { continuationPrompt } from './walkCompletionCheck';
+import type { SentPromptRecord } from './sentPrompts';
 
 /** The most prompts the panel shows. */
 export const RECENT_PROMPTS_LIMIT = 100;
@@ -62,6 +65,7 @@ export interface RecentPromptSourceItem {
     session?: string;
     anthropicProfileId?: string;
     role?: string;
+    sentPrompts?: SentPromptRecord[];
 }
 
 /** The stage a prompt was sent in. */
@@ -72,10 +76,8 @@ export interface RecentPrompt {
     stage: RecentPromptStage;
     /** What it is, e.g. `Pre-prompt 1`, `Main prompt`, `Continuation 2`, `Follow-up 1 (2/3)`. */
     label: string;
-    /** The prompt: as sent when `expanded`, else as queued. */
+    /** The user's prompt as queued. */
     text: string;
-    /** `text` is the expanded text the prompt went out with. */
-    expanded: boolean;
     /** Its answer ('' when none is kept). */
     answer: string;
     /** The answer is the error the send ended with. */
@@ -106,6 +108,8 @@ export interface RecentPromptRow {
     /** The start of the last answer, whitespace folded. */
     lastAnswerStart: string;
     nodes: RecentPromptNode[];
+    /** Every stage the item sent, exactly as sent (references into the queue folder's `sent-prompts/`). */
+    sent: SentPromptRecord[];
 }
 
 /** Lookups the host gives (todo titles, profile names); both optional. */
@@ -173,8 +177,7 @@ function chatPrompts(item: RecentPromptSourceItem): RecentPrompt[] {
     return [{
         stage: 'chat',
         label: item.chatSource ? `Chat send (${item.chatSource})` : 'Chat send',
-        text: item.expandedText || item.originalText,
-        expanded: true,
+        text: item.originalText,
         answer: item.answerText ?? (item.error ? `Error: ${item.error}` : ''),
         ...(error ? { error: true } : {}),
         ...(item.sentAt ? { at: item.sentAt } : {}),
@@ -190,14 +193,13 @@ function itemNodes(item: RecentPromptSourceItem, kind: QueueItemKind, lookups: R
         const n = pp.repeatIndex ?? (pp.status === 'sent' ? 1 : 0);
         for (let r = 1; r <= n; r++) {
             const isLast = r === n;
-            const asSent = isLast && last?.kind === 'prePrompt' && last.prePromptIndex === i;
+            const lastSent = isLast && last?.kind === 'prePrompt' && last.prePromptIndex === i;
             nodes.push({ type: 'prompt', prompt: {
                 stage: 'prePrompt',
                 label: `Pre-prompt ${i + 1}${n > 1 ? ` (${r}/${n})` : ''}`,
-                text: asSent ? last.expandedText : pp.text,
-                expanded: asSent,
+                text: pp.text,
                 answer: isLast ? pp.answerText ?? '' : '',
-                ...(asSent ? { at: last.dispatchedAt } : {}),
+                ...(lastSent ? { at: last.dispatchedAt } : {}),
             } });
         }
     });
@@ -217,16 +219,15 @@ function itemNodes(item: RecentPromptSourceItem, kind: QueueItemKind, lookups: R
             const answer = entry
                 ? (isLastTurn ? entry.text : entry.earlier?.[t] ?? '')
                 : (isLastIteration && isLastTurn ? item.answerText ?? '' : '');
-            const asSent = t === 0 && isLastIteration && last?.kind === 'main';
+            const lastSent = t === 0 && isLastIteration && last?.kind === 'main';
             // A continuation's text is the queue's fixed continuation prompt for the walked todo.
-            const text = t > 0 ? continuationPrompt(key) : asSent ? last.expandedText : item.originalText;
+            const text = t > 0 ? continuationPrompt(key) : item.originalText;
             prompts.push({
                 stage: t === 0 ? 'main' : 'continuation',
                 label: t === 0 ? 'Main prompt' : `Continuation ${t}`,
                 text,
-                expanded: asSent || t > 0,
                 answer,
-                ...(asSent && !followUpsSent ? { at: last.dispatchedAt } : entry?.at && isLastTurn ? { at: entry.at } : {}),
+                ...(lastSent && !followUpsSent ? { at: last.dispatchedAt } : entry?.at && isLastTurn ? { at: entry.at } : {}),
             });
         }
         if (!asIterations) {
@@ -248,14 +249,13 @@ function itemNodes(item: RecentPromptSourceItem, kind: QueueItemKind, lookups: R
         const n = fu.repeatIndex ?? 0;
         for (let r = 1; r <= n; r++) {
             const isLast = r === n;
-            const asSent = isLast && last?.kind === 'followUp' && last.followUpIndex === i;
+            const lastSent = isLast && last?.kind === 'followUp' && last.followUpIndex === i;
             nodes.push({ type: 'prompt', prompt: {
                 stage: 'followUp',
                 label: `Follow-up ${i + 1}${n > 1 ? ` (${r}/${n})` : ''}`,
-                text: asSent ? last.expandedText : fu.originalText,
-                expanded: asSent,
+                text: fu.originalText,
                 answer: isLast ? fu.answerText ?? '' : '',
-                ...(asSent ? { at: last.dispatchedAt } : {}),
+                ...(lastSent ? { at: last.dispatchedAt } : {}),
             } });
         }
     });
@@ -329,6 +329,7 @@ export function recentPromptRow(item: RecentPromptSourceItem, lookups: RecentPro
         promptCount,
         lastAnswerStart: lastAnswerStartOf(nodes),
         nodes,
+        sent: [...(item.sentPrompts ?? [])],
     };
 }
 

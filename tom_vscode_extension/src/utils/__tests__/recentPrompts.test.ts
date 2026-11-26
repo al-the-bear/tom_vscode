@@ -4,12 +4,14 @@
  *   RP-1 prompts are counted across stages: pre-prompts (with their repetitions), the main prompt per
  *        iteration, a walk iteration's continuations, follow-ups (with their repetitions)
  *   RP-2 a repeated item's main stage is one iteration per repetition / walked todo, each with its answer
- *        (`repetitionAnswers`, the turns before the last from `earlier`); the last dispatched prompt shows its
- *        expanded text, the others the text as queued; a TODO item's single iteration is not a group
+ *        (`repetitionAnswers`, the turns before the last from `earlier`); every prompt shows the user's prompt as
+ *        queued (the last dispatched one too: its text as sent is in the row's `sent` records); a TODO item's
+ *        single iteration is not a group
  *   RP-3 rows newest first; at most 100 prompts — the row crossing the limit keeps its newest prompts, older rows go
  *   RP-4 chat sends: one prompt with its answer or error; items that never went out are left out
  *   RP-5 a row: kind, todos with titles, the first line, settings (profile by name, no "(None)" template),
  *        the time, the start of the last answer (about 200 characters, whitespace folded)
+ *   RP-6 a row carries the item's sent records (the As sent view), oldest first
  */
 
 import test, { describe } from 'node:test';
@@ -62,21 +64,21 @@ describe('recent prompts — the collector', () => {
         assert.ok(it1.type === 'iteration' && it2.type === 'iteration');
         assert.equal(it1.label, 'Todo abc1 — First');
         assert.equal(it1.todoTitle, 'First');
-        assert.deepEqual(it1.prompts.map((p) => [p.label, p.text, p.expanded, p.answer]), [['Main prompt', 'prompt of w', false, 'done 1']]);
-        assert.deepEqual(it2.prompts.map((p) => [p.stage, p.text, p.expanded, p.answer]), [
-            ['main', 'EXPANDED abc2', true, 'not yet'],
-            ['continuation', continuationPrompt('abc2'), true, 'done 2'],
+        assert.deepEqual(it1.prompts.map((p) => [p.label, p.text, p.answer]), [['Main prompt', 'prompt of w', 'done 1']]);
+        assert.deepEqual(it2.prompts.map((p) => [p.stage, p.text, p.answer]), [
+            ['main', 'prompt of w', 'not yet'],
+            ['continuation', continuationPrompt('abc2'), 'done 2'],
         ]);
         assert.equal(walk.lastAnswerStart, 'done 2');
-        // Pre-prompt and follow-up: the last dispatched one is as sent.
+        // Pre-prompt and follow-up: as queued, the last dispatched one too.
         const staged = recentPromptRow(item({
             id: 'f', prePrompts: [{ text: 'pp', status: 'sent', repeatIndex: 1, answerText: 'ppa' }],
             followUps: [{ originalText: 'fu1', repeatIndex: 1, answerText: 'fa1' }, { originalText: 'fu2', repeatIndex: 1, answerText: 'fa2' }],
             answerText: 'ma',
             lastDispatched: { kind: 'followUp', followUpIndex: 1, expandedText: 'FU2 EXPANDED', dispatchedAt: '2026-11-20T10:09:00.000Z' },
         }))!;
-        assert.deepEqual(staged.nodes.map((n) => n.type === 'prompt' && [n.prompt.text, n.prompt.expanded, n.prompt.answer]), [
-            ['pp', false, 'ppa'], ['prompt of f', false, 'ma'], ['fu1', false, 'fa1'], ['FU2 EXPANDED', true, 'fa2'],
+        assert.deepEqual(staged.nodes.map((n) => n.type === 'prompt' && [n.prompt.text, n.prompt.answer]), [
+            ['pp', 'ppa'], ['prompt of f', 'ma'], ['fu1', 'fa1'], ['fu2', 'fa2'],
         ]);
         // A TODO item: one iteration, shown as prompts, not as a group.
         const todo = recentPromptRow(item({ id: 't', repeatCount: 'todo:q/abc7', answerText: 'did it' }))!;
@@ -116,7 +118,7 @@ describe('recent prompts — the collector', () => {
 
     test('RP-4: chat sends; items that never went out', () => {
         const { rows } = collectRecentPrompts([
-            item({ id: 'c1', status: 'chat-sent', chatSource: 'panel', expandedText: 'hello there', answerText: 'hi', itemKind: 'chat' }),
+            item({ id: 'c1', status: 'chat-sent', chatSource: 'panel', originalText: 'hello there', expandedText: 'hello there (expanded)', answerText: 'hi', itemKind: 'chat' }),
             item({ id: 'c2', status: 'chat-sent', chatSource: 'editor', expandedText: 'boom', error: 'quota', sentAt: '2026-11-20T11:00:00.000Z' }),
             item({ id: 'staged', status: 'staged', sentAt: undefined }),
             item({ id: 'pending', status: 'pending', sentAt: undefined, repeatCount: 3 }),
@@ -125,7 +127,7 @@ describe('recent prompts — the collector', () => {
         const [err, ok] = rows;
         assert.equal(ok.kind, 'chat');
         assert.equal(ok.promptCount, 1);
-        assert.deepEqual(ok.nodes[0].type === 'prompt' && [ok.nodes[0].prompt.label, ok.nodes[0].prompt.text, ok.nodes[0].prompt.expanded, ok.nodes[0].prompt.answer], ['Chat send (panel)', 'hello there', true, 'hi']);
+        assert.deepEqual(ok.nodes[0].type === 'prompt' && [ok.nodes[0].prompt.label, ok.nodes[0].prompt.text, ok.nodes[0].prompt.answer], ['Chat send (panel)', 'hello there', 'hi'], 'the text typed');
         assert.ok(err.nodes[0].type === 'prompt' && err.nodes[0].prompt.error === true && err.nodes[0].prompt.answer === 'Error: quota');
         assert.equal(err.lastAnswerStart, 'Error: quota');
     });
@@ -147,5 +149,15 @@ describe('recent prompts — the collector', () => {
         const plain = recentPromptRow(item({ id: 'd', template: 'execute-todo', answerText: 'ok' }))!;
         assert.deepEqual(plain.settings, { run: 'default', template: 'execute-todo' });
         assert.deepEqual(recentPromptRow(item({ id: 'g', repeatCount: 'group:q/rel', walkedTodos: ['m1'], answerText: 'a' }), { todoTitle: () => 'Release' })!.todos, [{ id: 'rel', title: 'Release' }]);
+    });
+
+    test('RP-6: the sent records', () => {
+        const sent = [
+            { label: 'Pre-prompt 1', sentAt: '2026-11-20T10:00:00.000Z', promptRef: '0123456789abcdef0123', promptChars: 10 },
+            { label: 'Main prompt', sentAt: '2026-11-20T10:01:00.000Z', promptRef: '1123456789abcdef0123', systemRef: 'abcdef0123456789abcd', promptChars: 12, systemChars: 500 },
+        ];
+        const row = recentPromptRow(item({ id: 's', answerText: 'x', sentPrompts: sent }))!;
+        assert.deepEqual(row.sent, sent);
+        assert.deepEqual(recentPromptRow(item({ id: 'n', answerText: 'x' }))!.sent, [], 'none kept');
     });
 });

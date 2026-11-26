@@ -4,6 +4,9 @@
  *
  *   HB-1 one Rebuild history and memory button; no Recreate history / Recreate memory buttons; a click posts
  *        `rebuildHistoryAndMemory`, and its progress shows on the status line until the host says it is done
+ *   HB-4 its secondary action Rebuild from scratch: Shift+click and right-click post `rebuildHistoryFromScratch`
+ *        (named in the tooltip); the host asks first (modal), answers `historyRebuildDone` when declined, else
+ *        rebuilds with `fromScratch`
  *   HB-2 Promote memory shows only with the setting (`__INIT__.promoteMemoryButton`, then `promoteMemoryButton`
  *        messages); a click posts `promoteMemory` with the panel's profile and the subpanel's queue mode
  *   HB-3 the host: the setting `tomAi.memory.promoteMemoryButton` (boolean, default false) in package.json, read into
@@ -64,6 +67,20 @@ describe('the chat panel\'s history and memory buttons', () => {
         s.send({ type: 'historyRebuildDone' });
         s.send({ type: 'anthropicStatus', text: 'later status' });
         assert.match(status(), /History and memory rebuilt/, 'after it is done the status stays');
+    });
+
+    test('HB-4: Rebuild from scratch, the secondary action', (t) => {
+        const s = setup(t);
+        const btn = s.$('[data-action="rebuildHistoryAndMemory"]');
+        assert.match(btn.title, /Shift\+click or right-click: Rebuild from scratch — asks first/);
+        btn.dispatchEvent(new s.w.MouseEvent('click', { bubbles: true, shiftKey: true }));
+        assert.deepEqual(s.posted.at(-1), { type: 'rebuildHistoryFromScratch' });
+        s.posted.length = 0;
+        btn.dispatchEvent(new s.w.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        assert.deepEqual(s.posted, [{ type: 'rebuildHistoryFromScratch' }]);
+        const panel = read('src', 'handlers', 'chatPanel-handler.ts');
+        assert.match(panel, /case 'rebuildHistoryFromScratch':[\s\S]{0,400}showWarningMessage\([\s\S]{0,600}modal: true[\s\S]{0,800}REBUILD_FROM_SCRATCH_CHOICE,\s*\);\s*if \(choice !== REBUILD_FROM_SCRATCH_CHOICE\) \{\s*void this\._view\?\.webview\.postMessage\(\{ type: 'historyRebuildDone' \}\);/);
+        assert.match(panel, /rebuildQuestHistoryAndMemory\(undefined, \{ fromScratch: true \}\)/);
     });
 
     test('HB-2: Promote memory only with the setting', (t) => {

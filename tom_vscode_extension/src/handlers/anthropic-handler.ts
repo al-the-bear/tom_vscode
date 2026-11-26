@@ -341,6 +341,13 @@ interface AnthropicSection {
 
 export interface AnthropicSendOptions {
     /**
+     * Called once the prompt is composed, with the system prompt and the user
+     * message exactly as they go out (templates and wrappers applied): the
+     * prompt queue keeps them per sent stage for the Recent Prompts panel
+     * (utils/sentPrompts.ts). Every transport calls it.
+     */
+    onPromptComposed?: (sent: { systemPrompt: string; userMessage: string }) => void;
+    /**
      * Aspect guideline choices that replace levels of the live ones
      * (services/aspectChoiceLevels.ts liveAspectChoices: quest default,
      * window, run, role type, role, and inside a queue stage its item and
@@ -1409,7 +1416,7 @@ export class AnthropicHandler {
      */
     private runQuestHistoryBuild(
         questId: string,
-        opts: { extract: boolean; configuration?: AnthropicConfiguration },
+        opts: { extract: boolean; configuration?: AnthropicConfiguration; fromScratch?: boolean; onLocked?: 'wait' | 'skip' },
     ): Promise<QuestHistoryBuildReport | undefined> {
         const run = async (): Promise<QuestHistoryBuildReport | undefined> => {
             const cfg = this.getCompactionConfig();
@@ -1448,6 +1455,8 @@ export class AnthropicHandler {
                     chunkSize: cfg.runEveryNRounds,
                     maxInputs: Math.max(1, cfg.rebuildFromLastNPrompts),
                     archive: cfg.archiveHistoryEveryTurn,
+                    fromScratch: opts.fromScratch,
+                    onLocked: opts.onLocked ?? 'skip',
                     compact: async (input) => {
                         const out = await runIncrementalCompaction({
                             existingSummary: input.existingSummary,
@@ -1471,8 +1480,12 @@ export class AnthropicHandler {
                 });
                 // The sessions of this quest read the new history from the next send on; the loaded one now.
                 if (this.historyScope?.questId === questId) { this.loadQuestHistory(questId); }
+                if (report.locked) {
+                    this._onStatusUpdate.fire('History build skipped — another window of this host is building the quest history');
+                    return report;
+                }
                 logHistoryInfo(
-                    `quest history build: quest=${questId} folded=${report.folded} (turns=${report.turns}, todos=${report.todos}) ` +
+                    `quest history build: quest=${questId}${opts.fromScratch ? ' (from scratch)' : ''} folded=${report.folded} (turns=${report.turns}, todos=${report.todos}) ` +
                     `skipped=${report.skipped} chunks=${report.chunks} extractions=${report.extractions} blocks=${report.blocks}` +
                     `${report.failed ? ` failed: ${report.failed}` : ''} ${Date.now() - startedAt}ms`,
                 );
@@ -1496,15 +1509,19 @@ export class AnthropicHandler {
      * candidates from the new turns, in one run — even while background
      * compaction is off. Progress and the result go to the panel's status
      * line. Answers the build's report (undefined without a compaction model).
+     * It waits for a build another window of this host runs (the build lock,
+     * services/questHistory.ts). `fromScratch` ("Rebuild from scratch", asked
+     * first by the panel): the derived history and its watermark are deleted
+     * and every host's trail and the whole todo archive are folded again.
      */
-    async rebuildQuestHistoryAndMemory(questId?: string): Promise<QuestHistoryBuildReport | undefined> {
+    async rebuildQuestHistoryAndMemory(questId?: string, opts: { fromScratch?: boolean } = {}): Promise<QuestHistoryBuildReport | undefined> {
         const quest = questId || TwoTierMemoryService.instance.currentQuest();
         await this.awaitInFlightBackgroundWork();
-        const report = await this.runQuestHistoryBuild(quest, { extract: true });
+        const report = await this.runQuestHistoryBuild(quest, { extract: true, fromScratch: opts.fromScratch, onLocked: 'wait' });
         if (report) {
             this._onStatusUpdate.fire(report.failed
                 ? `History rebuild stopped: ${report.failed} — ${report.folded} input(s) folded; the rest follows next time`
-                : `History and memory rebuilt — ${report.turns} turn${report.turns === 1 ? '' : 's'} and ${report.todos} archived todo${report.todos === 1 ? '' : 's'} folded, ${report.extractions} memory extraction${report.extractions === 1 ? '' : 's'}`);
+                : `History and memory ${opts.fromScratch ? 'rebuilt from scratch' : 'rebuilt'} — ${report.turns} turn${report.turns === 1 ? '' : 's'} and ${report.todos} archived todo${report.todos === 1 ? '' : 's'} folded, ${report.extractions} memory extraction${report.extractions === 1 ? '' : 's'}`);
         }
         return report;
     }
@@ -2091,6 +2108,7 @@ export class AnthropicHandler {
             requestId,
             quest,
         );
+        try { options.onPromptComposed?.({ systemPrompt, userMessage: userContent }); } catch { /* a recorder's failure never stops the send */ }
 
         // Note the turn's prompt here — before any API call — so the host
         // trail gets the turn even when it is interrupted via the Stop button
@@ -2835,6 +2853,7 @@ export class AnthropicHandler {
         }
 
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
+        try { options.onPromptComposed?.({ systemPrompt, userMessage: userContent }); } catch { /* a recorder's failure never stops the send */ }
 
         // Build initial chat history. Prior turns come in as plain
         // User/Assistant messages — we deliberately don't carry over
@@ -3137,6 +3156,7 @@ export class AnthropicHandler {
         }
 
         const systemPrompt = systemSegments.filter((s) => s).join('\n\n');
+        try { options.onPromptComposed?.({ systemPrompt, userMessage: userContent }); } catch { /* a recorder's failure never stops the send */ }
         // Local LLM API takes separate system + user messages; pass them
         // as the canonical chat-completions shape. The concatenation
         // rule in spec §2.8 applies only when the underlying API has

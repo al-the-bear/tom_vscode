@@ -45,6 +45,7 @@ import {
     type QueueFileYaml,
     type QueuePromptYaml,
 } from '../storage/queueFileStorage';
+import { appendSentRecord, pruneSentTexts, referencedSentTexts, sentRecordsFromYaml, sentRecordsToYaml, sentStageLabel, withComposedTexts, type SentPromptRecord } from '../utils/sentPrompts';
 import { debugLog } from '../utils/debugLogger';
 import { logQueue, logQueueError, promptPreview } from '../utils/queueLogger';
 import { describeQueueSendTarget } from '../utils/queueSendTarget';
@@ -509,6 +510,13 @@ export interface QueuedPrompt {
      * `resendLastPrompt()` to re-send without touching repetition counters.
      */
     lastDispatched?: LastDispatchedInfo;
+    /**
+     * Every stage this item sent, oldest first: its label, when, and the user
+     * message and system prompt as sent (references into the queue folder's
+     * `sent-prompts/`; utils/sentPrompts.ts). The Recent Prompts panel's *As
+     * sent* view.
+     */
+    sentPrompts?: SentPromptRecord[];
     /**
      * Classified interruption warning (rate-limit / quota / overload /
      * cancelled / mid-stream interrupted). Renders as a yellow chip in
@@ -3720,6 +3728,15 @@ export class PromptQueueManager {
         return item.id;
     }
 
+    /** A chat send's prompt as sent (the Recent Prompts panel's As sent view, utils/sentPrompts.ts). */
+    recordChatPrompt(id: string, sent: { systemPrompt: string; userMessage: string }): void {
+        const item = this._items.find(i => i.id === id);
+        if (!item) { return; }
+        const record = this._beginSentRecord(item, 'Chat send');
+        this._fillSentRecord(record, sent);
+        this.persist();
+    }
+
     /** The chat send ended: `chat-sent`, with its answer or its error. A queue item waiting for its session goes now. */
     completeChatItem(id: string, result: { answerText?: string; error?: string; usage?: LiveTrailTokenCounts }): void {
         const item = this._items.find(i => i.id === id);
@@ -4366,6 +4383,7 @@ export class PromptQueueManager {
                 ...resolved,
                 ...(continueSessionId ? { continueSessionId } : {}),
                 ...(resumeConversation ? { resumeConversation } : {}),
+                sentLabel: `${continuation !== undefined ? 'Continuation' : 'Resend'} of ${sentStageLabel(item).replace(/^Main prompt/, 'the main prompt')}`,
             }, container);
             if (resumeConversation) { this._dropHeldConversation(item); }
             if (dispatchWasSuperseded(epoch, this._epochOf(item))) {
@@ -5022,6 +5040,25 @@ export class PromptQueueManager {
      * — see spec §2 decision 7); the returned text is captured into the
      * target container's `answerText` field.
      */
+    /** Append the record of the stage `item` sends now (texts filled when the transport composed them). */
+    private _beginSentRecord(item: QueuedPrompt, label?: string): SentPromptRecord {
+        const record: SentPromptRecord = { label: label ?? sentStageLabel(item), sentAt: new Date().toISOString() };
+        item.sentPrompts = appendSentRecord(item.sentPrompts, record);
+        return record;
+    }
+
+    /** Fill a record with the stage's texts as sent (kept once in the queue folder's `sent-prompts/`). */
+    private _fillSentRecord(record: SentPromptRecord, sent: { systemPrompt: string; userMessage: string }): void {
+        const folder = getQueueFolder();
+        if (!folder) { return; }
+        try {
+            Object.assign(record, withComposedTexts(folder, record, sent));
+            pruneSentTexts(folder, referencedSentTexts(this._items.flatMap((i) => i.sentPrompts ?? [])));
+        } catch (err) {
+            logQueue(`sent prompt not kept: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
     private async dispatchStage(
         expandedText: string,
         resolved: ReturnType<typeof this.resolveStageTransport> & {
@@ -5029,6 +5066,8 @@ export class PromptQueueManager {
             continueSessionId?: string;
             /** Go on with this saved conversation (a held direct / Local LLM turn lost to a restart). */
             resumeConversation?: { transport: 'direct' | 'localLlm'; messages: unknown[] };
+            /** The label of the sent-prompt record, when not the stage's own (a resend, a continuation). */
+            sentLabel?: string;
         },
         stageForAnswer: { answerText?: string } | undefined,
         // Quest Refresh exemption forwarded to `sendMessage`. Only the **main**
@@ -5092,6 +5131,8 @@ export class PromptQueueManager {
         // The item whose retry waits the queue shows (unset for the internal
         // Quest Refresh dispatch, which belongs to no item).
         const waitItem = resolved.item;
+        // The record of this stage as sent (no item: the Quest Refresh dispatch keeps none).
+        const sentRecord = waitItem ? this._beginSentRecord(waitItem, resolved.sentLabel) : undefined;
         // CTS scope: created here so the Stop button (`stopActiveItem`)
         // can cancel the in-flight round loop. Disposed in `finally` so
         // a stale token never lingers across dispatches.
@@ -5136,6 +5177,8 @@ export class PromptQueueManager {
                 },
                 ...(resolved.continueSessionId ? { continueSessionId: resolved.continueSessionId } : {}),
                 ...(resolved.resumeConversation ? { resumeConversation: resolved.resumeConversation } : {}),
+                // The stage as sent, for the Recent Prompts panel's As sent view (utils/sentPrompts.ts).
+                ...(sentRecord ? { onPromptComposed: (sent: { systemPrompt: string; userMessage: string }) => this._fillSentRecord(sentRecord, sent) } : {}),
             }))), waitItem ? itemRun(waitItem) : undefined).catch((err: unknown) => {
                 // The turn of a soft-interrupted item ended without our cancel (the SDK process ended):
                 // the item becomes interrupted, its run stays paused (vscimpb112).
@@ -7370,6 +7413,8 @@ export class PromptQueueManager {
             prompt.itemKind = parseQueueItemKind(main['item-kind']) ?? deriveQueueItemKind(prompt);
 
             // Resend metadata + warning chip — persisted under execution.
+            const sentRecords = sentRecordsFromYaml(main.execution?.['sent-prompts']);
+            if (sentRecords) { prompt.sentPrompts = sentRecords; }
             const ld = main.execution?.['last-dispatched'];
             if (ld && typeof ld === 'object' && typeof ld['expanded-text'] === 'string') {
                 prompt.lastDispatched = {
@@ -7547,6 +7592,7 @@ export class PromptQueueManager {
                 ...(item.waitingResetLabel ? { 'waiting-reset-label': item.waitingResetLabel } : {}),
                 ...(item.retryAttempt ? { 'retry-attempt': item.retryAttempt } : {}),
                 ...(item.retryUntil ? { 'retry-until': item.retryUntil } : {}),
+                ...(item.sentPrompts?.length ? { 'sent-prompts': sentRecordsToYaml(item.sentPrompts) } : {}),
                 ...(item.lastDispatched ? {
                     'last-dispatched': {
                         kind: item.lastDispatched.kind,

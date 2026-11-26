@@ -612,7 +612,7 @@ function getSectionContent(id) {
                 // The role editor (gsel6), the panel's role selected.
                 '<button class="icon-btn" data-action="openRoleEditor" id="anthropic-role-editor-btn" title="Role Editor — the roles a prompt can run as (_ai/roles)"><span class="codicon codicon-person"></span></button>' +
                 '<button class="icon-btn" data-action="openQueueTemplatesEditor" data-id="anthropic" title="Open Queue Templates"><span class="codicon codicon-files"></span></button>' +
-                '<button class="icon-btn" data-action="rebuildHistoryAndMemory" data-id="anthropic" title="Rebuild history and memory: fold what the quest history does not cover yet — the new turns of every host\'s trail and the newly archived todos — into the quest\'s compacted history (_ai/quests/QUEST/history/), and extract memory candidates from the new turns into this host\'s candidates file of the quest memory folder. One run, in chunks of &quot;Run every N rounds&quot;."><span class="codicon codicon-history"></span></button>' +
+                '<button class="icon-btn" data-action="rebuildHistoryAndMemory" data-id="anthropic" title="Rebuild history and memory: fold what the quest history does not cover yet — the new turns of every host\'s trail and the newly archived todos — into the quest\'s compacted history (_ai/quests/QUEST/history/), and extract memory candidates from the new turns into this host\'s candidates file of the quest memory folder. One run, in chunks of &quot;Run every N rounds&quot;.&#10;&#10;Shift+click or right-click: Rebuild from scratch — asks first, deletes the quest\'s derived history and its watermark, then builds from every host\'s trail and the whole todo archive."><span class="codicon codicon-history"></span></button>' +
                 // Promote memory: shown only with the setting tomAi.memory.promoteMemoryButton (see applyPromoteMemoryButton).
                 '<button class="icon-btn" data-action="promoteMemory" data-id="anthropic" id="anthropic-promote-memory-btn" style="display:none" title="Promote memory: queue a prompt (in this panel\'s run and session, staged or pending as the queue mode says) that presents the memory candidates of every host and promotes the ones you choose into the curated memory files"><span class="codicon codicon-arrow-up"></span></button>' +
                 '<button class="icon-btn" data-action="runQuestRefresh" data-id="anthropic" title="Run Quest Refresh now — dispatch the configured refresh prompt for this quest, then trim the live-trail back to base and reset the prompt counter."><span class="codicon codicon-sync"></span></button>' +
@@ -827,6 +827,8 @@ function attachEventListeners() {
                 event.preventDefault();
                 if (actionEl.disabled) {return;}
                 if (SUBMIT_ACTIONS.indexOf(actionEl.dataset.action) >= 0) { pauseSubmitButton(actionEl); }
+                // The history button's secondary action: Shift+click (right-click below) rebuilds from scratch.
+                if (actionEl.dataset.action === 'rebuildHistoryAndMemory' && event.shiftKey) { handleAction('rebuildHistoryFromScratch'); return; }
                 handleAction(actionEl.dataset.action, actionEl.dataset.id, actionEl.dataset.slot);
                 return;
             }
@@ -994,6 +996,8 @@ function handleAction(action, id, slot) {
         case 'openChatAspects': openChatAspectPicker(id); break;
         case 'openStatusPage': vscode.postMessage({ type: 'openStatusPage' }); break;
         case 'rebuildHistoryAndMemory': historyRebuildRunning = true; vscode.postMessage({ type: 'rebuildHistoryAndMemory' }); break;
+        // The host asks first; it answers historyRebuildDone also when the user declines.
+        case 'rebuildHistoryFromScratch': historyRebuildRunning = true; vscode.postMessage({ type: 'rebuildHistoryFromScratch' }); break;
         case 'promoteMemory': {
             var pmProfile = document.getElementById('anthropic-profile');
             vscode.postMessage({ type: 'promoteMemory', anthropicProfileId: pmProfile ? pmProfile.value : '', initialStatus: queueInitialStatus('anthropic') });
@@ -1650,6 +1654,14 @@ function closeExtensionTools() {
     var overlay = document.getElementById('extension-tools-overlay');
     if (overlay) { overlay.style.display = 'none'; }
 }
+
+// Right-click on the history button: its secondary action, Rebuild from scratch.
+document.addEventListener('contextmenu', function(event) {
+    var el = event.target && event.target.closest ? event.target.closest('[data-action="rebuildHistoryAndMemory"]') : null;
+    if (!el || el.disabled) { return; }
+    event.preventDefault();
+    handleAction('rebuildHistoryFromScratch');
+});
 
 // A click beside the popup or Escape closes the overlay.
 document.addEventListener('click', function(event) {

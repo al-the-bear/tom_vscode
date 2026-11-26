@@ -70,6 +70,7 @@ const ITEM: Required<QueuedPrompt> = {
     run: 'chg1',
     processMove: { kind: 'proceed', level: 0, label: 'Proceed', to: 'phase/step' } as never,
     processItem: true, reloadPrompt: { windowId: 'w-1' }, answerText: 'answer',
+    sentPrompts: [{ label: 'Follow-up 1', sentAt: AT, promptRef: '0123456789abcdef0123', systemRef: 'abcdef0123456789abcd', promptChars: 5, systemChars: 12 }],
     lastDispatched: { kind: 'followUp', prePromptIndex: 0, followUpIndex: 0, expandedText: 'after', transport: 'anthropic', anthropicProfileId: 'p', anthropicConfigId: 'c', iterationKey: 'k', dispatchedAt: AT },
     warning: { kind: 'rate_limit', message: 'slow down', at: AT },
     outOfBudget: { profileId: 'p', session: 's', message: 'no credit', at: AT } as never,

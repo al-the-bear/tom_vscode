@@ -89,6 +89,9 @@ import { extensionToolsForWebview, openExtensionTool } from '../utils/extensionT
 /** The VS Code setting that shows the chat panel's Promote memory button. */
 export const PROMOTE_MEMORY_BUTTON_SETTING = 'tomAi.memory.promoteMemoryButton';
 
+/** The confirm button of Rebuild from scratch. */
+export const REBUILD_FROM_SCRATCH_CHOICE = 'Rebuild from scratch';
+
 /** Whether the Promote memory button shows (the setting, default off). */
 export function promoteMemoryButtonEnabled(): boolean {
     return promoteMemoryButtonSetting((key) => vscode.workspace.getConfiguration('tomAi').get(key));
@@ -684,6 +687,26 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                             .catch(() => undefined)
                             .finally(() => { void this._view?.webview.postMessage({ type: 'historyRebuildDone' }); });
                         vscode.window.showInformationMessage('Rebuilding the quest history and memory from the trail and the todo archive, in chunks…');
+                        break;
+                    }
+                    case 'rebuildHistoryFromScratch': {
+                        // The button's secondary action (Shift+click, right-click): asked first, then the
+                        // derived history and its watermark are deleted and every host's trail and the
+                        // whole todo archive are folded again.
+                        const choice = await vscode.window.showWarningMessage(
+                            'Rebuild the quest history from scratch?',
+                            { modal: true, detail: 'This deletes the quest\'s derived history on this host (history/compacted_history.md, history.json, history.md and history.watermark.json) and builds it again from every host\'s trail and the whole todo archive, extracting memory candidates from every turn. It takes a compaction call per chunk.' },
+                            REBUILD_FROM_SCRATCH_CHOICE,
+                        );
+                        if (choice !== REBUILD_FROM_SCRATCH_CHOICE) {
+                            void this._view?.webview.postMessage({ type: 'historyRebuildDone' });
+                            break;
+                        }
+                        const handler = (await import('./anthropic-handler.js')).AnthropicHandler.instance;
+                        void handler.rebuildQuestHistoryAndMemory(undefined, { fromScratch: true })
+                            .catch(() => undefined)
+                            .finally(() => { void this._view?.webview.postMessage({ type: 'historyRebuildDone' }); });
+                        vscode.window.showInformationMessage('Rebuilding the quest history and memory from scratch, in chunks…');
                         break;
                     }
                     case 'promoteMemory':
@@ -1480,6 +1503,8 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
             const sessionKey = freshSession ?? targetSession;
             // It has started: the slot it came from is cleared unless it keeps its text.
             this._view?.webview.postMessage({ type: 'anthropicSendStarted', ...(slot ? { slot } : {}) });
+            // The chat item the send is shown as (its prompt as sent goes onto it).
+            let chatItemIdForPrompt: string | undefined;
             const result = await trackChatSend(
                 { text, profileId: profile.id, session: sessionKey, source: skipQuestRefresh ? 'quest refresh' : 'panel', run: this._chatRun('anthropic') },
                 // The panel's role is the send's item role (gsel6): its tools, guidelines and ${role}.
@@ -1496,11 +1521,13 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
                     // The panel's run and sticky guideline choices (gsel4).
                     aspectGuidelineChoices: chatSendAspectChoices('anthropic', this._chatRun('anthropic')),
                     ...(userMessageTemplate ? { userMessageTemplate } : {}),
+                    // The prompt as sent, onto the chat item (Recent Prompts' As sent view).
+                    onPromptComposed: (sent) => { if (chatItemIdForPrompt) { (require('../managers/promptQueueManager.js') as typeof import('../managers/promptQueueManager')).PromptQueueManager.instance.recordChatPrompt(chatItemIdForPrompt, sent); } },
                 }))),
                 // Ended by its timeout or by removing its entry: stopped like the Stop button.
                 {
                     cancel: (chatItemId) => { cts.cancel(); AnthropicHandler.instance.abortPendingApprovals((a) => a.queueItemId === chatItemId); },
-                    onChatItem: (chatItemId) => setAnthropicSendChatItem(slotKey, chatItemId),
+                    onChatItem: (chatItemId) => { chatItemIdForPrompt = chatItemId; setAnthropicSendChatItem(slotKey, chatItemId); },
                 },
             );
             this._updateAnthropicWindowStatus('answer-received');

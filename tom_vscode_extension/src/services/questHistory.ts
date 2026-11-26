@@ -32,6 +32,20 @@
  * (`history/sessions/<session>/`: `compacted_history.md`, `history.json`,
  * `history.md`, the folders then empty) once ({@link deleteOldSessionHistories}).
  *
+ * **One build per host at a time**, across its windows: a build holds
+ * `history/.build.<host>.lock` ({@link acquireHistoryBuildLock}; untracked)
+ * while it runs and refreshes its time after every chunk; a lock not touched
+ * for {@link HISTORY_BUILD_LOCK_STALE_MS} (10 minutes: its window died) is
+ * taken over. A second build waits for the lock (`onLocked: 'wait'`, the
+ * user's rebuild) or skips (`'skip'`, the background builds; the report says
+ * `locked`). Inside one window the builds are chained besides
+ * (AnthropicHandler.runQuestHistoryBuild).
+ *
+ * A build **from scratch** (`fromScratch`) deletes the derived files —
+ * `compacted_history.md`, `history.json`, `history.md` and the watermark,
+ * {@link resetQuestHistory} — under the lock, then folds every host's trail
+ * and the whole todo archive (no `maxInputs` limit).
+ *
  * vscode-free.
  */
 
@@ -437,6 +451,87 @@ export function deleteOldSessionHistories(questFolder: string, host: string): st
 // The build
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The build lock
+// ---------------------------------------------------------------------------
+
+/** A build lock not touched for this long is stale: its build is gone, the lock is taken over. */
+export const HISTORY_BUILD_LOCK_STALE_MS = 10 * 60 * 1000;
+
+/** How often a waiting build looks at the lock again. */
+export const HISTORY_BUILD_LOCK_POLL_MS = 2000;
+
+/** `history/.build.<host>.lock` */
+export function historyBuildLockFile(questFolder: string, host: string): string {
+    return path.join(questHistoryFolder(questFolder), `.build.${host}.lock`);
+}
+
+/** The lock held by a build: refresh its time while it runs, release it at the end. */
+export interface HistoryBuildLock {
+    touch(): void;
+    release(): void;
+}
+
+/** What a lock file says about its holder (for the log); undefined when it does not read. */
+export function readHistoryBuildLock(file: string): { pid?: number; startedAt?: string } | undefined {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')) as { pid?: number; startedAt?: string }; } catch { return undefined; }
+}
+
+/**
+ * Take the quest's build lock of `host` now: answers the lock, or undefined
+ * while another build holds it. A lock older than `staleMs` (by its file
+ * time) is taken over.
+ */
+export function acquireHistoryBuildLock(questFolder: string, host: string, opts: { now?: () => Date; staleMs?: number } = {}): HistoryBuildLock | undefined {
+    const file = historyBuildLockFile(questFolder, host);
+    const now = (): Date => (opts.now ? opts.now() : new Date());
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const create = (): boolean => {
+        try {
+            fs.writeFileSync(file, `${JSON.stringify({ pid: process.pid, startedAt: now().toISOString() })}\n`, { flag: 'wx' });
+            return true;
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === 'EEXIST') { return false; }
+            throw e;
+        }
+    };
+    if (!create()) {
+        let age: number;
+        try { age = now().getTime() - fs.statSync(file).mtimeMs; } catch { age = Infinity; }
+        if (age < (opts.staleMs ?? HISTORY_BUILD_LOCK_STALE_MS)) { return undefined; }
+        try { fs.rmSync(file, { force: true }); } catch { /* another took it over first */ }
+        if (!create()) { return undefined; }
+    }
+    let released = false;
+    return {
+        touch: () => {
+            if (released) { return; }
+            const t = now();
+            try { fs.utimesSync(file, t, t); } catch { /* gone: released elsewhere */ }
+        },
+        release: () => {
+            if (released) { return; }
+            released = true;
+            try { fs.rmSync(file, { force: true }); } catch { /* gone */ }
+        },
+    };
+}
+
+/**
+ * Delete the quest's derived history — `history/compacted_history.md`,
+ * `history.json`, `history.md` and `history.watermark.json` — for a build
+ * from scratch. The timestamped snapshot copies stay. Answers the files deleted.
+ */
+export function resetQuestHistory(questFolder: string): string[] {
+    const folder = questHistoryFolder(questFolder);
+    const deleted: string[] = [];
+    for (const name of [COMPACTED_HISTORY_FILENAME, 'history.json', 'history.md', path.basename(historyWatermarkFile(questFolder))]) {
+        const file = path.join(folder, name);
+        try { if (fs.statSync(file).isFile()) { fs.rmSync(file); deleted.push(file); } } catch { /* not there */ }
+    }
+    return deleted;
+}
+
 export interface QuestHistoryBuildOptions {
     /** `_ai/quests/<quest>` */
     questFolder: string;
@@ -453,12 +548,22 @@ export interface QuestHistoryBuildOptions {
     compact(input: { existingBlocks: string; existingSummary: string; messages: ConversationMessage[] }): Promise<string>;
     /** Memory extraction of a chunk's turns of one session; absent: no extraction. */
     extract?(input: { messages: ConversationMessage[]; session: string; compactedSummary: string }): Promise<void>;
+    /** Delete the derived history and the watermark first, then fold every input (no `maxInputs` limit). */
+    fromScratch?: boolean;
+    /** While another build of this host holds the lock: wait for it (default), or skip (the report says `locked`). */
+    onLocked?: 'wait' | 'skip';
+    /** How often a waiting build looks at the lock again (default {@link HISTORY_BUILD_LOCK_POLL_MS}). */
+    lockPollMs?: number;
     onProgress?(msg: string): void;
     log?(msg: string): void;
     now?(): Date;
 }
 
 export interface QuestHistoryBuildReport {
+    /** Set when the build was skipped because another build of this host held the lock. */
+    locked?: boolean;
+    /** The derived files a build from scratch deleted. */
+    reset?: string[];
     /** Inputs folded. */
     folded: number;
     turns: number;
@@ -495,14 +600,40 @@ export function turnsBySession(inputs: readonly HistoryInput[]): Array<{ session
  * write on a host, the old per-session histories are deleted once.
  */
 export async function buildQuestHistory(opts: QuestHistoryBuildOptions): Promise<QuestHistoryBuildReport> {
+    const lockOpts = { now: opts.now };
+    let lock = acquireHistoryBuildLock(opts.questFolder, opts.host, lockOpts);
+    if (!lock) {
+        const holder = readHistoryBuildLock(historyBuildLockFile(opts.questFolder, opts.host));
+        const who = holder ? ` (process ${holder.pid ?? '?'}, since ${holder.startedAt ?? '?'})` : '';
+        if (opts.onLocked === 'skip') {
+            opts.log?.(`quest history: another build of this host runs${who} — skipped`);
+            return { locked: true, folded: 0, turns: 0, todos: 0, skipped: 0, chunks: 0, extractions: 0, deletedOldHistories: [], blocks: 0 };
+        }
+        opts.log?.(`quest history: another build of this host runs${who} — waiting for it`);
+        opts.onProgress?.('Rebuild history: another window of this host is building the quest history — waiting for it…');
+        while (!lock) {
+            await new Promise((r) => setTimeout(r, opts.lockPollMs ?? HISTORY_BUILD_LOCK_POLL_MS));
+            lock = acquireHistoryBuildLock(opts.questFolder, opts.host, lockOpts);
+        }
+    }
+    try {
+        return await buildQuestHistoryLocked(opts, lock);
+    } finally {
+        lock.release();
+    }
+}
+
+async function buildQuestHistoryLocked(opts: QuestHistoryBuildOptions, lock: HistoryBuildLock): Promise<QuestHistoryBuildReport> {
     const now = (): string => (opts.now ? opts.now() : new Date()).toISOString();
+    const reset = opts.fromScratch ? resetQuestHistory(opts.questFolder) : undefined;
+    for (const f of reset ?? []) { opts.log?.(`quest history: from scratch — deleted ${f}`); }
     let wm = readHistoryWatermark(opts.questFolder);
     let blocks = loadBlocks(questHistoryFolder(opts.questFolder));
     const all = pendingHistoryInputs(consolidatedTrail(opts.questFolder), readArchivedTodoRecords(opts.questFolder, opts.quest), wm);
-    const max = Math.max(1, opts.maxInputs);
+    const max = opts.fromScratch ? Math.max(1, all.length) : Math.max(1, opts.maxInputs);
     const skippedInputs = all.length > max ? all.slice(0, all.length - max) : [];
     const inputs = all.slice(skippedInputs.length);
-    const report: QuestHistoryBuildReport = { folded: 0, turns: 0, todos: 0, skipped: skippedInputs.length, chunks: 0, extractions: 0, deletedOldHistories: [], blocks: blocks.length };
+    const report: QuestHistoryBuildReport = { folded: 0, turns: 0, todos: 0, skipped: skippedInputs.length, chunks: 0, extractions: 0, deletedOldHistories: [], blocks: blocks.length, ...(reset ? { reset } : {}) };
     if (skippedInputs.length > 0) {
         wm = advanceWatermark(wm, skippedInputs, now());
         opts.log?.(`quest history: ${skippedInputs.length} older input(s) passed over (more than ${max} new)`);
@@ -527,6 +658,7 @@ export async function buildQuestHistory(opts: QuestHistoryBuildOptions): Promise
         saveBlocks(questHistoryFolder(opts.questFolder), blocks);
         writeQuestHistorySnapshot(opts.questFolder, opts.quest, blocks, wm, opts.archive);
         writeHistoryWatermark(opts.questFolder, wm);
+        lock.touch();
         wrote = true;
         report.chunks++;
         report.folded += chunk.length;
