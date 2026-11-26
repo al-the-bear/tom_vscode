@@ -80,7 +80,7 @@ scripts also compile `tomspecs` (tom_specs_clitool's binary, which the tools cal
 scripts look for it first (`scripts/find-dart.cjs`): `dart` on
 PATH, then `DART_SDK`, `FLUTTER_ROOT`, the folder of `flutter` on PATH, and
 known locations (`~/Desktop/development/flutter/bin`, `~/flutter/bin`,
-`/opt/homebrew/bin`, …; on Windows `~\flutter\bin`, `C:\src\flutter\bin`,
+`/opt/flutter/bin`, `/opt/homebrew/bin`, …; on Windows `~\flutter\bin`, `C:\src\flutter\bin`,
 `C:\tools\dart-sdk\bin`, …), and put the found folder on PATH for the rest of
 the install. When none holds `dart` (or `--no-dart` / `-NoDart` is given,
 or `TOM_NO_DART=1`), the install goes on in no-Dart mode: the bridge-lock
