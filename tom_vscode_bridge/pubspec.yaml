@@ -11,7 +11,7 @@ dependencies:
   path: ^1.9.0
   # 5.0.0: on tom_todo_model 3 (TodoWire reads a todo group);
   # 7.0.0: without the Notes operations and the notes / clarifications folders.
-  tom_vscode_scripting_api: ^7.0.0
+  tom_vscode_scripting_api: ^8.0.0
   # The generated scripting-API bridges import the todo model directly.
   tom_todo_model: ^4.2.0   # the regenerated bridges use the item model (4.0.0: TomItem, status `none`; 4.1.0: the reminder schedule) besides the todo groups, repeated-todo, id and collaboration fields; 4.2.0: a todo's `role` and `guidelines`, which the extension writes, are read instead of refused
   # 1.225.0: `D4rt.loadedSourceModuleCount`, which tom_d4rt_dcli 1.8.0's bridges
@@ -20,8 +20,8 @@ dependencies:
   tom_d4rt: ">=1.225.0"
   # 2.0.0: the dcli corpus on tom_dcli (registered as package:tom_dcli/dcli.dart);
   # 2.5.0: on tom_todo_model 4 and tom_vscode_scripting_api 6;
-  # 2.6.0: on tom_vscode_scripting_api 7.
-  tom_d4rt_dcli: ">=2.6.0"
+  # 2.6.0: on tom_vscode_scripting_api 7; 2.7.0: on tom_vscode_scripting_api 8.
+  tom_d4rt_dcli: ">=2.7.0"
   # Imported by lib/bridge_server.dart: the Tom Framework's fork of dcli, without
   # the LGPL-3.0 ini package.
   tom_dcli: ^10.4.7+tom.1
