@@ -120,7 +120,7 @@ await commands.executeCommand('workbench.action.files.saveAll');
 ```
 
 `VsCodeHelper` sits on top with batteries-included helpers (Dart/Flutter
-tooling, Copilot prompts, editor edits, progress, file batches).
+tooling, language-model prompts (`vscode.lm`), editor edits, progress, file batches).
 → [VS Code scripting guide](vscode_api_vscode_scripting_guide.md)
 
 ### 2. Anthropic Agent SDK

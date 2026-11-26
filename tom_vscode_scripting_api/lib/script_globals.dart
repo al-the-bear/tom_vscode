@@ -117,7 +117,8 @@ VSCodeExtensions get extensions => VSCode.instance.extensions;
 
 /// VS Code language model API.
 ///
-/// Provides access to language models like GitHub Copilot:
+/// VS Code's own language-model API (`vscode.lm`), e.g. the models of the
+/// vendor `copilot`:
 /// - Select chat models
 /// - Send requests
 /// - Register tools
@@ -153,4 +154,4 @@ VSCodeChat get chat => VSCode.instance.chat;
 //   final projects = await TomWorkspaceApi.listProjects();
 //   final result = await TomToolsApi.invokeTool('tomAi_readFile', {'path': 'README.md'});
 //   final toolsJson = await TomToolsApi.getToolsJson(); // for prompt injection
-//   final reply = await TomChatApi.sendToChat('Summarize this file'); // target-aware
+//   final reply = await TomChatApi.sendToChat('Summarize this file'); // the ANTHROPIC/LLM panel
