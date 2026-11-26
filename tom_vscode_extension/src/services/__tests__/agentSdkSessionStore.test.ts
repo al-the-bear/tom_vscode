@@ -1,7 +1,7 @@
 /**
  * The session files in a quest's history folder (src/services/agentSdkSessionStore.ts).
  *
- *   SS-1  list: every `<name>.session.json`, sorted, unreadable files skipped, `.tmp` ignored
+ *   SS-1  list: every `<name>.session.json` of this host's folder, sorted, unreadable files skipped, `.tmp` ignored
  *   SS-2  create: a new session, fresh or based on another, with a lifetime (continue, per-prompt,
  *         per-iteration; fork-from-base reads as per-prompt); refuses a bad name, an existing session,
  *         a missing base, an unknown lifetime; per-prompt and per-iteration need no base
@@ -17,14 +17,13 @@
  *         an existing one is left alone; an unknown spec profile is refused and nothing is created
  *   SS-11 a run's default session (vscimpb151): `default@<run>` created when missing, based on
  *         `default@default` (made first, fresh, when missing); `default@default` itself fresh; an existing one
- *         left alone; an older build's `default.session.json` is read as `default@default`
+ *         left alone
  *   SS-10 deleting a session: refused while another is based on it (naming them), a leaf's file goes, the
  *         direct-API history folder stays; every write and removal notifies the listeners
  *   SS-9  the transport check on files: an SDK conversation refuses a profile with our own history and
  *         the reverse; the shared sessions and sessions without a conversation take any profile
- *   SS-12 sessions per host: a new session's file is `history/<host>/<name>.session.json`; a file at the old
- *         place `history/<name>.session.json` is read and written there; a file at the new place wins; the
- *         listing names both places' sessions once; deleting removes both
+ *   SS-12 sessions per host: a session's file is `history/<host>/<name>.session.json`; a file directly in
+ *         `history/` is no session (neither read nor listed)
  *   SS-13 the trail and memory setting: absent reads as on; a new session is on, or as its base is, unless
  *         `contributesToTrailAndMemory` says otherwise; a spec carries it; it is changed in the file with the
  *         other fields kept, and nothing is written for a session without a file
@@ -61,10 +60,12 @@ const folder = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-'))
 describe('session files', () => {
     test('SS-1: list', () => {
         const dir = folder();
-        fs.writeFileSync(path.join(dir, 'chat.session.json'), JSON.stringify({ sessionId: 'S1', updatedAt: 't', model: 'm' }));
-        fs.writeFileSync(path.join(dir, 'b.session.json'), JSON.stringify({ basedOn: 'chat', mode: 'fork-from-base' }));
-        fs.writeFileSync(path.join(dir, 'broken.session.json'), '{ not json');
-        fs.writeFileSync(path.join(dir, 'x.session.json.tmp'), '{}');
+        const host = path.join(dir, hostSlugOf());
+        fs.mkdirSync(host, { recursive: true });
+        fs.writeFileSync(path.join(host, 'chat.session.json'), JSON.stringify({ sessionId: 'S1', updatedAt: 't', model: 'm' }));
+        fs.writeFileSync(path.join(host, 'b.session.json'), JSON.stringify({ basedOn: 'chat', mode: 'fork-from-base' }));
+        fs.writeFileSync(path.join(host, 'broken.session.json'), '{ not json');
+        fs.writeFileSync(path.join(host, 'x.session.json.tmp'), '{}');
         fs.writeFileSync(path.join(dir, 'history.json'), '{}');
         assert.deepEqual(listSessions(dir).map((r) => [r.name, r.mode]), [['b', 'per-prompt'], ['chat', 'continue']]);
         assert.deepEqual(listSessions(path.join(dir, 'missing')), []);
@@ -191,12 +192,6 @@ describe('session files', () => {
         assert.deepEqual(ensureRunDefaultSession(dir, 'collab'), [], 'there already');
         assert.deepEqual(ensureRunDefaultSession(dir, 'default'), []);
         assert.deepEqual(ensureRunDefaultSession(dir, 'another'), ['default@another'], 'the base exists');
-        // An older build's default session, not moved yet, becomes default@default: the base, not made again.
-        const old = folder();
-        fs.writeFileSync(path.join(old, 'default.session.json'), JSON.stringify({ sessionId: 'abc' }));
-        assert.deepEqual(ensureRunDefaultSession(old, 'collab'), ['default@collab']);
-        assert.equal(readSession(old, 'default@default')?.sessionId, 'abc', 'its conversation kept under the new name');
-        assert.equal(fs.existsSync(path.join(old, 'default.session.json')), false);
     });
 
     test('SS-9: the transport check on files', () => {
@@ -208,8 +203,8 @@ describe('session files', () => {
         assert.match(sessionTransportMismatch(dir, 'sdk-conv', direct) ?? '', /cannot continue it/);
         assert.equal(sessionTransportMismatch(dir, 'sdk-conv', sdk), undefined);
         createSession(dir, 'ours', {});
-        fs.mkdirSync(path.join(dir, 'sessions', 'ours'), { recursive: true });
-        fs.writeFileSync(path.join(dir, 'sessions', 'ours', 'rawTurns.json'), '{"rounds":[["x"]]}');
+        fs.mkdirSync(path.join(dir, hostSlugOf(), 'sessions', 'ours'), { recursive: true });
+        fs.writeFileSync(path.join(dir, hostSlugOf(), 'sessions', 'ours', 'rawTurns.json'), '{"rounds":[["x"]]}');
         assert.match(sessionTransportMismatch(dir, 'ours', sdk) ?? '', /cannot continue it/);
         assert.equal(sessionTransportMismatch(dir, 'ours', direct), undefined);
         createSession(dir, 'empty', {});
@@ -252,27 +247,24 @@ describe('session files', () => {
         assert.equal(made.ok, true);
         assert.equal(fs.existsSync(path.join(host, 'fresh.session.json')), true, 'a new session: the new place');
         assert.equal(fs.existsSync(path.join(dir, 'fresh.session.json')), false);
-        // OLD PLACE: read and written there.
+        // A file directly in history/ is no session.
         fs.writeFileSync(path.join(dir, 'old.session.json'), JSON.stringify({ mode: 'continue' }));
-        assert.equal(sessionFilePath(dir, 'old'), path.join(dir, 'old.session.json'));
-        saveSessionId(dir, 'old', 'S-old');
-        assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'old.session.json'), 'utf8')).sessionId, 'S-old', 'written at the old place');
-        assert.equal(fs.existsSync(path.join(host, 'old.session.json')), false);
-        // Both places: the new place wins.
-        fs.writeFileSync(path.join(host, 'old.session.json'), JSON.stringify({ mode: 'per-prompt' }));
-        assert.equal(readSession(dir, 'old')?.mode, 'per-prompt');
-        assert.deepEqual(listSessions(dir).map((r) => [r.name, r.mode]), [['fresh', 'continue'], ['old', 'per-prompt']], 'each name once');
-        // Deleting removes both places.
-        assert.deepEqual(deleteSession(dir, 'old'), { ok: true, deleted: true });
-        assert.equal(fs.existsSync(path.join(host, 'old.session.json')) || fs.existsSync(path.join(dir, 'old.session.json')), false);
+        assert.equal(sessionFilePath(dir, 'old'), path.join(host, 'old.session.json'));
+        assert.equal(readSession(dir, 'old'), undefined);
         assert.deepEqual(listSessions(dir).map((r) => r.name), ['fresh']);
+        saveSessionId(dir, 'old', 'S-old');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(host, 'old.session.json'), 'utf8')).sessionId, 'S-old', 'written at this host\'s place');
+        assert.deepEqual(deleteSession(dir, 'old'), { ok: true, deleted: true });
+        assert.equal(fs.existsSync(path.join(host, 'old.session.json')), false);
+        assert.equal(fs.existsSync(path.join(dir, 'old.session.json')), true, 'the file in history/ is not touched');
         fs.rmSync(dir, { recursive: true, force: true });
     });
 
     test('SS-13: the trail and memory setting', () => {
         const dir = folder();
         // Absent (an existing session) reads as on; no file at all too.
-        fs.writeFileSync(path.join(dir, 'older.session.json'), JSON.stringify({ mode: 'continue' }));
+        fs.mkdirSync(path.join(dir, hostSlugOf()), { recursive: true });
+        fs.writeFileSync(path.join(dir, hostSlugOf(), 'older.session.json'), JSON.stringify({ mode: 'continue' }));
         assert.equal(readSession(dir, 'older')?.contributesToTrailAndMemory, undefined);
         assert.equal(sessionContributesToTrailAndMemory(dir, 'older'), true);
         assert.equal(sessionContributesToTrailAndMemory(dir, 'nothing'), true);

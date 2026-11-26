@@ -36,11 +36,12 @@ import { parseTelegramConfig } from '../../handlers/telegram-notifier.js';
 import { WsPaths } from '../../utils/workspacePaths.js';
 
 const TOKEN_ENV = 'TOM_TEST_NQ_BOT_TOKEN';
-const questFile = path.join(WS, '_ai', 'quests', QUEST, `extension_config.${QUEST}.yaml`);
-const hostFile = path.join(WS, '_ai', 'quests', QUEST, `extension_config.${WsPaths.hostSlug()}.${QUEST}.yaml`);
+const questFile = path.join(WS, '_ai', 'quests', QUEST, 'config', `extension_config.${QUEST}.yaml`);
+const hostFile = path.join(WS, '_ai', 'quests', QUEST, 'config', `extension_config.${WsPaths.hostSlug()}.${QUEST}.yaml`);
 
 /** The quest's Telegram settings: the host part (enabled, botTokenEnv) and the shared part (defaultChatId). */
 function setUp(opts: { enabled?: boolean; chatId?: number | null; token?: string | null } = {}): void {
+    fs.mkdirSync(path.dirname(hostFile), { recursive: true });
     fs.writeFileSync(hostFile, `telegram:\n  enabled: ${opts.enabled ?? true}\n  botTokenEnv: ${TOKEN_ENV}\n`);
     fs.writeFileSync(questFile, opts.chatId === null ? 'telegram: {}\n' : `telegram:\n  defaultChatId: ${opts.chatId ?? 4711}\n`);
     if (opts.token === null) { delete process.env[TOKEN_ENV]; } else { process.env[TOKEN_ENV] = opts.token ?? 'tok-123'; }

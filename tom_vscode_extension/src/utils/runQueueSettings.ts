@@ -1,8 +1,8 @@
 /**
  * Queue settings per process run (vscimpb60a): every run has its own queue
  * settings — auto-send, Auto-Start, Auto-Pause, Auto-Continue, the walk
- * continuations, the defaults new items take (transport, Anthropic profile and
- * configuration, session, prompt template).
+ * continuations, the defaults new items take (Anthropic profile and
+ * configuration, session, prompt template; the transport is always `anthropic`).
  * The queue always runs one lane per run
  * (utils/queueLanes.ts): a run whose auto-send is off starts nothing.
  *
@@ -22,7 +22,7 @@ import { DEFAULT_RUN, normalizeRun } from './processRuns';
 import { DEFAULT_WALK_CONTINUATIONS, validContinuations } from './walkCompletionCheck';
 import { normalizeAspectChoices } from './aspectChoices';
 
-/** The one transport; a stored `copilot` (older files) is read as `anthropic`. */
+/** The one transport (not kept in the settings file). */
 export type RunQueueTransport = 'anthropic';
 
 export interface RunQueueSettings {
@@ -73,15 +73,17 @@ export const BUILTIN_RUN_QUEUE_SETTINGS: Readonly<RunQueueSettings> = Object.fre
     defaultRole: DEFAULT_RUN_ROLE,
 });
 
-/** The settings-file key of each setting. */
-export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, string>> = Object.freeze({
+/** The settings the file keeps: every one but the transport, which is always `anthropic`. */
+export type StoredRunQueueSetting = Exclude<keyof RunQueueSettings, 'defaultTransport'>;
+
+/** The settings-file key of each stored setting. */
+export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<StoredRunQueueSetting, string>> = Object.freeze({
     autoSend: 'auto-send-enabled',
     autoStart: 'auto-start-enabled',
     autoPause: 'auto-pause-enabled',
     autoContinue: 'auto-continue-enabled',
     autoResumeHeld: 'auto-resume-held',
     walkContinuations: 'walk-continuations',
-    defaultTransport: 'default-transport',
     defaultAnthropicProfileId: 'default-anthropic-profile-id',
     defaultAnthropicConfigId: 'default-anthropic-config-id',
     defaultAgentSdkSession: 'default-agent-sdk-session',
@@ -90,10 +92,10 @@ export const RUN_QUEUE_SETTING_KEYS: Readonly<Record<keyof RunQueueSettings, str
     guidelines: 'guidelines',
 });
 
-/** Every setting, in the file's key order. */
-const ALL_FIELDS = Object.keys(RUN_QUEUE_SETTING_KEYS) as Array<keyof RunQueueSettings>;
+/** Every stored setting, in the file's key order. */
+const ALL_FIELDS = Object.keys(RUN_QUEUE_SETTING_KEYS) as StoredRunQueueSetting[];
 
-const OPTIONAL_TEXT: ReadonlyArray<keyof RunQueueSettings> = [
+const OPTIONAL_TEXT: ReadonlyArray<StoredRunQueueSetting> = [
     'defaultAnthropicProfileId', 'defaultAnthropicConfigId', 'defaultAgentSdkSession', 'defaultMessageTemplateId',
     'defaultRole',
 ];
@@ -124,7 +126,7 @@ export function applyRunQueueKeys(base: Readonly<RunQueueSettings>, raw: unknown
 }
 
 /** A run's settings as the file keys them, complete: an unset optional value is `""` (read back as unset). */
-export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: ReadonlyArray<keyof RunQueueSettings> = ALL_FIELDS): Record<string, unknown> {
+export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: ReadonlyArray<StoredRunQueueSetting> = ALL_FIELDS): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const field of fields) {
         const v = s[field];
@@ -138,13 +140,13 @@ export function runQueueSettingsToKeys(s: Readonly<RunQueueSettings>, fields: Re
 /**
  * The settings "Make default" copies from a run into the top-level keys: every
  * per-run setting the queue editor's tab shows — auto-send, Auto-Start / -Pause
- * / -Continue, the default transport, profile, configuration, session, role and
+ * / -Continue, the default profile, configuration, session, role and
  * prompt template. The walk
  * continuations and the auto-resume after a hold (not shown in a tab) keep their top-level value; the run's
  * guideline choices stay the run's own (the quest default is their shared
  * level, gsel4).
  */
-export const DEFAULT_SETTING_FIELDS: ReadonlyArray<keyof RunQueueSettings> = Object.freeze(
+export const DEFAULT_SETTING_FIELDS: ReadonlyArray<StoredRunQueueSetting> = Object.freeze(
     ALL_FIELDS.filter((f) => f !== 'walkContinuations' && f !== 'guidelines' && f !== 'autoResumeHeld'),
 );
 

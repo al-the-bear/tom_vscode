@@ -31,7 +31,7 @@ const fs = require('fs');
 const path = require('path');
 
 const OUT = path.join(__dirname, '..', 'out', 'utils');
-const { runAiFormatMigration, makeMigrationMerger, migrationReportMarkdown } = require(path.join(OUT, 'aiFormatMigrationRun.js'));
+const { runAiFormatMigration, makeMigrationMerger, makeGitUntrack, migrationReportMarkdown } = require(path.join(OUT, 'aiFormatMigrationRun.js'));
 const { hostSlugOf } = require(path.join(OUT, 'hostSlug.js'));
 
 function parseArgs(argv) {
@@ -69,6 +69,8 @@ const result = runAiFormatMigration({
     workspaceConfigPath: path.join(workspace, '.tom', 'tom_vscode_extension.json'),
     userConfigPath: path.join(require('os').homedir(), '.tom', 'vscode', 'tom_vscode_extension.user.yaml'),
     quests: args.quests.length ? args.quests : undefined,
+    // Format version 11 takes the files its ignore rules now cover out of git's index (step untrack).
+    ...makeGitUntrack(path.join(workspace, '_ai')),
 });
 
 const counts = {};

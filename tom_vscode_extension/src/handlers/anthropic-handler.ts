@@ -87,7 +87,7 @@ import {
 import { resolveHistoryScope, sessionHistoryFolder, type HistoryScope } from '../services/directSessionHistory';
 import * as path from 'path';
 import { type Block, concatenateBodies } from '../services/compacted-history';
-import { buildQuestHistory, consolidatedTrail, hasQuestHistory, loadQuestHistoryBlocks, type QuestHistoryBuildReport } from '../services/questHistory';
+import { buildQuestHistory, consolidatedTrail, hasQuestHistory, loadQuestHistoryBlocks, oldSessionHistoryFolder, type QuestHistoryBuildReport } from '../services/questHistory';
 import { hostSlugOf } from '../utils/hostSlug';
 import {
     load as loadRawTurns,
@@ -1077,10 +1077,11 @@ export class AnthropicHandler {
      *
      *   1. **The quest's history** — {@link loadQuestHistory} (read again at
      *      every send, since any session of the quest may build it).
-     *   2. **OLD PLACE: the session's `history.json`** — while neither the
-     *      quest nor the session has a compacted history, its
-     *      `compactedSummary` is read as one block; its `rawTurns` seed the
-     *      rolling tail when no `rawTurns.json` exists. Nothing writes it.
+     *   2. **The session's old `history.json`** (`history/sessions/<session>/`,
+     *      left there for the first build) — while neither the quest nor the
+     *      session has a compacted history, its `compactedSummary` is read as
+     *      one block; its `rawTurns` seed the rolling tail when no
+     *      `rawTurns.json` exists. Nothing writes it.
      *   3. **The first build** — when the quest has no history yet and its
      *      consolidated trail holds turns, a build of the quest history
      *      runs in the background (not while compaction is off); the next
@@ -1102,12 +1103,12 @@ export class AnthropicHandler {
             // The session's own folder: its rolling tail and accumulator.
             const historyFolder = this.scopeFolder(questId);
 
-            // (1) The quest's history (OLD PLACE: the session's own compacted history while the quest has none).
+            // (1) The quest's history (the session's old compacted history while the quest has none).
             this.loadQuestHistory(questId);
             let seededFromDisk = this.compactedHistoryBlocks.length > 0;
             if (!seededFromDisk) {
-                // (2) OLD PLACE: the session's history.json, read in memory only.
-                const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshotIn<unknown>(historyFolder);
+                // (2) The session's old history.json, read in memory only.
+                const raw = TwoTierMemoryService.instance.loadLatestHistorySnapshotIn<unknown>(this.oldSessionHistoryFolder(questId));
                 if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
                     const obj = raw as { compactedSummary?: unknown; rawTurns?: unknown; savedAt?: unknown };
                     if (typeof obj.compactedSummary === 'string' && obj.compactedSummary.trim().length > 0) {
@@ -1169,18 +1170,28 @@ export class AnthropicHandler {
 
     /**
      * Read the quest's history into `compactedHistoryBlocks`: the quest's
-     * `history/compacted_history.md` (OLD PLACE: while it does not exist, the
-     * session's own `compacted_history.md`). A fresh scope (a per-prompt
-     * session without a base) reads none.
+     * `history/compacted_history.md` (while it does not exist, the session's
+     * old `compacted_history.md`). A fresh scope (a per-prompt session without
+     * a base) reads none.
      */
     private loadQuestHistory(questId: string): void {
         if (this.historyScope?.fresh) { this.compactedHistoryBlocks = []; return; }
         try {
             const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId));
-            this.compactedHistoryBlocks = loadQuestHistoryBlocks(questFolder, this.scopeFolder(questId));
+            this.compactedHistoryBlocks = loadQuestHistoryBlocks(questFolder, this.oldSessionHistoryFolder(questId));
         } catch {
             // keep what is loaded
         }
+    }
+
+    /**
+     * The old history folder (`history/sessions/<session>/`) of the session the
+     * current scope reads from: the one place the quest history falls back to
+     * while the quest has none (questHistory.ts, oldSessionHistoryFolder).
+     */
+    private oldSessionHistoryFolder(questId: string): string {
+        const questFolder = path.dirname(TwoTierMemoryService.instance.historyFolder(questId));
+        return oldSessionHistoryFolder(questFolder, path.basename(this.scopeFolder(questId)));
     }
 
     /**
@@ -3943,7 +3954,6 @@ export class AnthropicHandler {
         const base = unescapePlaceholders(resolveVariables(promptSource, {
             values: {
                 toolHistory: extras?.toolHistory ?? '',
-                memorySession: this.currentSessionName(),
             },
         }));
         if (base) { segments.push(base); }
@@ -4062,7 +4072,6 @@ export class AnthropicHandler {
                     rawTurns: rawTurnsFormatted,
                     rawTurnCount: String(rawTurns.length),
                     toolHistory,
-                    memorySession: this.currentSessionName(),
                 },
             })
             : options.userText;
@@ -4085,7 +4094,6 @@ export class AnthropicHandler {
                 rawTurns: rawTurnsFormatted,
                 rawTurnCount: String(rawTurns.length),
                 toolHistory,
-                memorySession: this.currentSessionName(),
             },
         }));
     }

@@ -4,7 +4,7 @@
  *
  * - **A quest's workspace folder** is recorded when a window opens the quest:
  *   `workspaceFolder: <path relative to the root, posix form>` in the quest's
- *   host-independent `extension_config.<quest>.yaml` (`.` for a standalone
+ *   host-independent `config/extension_config.<quest>.yaml` (`.` for a standalone
  *   layout). It is written only when it changed.
  * - **The workspace folders of a root** are found by scanning it for folders
  *   that hold an `_ai` entry and a `.tom` (or a CLAUDE.md), skipping `ztmp`,
@@ -21,7 +21,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
 
-/** The section of `extension_config.<quest>.yaml` that records the quest's workspace folder. */
+import { sharedExtensionConfigFile } from './questConfigFiles';
+
+/** The section of `config/extension_config.<quest>.yaml` that records the quest's workspace folder. */
 export const SECTION_WORKSPACE_FOLDER = 'workspaceFolder';
 
 /** Folders the scan never enters. */
@@ -79,7 +81,7 @@ export function scanWorkspaceFolders(root: string, maxDepth = WORKSPACE_SCAN_DEP
 /** The recorded workspace folder of quest `quest` (its host-independent config file); undefined when none. */
 export function readRecordedWorkspaceFolder(questsRoot: string, quest: string): string | undefined {
     try {
-        const raw = parse(fs.readFileSync(path.join(questsRoot, quest, `extension_config.${quest}.yaml`), 'utf8')) as Record<string, unknown> | null;
+        const raw = parse(fs.readFileSync(sharedExtensionConfigFile(path.join(questsRoot, quest), quest), 'utf8')) as Record<string, unknown> | null;
         const v = raw && typeof raw === 'object' ? raw[SECTION_WORKSPACE_FOLDER] : undefined;
         return typeof v === 'string' && v.trim() ? v.trim() : undefined;
     } catch {

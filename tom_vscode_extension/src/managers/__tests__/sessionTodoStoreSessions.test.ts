@@ -61,11 +61,11 @@ describe('session todos per session', () => {
 
     test('ST-1: the session a todo goes to', () => {
         onTrail('alpha');
-        const a = store.add('in alpha', 'copilot');
+        const a = store.add('in alpha', 'agent');
         assert.equal(a.id, 'wt-1', 'ids count per session');
         onTrail(undefined);
         store.shownSession = 'beta';
-        const b = store.add('in beta (the view\'s session)', 'copilot');
+        const b = store.add('in beta (the view\'s session)', 'agent');
         assert.equal(b.id, 'wt-1');
         store.shownSession = 'default';
         assert.deepEqual(store.list({ status: 'all' }, 'alpha').map((t) => t.title), ['in alpha']);
@@ -80,21 +80,21 @@ describe('session todos per session', () => {
     });
 
     test('ST-2: counts and paths', () => {
-        store.add('second in beta', 'copilot', undefined, 'beta');
+        store.add('second in beta', 'agent', undefined, 'beta');
         const counts = sessionTodoCounts(historyRoot, statuses);
         const bySession = Object.fromEntries(counts.map((c) => [c.session, [c.open, c.total]]));
         assert.deepEqual(bySession, { alpha: [0, 1], beta: [2, 2], 'default@default': [1, 1] });
         assert.equal(counts[0].session, 'beta', 'most recently written first');
         assert.equal(sessionTodoSourceFile(historyRoot, 'beta'), `history/${hostSlugOf()}/sessions/beta/session-todos.todo.yaml`);
         assert.equal(sessionOfTodoSourceFile(`history/${hostSlugOf()}/sessions/beta/session-todos.todo.yaml`), 'beta');
-        // OLD PLACE: a session todo file of a session whose storage is still in history/sessions/.
-        assert.equal(sessionOfTodoSourceFile('history/sessions/beta/session-todos.todo.yaml'), 'beta');
+        // A file in the old folder history/sessions/ is no session's todo file.
+        assert.equal(sessionOfTodoSourceFile('history/sessions/beta/session-todos.todo.yaml'), undefined);
         assert.equal(sessionOfTodoSourceFile('todos.default.todo.yaml'), undefined);
         assert.equal(store.openCount('beta'), 2);
     });
 
     test('ST-4: deleting a session takes its todos', () => {
-        removeSessionStorage(historyRoot, path.join(tmpRoot, '_ai', 'memory'), QUEST, 'beta');
+        removeSessionStorage(historyRoot, 'beta');
         assert.deepEqual(store.list({ status: 'all' }, 'beta'), []);
         assert.deepEqual(sessionTodoCounts(historyRoot, statuses).map((c) => c.session).sort(), ['alpha', 'default@default']);
     });

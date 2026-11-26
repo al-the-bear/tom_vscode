@@ -34,22 +34,16 @@
           },
           "type": {
             "type": "string",
-            "enum": ["normal", "timed", "reminder"],
+            "enum": ["normal", "timed"],
             "description": "Origin type of the prompt"
           },
           "createdAt": { "type": "string", "format": "date-time" },
           "sentAt": { "type": "string", "format": "date-time" },
           "error": { "type": "string", "description": "Error message if status is 'error'" },
-          "reminderTemplateId": { "type": "string" },
-          "reminderEnabled": { "type": "boolean" },
-          "reminderRepeat": { "type": "boolean" },
-          "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
-          "requestId": { "type": "string", "description": "Request ID extracted from initial wrapped prompt" },
-          "expectedRequestId": { "type": "string", "description": "Request ID expected in next answer file" },
           "followUpIndex": { "type": "number", "minimum": 0, "description": "Count of follow-up prompts already sent" },
           "followUps": {
             "type": "array",
-            "description": "Ordered follow-up prompts sent after initial answer arrives",
+            "description": "Ordered follow-up prompts sent after the main prompt's answer",
             "items": {
               "type": "object",
               "required": ["id", "originalText", "createdAt"],
@@ -57,10 +51,6 @@
                 "id": { "type": "string" },
                 "originalText": { "type": "string" },
                 "template": { "type": "string" },
-                "reminderTemplateId": { "type": "string" },
-                "reminderEnabled": { "type": "boolean" },
-                "reminderRepeat": { "type": "boolean" },
-                "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
                 "createdAt": { "type": "string", "format": "date-time" }
               }
             }

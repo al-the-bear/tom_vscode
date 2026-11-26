@@ -245,7 +245,7 @@ export const GET_PROCESS_STATE_TOOL: SharedToolDefinition<{ level?: number; run?
         'A position that declares `documents:` (a review step) adds `documents`: each `{label, path, exists, opensIn}` resolved from the run\'s chat variables (`unresolved` names a placeholder without a value); the PROCESS view links the same. ' +
         'With subprocesses or branches running, `level` reads another level of the quest\'s process stack ' +
         '(0 the quest\'s own process, -1 the running level and the default). ' +
-        'The state is kept per quest in `_ai/quests/<quest>/process-state.<quest>.yaml`; another run of the quest in `process-state.<quest>.<run>.yaml` — `run` reads that run (default: the window\'s current run, answered as `run`).',
+        'The state is kept per quest in `_ai/quests/<quest>/config/process-state.<quest>.yaml`; another run of the quest in `config/process-state.<quest>.<run>.yaml` — `run` reads that run (default: the window\'s current run, answered as `run`).',
     tags: ['process', 'quest', 'tom-ai-chat'],
     readOnly: true,
     inputSchema: { type: 'object', properties: { level: { type: 'number', description: 'Level of the process stack: 0 the bottom, -1 the top (default), -2 the one below it.' }, ...RUN_PARAM } },

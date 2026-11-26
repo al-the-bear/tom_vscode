@@ -7,7 +7,7 @@
  *     from the workspace config and the user overlay;
  *   - their names are taken out of every tool list: profiles', configurations'
  *     and the MCP server's `enabledTools` in those files, the quests'
- *     `extension_config.<quest>.yaml` and the role types' tool selections —
+ *     `config/extension_config.<quest>.yaml` and the role types' tool selections —
  *     also the old reference names `tom_askCopilot` / `tom_askBigBrother`.
  *
  * vscode-free.

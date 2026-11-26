@@ -261,7 +261,7 @@ export class TomScriptingBridgeHandler {
 
     /** Status `done` creates the todo done; anything else pending. */
     private async todoCreateSession(todo: any): Promise<any> {
-        return SessionTodoStore.instance.add(todo.title || todo.description, 'copilot', {
+        return SessionTodoStore.instance.add(todo.title || todo.description, 'agent', {
             details: todo.details || todo.description,
             priority: todo.priority,
             tags: todo.tags,
@@ -905,7 +905,7 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'workspace.setChatVariableVce': {
-                ChatVariablesStore.instance?.set(params.name, params.value, 'copilot');
+                ChatVariablesStore.instance?.set(params.name, params.value, 'agent');
                 return { success: true };
             }
 

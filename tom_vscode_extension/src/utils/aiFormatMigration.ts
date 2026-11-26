@@ -9,13 +9,16 @@
  * whatever the marker says, and with `apply: false` lists what it would do.
  *
  * Steps, per quest:
- *   - storage: the per-quest history files, the Anthropic trail pair, the
+ *   - storage: the per-quest scratch files, the Anthropic trail pair, the
  *     quest's live trail, the raw Anthropic trail and flat quest memory move
- *     into the `default` session (rules: sessionStorage.ts). A file the session
- *     already has is merged with the reconcile's merge driver (`merge`); a
- *     machine-local scratch file keeps the newer copy; a tool result whose
- *     number is taken gets the next free one. The raw trail's `current_prompt.*`
- *     files are deleted (written per session now); `last_request*` stays.
+ *     into this host's `default@default` session storage
+ *     (`history/<host>/sessions/default@default/`, rules: sessionStorage.ts);
+ *     the compacted history and its snapshots at `history/` stay, as the
+ *     quest's own history. A file the session already has is merged with the
+ *     reconcile's merge driver (`merge`); a machine-local scratch file keeps
+ *     the newer copy; a tool result whose number is taken gets the next free
+ *     one. The raw trail's `current_prompt.*` files are deleted;
+ *     `last_request*` stays.
  *   - sessions: a record stored as `fork-from-base` becomes `per-prompt`.
  *   - legacy config: `quest-refresh.yaml` / `quest-refresh.<host>.<quest>.yaml`
  *     fold into that host's `extension_config.<host>.<quest>.yaml`
@@ -73,6 +76,34 @@
  *     becomes `aspect.yaml`, its `options:` `choices:`, its schema line the
  *     new schema (aspectFileMigration.ts); a folder with both files is a
  *     problem. Format version 10;
+ *   - format version 11, every quest folder into the layout of
+ *     ai_format_migration.md § 3.2 (formatV11/):
+ *       - config files (first, before every other step): every quest's
+ *         `process-state.<q>[.<run>].yaml` and `extension_config[.<host>].<q>.yaml`
+ *         move into the quest's `config/`; an identical target removes the
+ *         old file, a different one is a problem; stale `*.tmp` of these files
+ *         are deleted (configFiles.ts);
+ *       - notes, memory, Q&A journal (notesMemoryQa.ts): `quest-notes.<q>.md`
+ *         → `notes/quest-notes.md`; `_ai/memory/<q>/` → `quests/<q>/memory/`
+ *         (the default session's files curated, the other sessions' this
+ *         host's candidates, `history/` snapshots to the quest's `history/`),
+ *         `_ai/memory/` removed; `questions.<q>.md` / `decisions.<q>.md` →
+ *         blocks of `qa.<host>.<q>.md`, then removed;
+ *       - host sessions (hostSessions.ts): the summary pairs become turns of
+ *         `history/trail.<host>.md`; session definitions and storage move to
+ *         `history/<host>/` (a session's old compacted history stays for the
+ *         quest history's first build; `current_prompt` and the old marker
+ *         go; a later host copies another host's definition without its
+ *         conversation);
+ *       - Copilot and reminder leftovers (copilotLeftovers.ts): stored
+ *         `transport: copilot` as `anthropic`; the answer-wrapper, request-id
+ *         and reminder keys of queue items, queue settings and timed requests
+ *         dropped; reminder items deleted; the `copilot` / `reminders`
+ *         configuration sections dropped; the Copilot drafts, answer files,
+ *         raw trail and trail pairs deleted; the change source `copilot` as
+ *         `agent`;
+ *       - untrack (last): the tracked machine-local and derived files the
+ *         ignore rules cover leave git's index (`git rm --cached`, `untrack`);
  *   - last, when nothing is left as a problem: `_ai/format-version.yaml` gets
  *     the format version this build migrated to and the date
  *     (aiFormatVersion.ts). A stamp newer than this build is a problem and is
@@ -94,11 +125,10 @@ import {
     SESSION_TRAIL_FOLDER,
     STORAGE_VERSION,
     TOOL_RESULTS_FOLDER,
-    isLegacyHistoryFile,
     nextFreeToolResultIndex,
 } from '../services/sessionStorage';
 import { migrateProfileThinkingKeys } from './thinkingAndEffort';
-import { LEGACY_DEFAULT_SESSION } from './runSessions';
+import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION } from './runSessions';
 import { renameExplainTemplate } from './explainTodoTemplate';
 import { dropCopilotTemplates } from './userMessageTemplateLookup';
 import { convertTemplateText } from './templateExpression';
@@ -112,6 +142,12 @@ import { mergeYamlLayout } from './yamlLayoutMerge';
 import { dropAskToolNamesFromYaml, dropAskToolSettings } from './removedAskTools';
 import { aspectDefinitionText, DEFINITION_FILE, LEGACY_DEFINITION_FILE } from './aspectFileMigration';
 import { compactTrailMaxEntries, trimCompactTrailContent } from './compactTrailTrim';
+import type { V11Context, V11Step } from './formatV11/context';
+import { migrateV11ConfigFiles } from './formatV11/configFiles';
+import { hostExtensionConfigFile, processStateFile, sharedExtensionConfigFile } from './questConfigFiles';
+import { migrateV11NotesMemoryQa } from './formatV11/notesMemoryQa';
+import { migrateV11HostSessions, untrackIgnoredV11 } from './formatV11/hostSessions';
+import { migrateV11CopilotLeftovers } from './formatV11/copilotLeftovers';
 
 /** The reconcile's merge drivers (al_the_bear `.claude/skills/_lib/merge_drivers/`). */
 /**
@@ -147,12 +183,16 @@ export interface FormatMigrationOptions {
      * workspace config's (`workspaceConfigPath`), else COMPACT_TRAIL_DEFAULT_MAX_ENTRIES.
      */
     compactTrailMaxEntries?: number;
+    /** `git rm --cached` in `aiRoot` (format version 11, step `untrack`); undefined: no git. */
+    untrack?: V11Context['untrack'];
+    /** The tracked files the ignore rules cover (`git ls-files -ci --exclude-standard`); undefined: no git. */
+    trackedIgnored?: V11Context['trackedIgnored'];
 }
 
 export interface FormatChange {
     /** The quest, or `(workspace)`. */
     quest: string;
-    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'default-run' | 'aspect-files' | 'format-version';
+    step: 'storage' | 'sessions' | 'legacy-config' | 'mcpServer' | 'blocking' | 'user_action' | 'process-state' | 'profiles' | 'templates' | 'copilot-templates' | 'local-llm-profiles' | 'removed-panels' | 'local-llm-keys' | 'telegram-settings' | 'expressions' | 'removed-ask-tools' | 'default-run' | 'aspect-files' | 'format-version' | V11Step;
     detail: string;
 }
 
@@ -223,6 +263,20 @@ class Run {
     constructor(readonly opts: FormatMigrationOptions) {}
 
     rel(p: string): string { return path.relative(this.opts.aiRoot, p).split(path.sep).join('/'); }
+
+    /** The folder of `quest`. */
+    private questFolder(quest: string): string { return path.join(this.opts.aiRoot, 'quests', quest); }
+
+    /**
+     * The file a quest's config file (`config/…`, questConfigFiles.ts) is read from. On a dry run the step
+     * `config-files` (formatV11/configFiles.ts) has moved nothing, so a file still at the quest folder's top
+     * level is read there, and the dry run lists what the run would do.
+     */
+    configInput(file: string): string {
+        if (this.opts.apply || fs.existsSync(file)) { return file; }
+        const top = path.join(path.dirname(path.dirname(file)), path.basename(file));
+        return fs.existsSync(top) ? top : file;
+    }
     change(quest: string, step: FormatChange['step'], detail: string): void { this.result.changes.push({ quest, step, detail }); }
     problem(quest: string, step: FormatChange['step'], detail: string): void { this.result.problems.push({ quest, step, detail }); }
 
@@ -298,15 +352,16 @@ class Run {
         const ai = this.opts.aiRoot;
         const questFolder = path.join(ai, 'quests', quest);
         const historyRoot = path.join(questFolder, 'history');
-        // The format this step migrates to kept the queue's session under the bare name `default`; a window's start
-        // moves it on to `default@default` (sessionStorage.migrateDefaultSessionName, vscimpb151).
-        const target = path.join(historyRoot, SESSIONS_FOLDER, LEGACY_DEFAULT_SESSION);
+        // The queue's session `default@default`, at this host's place (format version 11, formatV11/hostSessions.ts).
+        const target = path.join(historyRoot, this.opts.hostSlug, SESSIONS_FOLDER, DEFAULT_RUN_SESSION);
         let touched = false;
 
+        // The compacted history and its snapshots at `history/` stay: that is the quest's own history
+        // (questHistory.ts). The per-quest scratch files and the trail pair go to the session.
         for (const e of list(historyRoot)) {
             if (!e.isFile()) { continue; }
             const isPair = e.name === `${quest}.anthropic.prompts.md` || e.name === `${quest}.anthropic.answers.md`;
-            if (isLegacyHistoryFile(e.name) || isPair) {
+            if (SCRATCH_FILES.has(e.name) || isPair) {
                 touched = this.place(quest, path.join(historyRoot, e.name), path.join(target, e.name)) || touched;
             }
         }
@@ -322,7 +377,7 @@ class Run {
             const top = rel.split(path.sep)[0];
             if (top.startsWith('last_request')) { continue; }
             if (top.startsWith('current_prompt.')) {
-                this.change(quest, 'storage', `remove ${this.rel(from)} (the current prompt is written per session)`);
+                this.change(quest, 'storage', `remove ${this.rel(from)} (nothing reads the current prompt)`);
                 if (this.opts.apply) { fs.unlinkSync(from); }
                 touched = true;
                 continue;
@@ -341,7 +396,7 @@ class Run {
             }
         }
 
-        const marker = path.join(historyRoot, SESSIONS_FOLDER, MIGRATION_MARKER_FILE);
+        const marker = path.join(historyRoot, this.opts.hostSlug, SESSIONS_FOLDER, MIGRATION_MARKER_FILE);
         if (touched && this.opts.apply && !fs.existsSync(marker)) {
             fs.mkdirSync(path.dirname(marker), { recursive: true });
             fs.writeFileSync(marker, `${STORAGE_VERSION}\n`);
@@ -354,6 +409,7 @@ class Run {
     defaultRun(quest: string): void {
         migrateDefaultRunProcess({
             aiRoot: this.opts.aiRoot, quest, apply: this.opts.apply,
+            configInput: (f) => this.configInput(f),
             change: (d) => this.change(quest, 'default-run', d),
             problem: (d) => this.problem(quest, 'default-run', d),
         });
@@ -384,13 +440,15 @@ class Run {
 
     /** Write `section` into a YAML config file (created when missing) unless it is there; answers whether it was absent. */
     private foldSection(file: string, section: string, value: unknown): boolean {
-        const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+        const input = this.configInput(file);
+        const text = fs.existsSync(input) ? fs.readFileSync(input, 'utf8') : '';
         const parsed = parseDocument(text);
         if (parsed.has(section)) { return false; }
         if (this.opts.apply) {
             // An empty or non-map file starts as a fresh map document.
             const doc = isMap(parsed.contents) ? parsed : new Document({});
             doc.set(section, doc.createNode(value));
+            fs.mkdirSync(path.dirname(file), { recursive: true });
             fs.writeFileSync(file, doc.toString(), 'utf8');
         }
         return true;
@@ -405,7 +463,7 @@ class Run {
             const host = m[1] ?? this.opts.hostSlug;
             const file = path.join(folder, e.name);
             const legacy = parseDocument(fs.readFileSync(file, 'utf8')).toJS() as { panels?: unknown } | null;
-            const target = path.join(folder, `extension_config.${host}.${quest}.yaml`);
+            const target = hostExtensionConfigFile(folder, host, quest);
             if (legacy && legacy.panels && this.foldSection(target, 'questRefresh', { panels: legacy.panels })) {
                 this.change(quest, 'legacy-config', `fold ${this.rel(file)} into ${this.rel(target)} (questRefresh)`);
             }
@@ -416,11 +474,12 @@ class Run {
 
     // ---- Telegram settings -------------------------------------------------
 
-    /** {@link REMOVED_TELEGRAM_KEYS} out of the `telegram` section of the quest's extension_config.<quest>.yaml. */
+    /** {@link REMOVED_TELEGRAM_KEYS} out of the `telegram` section of the quest's config/extension_config.<quest>.yaml. */
     telegramSettings(quest: string): void {
-        const file = path.join(this.opts.aiRoot, 'quests', quest, `extension_config.${quest}.yaml`);
-        if (!fs.existsSync(file)) { return; }
-        const text = fs.readFileSync(file, 'utf8');
+        const file = sharedExtensionConfigFile(this.questFolder(quest), quest);
+        const input = this.configInput(file);
+        if (!fs.existsSync(input)) { return; }
+        const text = fs.readFileSync(input, 'utf8');
         const doc = parseDocument(text);
         const telegram = doc.get('telegram', true);
         if (!isMap(telegram)) { return; }
@@ -601,13 +660,14 @@ class Run {
     removedAskTools(quests: string[]): void {
         this.editConfigFiles('removed-ask-tools', (parsed) => ({ config: parsed, done: dropAskToolSettings(parsed) }));
         const files = [
-            ...quests.map((q) => path.join(this.opts.aiRoot, 'quests', q, `extension_config.${q}.yaml`)),
+            ...quests.map((q) => sharedExtensionConfigFile(this.questFolder(q), q)),
             ...list(path.join(this.opts.aiRoot, 'role-types')).filter((e) => e.isDirectory())
                 .map((e) => path.join(this.opts.aiRoot, 'role-types', e.name, 'role-type.yaml')),
         ];
         for (const file of files) {
-            if (!fs.existsSync(file)) { continue; }
-            const text = fs.readFileSync(file, 'utf8');
+            const input = this.configInput(file);
+            if (!fs.existsSync(input)) { continue; }
+            const text = fs.readFileSync(input, 'utf8');
             const doc = parseDocument(text);
             const removed = dropAskToolNamesFromYaml(doc);
             if (removed === 0) { continue; }
@@ -755,8 +815,8 @@ class Run {
         delete settings.autoStart;
         delete settings.autostart;
         for (const quest of quests) {
-            const file = path.join(this.opts.aiRoot, 'quests', quest, `extension_config.${quest}.yaml`);
-            if (!fs.existsSync(file)) { continue; }
+            const file = sharedExtensionConfigFile(this.questFolder(quest), quest);
+            if (!fs.existsSync(this.configInput(file))) { continue; }
             if (this.foldSection(file, 'mcpServer', settings)) {
                 this.change(quest, 'mcpServer', `fold the legacy mcpServer block into ${this.rel(file)}`);
             }
@@ -772,11 +832,12 @@ class Run {
 
 /** A quest's flat process-state file as a stack of its one level. */
 function processStateStack(opts: FormatMigrationOptions, run: Run, quest: string): void {
-    const file = path.join(opts.aiRoot, 'quests', quest, `process-state.${quest}.yaml`);
-    if (!fs.existsSync(file)) { return; }
-    const text = fs.readFileSync(file, 'utf8');
+    const file = processStateFile(path.join(opts.aiRoot, 'quests', quest), quest);
+    const input = run.configInput(file);
+    if (!fs.existsSync(input)) { return; }
+    const text = fs.readFileSync(input, 'utf8');
     if (!isFlatProcessStateText(text)) { return; }
-    run.change(quest, 'process-state', `process-state.${quest}.yaml: the position as the one level of a stack`);
+    run.change(quest, 'process-state', `config/process-state.${quest}.yaml: the position as the one level of a stack`);
     if (opts.apply) {
         const updated = processStateUpdated(text) || new Date().toISOString();
         fs.writeFileSync(file, stringifyProcessStateStack(parseProcessStateStack(text), updated), 'utf8');
@@ -814,6 +875,22 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     const questsRoot = path.join(opts.aiRoot, 'quests');
     const all = list(questsRoot).filter((e) => e.isDirectory()).map((e) => e.name).sort();
     const quests = opts.quests ? all.filter((q) => opts.quests!.includes(q)) : all;
+    const v11: V11Context = {
+        aiRoot: opts.aiRoot,
+        hostSlug: opts.hostSlug,
+        apply: opts.apply,
+        quests,
+        allQuests: all,
+        workspaceConfigPath: opts.workspaceConfigPath,
+        userConfigPath: opts.userConfigPath,
+        change: (quest, step, detail) => run.change(quest, step, detail),
+        problem: (quest, step, detail) => run.problem(quest, step, detail),
+        rel: (p) => run.rel(p),
+        untrack: opts.untrack,
+        trackedIgnored: opts.trackedIgnored,
+    };
+    // Format version 11 first moves the configuration into config/: every later step reads and writes it there.
+    migrateV11ConfigFiles(v11);
     for (const quest of quests) {
         run.storage(quest);
         run.sessions(quest);
@@ -834,6 +911,11 @@ export function migrateAiFormats(opts: FormatMigrationOptions): FormatMigrationR
     run.aspectFiles();
     if (deletePanelFiles) { run.removedPanels(all); }
     run.todos(quests);
+    // Format version 11: the quest folders into the layout of ai_format_migration.md § 3.2 (formatV11/).
+    migrateV11NotesMemoryQa(v11);
+    migrateV11HostSessions(v11);
+    migrateV11CopilotLeftovers(v11);
+    untrackIgnoredV11(v11);
     stampFormatVersion(opts, run);
     return run.result;
 }

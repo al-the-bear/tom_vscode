@@ -3,10 +3,10 @@
  * (gsel7b): every level this machine can reach, rewritten in its file.
  *
  * - quest default — `aspectGuidelines` of every quest's shared
- *   `extension_config.<quest>.yaml`;
+ *   `config/extension_config.<quest>.yaml`;
  * - window and the @CHAT panels' choices — `aspectGuidelines.window` /
  *   `aspectGuidelines.chat.*` of every quest's per-host
- *   `extension_config.<host>.<quest>.yaml` (every host's: the renamed folder
+ *   `config/extension_config.<host>.<quest>.yaml` (every host's: the renamed folder
  *   reaches them through git too, and their choices stay in effect there);
  * - runs — `guidelines` of every run in the queue folder's `queue-settings.yaml`;
  * - queue items — every `*.queue.yaml` of the queue folder (entries, templates,
@@ -27,6 +27,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { isMap, parseDocument, type Document } from 'yaml';
 
+import { questConfigFolder } from '../utils/questConfigFiles';
 import { renameInGuidelinesNodes, renameInYamlChoiceMap, type AspectRename } from '../utils/aspectRename';
 
 /** The level a rewritten choice belongs to. */
@@ -130,9 +131,10 @@ export function rewriteStoredAspectChoices(scope: AspectRenameScope, rename: Asp
     for (const quest of listDir(path.join(ai, 'quests'))) {
         if (!quest.isDirectory() || quest.name.startsWith('.')) { continue; }
         const folder = path.join(ai, 'quests', quest.name);
-        for (const e of listDir(folder)) {
+        const configFolder = questConfigFolder(folder);
+        for (const e of listDir(configFolder)) {
             const m = /^extension_config\.(.+)\.yaml$/.exec(e.name);
-            if (e.isFile() && m) { rewriteExtensionConfig(path.join(folder, e.name), m[1] === quest.name, rename, result); }
+            if (e.isFile() && m) { rewriteExtensionConfig(path.join(configFolder, e.name), m[1] === quest.name, rename, result); }
         }
         const todos: string[] = [];
         todoFilesBelow(folder, todos);

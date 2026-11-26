@@ -281,15 +281,11 @@ Two kinds of file live there (`src/services/questMemoryFiles.ts`):
 
 A candidate is a stamped bullet like every memory entry, `- <iso time> [<host>] <text>`, whose text starts with a fixed prefix: `{session=<session> file=<curated file>} <fact>`. It names the session the fact was extracted in (empty when the extraction ran in none) and the curated file it is meant for, the extraction template's `targetFile` (`formatCandidateText` / `parseCandidateText`; a line without the prefix is the fact alone, meant for `facts.md`). Both extraction passes (`runIncrementalMemoryExtraction`, the `llm_extract` mode) write candidates through `TwoTierMemoryService.addCandidates` and never a curated file; their `${existingMemory}` is the target curated file's content followed by this host's candidates meant for that file (`existingMemoryForExtraction`). A candidate becomes a fact by promotion: the fact is saved into its curated file and its line removed from the candidates file — by the user in the Memory panel, by a prompt with the memory tools, which address a candidates file by its name like any file, or by the prompt the chat panel's **Promote memory** button queues (the Assist prompt `promoteMemory`, shown with the setting `tomAi.memory.promoteMemoryButton`), which presents every host's candidates and promotes the chosen ones.
 
-This host's candidates file under the name before the host slug, `candidates.<hostname>.md` (`legacyCandidatesFile()`), is read with the slug-named one and merged into it on the next write, then deleted.
-
-The memory service has no session: `scopeFolder` is the quest's folder, and the session a send runs in is handed over where it matters — to the extraction (the candidate's session) and to the injection (below).
+The memory service has no session: `scopeFolder` is the quest's folder, and the session a send runs in is handed over where it matters — to the extraction (the candidate's session).
 
 ### 5.2 System prompt injection
 
 `${memory}` (or `autoInjectMemory`) injects the quest memory when a quest is active (`injectForSystemPrompt`, block built by `buildMemoryBlock`): the curated files, newest first, each under `### quest/<file>`, then this host's candidates under their own heading (`### candidates/candidates.<host>.md — …`), so the model can tell a curated fact from a candidate. Other hosts' candidates are not injected. Total injected memory is capped at `memory.maxInjectedTokens` (configurable, default 3000 tokens): a curated file that does not fit is left out, and of the candidates as many of the newest entries as fit are taken. With a profile's memory `suffix` the block holds only `facts-<suffix>.md` and this host's candidates meant for that file.
-
-While the folder `_ai/memory/{quest}/` exists, the block additionally holds the files the send's session wrote there (`_ai/memory/{quest}/{session}/*.md`; with a suffix only `facts-<suffix>.md` of the session `default@default`), after the quest folder's and within the same budget, read-only (`readOldSessionMemory`). The handler passes the send's session as the `memorySession` value of the placeholder resolution. The memory tools and the Memory panel do not show those files, and nothing writes them.
 
 ### 5.3 Memory vs compacted history vs trail
 
@@ -416,7 +412,6 @@ export interface CompactionOptions {
     memoryTemplateId?: string;         // memory extraction template ID
     compactionTools?: string[];        // tool names for compaction loop (localLlm only)
     compactionMaxRounds?: number;      // default: 1
-    memoryPath?: string;               // _ai/memory/ root
     questId?: string;                  // for quest-scoped memory writes
     trailEnabled?: boolean;
     onProgress?: (msg: string) => void;
@@ -439,7 +434,7 @@ The compacted history every session's prompt gets is the quest's, not a session'
 
 **The watermark** `history.watermark.json`: `{hosts: {<host>: <ISO time of the newest turn covered>}, lastArchivedTodo: {id, completed} | null, builtAt, oldSessionHistoriesDeleted?}`. A turn is covered when its time is at or before its host's time; the archived todos after `lastArchivedTodo` are new. The host trail's trimming (`trail.compact.maxEntries`) removes only covered turns.
 
-**The build** (`buildQuestHistory`; the handler's `runQuestHistoryBuild`, one at a time): the new inputs — at most `rebuildFromLastNPrompts` of the newest, the older passed over — in chunks of `runEveryNRounds`, each one call of the compaction template (`${lastTurn}` the chunk: a turn as `[time · host · session]` prompt and answer, a todo as its record; `${existingBlocks}` / `${existingSummary}` the history so far). After each chunk the blocks, the snapshot and the advanced watermark are written; with extraction on, the chunk's turns are extracted per session (`runIncrementalMemoryExtraction` with the turn's session). A failing compaction call ends the build there. The first successful build on a host deletes the old per-session `history/sessions/*/compacted_history.md` files (and this host's `history/<host>/sessions/*/compacted_history.md`), logs them and records it in the watermark, once.
+**The build** (`buildQuestHistory`; the handler's `runQuestHistoryBuild`, one at a time): the new inputs — at most `rebuildFromLastNPrompts` of the newest, the older passed over — in chunks of `runEveryNRounds`, each one call of the compaction template (`${lastTurn}` the chunk: a turn as `[time · host · session]` prompt and answer, a todo as its record; `${existingBlocks}` / `${existingSummary}` the history so far). After each chunk the blocks, the snapshot and the advanced watermark are written; with extraction on, the chunk's turns are extracted per session (`runIncrementalMemoryExtraction` with the turn's session). A failing compaction call ends the build there. The first successful build on a host deletes the old per-session histories in `history/sessions/<session>/` (`compacted_history.md`, `history.json`, `history.md`, then the folders left empty) and this host's `history/<host>/sessions/*/compacted_history.md`, logs them and records it in the watermark, once.
 
 **When it runs.** When a session's accumulator reaches `runEveryNRounds` rounds (the accumulator clears after a successful build); on the first send of a quest that has turns in its trail and no history yet (not while compaction is disabled); and with **Rebuild history and memory** — the ANTHROPIC/LLM status bar button, and the action of the notice after a reconcile — which builds and extracts even while background compaction is disabled. The notice (`src/services/historyRebuildNotice.ts`, wired in `src/handlers/historyRebuildNotice-handler.ts`): when another host's trail holds turns newer than its watermark time — checked when a `history/trail.*.md` file changes on disk and at window start — a non-modal information message names the hosts and offers the rebuild, once per change; this host's own trail never raises it.
 
@@ -659,7 +654,7 @@ These placeholders in `variableResolver.ts` (`buildVariableMap`) inject the **co
 | --- | --- | --- |
 | `${role-description}` | Full content of the active role definition | `_ai/roles/${role}/role.md` |
 | `${quest-description}` | Full content of the active quest overview | `_ai/quests/${quest}/overview.${quest}.md` |
-| `${process-context}` | The active quest's process: where it is (process, phase, step, sub-step, iterations, roles), the steps of the phase, the post-gate todos, the descriptions; `""` without a process | `_ai/processes/${process}/` + `_ai/quests/${quest}/process-state.${quest}.yaml` |
+| `${process-context}` | The active quest's process: where it is (process, phase, step, sub-step, iterations, roles), the steps of the phase, the post-gate todos, the descriptions; `""` without a process | `_ai/processes/${process}/` + `_ai/quests/${quest}/config/process-state.${quest}.yaml` |
 
 Resolution rules:
 
@@ -1222,7 +1217,6 @@ type AnthropicProfile = AnthropicProfileTemplate;
 ```json
 "memory": {
   "enabled": true,
-  "path": "_ai/memory",
   "injectIntoSystemPrompt": true,
   "maxInjectedTokens": 3000,
   "keywordTriggers": {
@@ -1982,23 +1976,20 @@ A **queue iteration** is one round of an item's repeat count or one todo of a `<
 
 ### 18.13 Per-session storage
 
-Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder of its machine, its storage root `history/<host>/sessions/<session>/` (`src/services/sessionStorage.ts`), machine-local as a whole; its prompt/answer turns go to the host trail `history/trail.<host>.md` (§4.3). A storage root an older build made at `history/sessions/<session>/` is read and written there until the `_ai` format migration moves it; a root at the new place wins; a new session's is made at the new place.
+Every Anthropic session — `chat` (the ANTHROPIC/LLM panel), `default` (the prompt queue) and every named session — keeps everything its conversation produces in one folder of its machine, its storage root `history/<host>/sessions/<session>/` (`src/services/sessionStorage.ts`), machine-local as a whole; its prompt/answer turns go to the host trail `history/trail.<host>.md` (§4.3). Its definition is `history/<host>/<session>.session.json`.
 
 | File (in the storage root) | What |
 | --- | --- |
-| `compacted_history.md`, `history.json`, `history.md` | an older build's per-session compacted history and snapshot: read while the quest has no history of its own (§6.6), written by nothing |
 | `live-trail.md` | the live trail |
 | `rawTurns.json`, `compaction_rounds.json`, `iteration.json` | the rolling tail, the accumulator, a per-iteration session's iteration |
 | `session-todos.todo.yaml` | the session's todos |
 | `trail/` | the raw per-call trail with `compaction/` and `memory/`, `tool_results/t<n>.json` |
-| `<quest>.anthropic.prompts.md`, `.answers.md` | the summary trail pair of an older build (old place only): written by nothing; the prompt-pair tools and the TODO LOG read its turns older than the host trail's |
-| `_ai/memory/<quest>/<session>/` | a session's memory folder of the old place (§5.2): read by the memory injection for that session's sends, removed with the session, written by nothing | tracked |
 
-(`history/` is `_ai/quests/<quest>/history/`; a session's memory folder of the old place, `_ai/memory/<quest>/<session>/`, is read by the memory injection for that session's sends and removed with the session.) There is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`: a host's `history/<host>/sessions/`, the quest's built history (`history/compacted_history.md`, `history.json`, `history.md`, `history.watermark.json`), `quest_refresh.<quest>.md` and every `live-trail.md` are ignored; the session files and the host trails are tracked.
+(`history/` is `_ai/quests/<quest>/history/`.) A session's old compacted history (`compacted_history.md`, `history.json`, `history.md` in `history/sessions/<session>/`, tracked) is read while the quest has no history of its own (§6.6) and deleted, with its folder, by the quest history's first build on each machine. The quest memory has no session level and there is no shared memory. The rules `_ai/.gitignore` carries for this are `SESSION_STORAGE_GITIGNORE_RULES`: a host's `history/<host>/sessions/`, the quest's built history (`history/compacted_history.md`, `history.json`, `history.md`, `history.watermark.json`), `quest_refresh.<quest>.md` and every `live-trail.md` are ignored; the session files and the host trails are tracked.
 
 - **Who writes there.** The trail service resolves an `anthropic` trail subsystem carrying `session` under the storage root (its raw trail) and writes the session's turns to the host trail; the handler builds every trail subsystem with `trailSubsystem()` (the current send's session) and passes it to the Agent SDK transport; the live trail writer takes the session; compaction and memory extraction run with the session (their `compaction/` / `memory/` trail categories; a memory candidate names the session). Per send, `activateSession` sets the session's own tool trail; the quest memory has no session (§5.1).
 - **Tool results.** One `ToolTrail` per session, persisted to the session's `trail/tool_results/`; its keys start past the highest `t<n>.json` stored there (`nextFreeToolResultIndex`), also after a reload or a clear, so no stored result is overwritten. `tomAi_readPastToolResult` reads the running session's results first.
 - **Based sessions.** A based session reads its base's rolling tail and accumulator (seeded once, or every prompt for `per-prompt`) and writes only its own storage; a `per-prompt` session never builds the history or clears its base's accumulator. The compacted history is the quest's (§6.6) and is never copied.
-- **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root and its memory folder `_ai/memory/<quest>/<session>/` removed with it (`removeSessionStorage`).
+- **Temporary sessions.** A temporary session (an item another quest sent, without a session name) has its whole storage root removed with it (`removeSessionStorage`).
 - **Local LLM.** An Anthropic profile on a Local LLM configuration is stored like every Anthropic profile, in its session; only its `last_request.json` dump goes to `_ai/trail/localllm/<quest>/`.
-- **Moving to it.** On a quest's first use in a window (`TwoTierMemoryService.ensureSessionStorage`) the files of the per-quest layout — the history files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `current_prompt.*` and `last_request.json`, which the Logs tab reads there) and `_ai/memory/<quest>/*.md` — become the `default` session's. A machine-local marker, `history/sessions/.storage-version`, makes it run once per quest and machine; a file whose target already exists stays where it is, named in the *Tom AI Compaction and Memory Extraction* output channel.
+- **Moving to it.** The `_ai` format migration (format version 11, `src/utils/formatV11/hostSessions.ts`) moves the sessions of the layout before — `history/<session>.session.json` and `history/sessions/<session>/` — into `history/<host>/` of the host that runs it, file by file (the old compacted history stays for the first build), turns each session's summary trail pair into turns of the host trail and deletes it; a later host whose definitions another host moved gets a copy of them without the conversation. The same migration moves the files of the per-quest layout — the per-quest scratch files and the Anthropic pair in `history/`, the quest folder's `live-trail.md`, the raw trail in `_ai/trail/anthropic/<quest>/` (not its `last_request.json`) — into this host's `default@default` session storage; the compacted history and its snapshots in `history/` stay, as the quest's own history.

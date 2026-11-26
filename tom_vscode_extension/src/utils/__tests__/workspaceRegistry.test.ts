@@ -34,8 +34,8 @@ put(path.join(ROOT, '.tom', 'tom_root.yaml'), 'version: 1\n');
 put(path.join(ROOT, '.tom', 'tom_vscode_extension.json'), '{}');
 const QUESTS = mk(ROOT, '_ai', 'quests');
 for (const q of ['qa', 'qb', 'qc']) { put(path.join(QUESTS, q, `overview.${q}.md`), `# ${q}\n`); }
-put(path.join(QUESTS, 'qa', 'extension_config.qa.yaml'), 'workspaceFolder: inhouse/container\ntelegram:\n  pollIntervalMs: 5\n');
-put(path.join(QUESTS, 'qb', 'extension_config.qb.yaml'), 'workspaceFolder: web\n');
+put(path.join(QUESTS, 'qa', 'config', 'extension_config.qa.yaml'), 'workspaceFolder: inhouse/container\ntelegram:\n  pollIntervalMs: 5\n');
+put(path.join(QUESTS, 'qb', 'config', 'extension_config.qb.yaml'), 'workspaceFolder: web\n');
 const CONTAINER = mk(ROOT, 'inhouse', 'container');
 mk(CONTAINER, '.tom');
 fs.symlinkSync(path.join(ROOT, '_ai'), path.join(CONTAINER, '_ai'));
@@ -88,10 +88,10 @@ describe('workspace folders and recorded quests', () => {
     test('WR-3: the record', () => {
         assert.equal(layoutMod.getLayout()?.root, ROOT);
         assert.equal(live.recordWindowQuestWorkspaceFolder(), true, 'written on open');
-        assert.match(fs.readFileSync(path.join(QUESTS, 'qc', 'extension_config.qc.yaml'), 'utf8'), /workspaceFolder: inhouse\/container/);
+        assert.match(fs.readFileSync(path.join(QUESTS, 'qc', 'config', 'extension_config.qc.yaml'), 'utf8'), /workspaceFolder: inhouse\/container/);
         assert.equal(live.recordWindowQuestWorkspaceFolder(), false, 'unchanged: not written again');
         assert.equal(reg.readRecordedWorkspaceFolder(QUESTS, 'qa'), 'inhouse/container');
-        assert.match(fs.readFileSync(path.join(QUESTS, 'qa', 'extension_config.qa.yaml'), 'utf8'), /pollIntervalMs: 5/, 'other sections kept');
+        assert.match(fs.readFileSync(path.join(QUESTS, 'qa', 'config', 'extension_config.qa.yaml'), 'utf8'), /pollIntervalMs: 5/, 'other sections kept');
         assert.deepEqual(reg.recordedQuestsOf(QUESTS, 'inhouse/container'), ['qa', 'qc']);
         assert.deepEqual(reg.questsWithWorkspaceFolders(QUESTS), [
             { quest: 'qa', workspaceFolder: 'inhouse/container' }, { quest: 'qb', workspaceFolder: 'web' }, { quest: 'qc', workspaceFolder: 'inhouse/container' },

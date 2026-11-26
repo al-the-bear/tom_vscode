@@ -10,7 +10,7 @@
  *        `notes` and `clarifications…` folders with where the content lives now; nothing reads `_ai/clarifications`
  *   AR-3 shared memory: no Shared tab in the memory panel, no shared-memory button in the chat panel, no
  *        memory-extraction template scope (schema, config type, template editor), the remember keyword writes the
- *        quest memory, the format migration of memory files skips `_ai/memory/shared/`
+ *        quest memory
  *   AR-4 `${memory-shared}` resolves to nothing (an old template does not show the raw placeholder)
  *   AR-5 nothing in src/ or media/ names `_ai/notes`, `_ai/clarifications` or `_ai/memory/shared` except to say
  *        they are gone
@@ -78,7 +78,6 @@ describe('the removed _ai folders', () => {
         const handler = read('src', 'handlers', 'anthropic-handler.ts');
         assert.match(handler, /TwoTierMemoryService\.instance\.append\('quest', 'facts\.md', rem\[1\]\.trim\(\), questId\);/, 'remember: writes the quest memory');
         assert.doesNotMatch(handler, /\('shared'/);
-        assert.match(read('src', 'services', 'compaction-migration.ts'), /listSubdirectories\(memoryRoot\)\.filter\(\(name\) => name !== 'shared'\)/);
     });
 
     test('AR-4: ${memory-shared} resolves to nothing', async () => {

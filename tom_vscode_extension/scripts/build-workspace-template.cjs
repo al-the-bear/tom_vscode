@@ -38,7 +38,7 @@
  * `.github/copilot-instructions.md` is not packed.
  *
  * Before writing, every file is checked: inside its part's list, nothing personal
- * or machine-bound (`extension_config.<host>.<quest>.yaml`, `session-todo.*`, a
+ * or machine-bound (`config/extension_config.<host>.<quest>.yaml`, `session-todo.*`, a
  * `history/` folder; in the introduction quest these are left out instead) and
  * no literal secret in any text file (an Anthropic key `sk-ant-…`, a GitHub
  * token `ghp_…` / `github_pat_…`, a Telegram bot token `<digits>:<35 chars>`).
@@ -147,8 +147,8 @@ function partSources(rootDir) {
 const QUEST_USE_RULES = [
     /^history\//,
     /^session-todo[^/]*$/,
-    /^extension_config\.[^/]+\.[^/]+\.yaml$/,
-    /^process-state\.[^/]+\.yaml$/,
+    /^config\/extension_config\.[^/]+\.[^/]+\.yaml$/,
+    /^config\/process-state\.[^/]+\.yaml$/,
 ];
 
 /** The config inside the template (root part). */

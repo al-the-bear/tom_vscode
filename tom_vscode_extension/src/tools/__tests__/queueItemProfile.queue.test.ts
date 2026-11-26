@@ -141,10 +141,11 @@ describe('queue item: its own profile', () => {
         // The session has an Agent SDK conversation: a direct-API profile keeps its own history and cannot continue it.
         const { TwoTierMemoryService } = await import('../../services/memory-service.js');
         const folder = TwoTierMemoryService.instance.agentSdkSessionsFolder(QUEST);
-        fs.mkdirSync(folder, { recursive: true });
-        const file = fs.readdirSync(folder).find((f) => f.startsWith('talk') && f.endsWith('.session.json')) ?? 'talk.session.json';
-        const record = fs.existsSync(path.join(folder, file)) ? JSON.parse(fs.readFileSync(path.join(folder, file), 'utf8')) : { name: 'talk', mode: 'continue' };
-        fs.writeFileSync(path.join(folder, file), JSON.stringify({ ...record, sessionId: 'sdk-session-1' }));
+        const { sessionFilePath } = await import('../../services/agentSdkSessionStore.js');
+        const file = sessionFilePath(folder, 'talk');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const record = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { name: 'talk', mode: 'continue' };
+        fs.writeFileSync(file, JSON.stringify({ ...record, sessionId: 'sdk-session-1' }));
 
         const refused = queue().setItemProfile(item.id, 'api') as Json;
         assert.equal(refused.ok, false);

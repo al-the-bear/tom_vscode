@@ -426,7 +426,7 @@ describe('getPromptPairs', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The host trail: a session's pairs are its turns; OLD PLACE: an older build's session pair adds the older turns
+// The host trail: a session's pairs are its turns; a summary pair left in a session's old folder is not read
 // ---------------------------------------------------------------------------
 
 describe('pairs from the host trail', () => {
@@ -448,8 +448,7 @@ describe('pairs from the host trail', () => {
         appendHostTrailTurn(quest, turn('h3', '2026-02-01T12:00:00.000Z', 'default@default', '## a heading\n\nbody', 'host answer 3'), 2000);
         // Another host's trail is not this host's pairs.
         appendHostTrailTurn(quest, { ...turn('x1', '2026-02-01T13:00:00.000Z', 'default@default', 'elsewhere', 'elsewhere'), host: 'some-other-host' }, 2000);
-        // OLD PLACE: default@default's pair of an older build: one turn before the host trail, one the trail has,
-        // one after the trail's oldest turn (not taken: the trail is the source from its first turn on).
+        // A summary pair left in a session's old folder: not read.
         const old = path.join(quest, 'history', 'sessions', 'default@default');
         fs.mkdirSync(old, { recursive: true });
         makeSummaryFile(path.join(old, 'hq.anthropic.prompts.md'), 'PROMPT', [
@@ -464,10 +463,10 @@ describe('pairs from the host trail', () => {
 
     after(() => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ } });
 
-    test('list: this host\'s turns per session and the older pair turns, newest first, each once', () => {
+    test('list: this host\'s turns per session, newest first, each once', () => {
         const r = listPromptPairs(quest, 'hq', { previewChars: 40 });
         assert.deepEqual(r.pairs.map((p) => [p.requestId, p.subsystem]), [
-            ['h3', 'anthropic:default@default'], ['h2', 'anthropic:review'], ['h1', 'anthropic:default@default'], ['o1', 'anthropic:default@default'],
+            ['h3', 'anthropic:default@default'], ['h2', 'anthropic:review'], ['h1', 'anthropic:default@default'],
         ]);
         assert.deepEqual(r.subsystemsScanned, ['anthropic:default@default', 'anthropic:review']);
         const h3 = r.pairs[0];
@@ -476,15 +475,15 @@ describe('pairs from the host trail', () => {
 
     test('sessions narrow it; "all" of this host is every session', () => {
         assert.deepEqual(listPromptPairs(quest, 'hq', { sessions: ['review'] }).pairs.map((p) => p.requestId), ['h2']);
-        assert.deepEqual(listPromptPairs(quest, 'hq', { sessions: ['default@default', 'review'] }).pairs.map((p) => p.requestId), ['h3', 'h2', 'h1', 'o1']);
+        assert.deepEqual(listPromptPairs(quest, 'hq', { sessions: ['default@default', 'review'] }).pairs.map((p) => p.requestId), ['h3', 'h2', 'h1']);
     });
 
-    test('get: full bodies from the trail and the older pair', () => {
+    test('get: full bodies from the trail', () => {
         const r = getPromptPairs(quest, 'hq', { requestIds: ['h3', 'o1', 'x1'] });
         assert.deepEqual(r.pairs.map((p) => [p.requestId, p.promptBody, p.answerBody]), [
-            ['h3', '## a heading\n\nbody', 'host answer 3'], ['o1', 'old prompt', 'old answer'],
+            ['h3', '## a heading\n\nbody', 'host answer 3'],
         ]);
-        assert.deepEqual(r.notFoundRequestIds, ['x1'], 'another host\'s turn');
+        assert.deepEqual(r.notFoundRequestIds, ['o1', 'x1'], 'the old pair\'s turn, another host\'s turn');
         assert.equal(getPromptPairs(quest, 'hq', { index: 0 }).pairs[0].requestId, 'h3');
     });
 });

@@ -34,7 +34,6 @@ export function queueItemKindFromYaml(meta: Record<string, unknown>, template: u
     if (legacy) {
         return { type: 'timed', template: '(None)', timedEntryId: legacy[1] };
     }
-    // A stored `type: reminder` (the removed reminder items) is read as a normal item.
     const type: QueueItemKind = meta.type === 'timed' ? 'timed' : 'normal';
     const entryId = typeof meta['timed-entry-id'] === 'string' && meta['timed-entry-id'] ? meta['timed-entry-id'] : undefined;
     return { type, template: written, ...(type === 'timed' && entryId ? { timedEntryId: entryId } : {}) };

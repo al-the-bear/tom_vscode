@@ -43,8 +43,15 @@ import { parse, stringify } from 'yaml';
  *  10  the aspect guidelines say aspect and choice: every
  *      `_ai/aspect_guidelines/<aspect>/section.yaml` becomes `aspect.yaml`,
  *      its `options:` `choices:` (aspectFileMigration.ts)
+ *  11  every quest folder in the layout of ai_format_migration.md § 3.2
+ *      (formatV11/): `config/` (process states, extension configurations),
+ *      `notes/quest-notes.md`, the quest memory in `memory/`, the Q&A journal
+ *      `qa.<host>.<quest>.md`, sessions per host in `history/<host>/`, the
+ *      host trail from the old prompt/answer pairs, the machine-local and
+ *      derived files out of git, the Copilot and reminder leftovers of the
+ *      stored files removed
  */
-export const AI_FORMAT_VERSION = 10;
+export const AI_FORMAT_VERSION = 11;
 
 /** The stamp's file, in the `_ai` folder. */
 export const AI_FORMAT_FILE = 'format-version.yaml';

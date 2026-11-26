@@ -144,7 +144,6 @@ function showFatalError(context, err) {
 
 function formatPromptTemplateName(name) {
   if (!name || name === '(None)') return '(None)';
-  if (name === '__answer_file__') return '(None)';
   return promptTemplateLabels[name] || name;
 }
 
@@ -398,7 +397,7 @@ function render() {
     const isEditable = safeStatus !== 'completed';
     const disabledAttr = isEditable ? '' : ' disabled';
     const lastSent = entry.lastSentAt ? new Date(entry.lastSentAt).toLocaleString() : 'Never';
-    const displayTemplate = (entry.template === '__answer_file__' || !entry.template || entry.template === '(None)') ? '' : formatPromptTemplateName(entry.template);
+    const displayTemplate = (!entry.template || entry.template === '(None)') ? '' : formatPromptTemplateName(entry.template);
 
     let scheduledTimesHtml = '';
     if (!isInterval && entry.scheduledTimes) {

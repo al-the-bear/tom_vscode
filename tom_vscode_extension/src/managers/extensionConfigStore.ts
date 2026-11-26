@@ -6,7 +6,7 @@
  * live in their own files (`quest-refresh.<host>.<quest>.yaml`,
  * `telegram.<host>.<quest>.yaml`) or, worse, in the shared workspace
  * `tom_vscode_extension.json` (CLI / MCP server autostart). Those are now
- * consolidated into exactly two files, both under `_ai/quests/{questId}/`:
+ * consolidated into exactly two files, both under `_ai/quests/{questId}/config/`:
  *
  *   - `extension_config.{questId}.yaml`           — machine-INDEPENDENT settings
  *     that should be the same on every host (e.g. the telegram notification
@@ -32,6 +32,7 @@ import * as path from 'path';
 import { WsPaths } from '../utils/workspacePaths';
 import { FsUtils } from '../utils/fsUtils';
 import { sanitizeQuestSegment } from '../utils/questPaths';
+import { hostExtensionConfigFile, sharedExtensionConfigFile } from '../utils/questConfigFiles';
 import {
     getMcpServerSettings,
     type McpServerConfig,
@@ -70,25 +71,27 @@ function resolveQuestId(questId?: string): string {
     return sanitizeQuestSegment((questId ?? WsPaths.getWorkspaceQuestId() ?? '').trim());
 }
 
-/** Absolute path of `_ai/quests/{questId}/{fileName}`, with a workspace fallback. */
-function questFilePath(safeQuest: string, fileName: string): string {
+/** Absolute path of the folder `_ai/quests/{questId}`, with a workspace fallback. */
+function questFolderPath(safeQuest: string): string {
     const wsRoot = layoutWorkspaceFolder() ?? '';
-    return (
-        WsPaths.ai('quests', safeQuest, fileName) ||
-        path.join(wsRoot, '_ai', 'quests', safeQuest, fileName)
-    );
+    return WsPaths.ai('quests', safeQuest) || path.join(wsRoot, '_ai', 'quests', safeQuest);
+}
+
+/** Absolute path of `_ai/quests/{questId}/{fileName}` (the legacy per-subsystem files' place). */
+function questFilePath(safeQuest: string, fileName: string): string {
+    return path.join(questFolderPath(safeQuest), fileName);
 }
 
 /** Path to the machine-INDEPENDENT quest config file. */
 export function questConfigPath(questId?: string): string {
     const safeQuest = resolveQuestId(questId);
-    return questFilePath(safeQuest, `extension_config.${safeQuest}.yaml`);
+    return sharedExtensionConfigFile(questFolderPath(safeQuest), safeQuest);
 }
 
 /** Path to the machine-SPECIFIC quest config file. */
 export function machineConfigPath(questId?: string): string {
     const safeQuest = resolveQuestId(questId);
-    return questFilePath(safeQuest, `extension_config.${WsPaths.hostSlug()}.${safeQuest}.yaml`);
+    return hostExtensionConfigFile(questFolderPath(safeQuest), WsPaths.hostSlug(), safeQuest);
 }
 
 // ============================================================================

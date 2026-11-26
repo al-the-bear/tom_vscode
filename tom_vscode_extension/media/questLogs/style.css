@@ -54,7 +54,6 @@
 .qlog-turn-header { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 3px; margin-bottom: 4px; }
 .qlog-turn-meta { flex: 1; min-width: 0; font-size: 11px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qlog-turn-time { color: var(--vscode-foreground); font-weight: 600; }
-.qlog-turn-tag { padding: 0 4px; border-radius: 2px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .qlog-turn-actions { display: inline-flex; gap: 1px; flex-shrink: 0; }
 .qlog-turn-label { font-size: 11px; font-weight: 600; opacity: 0.8; margin: 4px 0 2px; }
 .qlog-turn-todos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; }

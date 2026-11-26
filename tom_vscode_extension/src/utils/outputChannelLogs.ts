@@ -34,7 +34,7 @@ const NOT_IN_FILE_NAMES = /[\\/:*?"<>|]/g;
  * so they are listed under the name they were created with. Kept complete by
  * a test (OC-10) that reads every `createOutputChannel` of the sources.
  */
-export const OWN_CHANNEL_NAMES: readonly string[] = ['Tom AI: Compaction Migration', 'Tom AI: MCP Server'];
+export const OWN_CHANNEL_NAMES: readonly string[] = ['Tom AI: MCP Server'];
 
 /** A name as it compares: without the characters a file name cannot hold, spaces collapsed, any case. */
 export function channelNameKey(name: string): string {

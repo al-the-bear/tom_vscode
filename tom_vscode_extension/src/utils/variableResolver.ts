@@ -44,7 +44,7 @@ import { osLoginName } from './osUserName';
 import { evaluateExpression, forEachExpressionPlaceholder } from './templateExpression';
 import { collectClaudeMd, collectWithImports, renderClaudeMd } from '../services/claudeMd';
 import { AGENTS_MD, CLAUDE_MD } from './agentInstructions';
-import { defaultQuestNotesPath, resolveDefaultQuestNotes } from './notesFiles';
+import { defaultQuestNotesPath } from './notesFiles';
 
 // ============================================================================
 // Public types
@@ -882,8 +882,8 @@ function resolveFileInjectionKey(key: string, values: Record<string, string>): s
         if (!quest || !questsPath) { return ''; }
         const dir = path.join(questsPath, quest);
         if (rawType === 'quest-notes') {
-            // The quest's default notes file (utils/notesFiles.ts), which also knows the old place.
-            return injectFile(resolveDefaultQuestNotes(defaultQuestNotesPath(dir), dir, quest).filePath, values);
+            // The quest's default notes file (utils/notesFiles.ts).
+            return injectFile(defaultQuestNotesPath(dir), values);
         }
         const name = firstMatchingFile(dir, `${rawType}.${quest}.`);
         return name ? injectFile(path.join(dir, name), values) : '';
@@ -955,13 +955,9 @@ function resolveMemoryPlaceholder(
         // candidates meant for it. Passed in via `values.memorySuffix` by
         // the caller at send time; without it every curated file is offered.
         const memorySuffix = values['memorySuffix'] || undefined;
-        // The session the send runs in (`values.memorySession`, set by the
-        // Anthropic handler). OLD PLACE: it names whose files of
-        // `_ai/memory/<quest>/<session>/` follow the quest folder's.
-        const memorySession = values['memorySession'] || undefined;
         // The quest memory is the only one, so `${memory}` and `${memory-quest}` are the same block.
         void key;
-        return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix, memorySession).text;
+        return svc.injectForSystemPrompt(budgetTokens, quest || undefined, memorySuffix).text;
     } catch {
         return '';
     }
@@ -1292,7 +1288,7 @@ All three resolve to <code>0</code> / <code>1</code> when the item isn't part of
 <code>\${role-description}</code> – <code>_ai/roles/\${role}/role.md</code><br>
 <code>\${quest-description}</code> – <code>_ai/quests/\${quest}/overview.\${quest}.md</code><br>
 <code>\${process-context}</code> – the active quest's process: where it is (phase, step, sub-step, iterations, roles), the post-gate todos and the descriptions; empty without a process<br>
-<code>\${process}</code>, <code>\${phase}</code>, <code>\${step}</code>, <code>\${substep}</code>, <code>\${phase-iteration}</code>, <code>\${step-iteration}</code>, <code>\${substep-iteration}</code> – the quest's process state (<code>_ai/quests/\${quest}/process-state.\${quest}.yaml</code>)<br>
+<code>\${process}</code>, <code>\${phase}</code>, <code>\${step}</code>, <code>\${substep}</code>, <code>\${phase-iteration}</code>, <code>\${step-iteration}</code>, <code>\${substep-iteration}</code> – the quest's process state (<code>_ai/quests/\${quest}/config/process-state.\${quest}.yaml</code>)<br>
 <code>\${process-description}</code> – <code>_ai/processes/\${process}/\${process}.md</code>; <code>\${phase-description}</code>, <code>\${step-description}</code>, <code>\${substep-description}</code> – from its <code>.process.yaml</code>; <code>\${phase-prompt}</code>, <code>\${step-prompt}</code>, <code>\${substep-prompt}</code> – their <code>prompt</code> fields; <code>\${session}</code> – the Agent SDK session the step runs in<br>
 <code>\${claude.md}</code> – Workspace-root <code>CLAUDE.md</code><br>
 <code>\${agents.md}</code> – <code>AGENTS.md</code><br>

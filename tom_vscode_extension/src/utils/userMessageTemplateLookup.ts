@@ -2,15 +2,12 @@
  * The user-message templates: the one template store
  * (`anthropic.userMessageTemplates`, body with `${userMessage}`; an
  * `${originalPrompt}` in a body is filled the same way), looked up by id or
- * name.
- *
- * The template id `__answer_file__` (a stored value of older queue items and
- * timed requests) means "no template". vscode-free.
+ * name. vscode-free.
  */
 
 import { liveUserMessageTemplateId } from './userMessageTemplateSeeds';
 
-/** A stored template id that means "no template". */
+/** The template id of the removed answer wrapper: format version 6 leaves it out of its count, version 11 rewrites it as no template. */
 export const ANSWER_WRAPPER_ID = '__answer_file__';
 
 /** The config slice these helpers read. */
@@ -18,9 +15,9 @@ export interface UserMessageTemplateSource {
     anthropic?: { userMessageTemplates?: Array<{ id?: string; name?: string; template?: string }> };
 }
 
-/** A user-message template's body by id (or name); undefined for none, `(None)`, `__none__` and the wrapper id. */
+/** A user-message template's body by id (or name); undefined for none, `(None)` and `__none__`. */
 export function userMessageTemplateBody(config: UserMessageTemplateSource | null | undefined, idOrName: string | undefined): string | undefined {
-    if (!idOrName || idOrName === '(None)' || idOrName === '__none__' || idOrName === ANSWER_WRAPPER_ID) { return undefined; }
+    if (!idOrName || idOrName === '(None)' || idOrName === '__none__') { return undefined; }
     // A retired template (with-context, with-role-banner; vscimpb120) resolves to default-raw.
     const wanted = liveUserMessageTemplateId(idOrName);
     const match = (config?.anthropic?.userMessageTemplates ?? []).find((t) => t && (t.id === wanted || t.name === wanted));

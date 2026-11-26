@@ -2,7 +2,7 @@
  * The `default` run runs no process (vscimpb122): the `_ai` format migration
  * moves a process a quest still follows on `default` into a run of its own
  * (format version 9, aiFormatMigration.ts). Per quest whose
- * `process-state.<quest>.yaml` names a process:
+ * `config/process-state.<quest>.yaml` names a process:
  *
  *   - a new run named after the process (`idea_to_todos`, `idea_to_todos-2`
  *     when taken) gets the whole state stack — levels, iterations, skipped,
@@ -32,7 +32,7 @@ import * as path from 'path';
 import { parse as parseYaml, parseDocument, stringify } from 'yaml';
 
 import { EMPTY_PROCESS_STATE, PROCESS_SUBJECT_VARIABLE, parseProcessStateStack, parseProcessYaml, type ProcessDefinition, type ProcessSessionSpec } from './processDefinition';
-import { runStateFileName } from './processRuns';
+import { processStateFile } from './questConfigFiles';
 import { runSessionName } from './runSessions';
 import { appendQaBlocks, processDecisionBlock } from './qaJournal';
 import { hostSlugOf } from './hostSlug';
@@ -57,6 +57,11 @@ export interface DefaultRunMigrationContext {
     now?: Date;
     change(detail: string): void;
     problem(detail: string): void;
+    /**
+     * The file a config file is read from: on a dry run of the `_ai` format migration the file may still be where
+     * the step `config-files` (formatV11/configFiles.ts) would have moved it from. Default: the file itself.
+     */
+    configInput?(configFile: string): string;
 }
 
 const RUN_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -134,14 +139,15 @@ function readYaml(file: string): Record<string, unknown> | undefined {
 export function migrateDefaultRunProcess(ctx: DefaultRunMigrationContext): DefaultRunMove | undefined {
     const { aiRoot, quest, apply } = ctx;
     const questFolder = path.join(aiRoot, 'quests', quest);
-    const stateFile = path.join(questFolder, runStateFileName(quest));
-    if (!fs.existsSync(stateFile)) { return undefined; }
-    const stateText = fs.readFileSync(stateFile, 'utf8');
+    const input = (f: string): string => ctx.configInput?.(f) ?? f;
+    const stateFile = processStateFile(questFolder, quest);
+    if (!fs.existsSync(input(stateFile))) { return undefined; }
+    const stateText = fs.readFileSync(input(stateFile), 'utf8');
     const stack = parseProcessStateStack(stateText);
     const process = stack.levels[0]?.process ?? '';
     if (!process) { return undefined; }
 
-    const run = freeRunName(runNameForProcess(process), (r) => fs.existsSync(path.join(questFolder, runStateFileName(quest, r))));
+    const run = freeRunName(runNameForProcess(process), (r) => fs.existsSync(input(processStateFile(questFolder, quest, r))));
     const move: DefaultRunMove = { quest, process, run, variables: [], sessions: [], queueItems: [] };
     const now = ctx.now ?? new Date();
 
@@ -153,9 +159,9 @@ export function migrateDefaultRunProcess(ctx: DefaultRunMigrationContext): Defau
     if (!def) { ctx.problem(`the process ${process} has no readable definition; its state moves, its variables and sessions stay`); }
 
     // 1. The state stack, as the file holds it, into the run; `default` keeps no process and names the run.
-    ctx.change(`the default run's process ${process} -> run ${run} (process-state.${quest}.${run}.yaml)`);
+    ctx.change(`the default run's process ${process} -> run ${run} (config/process-state.${quest}.${run}.yaml)`);
     if (apply) {
-        fs.copyFileSync(stateFile, path.join(questFolder, runStateFileName(quest, run)));
+        fs.copyFileSync(stateFile, processStateFile(questFolder, quest, run));
         fs.writeFileSync(stateFile, stringify({ levels: [{ ...EMPTY_PROCESS_STATE }], updated: now.toISOString(), movedTo: run }), 'utf8');
     }
 
@@ -261,7 +267,7 @@ export function migrateDefaultRunProcess(ctx: DefaultRunMigrationContext): Defau
             `## ${now.toISOString()} — the default run's process moved into run ${run}`,
             '',
             `- **Process:** ${process} (the \`default\` run runs no process; vscimpb122)`,
-            `- **Run:** ${run} (\`process-state.${quest}.${run}.yaml\`)`,
+            `- **Run:** ${run} (\`config/process-state.${quest}.${run}.yaml\`)`,
             ...(move.variables.length ? [`- **Chat variables:** ${move.variables.map((v) => `\`${v}\``).join(', ')}`] : []),
             ...(move.sessions.length ? [`- **Sessions:** ${move.sessions.map((s) => `\`${s.from}\` → \`${s.to}\``).join(', ')}`] : []),
             ...(move.queueItems.length ? [`- **Queue items:** ${move.queueItems.length}`] : []),

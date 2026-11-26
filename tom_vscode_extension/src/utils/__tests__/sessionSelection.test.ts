@@ -72,8 +72,10 @@ describe('session selection', () => {
 describe('session selection — helpers', () => {
     test('SL-5: what Delete removes; which prompt-history pairs a choice keeps', () => {
         const detail = deleteSessionDetail('tom_uam', 'walk');
-        assert.match(detail, /history\/sessions\/walk\//);
-        assert.match(detail, /_ai\/memory\/tom_uam\/walk\//);
+        assert.match(detail, /history\/<host>\/sessions\/walk\//);
+        assert.doesNotMatch(detail, /old place/);
+        assert.doesNotMatch(detail, /_ai\/memory\//);
+        assert.match(detail, /the quest memory, _ai\/quests\/tom_uam\/memory\/, stays/);
         assert.match(detail, /cannot be undone/);
         assert.equal(subsystemInSessions('anthropic:walk', ['walk']), true);
         assert.equal(subsystemInSessions('anthropic:chat', ['walk']), false);

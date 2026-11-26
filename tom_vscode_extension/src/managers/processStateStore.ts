@@ -2,7 +2,7 @@
  * ProcessStateStore — the process the active quest follows and where it is.
  *
  * Definitions come from `_ai/processes/<id>/` and the state from
- * `_ai/quests/<quest>/process-state.<quest>.yaml` (src/utils/processRepository.ts):
+ * `_ai/quests/<quest>/config/process-state.<quest>.yaml` (src/utils/processRepository.ts):
  * the state belongs to the quest, so it is the same in every window and on
  * every machine, and switching the quest switches it. The store follows the
  * `quest` chat variable, watches both kinds of files (another window, an MCP
@@ -140,7 +140,7 @@ export class ProcessStateStore {
         const ws = WsPaths.wsRoot;
         if (ws) {
             const ai = WsPaths.aiFolder;
-            for (const glob of [`${ai}/processes/**`, `${ai}/quests/*/process-state.*.yaml`]) {
+            for (const glob of [`${ai}/processes/**`, `${ai}/quests/*/config/process-state.*.yaml`]) {
                 const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(ws, glob));
                 const onFile = (): void => this.reload();
                 watcher.onDidCreate(onFile);

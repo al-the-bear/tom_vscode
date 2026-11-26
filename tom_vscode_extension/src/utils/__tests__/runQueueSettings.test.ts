@@ -5,7 +5,8 @@
  *   RS-2 the old shape (top-level keys): the `default` run's settings and the start values; ill-typed values ignored
  *   RS-3 `runs:` over the start values, per run; `default` always there; run names normalised
  *   RS-4 written back: `runs:` with the file keys, `default` first, each entry complete (an unset optional value is
- *        `""`), so a later top-level value does not reach a run with settings of its own
+ *        `""`), so a later top-level value does not reach a run with settings of its own; the transport (always
+ *        `anthropic`) is not written
  *   RS-5 Make default (vscimpb60g): the shown settings (every per-run setting but the walk continuations) of a run
  *        over the start values; the fields that differ (unset equals `""`)
  */
@@ -27,14 +28,13 @@ describe('queue settings per run', () => {
 
     test('RS-2: the old shape', () => {
         const r = readRunQueueSettings({
-            'auto-send-enabled': false, 'auto-pause-enabled': false, 'response-timeout-minutes': 2, 'walk-continuations': -1,
-            'default-transport': 'anthropic', 'default-anthropic-profile-id': 'p', 'default-message-template-id': '',
+            'auto-send-enabled': false, 'auto-pause-enabled': false, 'walk-continuations': -1,
+            'default-anthropic-profile-id': 'p', 'default-message-template-id': '',
         });
         assert.equal(r.start.autoSend, false);
         assert.equal(r.start.autoPause, false);
-        assert.equal('responseTimeoutMinutes' in r.start, false, 'the removed response timeout is not read');
         assert.equal(r.start.walkContinuations, BUILTIN_RUN_QUEUE_SETTINGS.walkContinuations, 'an invalid count is ignored');
-        assert.equal(r.start.defaultTransport, 'anthropic');
+        assert.equal(r.start.defaultTransport, 'anthropic', 'the one transport');
         assert.equal(r.start.defaultAnthropicProfileId, 'p');
         assert.equal(r.start.defaultMessageTemplateId, undefined, '"" is unset');
         assert.deepEqual(r.runs.get('default'), r.start);
@@ -42,13 +42,13 @@ describe('queue settings per run', () => {
 
     test('RS-3: runs over the start values', () => {
         const r = readRunQueueSettings({
-            'default-transport': 'anthropic',
-            runs: { collab: { 'auto-send-enabled': false, 'default-agent-sdk-session': 'idea' }, ' Other ': { 'default-transport': 'copilot' }, '': { 'auto-send-enabled': false } },
+            'auto-pause-enabled': false,
+            runs: { collab: { 'auto-send-enabled': false, 'default-agent-sdk-session': 'idea' }, ' Other ': { 'auto-pause-enabled': true }, '': { 'auto-send-enabled': false } },
         });
         assert.deepEqual([...r.runs.keys()].sort(), ['Other', 'collab', 'default'], 'names trimmed, an empty one skipped');
         assert.equal(r.runs.get('collab')!.autoSend, false);
-        assert.equal(r.runs.get('collab')!.defaultTransport, 'anthropic', 'from the start values');
-        assert.equal(r.runs.get('Other')!.defaultTransport, 'anthropic', 'a stored copilot is read as anthropic');
+        assert.equal(r.runs.get('collab')!.autoPause, false, 'from the start values');
+        assert.equal(r.runs.get('Other')!.autoPause, true);
         assert.equal(r.runs.get('collab')!.defaultAgentSdkSession, 'idea');
         assert.equal(r.runs.get('default')!.autoSend, true);
     });
@@ -59,6 +59,7 @@ describe('queue settings per run', () => {
         assert.deepEqual(Object.keys(file), ['default', 'alpha', 'zeta']);
         assert.equal(file.zeta['auto-pause-enabled'], false);
         assert.equal(file.default['default-anthropic-profile-id'], '', 'an unset optional value is written as ""');
+        assert.equal('default-transport' in file.default, false, 'the transport (always anthropic) is not written');
         assert.deepEqual(readRunQueueSettings({ runs: file }).runs.get('zeta'), r.runs.get('zeta'), 'read back the same');
         const later = readRunQueueSettings({ 'default-anthropic-profile-id': 'pTop', runs: file });
         assert.equal(later.runs.get('zeta')!.defaultAnthropicProfileId, undefined, 'a later top-level value does not reach a run with its own entry');
@@ -68,7 +69,7 @@ describe('queue settings per run', () => {
     test('RS-5: Make default', () => {
         assert.deepEqual([...DEFAULT_SETTING_FIELDS].sort(), [
             'autoContinue', 'autoPause', 'autoSend', 'autoStart', 'defaultAgentSdkSession', 'defaultAnthropicConfigId', 'defaultAnthropicProfileId',
-            'defaultMessageTemplateId', 'defaultRole', 'defaultTransport',
+            'defaultMessageTemplateId', 'defaultRole',
         ], 'every per-run setting a tab shows, not the walk continuations');
         const start = { ...BUILTIN_RUN_QUEUE_SETTINGS, defaultMessageTemplateId: 'tOld', walkContinuations: 3 };
         const from = { ...BUILTIN_RUN_QUEUE_SETTINGS, autoSend: false, defaultTransport: 'anthropic' as const, defaultAnthropicProfileId: 'p', walkContinuations: 0 };

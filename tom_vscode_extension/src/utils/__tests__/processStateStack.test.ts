@@ -7,7 +7,8 @@
  *   PS-2 a stack is written as `levels`; the top level is the position, and writing the position
  *        keeps the levels below it
  *   PS-3 the migration rewrites a flat file as a stack (its `updated` kept), leaves a stack alone, lists it
- *        in a dry run without writing, and stamps format version 2; a second run lists nothing
+ *        in a dry run without writing, and stamps format version 2; a second run lists nothing. The file
+ *        starts where a format version 10 `_ai` has it (the quest folder's top) and ends in `config/`
  *   PS-4 every reader sees the same position before and after the conversion (after it, in the run the process
  *        moved to off `default`, format version 9): the repository, the chat
  *        variables (processVariableValues) and the system prompt's *Current process* (processContextBlock)
@@ -57,13 +58,15 @@ const DEF: ProcessDefinition = {
 
 function workspace() {
     const ai = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'process-stack-')), '_ai');
-    fs.mkdirSync(path.join(ai, 'quests', 'qa'), { recursive: true });
+    fs.mkdirSync(path.join(ai, 'quests', 'qa', 'config'), { recursive: true });
     fs.mkdirSync(path.join(ai, 'processes', 'demo'), { recursive: true });
     fs.writeFileSync(path.join(ai, 'processes', 'demo', 'demo.process.yaml'), stringifyProcessDefinition(DEF));
     fs.writeFileSync(path.join(ai, 'processes', 'demo', 'demo.md'), 'Demo process');
-    const file = path.join(ai, 'quests', 'qa', 'process-state.qa.yaml');
+    const file = path.join(ai, 'quests', 'qa', 'config', 'process-state.qa.yaml');
+    // Where an `_ai` of format version 10 has it: the quest folder's top level.
+    const v10File = path.join(ai, 'quests', 'qa', 'process-state.qa.yaml');
     const repo = new ProcessRepository(path.join(ai, 'processes'), path.join(ai, 'quests'));
-    return { ai, file, repo };
+    return { ai, file, v10File, repo };
 }
 
 const migrate = (ai: string, apply: boolean) =>
@@ -96,12 +99,14 @@ describe('process state stack', () => {
     });
 
     test('PS-3: the migration converts flat files', () => {
-        const { ai, file } = workspace();
-        fs.writeFileSync(file, FLAT);
+        const { ai, file, v10File } = workspace();
+        fs.writeFileSync(v10File, FLAT);
         const dry = migrate(ai, false);
         assert.ok(dry.changes.some((c) => c.quest === 'qa' && c.step === 'process-state'));
-        assert.equal(fs.readFileSync(file, 'utf8'), FLAT, 'a dry run writes nothing');
+        assert.ok(dry.changes.some((c) => c.quest === 'qa' && c.step === 'default-run'), 'the dry run lists the steps after the move');
+        assert.equal(fs.readFileSync(v10File, 'utf8'), FLAT, 'a dry run writes nothing');
         migrate(ai, true);
+        assert.equal(fs.existsSync(v10File), false, 'moved into config/');
         // Format version 9 then moves the process off `default` into a run named after it: the stack goes there.
         const raw = parse(fs.readFileSync(file.replace(/\.yaml$/, '.demo.yaml'), 'utf8'));
         assert.equal(raw.levels.length, 1);

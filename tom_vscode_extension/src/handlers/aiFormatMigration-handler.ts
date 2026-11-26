@@ -22,6 +22,7 @@ import { AI_FORMAT_VERSION } from '../utils/aiFormatVersion';
 import {
     acquireMigrationLock,
     lockHolds,
+    makeGitUntrack,
     makeMigrationMerger,
     migrationNeed,
     migrationReportMarkdown,
@@ -119,7 +120,7 @@ export function migrationPageState(d: MigrationPageDeps, need: MigrationNeed, no
     if (lock && lock.windowId !== d.windowId() && lockHolds(lock, now, (id) => d.isAlive(id))) {
         return { phase: 'locked', to: need.to, from: need.from, reason: need.reason, holder: `window ${lock.windowId}, since ${lock.startedAt}`, message: 'Migration is already running in another window.' };
     }
-    const result = runAiFormatMigration({ aiRoot, hostSlug: d.host(), apply: false, merge: () => undefined, ...configPaths(d) });
+    const result = runAiFormatMigration({ aiRoot, hostSlug: d.host(), apply: false, merge: () => undefined, ...configPaths(d), trackedIgnored: makeGitUntrack(aiRoot).trackedIgnored });
     const markdown = migrationReportMarkdown(result, false, now);
     lastReport = { markdown, result };
     return {
@@ -153,7 +154,7 @@ export function applyMigration(d: MigrationPageDeps, now = new Date()): Migratio
     let result: FormatMigrationResult;
     try {
         // The extension's own merge drivers: no git and no registered driver needed (vscimpb142c).
-        result = runAiFormatMigration({ aiRoot, hostSlug: d.host(), apply: true, merge: makeMigrationMerger(), ...configPaths(d) });
+        result = runAiFormatMigration({ aiRoot, hostSlug: d.host(), apply: true, merge: makeMigrationMerger(), ...configPaths(d), ...makeGitUntrack(aiRoot) });
     } catch (e) {
         releaseMigrationLock(aiRoot, d.windowId());
         return { phase: 'failed', to: need.to, from: need.from, message: `The migration stopped: ${(e as Error).message}` };

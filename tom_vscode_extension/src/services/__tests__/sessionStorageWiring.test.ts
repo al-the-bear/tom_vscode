@@ -8,14 +8,14 @@
  *   SW-2 a send selects its session's everything: history scope,
  *        tool trail (one per session, keys past the stored results, results in the session's folder); the live trail goes
  *        to the session; compaction and memory extraction run for the session
- *   SW-3 the compacted history is the quest's (read at every send; OLD PLACE: the session's own until the quest has
+ *   SW-3 the compacted history is the quest's (read at every send; the session's old one in history/sessions/<s>/ until the quest has
  *        one); the session keeps its rolling tail and accumulator in its folder; Rebuild history and memory takes no
  *        session; nothing writes a session's compacted history
  *   SW-4 a based per-prompt session never clears its base's accumulator: only a session that writes its history
  *        builds, and its accumulator is cleared only after a successful build
  *   SW-5 the quest memory has no session level (`_ai/quests/<quest>/memory/`) and there is no shared memory: the
- *        memory service keeps no active session, a send hands its session to the injection (`memorySession`) and to
- *        the extraction; the migration to per-session storage runs on first use of a quest's history
+ *        memory service keeps no active session, the injection takes no session, a send hands its session to the
+ *        extraction; the migration to per-session storage runs on first use of a quest's history
  *   SW-6 a temporary session's whole storage is removed with it; clearing a session clears that session's tool trail
  */
 
@@ -49,7 +49,7 @@ describe('per-session storage wiring', () => {
         const transportWrites = transport.split('\n').filter((l) => l.trim().startsWith('ANTHROPIC_SUBSYSTEM') || l.trim().endsWith('trailSubsystem ?? ANTHROPIC_SUBSYSTEM,'));
         assert.ok(transportWrites.length >= 6 && transportWrites.every((l) => l.includes('trailSubsystem ??')), 'every transport write');
         assert.match(body(trail, 'getSubsystemPath('), /sessionTrailFolder\(questHistoryRoot\(quest\), subsystem\.session, subsystem\.category\)/);
-        assert.match(body(trail, 'private resolveSummaryFile('), /sessionSummaryFile\(questHistoryRoot\(quest\), subsystem\.session, quest, 'anthropic', kind\)/);
+        assert.match(body(trail, 'private resolveSummaryFile('), /if \(subsystem\.type === 'anthropic' && subsystem\.session\) \{ return undefined; \}/, 'a session\'s turns go to the host trail only');
     });
 
     test('SW-2: a send selects its session', () => {
@@ -69,11 +69,11 @@ describe('per-session storage wiring', () => {
     test('SW-3: the history is the quest\'s; the session keeps its tail', () => {
         const seed = body(handler, 'private seedHistoryFromSnapshot(');
         assert.match(seed, /this\.loadQuestHistory\(questId\)/, 'the quest\'s history');
-        assert.match(seed, /loadLatestHistorySnapshotIn<unknown>\(historyFolder\)/, 'OLD PLACE: the session\'s history.json, read only');
+        assert.match(seed, /loadLatestHistorySnapshotIn<unknown>\(this\.oldSessionHistoryFolder\(questId\)\)/, 'the session\'s old history.json, read only');
         assert.match(seed, /loadCompactionRoundsIn\(historyFolder\)/, 'the session\'s own accumulator');
         assert.match(seed, /this\.runQuestHistoryBuild\(questId, \{ extract: false \}\)/, 'no history yet: the first build');
         assert.doesNotMatch(seed, /shared/, 'no session is excluded');
-        assert.match(body(handler, 'private loadQuestHistory('), /loadQuestHistoryBlocks\(questFolder, this\.scopeFolder\(questId\)\)/);
+        assert.match(body(handler, 'private loadQuestHistory('), /loadQuestHistoryBlocks\(questFolder, this\.oldSessionHistoryFolder\(questId\)\)/);
         assert.match(body(handler, 'async rebuildQuestHistoryAndMemory('), /this\.runQuestHistoryBuild\(quest, \{ extract: true \}\)/);
         assert.doesNotMatch(handler, /recreateHistoryFromTrail|recreateMemoryFromTrail|rebuildHistoryFromTrail|saveBlocksToDisk|persistSessionHistory/, 'nothing writes a session\'s compacted history');
         const panel = source('src', 'handlers', 'chatPanel-handler.ts');
@@ -101,13 +101,10 @@ describe('per-session storage wiring', () => {
         for (const file of ['src/handlers/anthropic-handler.ts', 'src/handlers/memoryPanel-handler.ts', 'src/tools/tool-executors.ts', 'src/tools/memory-tools.ts']) {
             assert.doesNotMatch(source(...file.split('/')), /setActiveSession|withSession\(|\.activeSession\b/, `${file} names no memory session`);
         }
-        // The send's session is handed over where it is needed: the injection (old place) and the extraction.
-        assert.ok((handler.match(/memorySession: this\.currentSessionName\(\),/g) ?? []).length >= 3, 'system prompt, user-message template, wrapper');
-        assert.match(source('src', 'utils', 'variableResolver.ts'), /svc\.injectForSystemPrompt\(budgetTokens, quest \|\| undefined, memorySuffix, memorySession\)/);
-        // With a suffix the old place's bucket is the `default@default` session's.
-        assert.match(body(memory, 'injectForSystemPrompt('), /suffix \? MIGRATION_TARGET_SESSION : \(session \|\| MIGRATION_TARGET_SESSION\)/);
-        assert.match(body(memory, 'historyFolder(questId?: string): string {'), /this\.ensureSessionStorage\(quest\)/);
-        assert.match(body(memory, 'ensureSessionStorage(questId?: string): void {'), /migrateQuestToSessionStorage\(/);
+        // The injection takes no session: the quest memory has no session level.
+        assert.doesNotMatch(handler, /memorySession/);
+        assert.match(source('src', 'utils', 'variableResolver.ts'), /svc\.injectForSystemPrompt\(budgetTokens, quest \|\| undefined, memorySuffix\)/);
+        assert.doesNotMatch(memory, /ensureSessionStorage|migrateQuestToSessionStorage/, 'no runtime storage migration: the format migration ran before');
         // Both extraction call sites write candidates, never a curated file.
         const compaction = source('src', 'services', 'history-compaction.ts');
         assert.equal((compaction.match(/memorySvc\.addCandidates\(extracted, \{ session: (options|params)\.session, targetFile: tpl\.targetFile \}, (options|params)\.questId\)/g) ?? []).length, 2);
@@ -117,7 +114,7 @@ describe('per-session storage wiring', () => {
 
     test('SW-6: removal and clearing', () => {
         const queue = source('src', 'managers', 'promptQueueManager.ts');
-        assert.match(body(queue, 'private _deleteTemporarySession('), /removeSessionStorage\(folder, TwoTierMemoryService\.instance\.memoryRoot\(\)/);
+        assert.match(body(queue, 'private _deleteTemporarySession('), /removeSessionStorage\(folder, name\)/);
         assert.match(body(handler, 'clearSession(sessionKey'), /this\.toolTrailFor\(sessionKey\)\.clear\(\)/);
     });
 });

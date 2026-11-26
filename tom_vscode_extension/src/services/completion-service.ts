@@ -26,6 +26,7 @@
 
 import * as path from 'path';
 
+import { QUEST_CONFIG_FOLDER } from '../utils/questConfigFiles';
 import { claudeDirsUpward } from './claudeDirs';
 
 // ===========================================================================
@@ -162,9 +163,10 @@ function isUnder(folder: string, file: string): boolean {
 /**
  * Whether a file of the quest folder is a technical one — what the extension
  * keeps there for itself rather than the user's documents: the `history/`
- * folder (trails, sessions, compacted history), the per-quest configuration
- * and state (`extension_config.*`, `process-state.*`, `quest-refresh.yaml`,
- * `telegram.*.json`, `*.session.json`, `tool_timings.md`, `last_request*`),
+ * folder (trails, sessions, compacted history), the `config/` folder (the
+ * process states and extension configurations), the per-quest state
+ * (`quest-refresh.yaml`, `telegram.*.json`, `*.session.json`,
+ * `tool_timings.md`, `last_request*`),
  * the archived and deleted todos, and dot-files. `rel` is relative to the
  * quest folder, POSIX separators.
  */
@@ -172,7 +174,8 @@ export function isTechnicalQuestFile(rel: string): boolean {
     const parts = rel.split('/');
     const name = parts[parts.length - 1];
     if (parts.slice(0, -1).includes('history') || parts.some((p) => p.startsWith('.'))) { return true; }
-    return /^(extension_config\.|process-state\.|telegram\.[^/]*\.json$|quest-refresh\.yaml$|tool_timings\.md$|last_request)/.test(name)
+    if (parts.length > 1 && parts[0] === QUEST_CONFIG_FOLDER) { return true; }
+    return /^(telegram\.[^/]*\.json$|quest-refresh\.yaml$|tool_timings\.md$|last_request)/.test(name)
         || /\.session\.json$/.test(name)
         || /^[^.]+-(archived|deleted)\..*\.todo\.yaml$/.test(name);
 }

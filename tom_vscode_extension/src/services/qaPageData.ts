@@ -4,7 +4,7 @@
  * per-machine read marker and the "new" counters.
  *
  * - Questions: every host's Q&A journal of each quest (services/qaJournal.ts
- *   readQaItems, with an old `questions.<quest>.md`) and this machine's answer
+ *   readQaItems) and this machine's answer
  *   store (utils/userAnswers.ts).
  * - Decisions: the quest's `todos*.todo.yaml` files, the archived ones
  *   included (managers/questTodoManager.ts).

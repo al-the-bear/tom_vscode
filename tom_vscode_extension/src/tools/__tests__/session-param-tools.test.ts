@@ -24,6 +24,8 @@ installVscodeStub({
 });
 
 import { getPromptPairImpl, listPromptPairsImpl } from '../prompt-history-tools.js';
+import { appendHostTrailTurn } from '../../services/hostTrail.js';
+import { hostSlugOf } from '../../utils/hostSlug.js';
 import { listPastToolCallsImpl, readPastToolResultImpl, searchPastToolResultsImpl, type PastToolEntry, type ToolHistoryAccess } from '../past-tool-access-tools.js';
 import { ToolTrail, setActiveToolTrail } from '../../services/tool-trail.js';
 
@@ -39,11 +41,11 @@ before(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'session-param-tools-'));
     const history = path.join(tmp, '_ai', 'quests', QUEST, 'history');
     for (const [session, id, ts] of [['chat', 'req-C', '2026-10-27T10:00:00.000Z'], ['walk', 'req-W', '2026-10-27T11:00:00.000Z']]) {
-        const root = path.join(history, 'sessions', session);
-        summary(path.join(root, `${QUEST}.anthropic.prompts.md`), 'PROMPT', id, ts, `prompt of ${session}`);
-        summary(path.join(root, `${QUEST}.anthropic.answers.md`), 'ANSWER', id, ts, `answer of ${session}`);
+        // This host's trail: the Anthropic sessions' pairs; each session has its storage.
+        appendHostTrailTurn(path.dirname(history), { id, time: ts, host: hostSlugOf(), session, profile: '', model: '', prompt: `prompt of ${session}`, answer: `answer of ${session}` }, 2000);
+        fs.mkdirSync(path.join(history, hostSlugOf(), 'sessions', session), { recursive: true });
     }
-    fs.writeFileSync(path.join(history, 'walk.session.json'), JSON.stringify({ mode: 'per-prompt' }));
+    fs.writeFileSync(path.join(history, hostSlugOf(), 'walk.session.json'), JSON.stringify({ mode: 'per-prompt' }));
     summary(path.join(history, `${QUEST}.copilot.prompts.md`), 'PROMPT', 'req-K', '2026-10-27T09:00:00.000Z', 'copilot prompt');
     summary(path.join(history, `${QUEST}.copilot.answers.md`), 'ANSWER', 'req-K', '2026-10-27T09:00:00.000Z', 'copilot answer');
 });

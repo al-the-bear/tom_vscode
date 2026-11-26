@@ -45,8 +45,8 @@ import { currentProcessRun } from '../services/processRunContext';
 // Types
 // ============================================================================
 
-/** Identifies who triggered a variable change. */
-export type ChangeSource = 'user' | 'localLlm' | 'copilot' | 'anthropic' | 'mcp';
+/** Who triggered a change: the user, a transport, or `agent` (an agent's tool call that names no transport). */
+export type ChangeSource = 'user' | 'localLlm' | 'agent' | 'anthropic' | 'mcp';
 
 /** A single entry in the change log. */
 export interface ChangeLogEntry {

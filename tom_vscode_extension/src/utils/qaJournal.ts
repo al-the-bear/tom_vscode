@@ -92,8 +92,6 @@ export interface QaItem extends QaBlock {
     reply?: QaReply;
     /** The quest whose journal it is in (set by the reader of several quests). */
     quest?: string;
-    /** Read from the old questions journal, whose host is not known. */
-    legacy?: boolean;
 }
 
 /** The journal's file name for `host`. */

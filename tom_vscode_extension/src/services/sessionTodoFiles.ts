@@ -3,8 +3,7 @@
  * notes for itself while it carries out a quest todo, in the flow of that
  * session. Each session keeps them in its own file inside its storage root,
  * `_ai/quests/<quest>/history/<host>/sessions/<session>/session-todos.todo.yaml`
- * (OLD PLACE: `history/sessions/<session>/` while the session's storage is
- * there; src/services/sessionStorage.ts), with its `-archived` / `-deleted`
+ * (src/services/sessionStorage.ts), with its `-archived` / `-deleted`
  * siblings, which is not versioned (the `_ai` .gitignore) and goes when the
  * session is deleted (removeSessionStorage).
  *
@@ -26,16 +25,15 @@ export function sessionTodoFile(historyRoot: string, session: string): string {
 
 /**
  * The session todo file relative to the quest folder:
- * `history/<host>/sessions/<session>/session-todos.todo.yaml`, or the old place's
- * `history/sessions/<session>/…` while the session's storage is there.
+ * `history/<host>/sessions/<session>/session-todos.todo.yaml`.
  */
 export function sessionTodoSourceFile(historyRoot: string, session: string): string {
     return ['history', ...path.relative(historyRoot, sessionTodoFile(historyRoot, session)).split(path.sep)].join('/');
 }
 
-/** The session a quest-folder-relative session todo file belongs to (either place); undefined for any other path. */
+/** The session a quest-folder-relative session todo file belongs to; undefined for any other path. */
 export function sessionOfTodoSourceFile(sourceFile: string): string | undefined {
-    const m = /^history\/(?:[^/]+\/)?sessions\/([^/]+)\/session-todos\.todo\.yaml$/.exec(sourceFile.replace(/\\/g, '/'));
+    const m = /^history\/[^/]+\/sessions\/([^/]+)\/session-todos\.todo\.yaml$/.exec(sourceFile.replace(/\\/g, '/'));
     return m ? m[1] : undefined;
 }
 

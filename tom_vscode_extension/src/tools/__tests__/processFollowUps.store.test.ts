@@ -123,7 +123,7 @@ describe('follow-up processes: the store', () => {
         assert.deepEqual(run.origins?.map((o) => [o.process, o.phase, o.step, o.level, o.carried, o.context]), [
             ['change', 'intent', 'gate1', 'phase', { change: 'CHG-7' }, { scope: 'CHG-7 (intent)' }],
         ]);
-        assert.match(fs.readFileSync(path.join(QDIR, `process-state.${QUEST}.chg7.yaml`), 'utf8'), /origins:\n\s+- process: change/);
+        assert.match(fs.readFileSync(path.join(QDIR, 'config', `process-state.${QUEST}.chg7.yaml`), 'utf8'), /origins:\n\s+- process: change/);
         // The run's chat variables stay; the follow-up's prompts read where it came from.
         assert.equal(chat.getRaw('change'), 'CHG-7');
         const vars = store().variables();

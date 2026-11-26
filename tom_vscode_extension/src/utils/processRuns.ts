@@ -2,7 +2,7 @@
  * Runs of a quest's processes — several positions in one quest (vscimpb29).
  *
  * A run is a named process position of its own: a state file beside the
- * quest's own, `process-state.<quest>.<run>.yaml`, holding a stack of levels
+ * quest's own in its `config/` folder, `process-state.<quest>.<run>.yaml`, holding a stack of levels
  * like the quest's file (any process; two runs may follow different ones).
  * The `default` run is the quest's file as it always was,
  * `process-state.<quest>.yaml`: it is always there and cannot be deleted. It
@@ -10,8 +10,8 @@
  * ({@link DEFAULT_RUN_NO_PROCESS}); Reset Run clears a process an older
  * `default` still holds.
  *
- * Pure name rules and file names, no fs (processRepository.ts reads and
- * writes the files).
+ * Pure name rules and file names, no fs (questConfigFiles.ts places them in
+ * the quest's `config/` folder, processRepository.ts reads and writes them).
  */
 
 /** The run every quest has: its own state file. */
@@ -48,7 +48,7 @@ export function runStateFileName(quest: string, run: string = DEFAULT_RUN): stri
     return run === DEFAULT_RUN ? `process-state.${quest}.yaml` : `process-state.${quest}.${run}.yaml`;
 }
 
-/** The run a file of the quest folder is the state of, or null when it is none. */
+/** The run a file of the quest's `config/` folder is the state of, or null when it is none. */
 export function runOfStateFile(quest: string, fileName: string): string | null {
     if (fileName === runStateFileName(quest)) { return DEFAULT_RUN; }
     const prefix = `process-state.${quest}.`;

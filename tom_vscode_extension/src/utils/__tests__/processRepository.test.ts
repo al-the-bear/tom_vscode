@@ -92,7 +92,7 @@ describe('ProcessRepository', () => {
         assert.deepEqual(repo.readState('q1'), EMPTY_PROCESS_STATE);
         const state = selectProcess(repo.definitions().get('flow')!);
         repo.writeState('q1', state);
-        assert.equal(fs.existsSync(path.join(root, 'quests', 'q1', 'process-state.q1.yaml')), true);
+        assert.equal(fs.existsSync(path.join(root, 'quests', 'q1', 'config', 'process-state.q1.yaml')), true);
         assert.deepEqual(repo.readState('q1'), state);
     });
 });

@@ -6,7 +6,7 @@
  *        line pointing at aspect-guideline.schema.json; nothing to change but the file name; refusals (no map,
  *        both keys, broken YAML)
  *   AF-2 on a sandbox `_ai`: a dry run lists the rename and writes nothing; applied, `section.yaml` is gone and
- *        `aspect.yaml` reads as an aspect with its choices; the stamp says 10; a second run lists nothing
+ *        `aspect.yaml` reads as an aspect with its choices; the stamp says the current version; a second run lists nothing
  *   AF-3 a folder with both files is a problem and left as it is; the stamp is not written then
  */
 
@@ -63,7 +63,7 @@ describe('aspect files (format version 10)', () => {
     test('AF-2: on a sandbox _ai', () => {
         const { ai, folder } = sandbox();
         try {
-            assert.equal(AI_FORMAT_VERSION, 10);
+            assert.ok(AI_FORMAT_VERSION >= 10);
             const dry = run(ai, false);
             const step = dry.changes.filter((c) => c.step === 'aspect-files');
             assert.equal(step.length, 1, JSON.stringify(dry.changes));
@@ -78,7 +78,7 @@ describe('aspect files (format version 10)', () => {
             const { sections, problems } = readAspectSections(path.join(ai, 'aspect_guidelines'));
             assert.deepEqual(problems, []);
             assert.deepEqual(sections.map((s) => [s.id, s.defaultOption, s.options.map((o) => o.name)]), [['extra_explanations', 'short', ['short', 'long']]]);
-            assert.equal(readAiFormatStamp(ai)?.version, 10);
+            assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);
             assert.deepEqual(run(ai, true).changes, [], 'a second run: nothing');
         } finally {
             fs.rmSync(ai, { recursive: true, force: true });

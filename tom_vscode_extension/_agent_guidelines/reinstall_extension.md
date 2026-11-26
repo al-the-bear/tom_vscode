@@ -166,7 +166,7 @@ packages, and the transition copies of root guidelines (links to them point to
 the root's copy through the token). `.github/copilot-instructions.md` is not
 packed. From the quest it
 leaves out what its use on this machine writes (`history/`, `session-todo.*`,
-the host's `extension_config`, `process-state`); anywhere else such host-bound
+the host's `config/extension_config`, `config/process-state`); anywhere else such host-bound
 files, and literal secrets, make it refuse and write nothing. The result is
 `resources/workspace_template.zip` (in the VSIX, required by
 `check-vsix-contents.cjs`) and a copy beside the VSIX; @T: Setup New Workspace
@@ -303,7 +303,7 @@ never hard-coded in a script and never left to vsce (VB-1 – VB-3).
 - Command appears with updated title / keybinding in the palette.
 - Panel / view naming and sections are updated (`@CHAT`, `@WS`, `@TOM`).
 - No activation errors in "Extension Host" output or "Tom Debug" output channel.
-- For chat changes: send a test prompt and confirm trails land in the session's folder, `_ai/quests/<quest>/history/sessions/<session>/` (`live-trail.md`, `trail/`).
+- For chat changes: send a test prompt and confirm trails land in the session's folder, `_ai/quests/<quest>/history/<host>/sessions/<session>/` (`live-trail.md`, `trail/`), and the turn in the host trail `history/trail.<host>.md`.
 
 ## Unattended runs on Windows (over SSH)
 

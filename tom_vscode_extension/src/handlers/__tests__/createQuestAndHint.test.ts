@@ -67,7 +67,7 @@ after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 const FILES = (id: string): string[] => [
     `${id}.code-workspace`, `overview.${id}.md`, `short_description.${id}.md`, `todos.${id}.todo.yaml`, 'notes/quest-notes.md', `deferred.${id}.md`,
     `progress.${id}.md`, `open_topics.${id}.md`, `references.${id}.md`,
-    `quest_refresh.${id}.md`, `quest_documentation_update.${id}.md`, `extension_config.${id}.yaml`,
+    `quest_refresh.${id}.md`, `quest_documentation_update.${id}.md`, `config/extension_config.${id}.yaml`,
 ];
 /** A guideline with the old Active Quests table: the scaffold leaves it alone (02_wslayout-11). */
 const ACTIVE_QUESTS_FILE = path.join('_copilot_guidelines', 'quests_and_processes.md');
@@ -118,7 +118,7 @@ describe('Create New Quest', () => {
         // No journal files: the Q&A journal (qa.<host>.<quest>.md) is created by its first entry; decisions.<quest>.md is no file.
         assert.equal(fs.existsSync(path.join(folder, 'decisions.my_quest.md')), false);
         assert.equal(fs.existsSync(path.join(folder, 'questions.my_quest.md')), false);
-        assert.deepEqual(parseYaml(fs.readFileSync(path.join(folder, 'extension_config.my_quest.yaml'), 'utf8')), {});
+        assert.deepEqual(parseYaml(fs.readFileSync(path.join(folder, 'config', 'extension_config.my_quest.yaml'), 'utf8')), {});
         // The todo.
         assert.equal(r.todoId, 'questsetup1_akho-define-the-quest');
         const todoFile = path.join(folder, 'todos.my_quest.todo.yaml');

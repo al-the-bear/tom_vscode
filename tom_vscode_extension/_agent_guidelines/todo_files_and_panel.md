@@ -388,8 +388,7 @@ _ai/quests/<quest>/history/<host>/sessions/<session>/session-todos.todo.yaml
   `default`. The panel passes `shownSession` explicitly, so a click never lands
   in the session of an agent that happens to be running.
 - The file is **machine-local** like the session's whole storage: the `_ai`
-  `.gitignore` excludes a host's `quests/*/history/*/sessions/` (and, at the old
-  place, `quests/*/history/sessions/*/session-todos*.todo.yaml`). It goes when the
+  `.gitignore` excludes a host's `quests/*/history/*/sessions/`. It goes when the
   session is deleted (`removeSessionStorage` removes the storage root); the
   SESSIONS view's confirmation names the open todos that go with it.
 - The SESSION TODOS view's **session switch** is `planSessionSwitch`

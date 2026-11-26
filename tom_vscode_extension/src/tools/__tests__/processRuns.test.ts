@@ -4,7 +4,7 @@
  *
  *   RN-1 the names: a run name's rules, `default` reserved; the state file of a run and the run of a file name
  *   RN-2 the repository: the quest's own file is `default` (also without a file); a run is
- *        `process-state.<quest>.<run>.yaml`, listed the last changed first; deleting `default` is refused
+ *        `config/process-state.<quest>.<run>.yaml`, listed the last changed first; deleting `default` is refused
  *   RN-3 the store: two runs of different processes move independently; each writes only its own file; selecting a
  *        run makes the state, the moves and the `run` chat variable its own; the window's run is kept per quest;
  *        deleting runs (`default` refused, an unknown one refuses all), a deleted current run leaves `default`
@@ -102,6 +102,7 @@ import { ProcessRepository } from '../../utils/processRepository.js';
 import { ensureRunDefaultSession, readSession } from '../../services/agentSdkSessionStore.js';
 import { EMPTY_PROCESS_STATE } from '../../utils/processDefinition.js';
 import { DEFAULT_RUN, runNameError, runOfStateFile, runStateFileName } from '../../utils/processRuns.js';
+import { processStateFile } from '../../utils/questConfigFiles.js';
 import {
     CREATE_PROCESS_RUN_TOOL, DELETE_PROCESS_RUNS_TOOL, GET_PROCESS_STATE_TOOL, LIST_PROCESS_RUNS_TOOL,
     SELECT_PROCESS_RUN_TOOL, SET_PROCESS_STATE_TOOL,
@@ -143,7 +144,7 @@ type Json = any;
 const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const call = async (tool: { execute: (input: never) => Promise<string> }, input: object = {}): Promise<Json> => JSON.parse(await tool.execute(input as never));
-const fileOf = (run: string): string => path.join(QDIR, runStateFileName(QUEST, run));
+const fileOf = (run: string): string => processStateFile(QDIR, QUEST, run);
 const stepIn = (run: string): string => new ProcessRepository(path.join(WS, '_ai', 'processes'), path.join(WS, '_ai', 'quests')).readState(QUEST, run).step;
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 function clean(): void {
@@ -503,7 +504,7 @@ describe('process runs', () => {
         assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['build', 'build']);
         assert.equal(store().apply({ step: 'g1' }, 'user').ok, true);
         assert.deepEqual([stepIn('chgA'), stepIn('chgB')], ['build', 'g1']);
-        const files = fs.readdirSync(QDIR).filter((f) => /^process-state\./.test(f)).sort();
+        const files = fs.readdirSync(path.join(QDIR, 'config')).filter((f) => /^process-state\./.test(f)).sort();
         assert.ok(files.includes(`process-state.${QUEST}.chgA.yaml`) && files.includes(`process-state.${QUEST}.chgB.yaml`), files.join(', '));
         assert.match(fs.readFileSync(fileOf('chgA'), 'utf8'), /process: change[\s\S]*step: build/);
         assert.match(fs.readFileSync(fileOf('chgB'), 'utf8'), /process: change[\s\S]*step: g1/);

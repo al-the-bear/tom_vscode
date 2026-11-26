@@ -6,7 +6,6 @@
  *        chosen session; the cleared sessions are reported back; Rebuild history and memory takes no session (the
  *        history is the quest's)
  *   SW-2 the status page: the compaction dry run per chosen session (its own rolling history) and the raw trail
- *   SW-3 the compaction-format migration command asks for the sessions; "All sessions" means every session
  *   SW-4 the memory panel works in its chosen session
  *   SW-5 the SESSIONS view: Delete removes the session's whole storage; Reset clears its conversation
  */
@@ -61,13 +60,6 @@ describe('session selection wiring', () => {
         assert.match(viewer, /sessionTrailFolder\(historyRoot, n\)/);
     });
 
-    test('SW-3: the migration command', () => {
-        const ext = source('src', 'extension.ts');
-        const cmd = ext.slice(ext.indexOf("'tomAi.migrate.compactionFormat'"), ext.indexOf("'tomAi.migrate.compactionFormat'") + 2000);
-        assert.match(cmd, /pickSessionsOrAll\(/);
-        assert.match(cmd, /sessions: picked\.all \? 'all' : picked\.sessions/);
-    });
-
     test('SW-4: the memory panel has no session choice', () => {
         // The quest memory has no session level: the panel works on the quest's memory folder.
         const panel = source('src', 'handlers', 'memoryPanel-handler.ts');
@@ -85,7 +77,7 @@ describe('session selection wiring', () => {
         const del = view.slice(view.indexOf("case 'delete'"), view.indexOf("case 'delete'") + 1200);
         assert.match(del, /deleteSessionDetail\(quest, msg\.name, open\)/, 'the confirmation names what goes, the open session todos included');
         assert.ok(del.indexOf('deleteSession(folder, msg.name)') < del.indexOf('removeSessionStorage('), 'the file first: a based-on session refuses');
-        assert.match(del, /removeSessionStorage\(folder, TwoTierMemoryService\.instance\.memoryRoot\(\), quest, msg\.name\)/);
+        assert.match(del, /removeSessionStorage\(folder, msg\.name\)/);
         const reset = view.slice(view.indexOf("case 'reset'"), view.indexOf("case 'delete'"));
         assert.match(reset, /AnthropicHandler\.instance\.clearSession\(msg\.name\)/);
         assert.doesNotMatch(reset, /removeSessionStorage/, 'Reset keeps trails and memory');

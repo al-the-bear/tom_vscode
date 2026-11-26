@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "panels.schema.json",
   "title": "Panel State",
-  "description": "Persistent storage for T2 unified panel draft state (Copilot, Tom AI Chat, AI Conversation, Local LLM).",
+  "description": "Persistent storage for T2 unified panel draft state (Tom AI Chat, AI Conversation, Local LLM).",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -17,7 +17,6 @@
       "properties": {
         "localLlm": { "$ref": "#/$defs/sectionState" },
         "conversation": { "$ref": "#/$defs/sectionState" },
-        "copilot": { "$ref": "#/$defs/sectionState" },
         "tomAiChat": { "$ref": "#/$defs/sectionState" }
       },
       "additionalProperties": { "$ref": "#/$defs/sectionState" }

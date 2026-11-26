@@ -176,7 +176,7 @@ const queue = (): PromptQueueManager => PromptQueueManager.instance;
 const drive = (): Promise<void> => queue().sendNext(new Set(['default', ...queue().items.map((i) => i.processRun?.run ?? i.run ?? 'default')]));
 const store = (): ProcessStateStore => ProcessStateStore.instance!;
 const set = (id: string, status: QueuedPrompt['status']): void => { (queue().getById(id) as QueuedPrompt).status = status; };
-const stateFile = (): string => fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.${TEST_RUN}.yaml`), 'utf8');
+const stateFile = (): string => fs.readFileSync(path.join(WS, '_ai', 'quests', QUEST, 'config', `process-state.${QUEST}.${TEST_RUN}.yaml`), 'utf8');
 function reset(): void {
     for (const i of [...queue().items]) { queue().remove(i.id); }
     useRun(store());

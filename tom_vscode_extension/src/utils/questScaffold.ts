@@ -10,6 +10,7 @@ import * as path from 'path';
 import { buildIdPrefix } from '../tools/id-prefix-tools';
 import { questCodeWorkspaceText } from './workspaceSetup';
 import { DEFAULT_QUEST_NOTES_FILE, QUEST_NOTES_FOLDER } from './notesFiles';
+import { QUEST_CONFIG_FOLDER, sharedExtensionConfigFileName } from './questConfigFiles';
 
 /** Letters, digits and `_`. */
 export const QUEST_ID_PATTERN = /^[A-Za-z0-9_]+$/;
@@ -126,7 +127,7 @@ export function questScaffoldFiles(id: string, name: string, date: Date, purpose
         { name: `references.${id}.md`, content: md(`${name} — References`, 'Quest Files', 'Related Quests', 'Key Documents', 'External References') },
         { name: `quest_refresh.${id}.md`, content: `# Quest Refresh — attention notes (${id})\n\nItems that need your attention and are neither a plain todo nor stable\noverview/notes material. Remove entries once resolved.\n` },
         { name: `quest_documentation_update.${id}.md`, content: `# Documentation update notes — ${id}\n` },
-        { name: `extension_config.${id}.yaml`, content: `# Per-quest extension settings, the same on every machine (one top-level key per subsystem).\n{}\n` },
+        { name: `${QUEST_CONFIG_FOLDER}/${sharedExtensionConfigFileName(id)}`, content: `# Per-quest extension settings, the same on every machine (one top-level key per subsystem).\n{}\n` },
     ];
 }
 

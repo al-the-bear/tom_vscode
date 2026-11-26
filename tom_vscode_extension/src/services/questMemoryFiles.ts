@@ -12,15 +12,13 @@
  *     session it was extracted in and the curated file it is meant for.
  *
  * This module holds what is pure about them: the folder, the file kinds, the
- * candidate entry's text prefix, the injected block, the Memory panel's
- * list, and the reader of the old place (`_ai/memory/<quest>/<session>/`).
+ * candidate entry's text prefix, the injected block and the Memory panel's
+ * list.
  *
  * vscode-free.
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
-import { sessionMemoryFolder } from './sessionStorage';
 
 /** The memory folder's name inside the quest folder. */
 export const QUEST_MEMORY_FOLDER = 'memory';
@@ -134,10 +132,6 @@ export function candidateTargetFile(text: string): string {
     return parseCandidateText(text).targetFile || DEFAULT_MEMORY_FILE;
 }
 
-// ============================================================================
-// The old place
-// ============================================================================
-
 /** One memory file as the injection reads it. */
 export interface MemoryFileBody {
     /** Relative to its folder, `/`-separated. */
@@ -147,52 +141,11 @@ export interface MemoryFileBody {
     mtime: number;
 }
 
-function walkFiles(root: string, sub: string): string[] {
-    const abs = sub ? path.join(root, sub) : root;
-    let names: string[];
-    try { names = fs.readdirSync(abs); } catch { return []; }
-    const out: string[] = [];
-    for (const name of names) {
-        const rel = sub ? `${sub}/${name}` : name;
-        let stat: fs.Stats;
-        try { stat = fs.statSync(path.join(abs, name)); } catch { continue; }
-        if (stat.isDirectory()) { out.push(...walkFiles(root, rel)); } else if (stat.isFile()) { out.push(rel); }
-    }
-    return out;
-}
-
-/** The files of `folder` with their bodies, newest first; `only` keeps one file name. */
-export function readMemoryFolder(folder: string, only?: string): MemoryFileBody[] {
-    const out: MemoryFileBody[] = [];
-    for (const file of walkFiles(folder, '')) {
-        if (only !== undefined && file !== only) { continue; }
-        const abs = path.join(folder, file);
-        try {
-            const stat = fs.statSync(abs);
-            out.push({ file, body: fs.readFileSync(abs, 'utf-8'), bytes: stat.size, mtime: stat.mtimeMs });
-        } catch { /* a file that went away meanwhile */ }
-    }
-    return out.sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file));
-}
-
-/**
- * OLD PLACE (`_ai/memory/<quest>/<session>/`): the memory files a session
- * wrote before the quest memory moved into the quest folder, newest first.
- * Read-only; nothing writes there. With a profile `suffix` only
- * `facts-<suffix>.md` (the caller passes the session `default@default` then).
- * Empty when the old quest folder `_ai/memory/<quest>/` does not exist.
- * Goes with the old folder once its files are moved to the quest folder.
- */
-export function readOldSessionMemory(oldMemoryRoot: string, quest: string, session: string, suffix?: string): MemoryFileBody[] {
-    if (!oldMemoryRoot || !fs.existsSync(path.join(oldMemoryRoot, quest))) { return []; }
-    return readMemoryFolder(sessionMemoryFolder(oldMemoryRoot, quest, session), suffix ? `facts-${suffix}.md` : undefined);
-}
-
 // ============================================================================
 // The injected block
 // ============================================================================
 
-export type InjectedMemoryKind = MemoryFileKind | 'old-session';
+export type InjectedMemoryKind = MemoryFileKind;
 
 export interface InjectedMemoryFile {
     kind: InjectedMemoryKind;
@@ -213,8 +166,6 @@ export interface MemoryBlockInput {
     curated: MemoryFileBody[];
     /** This host's candidates file and its entry lines (newest first), already narrowed to the ones to inject. */
     candidates?: { file: string; lines: string[]; bytes: number; mtime: number };
-    /** OLD PLACE: the old files of the send's session (see {@link readOldSessionMemory}). */
-    oldSession?: { session: string; files: MemoryFileBody[] };
     /** The budget in characters for the blocks together. */
     charBudget: number;
 }
@@ -227,7 +178,7 @@ export function candidatesHeading(file: string): string {
 
 /**
  * The memory block of a prompt: the curated files, then this host's
- * candidates under their own heading, then the old place's files, all within
+ * candidates under their own heading, all within
  * `charBudget`. A file that does not fit is left out and the next one tried;
  * of the candidates as many entries as fit are taken, from the newest on.
  */
@@ -262,13 +213,6 @@ export function buildMemoryBlock(input: MemoryBlockInput): MemoryBlock {
             pieces.push(`${heading}\n${taken.join('\n')}\n`);
             included.push({ kind: 'candidates', file: cand.file, bytes: cand.bytes, mtime: cand.mtime });
             used += size;
-        }
-    }
-
-    // OLD PLACE: the send's session's files of `_ai/memory/<quest>/<session>/`.
-    if (input.oldSession) {
-        for (const f of input.oldSession.files) {
-            addFile('old-session', `### quest/${f.file} (session ${input.oldSession.session})`, f);
         }
     }
 

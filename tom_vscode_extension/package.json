@@ -291,11 +291,6 @@
         "category": "@Tom"
       },
       {
-        "command": "tomAi.migrate.compactionFormat",
-        "title": "@T: Migrate compaction format (block-format + single-line memory)",
-        "category": "@Tom"
-      },
-      {
         "command": "tomAi.openConfig",
         "title": "@T: Open Config",
         "category": "@Tom"

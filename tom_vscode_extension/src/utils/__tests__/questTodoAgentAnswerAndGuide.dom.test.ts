@@ -11,7 +11,7 @@
  *        (id, quest folder, file), never another todo's or another quest's
  *   AG-4 beside the "Your to do" checkbox of a saved todo: "Guide me" in the chat and via the queue;
  *        they post qtGuideUserAction with target chat / queue; the new-todo form has neither
- *   AG-5 the host looks the answer up in the trails (falling back to last_answer) and renders it safely,
+ *   AG-5 the host looks the answer up in this host's trail and the other subsystems' trails (falling back to last_answer) and renders it safely,
  *        and sends / queues on Anthropic with the Todo buttons template for user-action todos
  */
 
@@ -106,7 +106,7 @@ describe('todo detail: agent answer and guide me', () => {
     test('AG-5: the host', () => {
         const host = readFileSync(join(ROOT, 'src', 'handlers', 'questTodoPanel-handler.ts'), 'utf-8');
         assert.match(host, /case 'qtShowAgentAnswer':[\s\S]{0,1500}_latestAgentAnswer\([\s\S]{0,1500}renderQuestLogMarkdown/);
-        assert.match(host, /function _latestAgentAnswer[\s\S]{0,800}latestTodoAnswer\(loadTrailSet/);
+        assert.match(host, /function _latestAgentAnswer[\s\S]{0,800}hostTrailAnswerEntries\(readHostTrail\([\s\S]{0,400}latestTodoAnswer\(/, 'this host\'s trail');
         assert.match(host, /case 'qtShowAgentAnswer':[\s\S]{0,2500}showMarkdownHtmlPreview/);
         const guide = host.slice(host.indexOf("case 'qtGuideUserAction':"), host.indexOf("case 'qtOpenMarkdownPreview':"));
         assert.match(guide, /const use = msg\.type === 'qtGuideUserAction' \? 'userAction' : todoButtonTemplateUse\(todo\)/, 'Guide me: the user-action template setting');

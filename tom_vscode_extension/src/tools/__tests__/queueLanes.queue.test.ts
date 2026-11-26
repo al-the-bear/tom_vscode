@@ -208,8 +208,8 @@ describe('lanes and settings per run', () => {
         assert.equal(statusOf(pa), 'sending');
         await finish(pa);
         assert.equal(stepIn('ra'), 'build');
-        assert.ok(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.ra.yaml`)), 'each run its own state file');
-        assert.ok(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, `process-state.${QUEST}.rb.yaml`)));
+        assert.ok(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, 'config', `process-state.${QUEST}.ra.yaml`)), 'each run its own state file');
+        assert.ok(fs.existsSync(path.join(WS, '_ai', 'quests', QUEST, 'config', `process-state.${QUEST}.rb.yaml`)));
         clean();
     });
 
@@ -325,8 +325,8 @@ describe('lanes and settings per run', () => {
         const file = path.join(getQueueFolder()!, 'queue-settings.yaml');
         const keep = fs.readFileSync(file, 'utf8');
         fs.writeFileSync(file, [
-            'response-timeout-minutes: 30', 'auto-send-enabled: true', 'auto-start-enabled: true',
-            'auto-pause-enabled: false', 'auto-continue-enabled: true', 'walk-continuations: 3', 'default-transport: anthropic',
+            'auto-send-enabled: true', 'auto-start-enabled: true',
+            'auto-pause-enabled: false', 'auto-continue-enabled: true', 'walk-continuations: 3',
             'default-anthropic-profile-id: pOld', 'default-agent-sdk-session: sOld', 'default-message-template-id: tOld',
             'queue-per-run: true', 'held-runs: [x]', '',
         ].join('\n'));
@@ -337,7 +337,6 @@ describe('lanes and settings per run', () => {
             [true, true, false, true, 3, 'anthropic', 'pOld', 'sOld', 'tOld'],
             'the old keys are the default run\'s',
         );
-        assert.equal('responseTimeoutMinutes' in d, false, 'the old answer timeout key is not a setting any more');
         assert.equal(queue().runQueueSettings('brandnew').defaultAnthropicProfileId, 'pOld', 'and a new run\'s start values');
         queue().setRunQueueSettings('r1', { autoPause: true });
         const written = readQueueSettings() as Json;
@@ -357,11 +356,10 @@ describe('lanes and settings per run', () => {
         const file = path.join(getQueueFolder()!, 'queue-settings.yaml');
         const keep = fs.readFileSync(file, 'utf8');
         fs.writeFileSync(file, [
-            'auto-pause-enabled: true', 'walk-continuations: 3', 'default-transport: copilot', 'default-message-template-id: tOld',
-            'compaction-model: keep-me', 'runs:', '  default:', '    auto-send-enabled: false', '  other:', '    default-transport: anthropic', '',
+            'auto-pause-enabled: true', 'walk-continuations: 3', 'default-message-template-id: tOld',
+            'compaction-model: keep-me', 'runs:', '  default:', '    auto-send-enabled: false', '  other:', '    auto-start-enabled: true', '',
         ].join('\n'));
         (queue() as Json).restoreSettings();
-        assert.equal(queue().startQueueSettings().defaultTransport, 'anthropic', 'a stored copilot transport is read as anthropic');
         queue().setRunQueueSettings('src', {
             autoPause: false, autoContinue: true, defaultTransport: 'anthropic', defaultAnthropicProfileId: 'pNew',
             defaultAgentSdkSession: 'sNew', defaultMessageTemplateId: undefined, walkContinuations: 1,
@@ -375,7 +373,7 @@ describe('lanes and settings per run', () => {
         const written = readQueueSettings() as Json;
         assert.equal(written['auto-pause-enabled'], false);
         assert.equal(written['auto-continue-enabled'], true);
-        assert.equal(written['default-transport'], 'anthropic');
+        assert.equal('default-transport' in written, false, 'the transport (always anthropic) is not written');
         assert.equal(written['default-anthropic-profile-id'], 'pNew');
         assert.equal(written['default-agent-sdk-session'], 'sNew');
         assert.equal(written['default-message-template-id'], '', 'an unset template is written unset');

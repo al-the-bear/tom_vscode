@@ -5,19 +5,15 @@
  *        safe for a file name), every other file is curated; curated files sort before candidates files
  *   MF-2 the candidate entry's text: the format / parse pair round-trips (a session name holding `@`, a file name
  *        holding a space, `}` or `%`, no session); a line without the prefix is the fact alone, meant for `facts.md`
- *   MF-3 the injected block: curated files in the order given, then the candidates under their own heading, then the
- *        old place's files; a file past the budget is left out and the next tried; of the candidates the newest
- *        entries that fit; nothing to inject is the empty text
- *   MF-4 the old place (`_ai/memory/<quest>/<session>/`): the session's files while the old quest folder exists,
- *        nothing otherwise; with a suffix only `facts-<suffix>.md`
- *   MF-5 the Memory panel's rows: curated first, the candidates files marked with their host and whether it is
+ *   MF-3 the injected block: curated files in the order given, then the candidates under their own heading; a file
+ *        past the budget is left out and the next tried; of the candidates the newest entries that fit; nothing to
+ *        inject is the empty text
+ *   MF-4 the Memory panel's rows: curated first, the candidates files marked with their host and whether it is
  *        this host's
  */
 
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import {
@@ -33,16 +29,9 @@ import {
     memoryPanelRows,
     parseCandidateText,
     questMemoryFolder,
-    readOldSessionMemory,
     safeHostForFile,
     type MemoryFileBody,
 } from '../questMemoryFiles.js';
-
-function put(file: string, body: string, mtimeSeconds?: number): void {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, body, 'utf-8');
-    if (mtimeSeconds !== undefined) { fs.utimesSync(file, mtimeSeconds, mtimeSeconds); }
-}
 
 const file = (name: string, body: string, mtime = 0): MemoryFileBody => ({ file: name, body, bytes: Buffer.byteLength(body), mtime });
 
@@ -97,9 +86,8 @@ describe('quest memory files', () => {
     test('MF-3: the injected block', () => {
         const curated = [file('decisions.md', 'newest curated\n', 30), file('facts.md', 'older curated\n', 20)];
         const candidates = { file: 'candidates.mbp.md', lines: ['- 2026-06-02T00:00:00Z [mbp] {session=chat file=facts.md} newer', '- 2026-06-01T00:00:00Z [mbp] {session=chat file=facts.md} older'], bytes: 120, mtime: 40 };
-        const oldSession = { session: 'chat', files: [file('facts.md', 'old place fact\n', 10)] };
 
-        const all = buildMemoryBlock({ curated, candidates, oldSession, charBudget: 10_000 });
+        const all = buildMemoryBlock({ curated, candidates, charBudget: 10_000 });
         assert.equal(all.text, [
             '## Memory',
             '',
@@ -113,13 +101,10 @@ describe('quest memory files', () => {
             candidates.lines[0],
             candidates.lines[1],
             '',
-            '### quest/facts.md (session chat)',
-            'old place fact',
-            '',
         ].join('\n'));
         assert.match(candidatesHeading('candidates.mbp.md'), /^### candidates\/candidates\.mbp\.md — extracted automatically on this host, not curated/);
         assert.deepEqual(all.included.map((e) => [e.kind, e.file]),
-            [['curated', 'decisions.md'], ['curated', 'facts.md'], ['candidates', 'candidates.mbp.md'], ['old-session', 'facts.md']]);
+            [['curated', 'decisions.md'], ['curated', 'facts.md'], ['candidates', 'candidates.mbp.md']]);
 
         // The budget: a file that does not fit is left out, the next one tried.
         const first = '### quest/decisions.md\nnewest curated\n';
@@ -127,9 +112,9 @@ describe('quest memory files', () => {
         assert.deepEqual(big.included.map((e) => e.file), ['decisions.md']);
         assert.equal(big.text, `## Memory\n\n${first}`);
 
-        // Of the candidates the newest entries that fit; the old place comes last and only when room is left.
+        // Of the candidates the newest entries that fit.
         const head = candidatesHeading('candidates.mbp.md');
-        const oneCandidate = buildMemoryBlock({ curated: [], candidates, oldSession, charBudget: head.length + 1 + candidates.lines[0].length + 1 });
+        const oneCandidate = buildMemoryBlock({ curated: [], candidates, charBudget: head.length + 1 + candidates.lines[0].length + 1 });
         assert.equal(oneCandidate.text, `## Memory\n\n${head}\n${candidates.lines[0]}\n`);
         assert.deepEqual(oneCandidate.included.map((e) => e.kind), ['candidates']);
         const noRoom = buildMemoryBlock({ curated: [], candidates, charBudget: head.length });
@@ -137,36 +122,10 @@ describe('quest memory files', () => {
 
         // Nothing to inject: empty files, no candidates.
         assert.deepEqual(buildMemoryBlock({ curated: [file('facts.md', '  \n')], candidates: { ...candidates, lines: [] }, charBudget: 1000 }), { text: '', included: [] });
-        assert.deepEqual(buildMemoryBlock({ curated, candidates, oldSession, charBudget: 0 }), { text: '', included: [] });
+        assert.deepEqual(buildMemoryBlock({ curated, candidates, charBudget: 0 }), { text: '', included: [] });
     });
 
-    test('MF-4: the old place', (t) => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quest-memory-old-'));
-        t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-        const old = path.join(root, '_ai', 'memory');
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'chat'), [], 'no old folder: nothing');
-        assert.deepEqual(readOldSessionMemory('', 'q', 'chat'), []);
-
-        put(path.join(old, 'q', 'chat', 'facts.md'), 'chat fact\n', 1000);
-        put(path.join(old, 'q', 'chat', 'decisions.md'), 'chat decision\n', 2000);
-        put(path.join(old, 'q', 'walk', 'facts.md'), 'walk fact\n', 3000);
-        put(path.join(old, 'q', 'default@default', 'facts-gemma4.md'), 'gemma fact\n', 4000);
-        put(path.join(old, 'q', 'default@default', 'facts.md'), 'default fact\n', 5000);
-        put(path.join(old, 'other', 'chat', 'facts.md'), 'another quest\n', 6000);
-
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'chat').map((f) => [f.file, f.body]),
-            [['decisions.md', 'chat decision\n'], ['facts.md', 'chat fact\n']], 'the session\'s files, newest first');
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'walk').map((f) => f.body), ['walk fact\n']);
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'never-ran'), [], 'a session without old files');
-        // The bare `default` session is `default@default`.
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'default').map((f) => f.file).sort(), ['facts-gemma4.md', 'facts.md']);
-        // A profile bucket: only its file.
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'default@default', 'gemma4').map((f) => [f.file, f.body]), [['facts-gemma4.md', 'gemma fact\n']]);
-        assert.deepEqual(readOldSessionMemory(old, 'q', 'chat', 'gemma4'), []);
-        assert.deepEqual(readOldSessionMemory(old, 'no-such-quest', 'chat'), [], 'the old quest folder does not exist');
-    });
-
-    test('MF-5: the Memory panel\'s rows', () => {
+    test('MF-4: the Memory panel\'s rows', () => {
         const rows = memoryPanelRows([
             { file: 'candidates.bomber.md', bytes: 7 },
             { file: 'zeta.md', bytes: 3 },

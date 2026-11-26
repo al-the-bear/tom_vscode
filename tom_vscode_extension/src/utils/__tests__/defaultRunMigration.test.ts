@@ -43,7 +43,7 @@ function sandbox(): { ai: string; q: string } {
     const put = (rel: string, text: string): void => { const f = path.join(ai, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
     put('processes/des/des.process.yaml', DES);
     put('processes/_prompts/ctx.md', 'The mode is ${design-mode}.\n');
-    put('quests/q/process-state.q.yaml', stringify({
+    put('quests/q/config/process-state.q.yaml', stringify({
         levels: [{ process: 'des', phase: 'p1', phaseIteration: 1, step: 'work', stepIteration: 2, substep: '', substepIteration: 1, completed: false, stepIterations: { work: 1 } }],
         updated: '2026-11-15T10:00:00.000Z',
     }));
@@ -79,25 +79,25 @@ const mainOf = (ai: string, file: string): Record<string, unknown> => (read(ai, 
 describe('the default run\'s process moves into a run', () => {
     test('DM-1: a dry run lists, writes nothing', () => {
         const { ai, q } = sandbox();
-        const before = fs.readFileSync(path.join(q, 'process-state.q.yaml'), 'utf8');
+        const before = fs.readFileSync(path.join(q, 'config', 'process-state.q.yaml'), 'utf8');
         const { move, changes } = run(ai, false);
         assert.equal(move?.run, 'des');
         assert.ok(changes.some((c) => /^the default run's process des -> run des/.test(c)), changes.join('\n'));
         assert.ok(changes.some((c) => /^session work -> work@des$/.test(c)));
-        assert.equal(fs.readFileSync(path.join(q, 'process-state.q.yaml'), 'utf8'), before, 'nothing written');
-        assert.equal(fs.existsSync(path.join(q, 'process-state.q.des.yaml')), false);
+        assert.equal(fs.readFileSync(path.join(q, 'config', 'process-state.q.yaml'), 'utf8'), before, 'nothing written');
+        assert.equal(fs.existsSync(path.join(q, 'config', 'process-state.q.des.yaml')), false);
     });
 
     test('DM-2: the move', () => {
         const { ai, q } = sandbox();
-        const original = fs.readFileSync(path.join(q, 'process-state.q.yaml'), 'utf8');
+        const original = fs.readFileSync(path.join(q, 'config', 'process-state.q.yaml'), 'utf8');
         const { move, problems } = run(ai, true);
         assert.deepEqual(problems, []);
         // The state stack, as it was, in the run's file; `default` with none, naming the run.
-        assert.equal(fs.readFileSync(path.join(q, 'process-state.q.des.yaml'), 'utf8'), original, 'the whole stack, byte for byte');
+        assert.equal(fs.readFileSync(path.join(q, 'config', 'process-state.q.des.yaml'), 'utf8'), original, 'the whole stack, byte for byte');
         const moved = parseProcessStateStack(original).levels[0];
         assert.deepEqual([moved.process, moved.phase, moved.step, moved.stepIteration], ['des', 'p1', 'work', 2]);
-        const left = fs.readFileSync(path.join(q, 'process-state.q.yaml'), 'utf8');
+        const left = fs.readFileSync(path.join(q, 'config', 'process-state.q.yaml'), 'utf8');
         assert.equal(parseProcessStateStack(left).levels[0].process, '');
         assert.equal(movedToRunOf(left), 'des');
         // The chat variables the process uses, in each host's file.
@@ -145,14 +145,14 @@ describe('the default run\'s process moves into a run', () => {
         assert.equal(freeRunName('des', (r) => ['des', 'des-2'].includes(r)), 'des-3');
         assert.deepEqual(processSessionNames(parseProcessYaml(DES).definition!), ['review', 'work']);
         const { ai, q } = sandbox();
-        fs.writeFileSync(path.join(q, 'process-state.q.des.yaml'), 'levels: []\n');
+        fs.writeFileSync(path.join(q, 'config', 'process-state.q.des.yaml'), 'levels: []\n');
         assert.equal(run(ai, true).move?.run, 'des-2', 'the name is taken');
         const gone = sandbox();
         fs.rmSync(path.join(gone.ai, 'processes', 'des'), { recursive: true });
         const r = run(gone.ai, true);
         assert.equal(r.move?.run, 'des');
         assert.match(r.problems[0], /no readable definition/);
-        assert.ok(fs.existsSync(path.join(gone.q, 'process-state.q.des.yaml')), 'the state still moves');
+        assert.ok(fs.existsSync(path.join(gone.q, 'config', 'process-state.q.des.yaml')), 'the state still moves');
     });
 
     test('DM-5: a step of migrateAiFormats; from format version 9 on', () => {

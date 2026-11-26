@@ -12,8 +12,8 @@
  *        choice file (own text and guideline file); tomAi_readGlobalGuideline's index files
  *   LI-6 an aspect's import lines are expanded for the choices the send sends only, in their order: a choice not
  *        sent takes no file away from one that is (each file still once per send)
- *   LI-7 `${quest-quest-notes}` is the quest's default notes file, `notes/quest-notes.md` (a quest whose notes are
- *        at the old place: `quest-notes.<quest>.md`), its imports expanded
+ *   LI-7 `${quest-quest-notes}` is the quest's default notes file, `notes/quest-notes.md`, its imports expanded;
+ *        a `quest-notes.<quest>.md` in the quest folder is not read
  */
 
 import * as fs from 'fs';
@@ -136,10 +136,10 @@ describe('@<path> line imports', () => {
         const values = (quest: string): { values: Record<string, string> } => ({ values: { workspaceFolder: ws, quest, questsPath: path.join(ws, '_ai', 'quests') } });
         put('ws7/_ai/quests/q/notes/quest-notes.md', 'MY NOTES\n@more.md\n');
         put('ws7/_ai/quests/q/notes/more.md', 'MORE NOTES\n');
-        put('ws7/_ai/quests/q/quest-notes.q.md', 'OLD PLACE, NOT READ\n');
+        put('ws7/_ai/quests/q/quest-notes.q.md', 'NOT READ\n');
         assert.equal(resolveVariables('${quest-quest-notes}', values('q')), 'MY NOTES\nMORE NOTES\n');
-        put('ws7/_ai/quests/old/quest-notes.old.md', 'NOTES AT THE OLD PLACE\n');
-        assert.equal(resolveVariables('${quest-quest-notes}', values('old')), 'NOTES AT THE OLD PLACE\n');
+        put('ws7/_ai/quests/old/quest-notes.old.md', 'NOT A NOTES FILE\n');
+        assert.equal(resolveVariables('[${quest-quest-notes}]', values('old')), '[]');
         put('ws7/_ai/quests/none/overview.none.md', 'x\n');
         assert.equal(resolveVariables('[${quest-quest-notes}]', values('none')), '[]');
     });

@@ -14,6 +14,7 @@
 
 import { layoutWorkspaceFolder } from '../utils/workspaceLayout';
 import { runOfStateFile } from '../utils/processRuns';
+import { questConfigFolder } from '../utils/questConfigFiles';
 import { onDoneShapeError, onDoneTargetRefusal, type TodoOnDone } from '../utils/todoOnDone';
 import { DuplicateSubmitGuard } from '../utils/duplicateSubmitGuard';
 import { isTodoAlreadyQueued } from '../utils/todoQueueDuplicates';
@@ -841,7 +842,9 @@ import { readMediaText } from '../utils/webviewLoader';
 import { renderQuestLogMarkdown } from '../utils/questLogMarkdown';
 import { showMarkdownHtmlPreview } from './markdownHtmlPreview';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
-import { todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { hostTrailAnswerEntries, todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { readHostTrail } from '../services/hostTrail';
+import { hostSlugOf } from '../utils/hostSlug';
 import { latestTodoAnswer } from '../utils/todoAgentAnswer';
 import { todayLocalDate } from '../utils/todoDates';
 import { appendTodoNote, guideMeClosingAsk, interpretGuideMeReply } from '../utils/guideMeClosing';
@@ -1208,7 +1211,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             return true;
         case 'qtCreateTodo':
             if (isSessionMode) {
-                const created = SessionTodoStore.instance.add(msg.todo?.title || msg.todo?.id || 'todo', 'copilot', {
+                const created = SessionTodoStore.instance.add(msg.todo?.title || msg.todo?.id || 'todo', 'agent', {
                     details: msg.todo?.description || '',
                     priority: msg.todo?.priority || 'medium',
                     tags: msg.todo?.tags || [],
@@ -1469,7 +1472,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
             if (isSessionMode) {
                 for (const t of todos) {
                     try {
-                        SessionTodoStore.instance.add(t.title || t.id, 'copilot', {
+                        SessionTodoStore.instance.add(t.title || t.id, 'agent', {
                             details: t.description || '',
                             priority: t.priority || 'medium',
                             tags: t.tags || [],
@@ -1585,7 +1588,7 @@ async function _handleQuestTodoMessage(msg: any, webview: vscode.Webview): Promi
                 if (isSessionMode) {
                     for (const t of items) {
                         try {
-                            SessionTodoStore.instance.add(t.title || t.id, 'copilot', {
+                            SessionTodoStore.instance.add(t.title || t.id, 'agent', {
                                 details: t.description || '',
                                 priority: t.priority || 'medium',
                                 tags: t.tags || [],
@@ -2999,10 +3002,10 @@ function _saveTodo(questId: string, todoId: string, updates: any, post: (m: any)
     if (updated) _sendTodoList(questId, undefined, post);
 }
 
-/** The process runs of `questId` (`default` and every `process-state.<quest>.<run>.yaml`). */
+/** The process runs of `questId` (`default` and every `config/process-state.<quest>.<run>.yaml`). */
 function _questRuns(questId: string): string[] {
     const runs = new Set<string>(['default']);
-    const folder = WsPaths.ai('quests', questId);
+    const folder = questConfigFolder(WsPaths.ai('quests', questId) ?? '');
     if (!questId || !folder) { return [...runs]; }
     try {
         for (const f of fs.readdirSync(folder)) {
@@ -3494,8 +3497,15 @@ function _latestAgentAnswer(questId: string, todoId: string, sourceFile?: string
     if (!questId || !todoId) { return undefined; }
     const folder = questTrailFolder(WsPaths.ai('quests', questId) || '');
     if (!folder || !fs.existsSync(folder)) { return undefined; }
-    const sets = todoLogTrailSets(folder, discoverTrailSets);
     let best: { content: string; session: string; when: string; timestamp: string } | undefined;
+    // This host's trail, each turn labelled with its session.
+    for (const hit of hostTrailAnswerEntries(readHostTrail(path.dirname(folder), hostSlugOf()))) {
+        if (latestTodoAnswer([hit], { questId, todoId, sourceFile }) && (!best || hit.timestamp.localeCompare(best.timestamp) > 0)) {
+            best = { content: hit.content, session: hit.session, when: hit.rawTimestamp, timestamp: hit.timestamp };
+        }
+    }
+    // The summary pairs of the other subsystems.
+    const sets = todoLogTrailSets(folder, discoverTrailSets);
     for (const [name] of sets) {
         const hit = latestTodoAnswer(loadTrailSet(name, sets), { questId, todoId, sourceFile });
         if (hit && (!best || hit.timestamp.localeCompare(best.timestamp) > 0)) {

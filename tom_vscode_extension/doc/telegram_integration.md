@@ -100,26 +100,26 @@ by `src/managers/extensionConfigStore.ts` and read/written through
 `src/handlers/telegram-config.ts` — **not** the central
 `.tom/tom_vscode_extension.json`.
 
-### Machine-INDEPENDENT — `_ai/quests/{quest}/extension_config.{quest}.yaml`
+### Machine-INDEPENDENT — `_ai/quests/{quest}/config/extension_config.{quest}.yaml`
 
 Shared across all hosts (the `_ai` clone is synced fleet-wide), under a
 top-level `telegram` section:
 
 ```yaml
-# extension_config.{quest}.yaml  (machine-independent)
+# config/extension_config.{quest}.yaml  (machine-independent)
 telegram:
   allowedUserIds: [123456789]     # whitelisted Telegram user IDs (required)
   defaultChatId: 123456789        # chat that receives notifications
   pollIntervalMs: 2000            # getUpdates interval (default 2000)
 ```
 
-### Machine-SPECIFIC — `_ai/quests/{quest}/extension_config.{hostSlug}.{quest}.yaml`
+### Machine-SPECIFIC — `_ai/quests/{quest}/config/extension_config.{hostSlug}.{quest}.yaml`
 
 Per host, because each machine runs its own bot token and enable/autostart state
 (the fields in `MACHINE_TELEGRAM_FIELDS`):
 
 ```yaml
-# extension_config.{hostSlug}.{quest}.yaml  (machine-specific)
+# config/extension_config.{hostSlug}.{quest}.yaml  (machine-specific)
 telegram:
   enabled: false                  # whether Telegram is active on this host
   autostart: false                # auto-start polling on activation

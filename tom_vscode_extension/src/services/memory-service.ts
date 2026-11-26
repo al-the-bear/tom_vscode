@@ -25,8 +25,6 @@ import { FsUtils } from '../utils/fsUtils';
 import { hostSlugOf } from '../utils/hostSlug';
 import { WsPaths } from '../utils/workspacePaths';
 import { toolLog } from '../utils/toolLog';
-import { logInfo as logStorageInfo } from './compaction-log';
-import { MIGRATION_TARGET_SESSION, migrateDefaultSessionName, migrateQuestToSessionStorage } from './sessionStorage';
 import {
     DEFAULT_MEMORY_FILE,
     buildMemoryBlock,
@@ -36,14 +34,11 @@ import {
     memoryFileKind,
     parseCandidateText,
     questMemoryFolder,
-    readOldSessionMemory,
     type InjectedMemoryKind,
     type MemoryFileBody,
     type MemoryFileKind,
 } from './questMemoryFiles';
 import { DEFAULT_RUN_SESSION, canonicalSessionName } from '../utils/runSessions';
-import { resolveTrailPath } from './trailPathResolver';
-import { TomAiConfiguration } from '../utils/tomAiConfiguration';
 import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import {
     stampRawTurns,
@@ -122,10 +117,8 @@ const CHARS_PER_TOKEN = 4;
  * up both. Same machine extracting the same fact at the same iso
  * second is deduped on read.
  *
- * Legacy lines (anything without the leading-timestamp prefix) are
- * stripped on read. The migration command (one-shot) grandfathers
- * legacy content into the new format by stamping each unstamped line
- * with the file's mtime + the `[legacy]` host marker.
+ * Lines without the leading-timestamp prefix are not entries: the
+ * entry readers skip them.
  */
 export interface MemoryEntry {
     /** ISO-8601 timestamp the entry was first written. */
@@ -142,10 +135,8 @@ const ENTRY_RE = /^-\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d
  * Parse a memory file body into typed entries.
  *
  * Drops every line that doesn't match the `- <iso> [<host>] <text>`
- * shape. Headings, blank lines, and legacy bullets without timestamps
- * are filtered out — the migration command is responsible for
- * grandfathering legacy lines before any normal write triggers this
- * read.
+ * shape. Headings, blank lines, and bullets without timestamps
+ * are filtered out.
  */
 export function parseMemoryEntries(body: string): MemoryEntry[] {
     if (!body) { return []; }
@@ -228,79 +219,11 @@ export class TwoTierMemoryService {
         return TwoTierMemoryService._instance;
     }
 
-    /**
-     * OLD PLACE: absolute path to `_ai/memory/`, where the quest memory was
-     * kept per session (`_ai/memory/<quest>/<session>/`). Nothing writes
-     * there; it is read by the injection's interim rule
-     * ({@link readOldSessionMemory}) and removed with a session's storage.
-     */
-    memoryRoot(): string {
-        const wsRoot = layoutWorkspaceFolder() ?? '';
-        return WsPaths.ai('memory') ?? path.join(wsRoot, WsPaths.aiFolder, 'memory');
-    }
-
     /** The quest's memory folder, `_ai/quests/<quest>/memory/`; created by the first write. */
     scopeFolder(_scope: MemoryScope, questId?: string): string {
         const quest = questId || this.currentQuest() || 'default';
         return WsPaths.ai('quests', quest, 'memory')
             ?? questMemoryFolder(path.join(layoutWorkspaceFolder() ?? '', WsPaths.aiFolder, 'quests'), quest);
-    }
-
-    /** The quests whose files were checked for the per-quest layout in this window. */
-    private readonly _storageChecked = new Set<string>();
-
-    /**
-     * Move the quest's files from the per-quest layout (one history, trail
-     * pair, live trail, raw trail and — old place, `_ai/memory/<quest>/` —
-     * the flat quest memory files for chat and queue
-     * together) into the `default@default` session's storage, once per quest
-     * (src/services/sessionStorage.ts). Idempotent: a marker in
-     * `history/sessions/` says it is done; a file whose target exists stays.
-     * Then what an older build kept under the bare session name `default`
-     * moves to `default@default` (migrateDefaultSessionName, every start).
-     */
-    ensureSessionStorage(questId?: string): void {
-        const quest = questId || this.currentQuest() || 'default';
-        if (this._storageChecked.has(quest)) { return; }
-        this._storageChecked.add(quest);
-        try {
-            const historyRoot = this.historyRootOf(quest);
-            const report = migrateQuestToSessionStorage({
-                quest,
-                questFolder: path.dirname(historyRoot),
-                historyRoot,
-                memoryRoot: this.memoryRoot(),
-                rawTrailFolder: this.legacyRawTrailFolder(quest),
-            });
-            if (report.migrated && (report.moved.length > 0 || report.kept.length > 0)) {
-                logStorageInfo(
-                    `session storage: quest "${quest}" moved to per-session storage — ${report.moved.length} file(s) now belong to `
-                    + `session "${MIGRATION_TARGET_SESSION}"${report.kept.length > 0 ? `; ${report.kept.length} left in place (the target existed): ${report.kept.join(', ')}` : ''}`,
-                );
-            }
-            // The bare `default` session of an older build is `default@default` (vscimpb151).
-            const renamed = migrateDefaultSessionName({ quest, historyRoot, memoryRoot: this.memoryRoot() });
-            if (renamed.migrated || renamed.kept.length > 0) {
-                logStorageInfo(
-                    `session storage: quest "${quest}" — the session "default" is now "${DEFAULT_RUN_SESSION}": ${renamed.moved.length} moved, `
-                    + `${renamed.rebased.length} session(s) rebased${renamed.kept.length > 0 ? `; ${renamed.kept.length} left in place (the target existed): ${renamed.kept.join(', ')}` : ''}`,
-                );
-            }
-        } catch (e) {
-            logStorageInfo(`session storage: migration of quest "${quest}" failed: ${(e as Error).message}`);
-        }
-    }
-
-    /**
-     * The quest's raw Anthropic trail in the per-quest layout. Only the raw
-     * per-call files move; the current-prompt files and the last-request dump
-     * stay there (the Logs tab reads them).
-     */
-    private legacyRawTrailFolder(quest: string): string {
-        const trail = TomAiConfiguration.instance.getTrail() as Record<string, unknown>;
-        const raw = (trail.raw ?? trail) as Record<string, unknown>;
-        const paths = (raw.paths ?? {}) as Record<string, string>;
-        return resolveTrailPath(paths.anthropic ?? '${ai}/trail/anthropic/${quest}', { subsystem: 'anthropic', quest });
     }
 
     /** Absolute path to a file within a scope. */
@@ -326,7 +249,7 @@ export class TwoTierMemoryService {
         // Single choke point for every memory mutation (prepend/append/
         // replaceSection all funnel through write) — surfaced in the shared
         // Tom Tool Log so memory updates are visible regardless of which
-        // path triggered them (compaction extraction, MCP tools, migration).
+        // path triggered them (compaction extraction, MCP tools).
         toolLog(
             `[memory] write scope=${scope} file=${file}` +
             `${questId ? ` quest=${questId}` : ''} bytes=${Buffer.byteLength(content, 'utf8')}`,
@@ -354,8 +277,7 @@ export class TwoTierMemoryService {
      * Each line in `content` becomes one entry, stamped with the
      * current time + `os.hostname()`. Lines already in canonical form
      * (carry a leading-timestamp prefix) are taken at face value — the
-     * caller has already done the stamping (e.g. the migration command
-     * stamping legacy lines with the file mtime). On write the full
+     * caller has already done the stamping. On write the full
      * file is re-serialised in canonical form: existing legacy lines
      * (those without timestamps) are stripped, all entries are
      * deduped by `(ts, text)`, and the result is sorted newest-first.
@@ -368,19 +290,6 @@ export class TwoTierMemoryService {
         const stamped = this.stampNewLines(content);
         const existing = parseMemoryEntries(this.read(scope, file, questId));
         const combined = dedupAndSortEntries([...stamped, ...existing]);
-        this.write(scope, file, serialiseMemoryEntries(combined), questId);
-    }
-
-    /**
-     * Append entries that are already in canonical form (one bullet per
-     * line carrying their own `<ts>` + `[<host>]`). The migration
-     * command uses this to inject grandfathered legacy lines without
-     * re-stamping them. Same dedup/sort treatment as `prepend`.
-     */
-    prependStamped(scope: MemoryScope, file: string, lines: string[], questId?: string): void {
-        const fresh = parseMemoryEntries(lines.join('\n'));
-        const existing = parseMemoryEntries(this.read(scope, file, questId));
-        const combined = dedupAndSortEntries([...fresh, ...existing]);
         this.write(scope, file, serialiseMemoryEntries(combined), questId);
     }
 
@@ -516,28 +425,12 @@ export class TwoTierMemoryService {
     // Candidates (the automatic memory extraction)
     // ------------------------------------------------------------------------
 
-    /** OLD PLACE: the host name the candidates file was named with before the host slug (the machine's host name). */
-    legacyCandidatesHost: string = HOST_NAME;
-
     /** This host's candidates file, `candidates.<host>.md` (`<host>` the host slug, src/utils/hostSlug.ts). */
     candidatesFile(): string { return candidatesFileName(hostSlugOf()); }
 
-    /**
-     * OLD PLACE: this host's candidates file under the name before the host
-     * slug, `candidates.<hostname>.md`; undefined when both names are the same.
-     * Read with the slug-named file, merged into it on the next write and then
-     * deleted.
-     */
-    legacyCandidatesFile(): string | undefined {
-        const old = candidatesFileName(this.legacyCandidatesHost);
-        return old === this.candidatesFile() ? undefined : old;
-    }
-
-    /** This host's candidate entries (OLD PLACE: with those of the old-named file), newest first. */
+    /** This host's candidate entries, newest first. */
     private ownCandidateEntries(questId?: string): MemoryEntry[] {
-        const old = this.legacyCandidatesFile();
-        const legacy = old ? parseMemoryEntries(this.read('quest', old, questId)) : [];
-        return dedupAndSortEntries([...parseMemoryEntries(this.read('quest', this.candidatesFile(), questId)), ...legacy]);
+        return dedupAndSortEntries(parseMemoryEntries(this.read('quest', this.candidatesFile(), questId)));
     }
 
     /**
@@ -557,11 +450,8 @@ export class TwoTierMemoryService {
                 : formatCandidateText({ session: origin.session, targetFile, text: e.text });
             return { ...e, text };
         });
-        // OLD PLACE: the old-named file's entries are merged in, and the file goes.
         const existing = this.ownCandidateEntries(questId);
         this.write('quest', file, serialiseMemoryEntries(dedupAndSortEntries([...fresh, ...existing])), questId);
-        const old = this.legacyCandidatesFile();
-        if (old && fs.existsSync(this.filePath('quest', old, questId))) { this.delete('quest', old, questId); }
         return file;
     }
 
@@ -595,15 +485,9 @@ export class TwoTierMemoryService {
      * restricted to `facts-<suffix>.md` and this host's candidates meant for
      * that file — used by LocalLLM profiles that want their own isolated
      * memory bucket without sharing files with other profiles.
-     *
-     * `session` is the session the send runs in. It matters only for the old
-     * place: while `_ai/memory/<quest>/` exists, that session's old files
-     * follow the new ones within the same budget (with a suffix: only
-     * `facts-<suffix>.md` of the session `default@default`).
      */
-    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string, session?: string): MemoryInjection {
+    injectForSystemPrompt(maxTokens: number = DEFAULT_MAX_INJECTED_TOKENS, questId?: string, suffix?: string): MemoryInjection {
         const budget = Math.max(0, maxTokens);
-        const quest = questId || this.currentQuest() || 'default';
         const suffixFile = suffix ? `facts-${suffix}.md` : undefined;
 
         const curated: MemoryFileBody[] = this.listWithMeta('quest', questId)
@@ -624,7 +508,6 @@ export class TwoTierMemoryService {
                 bytes: candidatesMeta?.bytes ?? 0,
                 mtime: candidatesMeta?.mtime ?? 0,
             },
-            oldSession: this.oldSessionMemory(quest, suffix ? MIGRATION_TARGET_SESSION : (session || MIGRATION_TARGET_SESSION), suffix),
             charBudget: budget * CHARS_PER_TOKEN,
         });
         return {
@@ -632,20 +515,6 @@ export class TwoTierMemoryService {
             tokens: Math.ceil(block.text.length / CHARS_PER_TOKEN),
             included: block.included.map((e) => ({ scope: 'quest' as const, ...e })),
         };
-    }
-
-    /**
-     * OLD PLACE (`_ai/memory/<quest>/<session>/`): the old memory files of
-     * `session`, for the injection only. The memory tools and the Memory
-     * panel do not show them. Goes when the old folder's files are moved.
-     */
-    private oldSessionMemory(quest: string, session: string, suffix?: string): { session: string; files: MemoryFileBody[] } | undefined {
-        try {
-            const files = readOldSessionMemory(this.memoryRoot(), quest, session, suffix);
-            return files.length > 0 ? { session, files } : undefined;
-        } catch {
-            return undefined;
-        }
     }
 
     // ------------------------------------------------------------------------
@@ -662,7 +531,6 @@ export class TwoTierMemoryService {
      */
     historyFolder(questId?: string): string {
         const quest = questId || this.currentQuest() || 'default';
-        this.ensureSessionStorage(quest);
         return this.historyRootOf(quest);
     }
 

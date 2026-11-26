@@ -10,15 +10,12 @@
  *   QM-4 the injection: curated files (newest first) before this host's candidates under their heading; the token
  *        budget; with a suffix only `facts-<suffix>.md` and the candidates meant for it; other hosts' candidates
  *        are never injected
- *   QM-5 the interim rule (old place `_ai/memory/<quest>/<session>/`): while the old quest folder exists, the old
- *        files of the send's session follow the new ones within the same budget (with a suffix: only
- *        `facts-<suffix>.md` of `default@default`); without the old folder nothing is added; the old files are
- *        neither listed nor written
+ *   QM-5 a folder `_ai/memory/<quest>/<session>/` is neither read, listed nor written
  *   QM-6 remember / forget (the Anthropic handler's keyword triggers) write `facts.md` of the quest folder; forget
  *        also takes the fact out of this host's candidates and leaves another host's candidates file alone
- *   QM-7 the memory placeholder hands the send's session to the injection (`memorySession`)
- *   QM-8 the candidates file is named by the host slug; this host's file under the old name (the host name) is read
- *        with it, merged into it on the next write and then deleted
+ *   QM-7 the memory placeholder is the injection's block
+ *   QM-8 the candidates file is named by the host slug; a candidates file under any other name is another host's:
+ *        not read as this host's and left alone by a write
  */
 
 import test, { beforeEach, describe } from 'node:test';
@@ -200,38 +197,15 @@ describe('quest memory in the quest folder', () => {
         assert.deepEqual(svc.injectForSystemPrompt(3000, 'quest_without_memory'), { text: '', tokens: 0, included: [] });
     });
 
-    test('QM-5: the interim rule for the old place', () => {
+    test('QM-5: `_ai/memory/` is not read', () => {
         put(path.join(memoryDir(), 'facts.md'), 'new place fact\n', 1000);
-        const withoutOld = svc.injectForSystemPrompt(3000, QUEST, undefined, 'chat').text;
-        assert.equal(withoutOld, '## Memory\n\n### quest/facts.md\nnew place fact\n', 'no old folder: the new place alone');
-
         put(path.join(oldDir('chat'), 'facts.md'), 'old chat fact\n', 100);
-        put(path.join(oldDir('walk'), 'facts.md'), 'old walk fact\n', 200);
         put(path.join(oldDir('default@default'), 'facts.md'), 'old default fact\n', 300);
-        put(path.join(oldDir('default@default'), 'facts-gemma4.md'), 'old gemma fact\n', 400);
         const before = tree(path.join(root, '_ai', 'memory'));
-
-        const chat = svc.injectForSystemPrompt(3000, QUEST, undefined, 'chat');
-        assert.equal(chat.text, '## Memory\n\n### quest/facts.md\nnew place fact\n\n### quest/facts.md (session chat)\nold chat fact\n',
-            'the send\'s session\'s old files follow the new ones');
-        assert.deepEqual(chat.included.map((e) => [e.kind, e.file]), [['curated', 'facts.md'], ['old-session', 'facts.md']]);
-        assert.match(svc.injectForSystemPrompt(3000, QUEST, undefined, 'walk').text, /\(session walk\)\nold walk fact\n$/);
-        assert.doesNotMatch(svc.injectForSystemPrompt(3000, QUEST, undefined, 'walk').text, /old chat fact|old default fact/);
-        assert.match(svc.injectForSystemPrompt(3000, QUEST).text, /\(session default@default\)\nold default fact\n/, 'no session named: default@default');
-        assert.equal(svc.injectForSystemPrompt(3000, QUEST, undefined, 'never-ran').text, withoutOld, 'a session without old files');
-
-        // With a suffix: only facts-<suffix>.md of default@default, whatever the send's session.
-        assert.equal(svc.injectForSystemPrompt(3000, QUEST, 'gemma4', 'chat').text,
-            '## Memory\n\n### quest/facts-gemma4.md (session default@default)\nold gemma fact\n');
-
-        // Within the same budget: the new place first, the old one only when room is left.
-        const newBlock = '### quest/facts.md\nnew place fact\n';
-        assert.equal(svc.injectForSystemPrompt(Math.ceil(newBlock.length / 4), QUEST, undefined, 'chat').text, `## Memory\n\n${newBlock}`);
-
-        // Read-only, and not part of the memory the tools and the panel see.
-        assert.deepEqual(tree(path.join(root, '_ai', 'memory')), before, 'nothing is written to the old place');
+        const block = svc.injectForSystemPrompt(3000, QUEST);
+        assert.equal(block.text, '## Memory\n\n### quest/facts.md\nnew place fact\n');
+        assert.deepEqual(block.included.map((e) => [e.kind, e.file]), [['curated', 'facts.md']]);
         assert.deepEqual(svc.list('quest', QUEST), ['facts.md']);
-        assert.doesNotMatch(svc.readAll('quest', QUEST), /old chat fact/);
         svc.append('quest', 'facts.md', 'one more', QUEST);
         svc.addCandidates('- a candidate', { session: 'chat', targetFile: 'facts.md' }, QUEST);
         assert.deepEqual(tree(path.join(root, '_ai', 'memory')), before, 'writes go to the quest folder');
@@ -259,37 +233,23 @@ describe('quest memory in the quest folder', () => {
         assert.equal(fs.readFileSync(path.join(memoryDir(), OTHER), 'utf-8'), otherBody, 'another host\'s candidates file is that host\'s to write');
     });
 
-    test('QM-7: the memory placeholder hands the send\'s session on', () => {
+    test('QM-7: the memory placeholder', () => {
         put(path.join(memoryDir(), 'facts.md'), 'new place fact\n', 1000);
-        put(path.join(oldDir('walk'), 'facts.md'), 'old walk fact\n', 200);
         put(path.join(oldDir('default@default'), 'facts.md'), 'old default fact\n', 300);
-        const walk = resolveVariables('${memory}', { values: { quest: QUEST, memorySession: 'walk' }, includeEditor: false });
-        assert.equal(walk, '## Memory\n\n### quest/facts.md\nnew place fact\n\n### quest/facts.md (session walk)\nold walk fact\n');
-        const none = resolveVariables('${memory-quest}', { values: { quest: QUEST }, includeEditor: false });
-        assert.match(none, /### quest\/facts\.md\nnew place fact\n\n### quest\/facts\.md \(session default@default\)\nold default fact\n$/);
+        const block = resolveVariables('${memory}', { values: { quest: QUEST }, includeEditor: false });
+        assert.equal(block, '## Memory\n\n### quest/facts.md\nnew place fact\n');
+        assert.equal(resolveVariables('${memory-quest}', { values: { quest: QUEST }, includeEditor: false }), block);
     });
 
-    test('QM-8: the candidates file under the host slug, the old name merged', () => {
-        const before = svc.legacyCandidatesHost;
-        try {
-            svc.legacyCandidatesHost = 'Old-Host.example.org';
-            const old = 'candidates.Old-Host.example.org.md';
-            assert.equal(svc.candidatesFile(), `candidates.${hostSlugOf()}.md`);
-            assert.equal(svc.legacyCandidatesFile(), old);
-            put(path.join(memoryDir(), old), '- 2026-01-01T00:00:00.000Z [Old-Host] {session=chat file=facts.md} An old candidate.\n');
-            // Read with the slug-named file before any write.
-            assert.deepEqual(svc.candidatesFor('facts.md', QUEST).map((e) => parseCandidateText(e.text).text), ['An old candidate.']);
-            assert.match(svc.existingMemoryForExtraction('facts.md', QUEST), /An old candidate\./);
-            // The next write merges it and deletes the old file.
-            svc.addCandidates('- A new candidate.', { session: 'work', targetFile: 'facts.md' }, QUEST);
-            assert.equal(fs.existsSync(path.join(memoryDir(), old)), false);
-            const merged = parseMemoryEntries(fs.readFileSync(path.join(memoryDir(), OWN), 'utf-8')).map((e) => parseCandidateText(e.text).text);
-            assert.deepEqual(merged, ['A new candidate.', 'An old candidate.']);
-            // The same name as the slug: no old file.
-            svc.legacyCandidatesHost = hostSlugOf();
-            assert.equal(svc.legacyCandidatesFile(), undefined);
-        } finally {
-            svc.legacyCandidatesHost = before;
-        }
+    test('QM-8: the candidates file under the host slug', () => {
+        assert.equal(svc.candidatesFile(), `candidates.${hostSlugOf()}.md`);
+        const old = 'candidates.Old-Host.example.org.md';
+        const oldBody = '- 2026-01-01T00:00:00.000Z [Old-Host] {session=chat file=facts.md} An old candidate.\n';
+        put(path.join(memoryDir(), old), oldBody);
+        assert.deepEqual(svc.candidatesFor('facts.md', QUEST), [], 'another name is another host\'s file');
+        svc.addCandidates('- A new candidate.', { session: 'work', targetFile: 'facts.md' }, QUEST);
+        assert.equal(fs.readFileSync(path.join(memoryDir(), old), 'utf-8'), oldBody, 'left alone');
+        const own = parseMemoryEntries(fs.readFileSync(path.join(memoryDir(), OWN), 'utf-8')).map((e) => parseCandidateText(e.text).text);
+        assert.deepEqual(own, ['A new candidate.']);
     });
 });

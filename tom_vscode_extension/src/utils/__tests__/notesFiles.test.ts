@@ -1,11 +1,9 @@
 /**
  * Where the notes views read and write (src/utils/notesFiles.ts).
  *
- *   NF-1 the default quest notes file: `notes/quest-notes.md`; a quest whose notes are at the old place
- *        (`quest-notes.<quest>.md`, no `notes/quest-notes.md`) keeps the old file as its default, under the
- *        default's name; once the new file exists it wins; a quest with neither gets the new place
- *   NF-2 the list of notes files: the default first (listed before it exists, the old place under the default's
- *        name), then the other `.md` files of the notes folder by name without case; folders and other files
+ *   NF-1 the default quest notes file: `notes/quest-notes.md`, in the notes folder; a configured file names
+ *        the default and its folder
+ *   NF-2 the list of notes files: the default first (listed before it exists), then the other `.md` files of the notes folder by name without case; folders and other files
  *        are not listed; a kept choice picks its file, a choice whose file is gone the default
  *   NF-3 the name of a new notes file: empty, a path separator, `..` and an existing name (without case) are
  *        refused; `.md` is appended when missing; the heading is the name
@@ -51,35 +49,22 @@ function quest(files: Record<string, string> = {}): string {
     }
     return folder;
 }
-const resolve = (folder: string): ReturnType<typeof resolveDefaultQuestNotes> => resolveDefaultQuestNotes(defaultQuestNotesPath(folder), folder, 'q');
+const resolve = (folder: string): ReturnType<typeof resolveDefaultQuestNotes> => resolveDefaultQuestNotes(defaultQuestNotesPath(folder));
 
 describe('notes files', () => {
-    test('NF-1: the default quest notes file and the old place', () => {
+    test('NF-1: the default quest notes file', () => {
         assert.equal(DEFAULT_QUEST_NOTES_PATTERN, '_ai/quests/${quest}/notes/quest-notes.md');
         assert.equal(questNotesHeader('q'), '# Quest Notes — q\n\n');
 
         const fresh = quest();
-        assert.deepEqual(resolve(fresh), { name: 'quest-notes.md', folder: path.join(fresh, 'notes'), filePath: path.join(fresh, 'notes', 'quest-notes.md'), oldPlace: false });
+        assert.deepEqual(resolve(fresh), { name: 'quest-notes.md', folder: path.join(fresh, 'notes'), filePath: path.join(fresh, 'notes', 'quest-notes.md') });
 
-        const old = quest({ 'quest-notes.q.md': 'old notes\n' });
-        assert.deepEqual(resolve(old), { name: 'quest-notes.md', folder: path.join(old, 'notes'), filePath: path.join(old, 'quest-notes.q.md'), oldPlace: true });
-        assert.equal(fs.existsSync(path.join(old, 'notes')), false, 'nothing is copied or moved');
+        // A file at the quest folder's top level is no notes file.
+        const top = quest({ 'quest-notes.q.md': 'x\n' });
+        assert.equal(resolve(top).filePath, path.join(top, 'notes', 'quest-notes.md'));
 
-        // Other notes files beside a missing default do not end the interim rule.
-        const oldWithMore = quest({ 'quest-notes.q.md': 'old\n', 'notes/ideas.md': 'ideas\n' });
-        assert.equal(resolve(oldWithMore).filePath, path.join(oldWithMore, 'quest-notes.q.md'));
-
-        const both = quest({ 'quest-notes.q.md': 'old\n', 'notes/quest-notes.md': 'new\n' });
-        assert.deepEqual([resolve(both).filePath, resolve(both).oldPlace], [path.join(both, 'notes', 'quest-notes.md'), false], 'the new file wins');
-
-        // Another quest's old file is not this quest's.
-        const other = quest({ 'quest-notes.other.md': 'x\n' });
-        assert.equal(resolve(other).oldPlace, false);
-
-        // The check is injectable, and asked for the configured file first.
-        const asked: string[] = [];
-        resolveDefaultQuestNotes('/c/notes/quest-notes.md', '/c', 'q', (p) => { asked.push(p); return false; });
-        assert.deepEqual(asked, ['/c/notes/quest-notes.md', path.join('/c', 'quest-notes.q.md')]);
+        // A configured default names the file and the notes folder.
+        assert.deepEqual(resolveDefaultQuestNotes('/c/mine/main.md'), { name: 'main.md', folder: '/c/mine', filePath: '/c/mine/main.md' });
     });
 
     test('NF-2: the list and the kept choice', () => {
@@ -93,10 +78,6 @@ describe('notes files', () => {
         const files = listQuestNotesFiles(resolve(q));
         assert.deepEqual(files.map((f) => [f.name, f.isDefault]), [['quest-notes.md', true], ['Alpha.md', false], ['beta.MD', false], ['zeta.md', false]]);
         assert.equal(files[1].filePath, path.join(q, 'notes', 'Alpha.md'));
-
-        const old = quest({ 'quest-notes.q.md': 'old\n', 'notes/ideas.md': 'ideas\n' });
-        assert.deepEqual(listQuestNotesFiles(resolve(old)).map((f) => [f.name, path.relative(old, f.filePath), f.isDefault]),
-            [['quest-notes.md', 'quest-notes.q.md', true], ['ideas.md', path.join('notes', 'ideas.md'), false]], 'the old file first, under the default\'s name');
 
         assert.equal(pickQuestNotesFile(files, 'zeta.md').name, 'zeta.md');
         assert.equal(pickQuestNotesFile(files, undefined).name, 'quest-notes.md');

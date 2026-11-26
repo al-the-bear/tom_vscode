@@ -19,14 +19,14 @@ The standalone server is also **separate from the scripting-API / CLI bridge**: 
 
 The server is **off by default**. Turn it on from the **Status Page → MCP Server**
 card, or edit the per-quest config directly. The settings live in the
-**machine-INDEPENDENT** `_ai/quests/{quest}/extension_config.{quest}.yaml` under a
+**machine-INDEPENDENT** `_ai/quests/{quest}/config/extension_config.{quest}.yaml` under a
 top-level `mcpServer` section (owned by `extensionConfigStore.ts`) — *not* in the
 central `.tom/tom_vscode_extension.json`. The one exception is `autostart`, which
 is **machine-SPECIFIC** and lives in the per-host
-`extension_config.{hostSlug}.{quest}.yaml` `mcpServer.autostart` key.
+`config/extension_config.{hostSlug}.{quest}.yaml` `mcpServer.autostart` key.
 
 ```yaml
-# extension_config.{quest}.yaml  (machine-independent)
+# config/extension_config.{quest}.yaml  (machine-independent)
 mcpServer:
   enabled: true
   host: 0.0.0.0
@@ -37,7 +37,7 @@ mcpServer:
   toolsEnabled: true
   enabledTools: []
 
-# extension_config.{hostSlug}.{quest}.yaml  (machine-specific)
+# config/extension_config.{hostSlug}.{quest}.yaml  (machine-specific)
 mcpServer:
   autostart: true
 ```
@@ -194,7 +194,7 @@ The API key is the real boundary. When you expose write tools:
 
 3. **Reach it.** Point the external MCP client at `http://<host>:<port>` over Streamable HTTP. With `host: 0.0.0.0`, use the host's VPN IP (`10.8.0.x`) from another fleet machine; with `127.0.0.1`, only local clients can connect. Add the `Authorization: Bearer …` header when authenticating.
 
-4. **Edit settings live.** Saving the card reconciles the running server, and so does editing the `mcpServer` section in the per-quest `extension_config.{quest}.yaml` from another window or by hand — a file-system watcher on the quest config file reloads the config and calls `reconcileMcpServerConfig` (disabled ⇒ stop; running ⇒ restart onto the new host/port/tools/auth).
+4. **Edit settings live.** Saving the card reconciles the running server, and so does editing the `mcpServer` section in the per-quest `config/extension_config.{quest}.yaml` from another window or by hand — a file-system watcher on the quest config file reloads the config and calls `reconcileMcpServerConfig` (disabled ⇒ stop; running ⇒ restart onto the new host/port/tools/auth).
 
 5. **Work in other quests' windows.** `tomAi_sendItemToQuest` is in the shared registry, so a client connected to any window's server can put a prompt into the queue of every quest's window on that machine (an inbox file the target window takes up; `targetRunning` in the answer says whether a window of that quest has a live heartbeat). It is a write tool: an unauthenticated client on the read-only floor does not get it. `tomAi_getQuestWindowStatus`, which finds the target — the windows running on the machine with their servers (`CLI :19901 · MCP :19921`), role, process position, panel and queue, each quest's sessions and the profiles — is read-only, so the floor serves it too.
 

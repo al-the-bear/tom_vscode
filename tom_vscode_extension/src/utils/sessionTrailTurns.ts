@@ -5,23 +5,15 @@
  *
  * The turns are the session's view of this host's trail
  * `_ai/quests/<quest>/history/trail.<host>.md` (src/services/hostTrail.ts,
- * {@link sessionView}); other hosts' trails are not read. OLD PLACE (until the
- * `_ai` format migration): the session's summary trail pair of an older build
- * (`history/sessions/<session>/<quest>.anthropic.{prompts,answers}.md`) adds
- * its turns older than the host trail's oldest turn, merged by request id
- * without duplicates ({@link keepOlderPairAnswer}, the rule the other readers
- * of prompt/answer pairs follow).
+ * {@link sessionView}); other hosts' trails are not read.
  *
  * The shaping ({@link sessionTrailTurns}) and the HTML ({@link renderSessionTrailHtml})
- * are pure; {@link readOlderSessionPairs} reads the old pair files.
+ * are pure.
  */
 
 import { sessionView, type HostTrailTurn } from '../services/hostTrail';
-import { sessionSummaryFile } from '../services/sessionStorage';
-import { pairPromptsAndAnswers, readTrailFile } from '../tools/prompt-history-utils';
 import { highlightMarkdownSource } from './markdownSourceHighlight';
 import { extractTodoResponseValues } from './responseValues';
-import { keepOlderPairAnswer } from './todoLogTrailSets';
 
 /** One turn of a session as the Trail tab shows it. */
 export interface SessionTrailTurn {
@@ -33,18 +25,8 @@ export interface SessionTrailTurn {
     model: string;
     prompt: string;
     answer: string;
-    /** OLD PLACE: the turn comes from the session's summary pair of an older build. */
-    olderBuild: boolean;
     /** The todo references of its answer (its `TODO*` response values), in order, without duplicates. */
     todoRefs: string[];
-}
-
-/** OLD PLACE: one turn of a session's summary trail pair of an older build. */
-export interface OlderSessionPair {
-    requestId: string;
-    timestamp: string;
-    prompt: string;
-    answer: string;
 }
 
 /** The newest turns the tab renders; older ones are reached through *Open in editor*. */
@@ -54,17 +36,8 @@ function todoRefsOf(answer: string): string[] {
     return [...new Set(Object.values(extractTodoResponseValues(answer)).map((v) => v.trim()).filter((v) => v))];
 }
 
-/**
- * The turns of `session`, newest first: its view of this host's trail
- * (`hostTurns`, the whole trail of this host), plus the older build's pairs
- * (`olderPairs`) the host trail does not have and that are older than its
- * oldest turn.
- */
-export function sessionTrailTurns(
-    hostTurns: readonly HostTrailTurn[],
-    session: string,
-    olderPairs: readonly OlderSessionPair[] = [],
-): SessionTrailTurn[] {
+/** The turns of `session`, newest first: its view of this host's trail (`hostTurns`, the whole trail of this host). */
+export function sessionTrailTurns(hostTurns: readonly HostTrailTurn[], session: string): SessionTrailTurn[] {
     const out: SessionTrailTurn[] = sessionView(hostTurns, session).map((t) => ({
         id: t.id,
         time: t.time,
@@ -72,50 +45,13 @@ export function sessionTrailTurns(
         model: t.model,
         prompt: t.prompt,
         answer: t.answer,
-        olderBuild: false,
         todoRefs: todoRefsOf(t.answer),
     }));
-    const seen = new Set<string>();
-    for (const p of olderPairs) {
-        // OLD PLACE: the merge rule of the readers of prompt/answer pairs.
-        if (seen.has(p.requestId) || !keepOlderPairAnswer(p.requestId, p.timestamp, hostTurns)) { continue; }
-        seen.add(p.requestId);
-        out.push({
-            id: p.requestId, time: p.timestamp, profile: '', model: '',
-            prompt: p.prompt, answer: p.answer, olderBuild: true, todoRefs: todoRefsOf(p.answer),
-        });
-    }
     // Newest first; the trail's own order keeps turns of the same time in place (the sort is stable).
     return out.map((t, i) => ({ t, i })).sort((a, b) => {
         if (a.t.time !== b.t.time) { return b.t.time.localeCompare(a.t.time); }
         return b.i - a.i;
     }).map((x) => x.t);
-}
-
-/** OLD PLACE: the summary pair files of `session` (`history/sessions/<session>/`), read only. */
-export function olderSessionPairFiles(historyRoot: string, quest: string, session: string): { prompts: string; answers: string } {
-    return {
-        prompts: sessionSummaryFile(historyRoot, session, quest, 'anthropic', 'prompts'),
-        answers: sessionSummaryFile(historyRoot, session, quest, 'anthropic', 'answers'),
-    };
-}
-
-/** OLD PLACE: the turns of `session`'s summary pair of an older build; [] when it has none. */
-export function readOlderSessionPairs(historyRoot: string, quest: string, session: string): OlderSessionPair[] {
-    const files = olderSessionPairFiles(historyRoot, quest, session);
-    const prompts = readTrailFile(files.prompts);
-    if (prompts.length === 0) { return []; }
-    const answers = readTrailFile(files.answers);
-    const answerById = new Map<string, string>();
-    for (const a of answers) { if (!answerById.has(a.requestId)) { answerById.set(a.requestId, a.body); } }
-    const promptById = new Map<string, string>();
-    for (const p of prompts) { if (!promptById.has(p.requestId)) { promptById.set(p.requestId, p.body); } }
-    return pairPromptsAndAnswers(prompts, answers, `anthropic:${session}`, quest, 0).map((p) => ({
-        requestId: p.requestId,
-        timestamp: p.timestamp,
-        prompt: promptById.get(p.requestId) ?? '',
-        answer: answerById.get(p.requestId) ?? '',
-    }));
 }
 
 function escapeHtml(text: string): string {
@@ -165,7 +101,6 @@ export function renderSessionTrailHtml(session: string, turns: readonly SessionT
             `<span class="qlog-turn-time">${escapeHtml(t.time)}</span>`,
             t.profile ? `<span class="qlog-turn-profile" title="Profile">${escapeHtml(t.profile)}</span>` : '',
             t.model ? `<span class="qlog-turn-model" title="Model">${escapeHtml(t.model)}</span>` : '',
-            t.olderBuild ? '<span class="qlog-turn-tag" title="From the session\'s summary trail of an older build">older build</span>' : '',
         ].filter((x) => x).join('<span class="qlog-turn-sep"> · </span>');
         const actions = TRAIL_TURN_ACTIONS.map((a) =>
             `<button class="icon-btn" data-qlog-turn-action="${a.id}" data-qlog-turn="${id}" title="${escapeHtml(a.title)}"><span class="codicon codicon-${a.icon}"></span></button>`,

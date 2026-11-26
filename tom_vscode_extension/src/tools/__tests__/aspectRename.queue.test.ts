@@ -304,8 +304,8 @@ describe('guideline choices carried over a rename (gsel7b)', () => {
             return abs;
         };
         const files = {
-            shared2: at('quests/q2/extension_config.q2.yaml', 'telegram:\n  enabled: false\naspectGuidelines:\n  night: on\n'),
-            otherHost: at('quests/q2/extension_config.otherhost.q2.yaml', 'aspectGuidelines:\n  window:\n    night: on\n  chat:\n    copilot:\n      night: off\n'),
+            shared2: at('quests/q2/config/extension_config.q2.yaml', 'telegram:\n  enabled: false\naspectGuidelines:\n  night: on\n'),
+            otherHost: at('quests/q2/config/extension_config.otherhost.q2.yaml', 'aspectGuidelines:\n  window:\n    night: on\n  chat:\n    copilot:\n      night: off\n'),
             session: at('quests/q2/history/sessions/s1/session-todos.todo.yaml', 'todos:\n  - id: s1\n    guidelines:\n      night: on\n'),
             archived: at('quests/q2/todos-archived.q2.todo.yaml', 'todos:\n  - id: a1\n    guidelines: { night: on }\n'),
             template: at('queue/t1.template.queue.yaml', '# a template\nmain:\n  guidelines:\n    night: on\n'),

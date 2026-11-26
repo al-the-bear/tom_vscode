@@ -534,7 +534,7 @@ import {
 
 const liveSessionTodoStore: SessionTodoStoreAccess = {
     add(input) {
-        const item = SessionTodoStore.instance.add(input.title, 'copilot', {
+        const item = SessionTodoStore.instance.add(input.title, 'agent', {
             details: input.details,
             priority: input.priority,
             tags: input.tags,

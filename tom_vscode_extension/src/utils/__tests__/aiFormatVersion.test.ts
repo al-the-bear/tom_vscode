@@ -79,10 +79,11 @@ describe('ai format version', () => {
 
     test('FV-6: no stamp while a problem remains', () => {
         const ai = aiRoot();
-        const q = path.join(ai, 'quests', 'qa', 'history');
-        fs.mkdirSync(path.join(q, 'sessions', 'default'), { recursive: true });
-        fs.writeFileSync(path.join(q, 'history.json'), '{"old":1}');
-        fs.writeFileSync(path.join(q, 'sessions', 'default', 'history.json'), '{"new":1}');
+        const q = path.join(ai, 'quests', 'qa');
+        const session = path.join(q, 'history', 'mbp', 'sessions', 'default@default');
+        fs.mkdirSync(session, { recursive: true });
+        fs.writeFileSync(path.join(q, 'live-trail.md'), 'old');
+        fs.writeFileSync(path.join(session, 'live-trail.md'), 'new');
         const r = migrate(ai, true); // the merge fails
         assert.ok(r.problems.some((p) => p.step === 'format-version'));
         assert.equal(fs.existsSync(path.join(ai, AI_FORMAT_FILE)), false);

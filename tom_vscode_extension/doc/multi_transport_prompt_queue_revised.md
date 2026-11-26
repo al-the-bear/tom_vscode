@@ -31,7 +31,7 @@ From the queue's perspective there is **one transport**: `anthropic`. The four-w
 
 ## 2. Design decisions
 
-1. **One transport.** `QueuedTransport` is `'anthropic'`. An item, pre-prompt or follow-up may carry `transport: 'anthropic'` or leave it out; either way it runs on Anthropic. A stored `transport: copilot` is read as `anthropic` (`readStoredTransport`). What a single ordered workflow varies per item or stage is the **profile** ("plan with one profile → run three tasks with another").
+1. **One transport.** `QueuedTransport` is `'anthropic'`. An item, pre-prompt or follow-up may carry `transport: 'anthropic'` or leave it out; either way it runs on Anthropic. What a single ordered workflow varies per item or stage is the **profile** ("plan with one profile → run three tasks with another").
 2. **VS Code LM is an Anthropic configuration type.** The `AnthropicConfiguration.transport` enum is `'direct' | 'agentSdk' | 'vscodeLm'`, with a fourth synthesised value `'localLlm'` used at runtime when a profile references a Local LLM config (never persisted). A `vscodeLm` configuration carries the selector params for `vscode.lm.selectChatModels` as a required triple `{vendor, family, modelId}`. Trails land in the same `_ai/trail/anthropic/*` directory as the other two persisted types.
 3. **Local LLM configurations are referenced from Anthropic profiles.** The Local LLM config schema is its own and lives in `config.localLlm.configurations`. The Anthropic profile's config picker lists Anthropic configurations AND Local LLM configurations, labelled by backing type. Selecting a Local LLM config on an Anthropic profile swaps only the final API call — prompt composition, tool approval, live trail, trail-file layout, user-message templates, and the queueing UI are the ANTHROPIC/LLM panel's.
 4. **Direct responses.** `dispatchStage()` awaits `AnthropicHandler.sendMessage()` and stores the returned text on the queue item or stage (`answerText`). A dispatch always completes inline: when the call returns, the stage is answered.
@@ -214,7 +214,7 @@ const result = await AnthropicHandler.instance.sendMessage({
 
 ### 4.6 `sendItem()` and the stage loop
 
-- Before `dispatchStage()` is called, the stage's text is expanded by `_buildExpandedText()` at [promptQueueManager.ts:1135](../src/managers/promptQueueManager.ts#L1135): the repeat affixes and their placeholders, a todo iteration's record, then the named template if any (`applyTemplateWrapping(expanded, templateName)`). A stored template id `__answer_file__` means no template.
+- Before `dispatchStage()` is called, the stage's text is expanded by `_buildExpandedText()` at [promptQueueManager.ts:1135](../src/managers/promptQueueManager.ts#L1135): the repeat affixes and their placeholders, a todo iteration's record, then the named template if any (`applyTemplateWrapping(expanded, templateName)`).
 - After `dispatchStage()` returned: `answerText` is stored on the item or stage (with the `prePrompts[i].status = 'sent'` / follow-up `repeatIndex++` machinery), and the loop (`dispatchNextStageForSendingItem`) goes on with the next stage.
 - On a failed send: the error path of §4.18 (`_markItemError`) — a retry schedule, or item status `'error'` with the error message.
 - The dispatcher **always** coerces `toolApprovalMode = 'never'` (see §2 decision 7) — regardless of whether the leaf path is Direct, Agent SDK, VS Code LM, or Local LLM.
@@ -373,7 +373,7 @@ Queue state is persisted as one entry file per item in the queue folder (`_ai/qu
 
 **Only what changed is written.** `PromptQueueManager._persistToFiles` keeps, per item, the fingerprint its file was last written from — the quest, the item's place in the queue and the item as JSON, all that `_queuedPromptToDoc` builds the file from — and serialises and writes only the items whose fingerprint changed (a dispatch changes one item; removing or moving one changes the places after it); removed items' files are deleted. Before, every persist serialised every item with the yaml package on the extension host's thread (with 50 items of real prompts and answers, 274 KB: a median 112 ms and up to 400 ms per persist, 50 files written; now a median 4.5 ms, one file). The sent-history trim on disk (`trimSentEntries`, which reads and parses every entry file) runs only when the folder holds entry files of this host and workspace that the queue does not own (`countEntryFiles()` above the files it wrote): its own sent items are trimmed in memory already (`trimSentHistory`, 50). Tests: `queuePersistChanged.queue.test.ts` QP-1 – QP-3.
 
-The target fields are optional. An item stored without `transport` runs on Anthropic like one that names it, and a stored `transport: copilot` is read as `anthropic` (`readStoredTransport`).
+The target fields are optional. An item stored without `transport` runs on Anthropic like one that names it.
 
 **YAML layout**: the per-item queue YAML format under `queueFileStorage.ts` uses dash-case keys on `QueuePromptYaml`. The target fields on the main item and on each pre-prompt / follow-up, and the item's todo pattern, are:
 
@@ -392,14 +392,13 @@ todo-id-pattern: chat*                  # the todos it runs: a todo id, <prefix>
 runs:
   default:
     auto-send-enabled: true
-    default-transport: anthropic
     default-anthropic-profile-id: software-engineer
   collab:
     auto-send-enabled: false
     default-agent-sdk-session: idea
 ```
 
-`default-transport` is written with every entry and always says `anthropic`. All keys are additive-optional; each `runs:` entry is written complete (an unset optional value as `""`), so a run with settings of its own never takes a top-level value. The top-level keys — the same keys, one set for the whole queue, the file's old shape — are the start values: what a run without settings of its own has (and the `default` run, when it has no entry). A missing key takes the start value, else the built-in default. The top-level keys are written only by **Make default** in the queue editor (a pin button in a tab's toolbar): `setDefaultQueueSettings(run)` copies the tab's run's shown settings (`DEFAULT_SETTING_FIELDS`: auto-send, Auto-Start / -Pause / -Continue, default profile / configuration / session / role / prompt template; not the walk continuations) to the top level, keeping `runs:` and every other key; runs with settings of their own keep them, runs without them and runs created later take the new values. The button is disabled while the tab's settings equal the start values (`defaultQueueSettingsDiff(run)`; the editor's state carries `startQueueSettings`). The queue always runs one lane per run (`utils/queueLanes.ts`): a run whose auto-send is off is a held lane. The manager's queue-wide accessors (`autoSendEnabled`, `defaultAnthropicProfileId`, `defaultAgentSdkSession`, ...) read and set the window's run; `runQueueSettings(run)` / `setRunQueueSettings(run, patch)` / `setRunAutoSend(run, on)` take a run. Every place that used to switch the queue-wide auto-send off (an error, interrupt for continuation, needs attention, a decision hold, out of credit, Auto-Pause, *pause after this*, deleting the sending item) switches off the run of the item (`_pauseRunOf`).
+The transport is not a setting of the file: it is always `anthropic`. All keys are additive-optional; each `runs:` entry is written complete (an unset optional value as `""`), so a run with settings of its own never takes a top-level value. The top-level keys — the same keys, one set for the whole queue, the file's old shape — are the start values: what a run without settings of its own has (and the `default` run, when it has no entry). A missing key takes the start value, else the built-in default. The top-level keys are written only by **Make default** in the queue editor (a pin button in a tab's toolbar): `setDefaultQueueSettings(run)` copies the tab's run's shown settings (`DEFAULT_SETTING_FIELDS`: auto-send, Auto-Start / -Pause / -Continue, default profile / configuration / session / role / prompt template; not the walk continuations) to the top level, keeping `runs:` and every other key; runs with settings of their own keep them, runs without them and runs created later take the new values. The button is disabled while the tab's settings equal the start values (`defaultQueueSettingsDiff(run)`; the editor's state carries `startQueueSettings`). The queue always runs one lane per run (`utils/queueLanes.ts`): a run whose auto-send is off is a held lane. The manager's queue-wide accessors (`autoSendEnabled`, `defaultAnthropicProfileId`, `defaultAgentSdkSession`, ...) read and set the window's run; `runQueueSettings(run)` / `setRunQueueSettings(run, patch)` / `setRunAutoSend(run, on)` take a run. Every place that used to switch the queue-wide auto-send off (an error, interrupt for continuation, needs attention, a decision hold, out of credit, Auto-Pause, *pause after this*, deleting the sending item) switches off the run of the item (`_pauseRunOf`).
 
 ### 4.15 Profile pickers
 
@@ -938,7 +937,7 @@ logic is pure and unit-tested in
   configured `questRefresh.anthropic.refreshPrompt` holds it, else appended.
   The refresh then trims every session's trail to the base five blocks, resets
   the counter and records `lastRefreshAt` in the `questRefresh` section of the
-  host's `extension_config.<host>.<quest>.yaml` — the later of now and the
+  host's `config/extension_config.<host>.<quest>.yaml` — the later of now and the
   trim's own writes, so the next list starts after it. Before the first refresh
   on a host, every session's trail is listed. The other panels have no
   sessions; there the placeholder is removed.
@@ -963,7 +962,7 @@ Persisted keys (entry YAML): `session` is a string, or the map `{name, basedOn, 
 - otherwise a new item at the index of the first pending item (ahead of everything else pending; appended when nothing is pending), with the finished item's transport, profile and session, `notificationOf: <item id>` and the sender (`from`) of the item;
 - `${itemOutcome}` becomes `done` or `error: <message>` (one line);
 - the item's `pauseAfter` moves to the notification, so the queue pauses after the notification, not before it;
-- a temporary session is handed to the notification, which runs in it; it is deleted once the notification is done, or at once when there is no notification (`_deleteTemporarySession`: the `.session.json` and `history/sessions/<name>/`).
+- a temporary session is handed to the notification, which runs in it; it is deleted once the notification is done, or at once when there is no notification (`_deleteTemporarySession`: the `.session.json` and `history/<host>/sessions/<name>/`).
 
 `updateItemDoneNotification(id, {prompt?, disabled?})` changes the prompt or switches it off until the item is `sent`, also while it is sending; the queue editor shows it in a collapsible section under the item's prompt with a bell icon, and `tomAi_updateQueueItem` takes `doneNotificationPrompt` / `doneNotificationDisabled`.
 
@@ -1042,7 +1041,7 @@ The parts in the order they build on each other:
 
 ## 8. Acceptance checklist
 
-- [x] `QueuedPrompt.transport` accepts only `'anthropic'`; a stored `copilot` is read as `anthropic`; no other values in the queue schema (`localLlm` is an Anthropic configuration transport, not a queue transport).
+- [x] `QueuedPrompt.transport` accepts only `'anthropic'`; no other values in the queue schema (`localLlm` is an Anthropic configuration transport, not a queue transport).
 - [x] A queue item with a `direct` config hits the Direct path.
 - [x] A queue item with an `agentSdk` config hits the Agent SDK path.
 - [x] A queue item with a `vscodeLm` config routes through `sendViaVsCodeLm` (full tool-use loop) and concatenates `{systemPrompt}\n\n{userText}`.

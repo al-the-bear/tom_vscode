@@ -5,8 +5,7 @@
  * Source of truth: this host's compact trail
  * `_ai/quests/<quest>/history/trail.<host>.md` (src/services/hostTrail.ts),
  * one turn per pair, a session's pairs its turns (subsystem
- * `anthropic:<session>`); OLD PLACE: a session's summary pair of an older
- * build adds its turns older than the host trail's; the other subsystems'
+ * `anthropic:<session>`); the other subsystems'
  * `_ai/quests/<quest>/history/<quest>.<subsystem>.{prompts,answers}.md`.
  * `sessions` chooses the Anthropic sessions (src/tools/session-param.ts;
  * `all`: every session of this host). Pairs are keyed by `requestId`.

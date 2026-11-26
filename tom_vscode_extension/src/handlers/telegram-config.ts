@@ -2,7 +2,7 @@
  * Single source of truth for the extension's Telegram settings.
  *
  * Telegram settings are stored **per quest** in the two consolidated config
- * files owned by {@link extensionConfigStore} (under `_ai/quests/{questId}/`),
+ * files owned by {@link extensionConfigStore} (under `_ai/quests/{questId}/config/`),
  * split by scope:
  *
  *   - machine-INDEPENDENT preferences (allow-list, default chat id,
@@ -144,7 +144,7 @@ export function loadTelegramConfig(): TelegramConfig | undefined {
     if (shared) { return parseTelegramConfig(shared); }
 
     const configPath = getQuestTelegramConfigPath();
-    const fileName = configPath ? path.basename(configPath) : `extension_config.${WsPaths.hostSlug()}.<quest>.yaml`;
+    const fileName = configPath ? `config/${path.basename(configPath)}` : `config/extension_config.${WsPaths.hostSlug()}.<quest>.yaml`;
     vscode.window.showErrorMessage(
         `No Telegram settings found for this quest. Open the status page → Telegram (or run "Configure Telegram") to create ${fileName}.`,
     );

@@ -777,7 +777,7 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.ok(!fs.existsSync(path.join(WS, 'created/moved.md')), 'tomAi_moveFile then tomAi_deleteFile');
         assert.match(git(WS, 'log', '--format=%s'), /^written by the MCP test\nfixture$/, "tomAi_gitWrite's commit, in the sandbox repository");
         assert.match(fs.readFileSync(path.join(WS, 'notes/doc.md'), 'utf8'), /delta, written by the MCP test/, 'tomAi_docspecsReplaceSection');
-        assert.match(fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.mcpRun.yaml`), 'utf8'), /process: flow/, 'tomAi_setProcessState');
+        assert.match(fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/config/process-state.${QUEST}.mcpRun.yaml`), 'utf8'), /process: flow/, 'tomAi_setProcessState');
         assert.ok(fs.existsSync(path.join(WS, 'specs/generated-doc/codespecs_extracts/gate.verdicts.yaml')), 'tomAi_specCodeSpecsSetVerdict');
         const inbox = fs.readdirSync(path.join(WS, '_ai/queue')).filter((f) => f.endsWith('.inbox.queue.yaml'));
         assert.equal(inbox.length, 1, 'tomAi_sendItemToQuest wrote one inbox file');
@@ -1034,7 +1034,7 @@ describe('every tool over MCP, in a sandbox', () => {
         assert.equal((await set({ step: 'gate' })).state.step, 'gate');
         const back = await set({ step: 'review' });
         assert.equal(back.state.stepIteration, 4, 'entered again: the iteration after its last');
-        const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/process-state.${QUEST}.mcpRun.yaml`), 'utf8');
+        const file = fs.readFileSync(path.join(WS, `_ai/quests/${QUEST}/config/process-state.${QUEST}.mcpRun.yaml`), 'utf8');
         assert.match(file, /stepIterations:[\s\S]*review: 3/, 'the record is in the state file');
     });
 

@@ -8,7 +8,7 @@ import { compactTrailMaxEntries, trimCompactTrailFile } from '../utils/compactTr
 import { RAW_TRAIL_DEFAULT_MAX_FILES, rawTrailMaxFiles } from '../utils/rawTrailLimit';
 import { WsPaths } from '../utils/workspacePaths';
 import { resolveTrailPath } from './trailPathResolver';
-import { sessionSummaryFile, sessionTrailFolder } from './sessionStorage';
+import { sessionTrailFolder } from './sessionStorage';
 import { beginHostTrailTurn, completeHostTrailTurn } from './hostTrail';
 import { sessionContributesToTrailAndMemory } from './agentSdkSessionStore';
 import { hostSlugOf } from '../utils/hostSlug';
@@ -368,19 +368,15 @@ export class TrailService {
     }
 
     /**
-     * Resolve the summary file path for external callers. For an Anthropic
-     * session: OLD PLACE, the pair an older build wrote in the session's
-     * storage (nothing writes it; the readers read it for older turns).
+     * Resolve the summary file path for external callers. An Anthropic
+     * session has none: its turns go to the host trail (hostTrail.ts).
      */
     getSummaryFilePath(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
         return this.resolveSummaryFile(kind, subsystem, questId);
     }
 
     private resolveSummaryFile(kind: 'prompts' | 'answers', subsystem: TrailSubsystem, questId?: string): string | undefined {
-        if (subsystem.type === 'anthropic' && subsystem.session) {
-            const quest = questId || WsPaths.getWorkspaceQuestId() || 'default';
-            return sessionSummaryFile(questHistoryRoot(quest), subsystem.session, quest, 'anthropic', kind);
-        }
+        if (subsystem.type === 'anthropic' && subsystem.session) { return undefined; }
         const cfg = this.getSummaryConfig();
         const pattern = kind === 'prompts' ? cfg.promptsFilePattern : cfg.answersFilePattern;
         if (!pattern) {

@@ -12,7 +12,7 @@
  *   QA-5 the writers: an ask's question written when asked and its answer block naming it (answered, timed out),
  *        a resolution without an asked block writes both; a process decision; nothing goes to `questions.<quest>.md`
  *        or `decisions.<quest>.md`
- *   QA-6 the Questions tab: every host's journal and the old questions file, newest first with the host; the filter
+ *   QA-6 the Questions tab: every host's journal, newest first with the host; a `questions.<quest>.md` is not read; the filter
  *        (current, selected, workspace); the counters and marking read (the marker in global storage, not in `_ai`)
  *   QA-7 the Decisions tab: open first; Save writes the decision through the todo store and flips a decision-needed
  *        todo to not-started with its last open decision only; an archived todo's decisions are listed, not open
@@ -271,7 +271,7 @@ describe('the Q&A page', () => {
     });
 
     test('QA-6: the Questions tab, the filter, the counters', async () => {
-        // Another host's journal and the old questions file of this quest; a journal of q2.
+        // Another host's journal and a `questions.<quest>.md` (not read) of this quest; a journal of q2.
         appendQaBlocks(QDIR, QUEST, 'otherhost', [{ id: 'q-o1', kind: 'question', time: '2026-11-25T10:30:00.000Z', host: 'otherhost', title: 'From the other host', questions: ['There?'] }]);
         fs.writeFileSync(path.join(QDIR, `questions.${QUEST}.md`), '# Questions — q1\n\n## 2026-11-01T08:00:00.000Z — Old one\n\n- **Tool:** `tomAi_askUser`\n- **Run:** default\n- **Answered:** 2026-11-01T08:01:00.000Z via vscode, after 1m 0s\n\n### Answer\n\n> yes\n');
         appendQaBlocks(path.join(WS, '_ai', 'quests', 'q2'), 'q2', HOST, [{ id: 'd-q2', kind: 'decision', time: '2026-11-26T09:00:00.000Z', host: HOST, title: 'q2 decision', details: 'x' }]);
@@ -286,7 +286,7 @@ describe('the Q&A page', () => {
         assert.deepEqual(times, [...times].sort((a: number, b: number) => b - a), 'newest first');
         assert.ok(titles.some((t: string[]) => t[0] === 'From the other host' && t[1] === 'otherhost'), 'the other host\'s journal, with its host');
         assert.ok(titles.some((t: string[]) => t[0] === 'Reset Run: run r2' && t[1] === HOST), 'the process decision');
-        assert.deepEqual(titles.at(-1), ['Old one', ''], 'the old file\'s entry, of unknown host, oldest');
+        assert.ok(!titles.some((t: string[]) => t[0] === 'Old one'), 'a questions.<quest>.md is not read');
         assert.equal(s.questions.find((q: Json) => q.title === 'From the other host').open, true);
         assert.ok(s.counts.questions >= 8, `all new without a marker: ${s.counts.questions}`);
         assert.ok(s.questions.every((q: Json) => q.isNew));

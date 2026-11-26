@@ -16,20 +16,16 @@
  * running prompt, and a journal that could fail the prompt it was recording
  * would be worse than no journal.
  *
- * {@link readQaItems} reads every host's journal of a quest and, old place,
- * an existing `questions.<quest>.md` (read-only, entries of unknown host).
+ * {@link readQaItems} reads every host's journal of a quest.
  */
-
-import * as fs from 'fs';
-import * as path from 'path';
 
 import { WsPaths } from '../utils/workspacePaths';
 import { hostSlugOf } from '../utils/hostSlug';
 import {
-    appendQaBlocks, combineQaBlocks, newQaId, processDecisionBlock, qaJournalHasBlock, readQaBlocks, sortQaItems,
+    appendQaBlocks, combineQaBlocks, newQaId, processDecisionBlock, qaJournalHasBlock, readQaBlocks,
     type QaBlock, type QaItem,
 } from '../utils/qaJournal';
-import { parseLegacyQuestionsJournal, type QuestionAskedEntry, type QuestionLogEntry } from '../utils/questionsLogFormat';
+import type { QuestionAskedEntry, QuestionLogEntry } from '../utils/questionsLogFormat';
 import type { UserAnswer } from '../utils/userAnswers';
 import { currentInteractionRun, currentQueueItemId } from './userWaits';
 import { getActiveToolTrail } from './tool-trail';
@@ -164,21 +160,7 @@ export function appendProcessDecision(entry: string, opts: QaTarget & { run?: st
     write(opts, (host) => [processDecisionBlock(entry, { host, ...(opts.run ? { run: opts.run } : {}) })]);
 }
 
-/** Old place: the quest's single questions journal, read by the Q&A page until the format migration removes it. */
-export function legacyQuestionsJournalPath(questFolder: string, quest: string): string {
-    return path.join(questFolder, `questions.${quest}.md`);
-}
-
-/**
- * The combined journal of quest `quest` (folder `questFolder`): every host's
- * blocks and the entries of an old questions journal, oldest first.
- */
+/** The combined journal of quest `quest` (folder `questFolder`): every host's blocks, oldest first. */
 export function readQaItems(questFolder: string, quest: string): QaItem[] {
-    const items = combineQaBlocks(readQaBlocks(questFolder, quest));
-    let legacy: QaItem[] = [];
-    try {
-        const file = legacyQuestionsJournalPath(questFolder, quest);
-        if (fs.existsSync(file)) { legacy = parseLegacyQuestionsJournal(fs.readFileSync(file, 'utf-8')); }
-    } catch { legacy = []; }
-    return sortQaItems([...legacy, ...items].map((i) => ({ ...i, quest })));
+    return combineQaBlocks(readQaBlocks(questFolder, quest)).map((i) => ({ ...i, quest }));
 }

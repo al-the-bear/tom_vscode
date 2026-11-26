@@ -63,14 +63,14 @@ describe('extensionConfigStore — path resolution', () => {
     test('questConfigPath is host-independent', () => {
         assert.equal(
             questConfigPath(QUEST),
-            path.join(questDir(root), `extension_config.${QUEST}.yaml`),
+            path.join(questDir(root), 'config', `extension_config.${QUEST}.yaml`),
         );
     });
 
     test('machineConfigPath carries the host slug', () => {
         assert.equal(
             machineConfigPath(QUEST),
-            path.join(questDir(root), `extension_config.${WsPaths.hostSlug()}.${QUEST}.yaml`),
+            path.join(questDir(root), 'config', `extension_config.${WsPaths.hostSlug()}.${QUEST}.yaml`),
         );
     });
 });

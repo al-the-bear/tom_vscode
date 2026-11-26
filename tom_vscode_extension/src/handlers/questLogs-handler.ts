@@ -50,8 +50,6 @@ import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage } from '../servi
 import { readHostTrail } from '../services/hostTrail.js';
 import { hostSlugOf } from '../utils/hostSlug.js';
 import {
-    olderSessionPairFiles,
-    readOlderSessionPairs,
     renderSessionTrailHtml,
     sessionTrailTurnMarkdown,
     sessionTrailTurnTitle,
@@ -198,12 +196,10 @@ function resolveQuestLogPath(
     const questFolder = activeQuestFolder(questId);
     const dir = area === 'questHistory' ? questTrailFolder(questFolder) : questFolder;
     if (tab === 'notes') {
-        // The default notes file, through the one rule that also knows the old place.
-        const notes = resolveDefaultQuestNotes(path.join(dir, ...fileName.split('/')), questFolder, sanitizeQuestSegment(questId));
+        const notes = resolveDefaultQuestNotes(path.join(dir, ...fileName.split('/')));
         return { questId: questId || 'default', fileName: path.basename(notes.filePath), filePath: notes.filePath };
     }
-    // A session's file is in its storage folder, which sessionRoot decides (this host's
-    // `history/<host>/sessions/<s>/`, or its old place `history/sessions/<s>/`).
+    // A session's file is in its storage folder, this host's `history/<host>/sessions/<s>/` (sessionRoot).
     const inSession = area === 'questHistory' ? /^sessions\/([^/]+)\/(.+)$/.exec(fileName) : null;
     if (inSession) {
         return { questId: questId || 'default', fileName, filePath: path.join(sessionRoot(dir, inSession[1]), ...inSession[2].split('/')) };
@@ -251,8 +247,7 @@ function readQuestLogSlice(
 
 /**
  * What a view was last sent, so an unchanged file costs one `stat` and no
- * read: the file and the `size:mtime` of every file the view reads (the Trail
- * tab reads this host's trail and, OLD PLACE, the session's older pair).
+ * read: the file and the `size:mtime` of every file the view reads.
  */
 interface QuestLogSnapshot {
     filePath: string;
@@ -323,19 +318,15 @@ function activeQuestFolder(questId: string): string {
 
 /**
  * The Trail tab's turns of `session` in the quest at `questFolder`: its view
- * of this host's trail, plus (OLD PLACE) the older turns of its summary pair
- * of an older build. Other hosts' trails are not read.
+ * of this host's trail. Other hosts' trails are not read.
  */
-export function sessionTrailTurnsOf(questFolder: string, questId: string, session: string): SessionTrailTurn[] {
-    const historyRoot = questTrailFolder(questFolder);
-    const olderPairs = readOlderSessionPairs(historyRoot, sanitizeQuestSegment(questId), session);
-    return sessionTrailTurns(readHostTrail(questFolder, hostSlugOf()), session, olderPairs);
+export function sessionTrailTurnsOf(questFolder: string, _questId: string, session: string): SessionTrailTurn[] {
+    return sessionTrailTurns(readHostTrail(questFolder, hostSlugOf()), session);
 }
 
-/** The files the Trail tab of `session` reads: this host's trail, then (OLD PLACE) the session's older pair. */
-function sessionTrailFiles(questFolder: string, questId: string, session: string): string[] {
-    const older = olderSessionPairFiles(questTrailFolder(questFolder), sanitizeQuestSegment(questId), session);
-    return [path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName), older.prompts, older.answers];
+/** The file the Trail tab of `session` reads: this host's trail. */
+function sessionTrailFiles(questFolder: string, questId: string): string[] {
+    return [path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName)];
 }
 
 /** `size:mtime` of each file, `-` for a missing one. */
@@ -411,41 +402,25 @@ async function runTurnAction(webview: vscode.Webview, viewer: string, tab: Quest
             });
             return;
         case 'open':
-            await openTurnInTrailFile(questFolder, questId, session, turn);
+            await openTurnInTrailFile(questFolder, questId, turn);
             return;
     }
 }
 
-/**
- * Open the file a turn is in at its block: this host's trail at the turn's
- * header line; OLD PLACE: an older build's turn in the session's answers file
- * at its `=== ANSWER <id>` line (else its prompts file).
- */
-async function openTurnInTrailFile(questFolder: string, questId: string, session: string, turn: SessionTrailTurn): Promise<void> {
-    const candidates: Array<{ file: string; match: (line: string) => boolean }> = [];
-    if (turn.olderBuild) {
-        const older = olderSessionPairFiles(questTrailFolder(questFolder), sanitizeQuestSegment(questId), questLogSession(session));
-        candidates.push(
-            { file: older.answers, match: (l) => l.startsWith(`=== ANSWER ${turn.id} `) },
-            { file: older.prompts, match: (l) => l.startsWith(`=== PROMPT ${turn.id} `) },
-        );
-    } else {
-        candidates.push({
-            file: path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName),
-            match: (l) => l.startsWith('<!--tom-trail-turn ') && l.includes(`"id":${JSON.stringify(turn.id)}`),
-        });
-    }
-    for (const c of candidates) {
-        let lines: string[];
-        try { lines = fs.readFileSync(c.file, 'utf-8').split('\n'); } catch { continue; }
-        const at = lines.findIndex(c.match);
-        if (at < 0) { continue; }
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(c.file));
-        const position = new vscode.Position(at, 0);
-        await vscode.window.showTextDocument(doc, { preview: false, selection: new vscode.Range(position, position) });
+/** Open this host's trail at the turn's header line. */
+async function openTurnInTrailFile(questFolder: string, questId: string, turn: SessionTrailTurn): Promise<void> {
+    const file = path.join(questTrailFolder(questFolder), questLogLocation('turns', questId).fileName);
+    const match = (l: string): boolean => l.startsWith('<!--tom-trail-turn ') && l.includes(`"id":${JSON.stringify(turn.id)}`);
+    let lines: string[] = [];
+    try { lines = fs.readFileSync(file, 'utf-8').split('\n'); } catch { /* no trail on this machine */ }
+    const at = lines.findIndex(match);
+    if (at < 0) {
+        vscode.window.showInformationMessage(`The turn ${turn.id} was not found in its trail file.`);
         return;
     }
-    vscode.window.showInformationMessage(`The turn ${turn.id} was not found in its trail file.`);
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    const position = new vscode.Position(at, 0);
+    await vscode.window.showTextDocument(doc, { preview: false, selection: new vscode.Range(position, position) });
 }
 
 function sendQuestLogContent(
@@ -465,11 +440,11 @@ function sendQuestLogContent(
     };
 
     if (view === 'turns') {
-        // The session's turns of this host's trail (and, OLD PLACE, its older pair): built, not read as one file.
+        // The session's turns of this host's trail: built, not read as one file.
         const name = questLogSession(session);
         const quest = activeQuestId();
         const questFolder = activeQuestFolder(quest);
-        const signature = filesSignature(sessionTrailFiles(questFolder, quest, name));
+        const signature = filesSignature(sessionTrailFiles(questFolder, quest));
         const previous = lastSent.get(key);
         if (!force && previous && previous.filePath === filePath && previous.signature === signature) {
             webview.postMessage({ type: 'qlogUnchanged', viewer, tab, session });

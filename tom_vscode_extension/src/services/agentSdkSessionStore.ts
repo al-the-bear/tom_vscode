@@ -8,11 +8,6 @@
  * (tracked, written only by that host; `<host>` is hostSlugOf()). Every
  * function takes the quest's `history/` folder.
  *
- * OLD PLACE (until the `_ai` format migration moves them): a session file
- * `history/<name>.session.json` is read and written there; a file at the new
- * place wins; a new session is created at the new place. The listing names
- * the sessions of both places (the old place's files stand for every host).
- *
  * vscode-free.
  */
 
@@ -33,7 +28,7 @@ import {
 import type { SessionProfile, SessionSpec } from '../utils/sessionSpecs';
 import { writeFileAtomic } from '../utils/atomicWrite';
 import { hostSlugOf } from '../utils/hostSlug';
-import { DEFAULT_RUN_SESSION, LEGACY_DEFAULT_SESSION, canonicalSessionName, runDefaultSession } from '../utils/runSessions';
+import { DEFAULT_RUN_SESSION, canonicalSessionName, runDefaultSession } from '../utils/runSessions';
 
 const SUFFIX = '.session.json';
 
@@ -42,26 +37,9 @@ function hostFolder(folder: string): string {
     return path.join(folder, hostSlugOf());
 }
 
-/** OLD PLACE: the session file of `name` directly in `history/`. */
-function legacyFileOf(folder: string, name: string): string {
-    return path.join(folder, `${canonicalSessionName(name)}${SUFFIX}`);
-}
-
-/** The session file of `name` at the new place, `history/<host>/<name>.session.json`. */
-function hostFileOf(folder: string, name: string): string {
-    return path.join(hostFolder(folder), `${canonicalSessionName(name)}${SUFFIX}`);
-}
-
-/**
- * The session file of `name`, read and written: the new place's when it
- * exists, else the old place's when it exists (OLD PLACE), else the new
- * place (a new session).
- */
+/** The session file of `name`, read and written: `history/<host>/<name>.session.json`. */
 export function sessionFilePath(folder: string, name: string): string {
-    const fresh = hostFileOf(folder, name);
-    if (fs.existsSync(fresh)) { return fresh; }
-    const old = legacyFileOf(folder, name);
-    return fs.existsSync(old) ? old : fresh;
+    return path.join(hostFolder(folder), `${canonicalSessionName(name)}${SUFFIX}`);
 }
 
 function fileOf(folder: string, name: string): string {
@@ -78,19 +56,13 @@ export function readSession(folder: string, name: string): SessionRecord | undef
     }
 }
 
-/**
- * This host's sessions, sorted by name: the new place's and (OLD PLACE) the
- * files directly in `history/`, a name at both places once (the new place's);
- * unreadable files are skipped.
- */
+/** This host's sessions (`history/<host>/`), sorted by name; unreadable files are skipped. */
 export function listSessions(folder: string): SessionRecord[] {
     const names = new Set<string>();
-    for (const dir of [hostFolder(folder), folder]) {
-        let entries: string[] = [];
-        try { entries = fs.readdirSync(dir); } catch { continue; }
-        for (const f of entries) {
-            if (f.endsWith(SUFFIX)) { names.add(f.slice(0, -SUFFIX.length)); }
-        }
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(hostFolder(folder)); } catch { /* no sessions yet */ }
+    for (const f of entries) {
+        if (f.endsWith(SUFFIX)) { names.add(f.slice(0, -SUFFIX.length)); }
     }
     const out: SessionRecord[] = [];
     for (const name of names) {
@@ -283,10 +255,9 @@ export function deleteSession(folder: string, name: string): DeleteSessionResult
             error: `The session "${name}" is the base of ${dependents.map((d) => `"${d}"`).join(', ')}; delete or re-create those first.`,
         };
     }
-    // OLD PLACE: a file directly in `history/` goes too.
-    const files = [hostFileOf(folder, name), legacyFileOf(folder, name)].filter((f) => fs.existsSync(f));
-    if (files.length === 0) { return { ok: true, deleted: false }; }
-    for (const f of files) { fs.unlinkSync(f); }
+    const file = fileOf(folder, name);
+    if (!fs.existsSync(file)) { return { ok: true, deleted: false }; }
+    fs.unlinkSync(file);
     notifySessionsChanged(folder);
     return { ok: true, deleted: true };
 }
@@ -308,17 +279,10 @@ export type EnsureSessionResult = { ok: true; created: string[] } | { ok: false;
  */
 /**
  * The default session of run `run`, `default@<run>` (vscimpb151), created when missing: for the `default` run
- * `default@default` fresh, for another run based on `default@default` (made first when missing). An older build's
- * `default.session.json` not moved yet (the start's migrateDefaultSessionName moves the rest) is renamed to
- * `default@default.session.json` first, so its conversation is the base. Answers the sessions it created.
+ * `default@default` fresh, for another run based on `default@default` (made first when missing). Answers the
+ * sessions it created.
  */
 export function ensureRunDefaultSession(folder: string, run: string | undefined): string[] {
-    // OLD PLACE: an older build's `history/default.session.json` becomes `history/default@default.session.json`.
-    const legacy = path.join(folder, `${LEGACY_DEFAULT_SESSION}${SUFFIX}`);
-    const current = legacyFileOf(folder, DEFAULT_RUN_SESSION);
-    if (fs.existsSync(legacy) && !fs.existsSync(current) && !fs.existsSync(hostFileOf(folder, DEFAULT_RUN_SESSION))) {
-        try { fs.renameSync(legacy, current); } catch { /* the start's migration moves it */ }
-    }
     const name = runDefaultSession(run);
     if (readSession(folder, name)) { return []; }
     const created: string[] = [];

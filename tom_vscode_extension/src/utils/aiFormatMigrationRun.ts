@@ -20,6 +20,7 @@
  * vscode-free (the extension host and scripts/migrate-ai-formats.cjs use it).
  */
 
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse, stringify } from 'yaml';
@@ -146,6 +147,40 @@ export function releaseMigrationLock(aiRoot: string, windowId: string): void {
  */
 export function makeMigrationMerger(): (driver: MergeDriver, target: string, legacy: string) => string | undefined {
     return makeBuiltinMerger();
+}
+
+/**
+ * Git in the `_ai` clone for format version 11's step `untrack` (formatV11/hostSessions.ts): `trackedIgnored`
+ * lists the tracked files the ignore rules cover, `untrack` removes files from the index and keeps them on disk.
+ * Both undefined when `aiRoot` is no git work tree or git is missing (the step then reports what to untrack).
+ * Only the index changes: nothing is committed (the user's next `_ai` commit records it).
+ */
+export function makeGitUntrack(aiRoot: string): { untrack?: (paths: string[]) => string | undefined; trackedIgnored?: () => string[] | undefined } {
+    const git = (args: string[]): string => execFileSync('git', args, { cwd: aiRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+        if (git(['rev-parse', '--show-toplevel']).trim() !== fs.realpathSync(aiRoot)) { return {}; }
+    } catch {
+        return {};
+    }
+    return {
+        trackedIgnored: () => {
+            try {
+                return git(['ls-files', '-z', '-c', '-i', '--exclude-standard']).split('\0').filter((p) => p.length > 0);
+            } catch {
+                return undefined;
+            }
+        },
+        untrack: (paths) => {
+            try {
+                for (let i = 0; i < paths.length; i += 200) {
+                    git(['rm', '--cached', '--quiet', '--ignore-unmatch', '--', ...paths.slice(i, i + 200)]);
+                }
+                return undefined;
+            } catch (e) {
+                return (e as Error).message;
+            }
+        },
+    };
 }
 
 /** The changes per quest and step, and the problems, as Markdown. */

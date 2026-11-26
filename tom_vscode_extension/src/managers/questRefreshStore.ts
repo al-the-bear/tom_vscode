@@ -13,7 +13,7 @@
  *     the refresh reads the session live trails changed since then.
  *
  * Storage: the `questRefresh` section of the machine-specific consolidated
- * config file `_ai/quests/{questId}/extension_config.{hostname}.{questId}.yaml`
+ * config file `_ai/quests/{questId}/config/extension_config.{hostname}.{questId}.yaml`
  * (host-specific: the `_ai` clone is shared/symlinked across the fleet, so the
  * hostname segment keeps each machine's counter + activation flag separate).
  * This store owns only that one section; {@link extensionConfigStore} owns the

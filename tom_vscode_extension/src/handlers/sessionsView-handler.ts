@@ -15,10 +15,9 @@
  *   rolling tail, accumulator) and its SDK session id — and keep base,
  *   lifetime, profile and its trails.
  * - Delete (row, confirmed, naming what goes): remove the session with its
- *   whole storage — `history/<host>/sessions/<name>/` (or its old place
- *   `history/sessions/<name>/`: history, live trail, raw trail, tool results) and its memory folder of the old
- *   place (`_ai/memory/<quest>/<name>/`; the quest memory,
- *   `_ai/quests/<quest>/memory/`, stays); refused while another session is based on
+ *   whole storage — `history/<host>/sessions/<name>/` (history, live trail,
+ *   raw trail, tool results; the quest memory, `_ai/quests/<quest>/memory/`,
+ *   stays); refused while another session is based on
  *   it. `default` and `chat` have no file: Delete removes their storage only.
  * - Remove unused sessions (title-bar icon, `tomAi.sessions.removeUnused`):
  *   a multi-picker of the named sessions nothing uses any more
@@ -40,7 +39,6 @@ import * as vscode from 'vscode';
 import { registerGatedWebviewViewProvider } from './webviewViewGate';
 
 import { clearSessionId, deleteSession, listSessions, onSessionsChanged, setContributesToTrailAndMemory } from '../services/agentSdkSessionStore';
-import { TwoTierMemoryService } from '../services/memory-service';
 import { hostHistoryFolder, removeSessionStorage } from '../services/sessionStorage';
 import { sessionTodoCounts } from '../services/sessionTodoFiles';
 import { readTodoFile } from '../managers/questTodoManager';
@@ -120,13 +118,13 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Session files written by another window: watch this host's folder `history/<host>/` and (OLD PLACE)
-     * `history/` itself — their files are `<name>.session.json`.
+     * Session files written by another window: watch this host's folder `history/<host>/` — their files are
+     * `<name>.session.json`.
      */
     private watch(historyRoot: string): void {
         if (this.watchedFolder === historyRoot && this.watchers.length > 0) { return; }
         this.unwatch();
-        for (const folder of [hostHistoryFolder(historyRoot), historyRoot]) {
+        for (const folder of [hostHistoryFolder(historyRoot)]) {
             if (!fs.existsSync(folder)) { continue; }
             try {
                 const watcher = fs.watch(folder, (_event, file) => {
@@ -184,7 +182,7 @@ class SessionsViewProvider implements vscode.WebviewViewProvider {
                 const result = deleteSession(folder, msg.name);
                 if (!result.ok) { void vscode.window.showWarningMessage(result.error); this.send(); break; }
                 AnthropicHandler.instance.clearSession(msg.name);
-                removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), quest, msg.name);
+                removeSessionStorage(folder, msg.name);
                 this.send();
                 break;
             }
@@ -274,7 +272,7 @@ async function removeUnusedSessions(): Promise<void> {
         `Delete ${names.length} session${names.length === 1 ? '' : 's'}?`,
         {
             modal: true,
-            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results, its memory folder under _ai/memory/ and its session todos. The quest memory stays.`
+            detail: `${names.join(', ')}\n\nEach goes with its whole storage: history, trails, tool results and its session todos. The quest memory stays.`
                 + (withTodos.length ? `\n\nWith open todos: ${withTodos.join(', ')}.` : ''),
         },
         'Delete',
@@ -285,7 +283,7 @@ async function removeUnusedSessions(): Promise<void> {
         const result = deleteSession(folder, name);
         if (!result.ok) { failed.push(result.error); continue; }
         AnthropicHandler.instance.clearSession(name);
-        removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), quest, name);
+        removeSessionStorage(folder, name);
     }
     const deleted = names.length - failed.length;
     if (failed.length > 0) {

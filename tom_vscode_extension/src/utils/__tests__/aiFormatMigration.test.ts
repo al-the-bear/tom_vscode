@@ -4,23 +4,25 @@
  * one idempotent run, with a dry run that lists every change.
  *
  *   FM-1 a dry run lists the changes and writes nothing
- *   FM-2 applied: the per-quest history files, the trail pair and the quest's live trail move into the
- *        `default` session, the raw trail into its `trail/`, flat quest memory into its memory folder; the
- *        migration marker is written; a second run lists nothing
- *   FM-3 a file the session already has is merged with the reconcile's merge driver (live trail and trail
- *        pair: ai-trail; history.json / history.md / compacted_history.md: the history drivers) and the
- *        legacy copy removed; a failed merge keeps both and is a problem; machine-local scratch
+ *   FM-2 applied: the per-quest rolling tail, trail pair and the quest's live trail move into this host's
+ *        `default@default` session storage (`history/<host>/sessions/`), the raw trail into its `trail/`; the
+ *        compacted history and its snapshots at `history/` (`history.json`, `compacted_history.md`, …) stay
+ *        there as the quest's own history; flat quest memory into the quest's `memory/`; the pair becomes
+ *        turns of the host trail (format version 11); the migration marker is written; a second run lists nothing
+ *   FM-3 a file the session already has is merged with the reconcile's merge driver (the live trail:
+ *        ai-trail) and the legacy copy removed; a failed merge keeps both and is a problem; machine-local scratch
  *        (rawTurns.json, compaction_rounds.json) keeps the newer copy
  *   FM-4 the raw trail: `current_prompt.*` (now written per session) is deleted, `last_request*` stays (it is
  *        written there), a tool result whose number the session already uses gets the next free number
  *   FM-5 a session record stored as `fork-from-base` is rewritten as `per-prompt`
  *   FM-6 a legacy `quest-refresh.yaml` / `quest-refresh.<host>.<quest>.yaml` is folded into that host's
- *        `extension_config.<host>.<quest>.yaml` `questRefresh` section when the section is absent, and removed
+ *        `config/extension_config.<host>.<quest>.yaml` `questRefresh` section when the section is absent, and removed
  *   FM-7 the legacy `mcpServer` block of the workspace config is folded (without `autoStart`) into every
- *        quest's `extension_config.<quest>.yaml` that exists and has no `mcpServer` section, and removed
+ *        quest's `config/extension_config.<quest>.yaml` that exists and has no `mcpServer` section, and removed
+ *        (FM-6, FM-7: the config files start where a format version 10 `_ai` has them, the quest folder's top)
  *   FM-8 `blocking` is filled on every live todo that live todos name in `blocked_by`
  *   FM-9 a todo tagged `user-action` without the field gets `user_action: true`
- *   FM-10 the trail pair merged into the session keeps the compact trail limit: `compactTrailMaxEntries`, else the
+ *   FM-10 the trail pair merged into the session keeps the compact trail limit (seen in the host trail it becomes): `compactTrailMaxEntries`, else the
  *         workspace config's `trail.compact.maxEntries`, else 2000 — the newest turns kept
  */
 
@@ -33,7 +35,7 @@ import * as path from 'path';
 import { parse } from 'yaml';
 
 import { migrateAiFormats, type MergeDriver } from '../aiFormatMigration';
-import { countCompactTrailTurns } from '../compactTrailTrim';
+import { parseHostTrail } from '../../services/hostTrail';
 
 function sandbox() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-format-'));
@@ -68,9 +70,10 @@ describe('ai format migration', () => {
         s.write('quests/qa/history/history.json', '{}');
         s.write('quests/qa/live-trail.md', 'x');
         const r = run(s, false);
-        assert.ok(r.changes.some((c) => c.quest === 'qa' && /history\.json/.test(c.detail)));
-        assert.ok(s.exists('quests/qa/history/history.json'));
-        assert.equal(s.exists('quests/qa/history/sessions'), false);
+        assert.ok(r.changes.some((c) => c.quest === 'qa' && /live-trail\.md/.test(c.detail)));
+        assert.equal(r.changes.some((c) => /history\.json/.test(c.detail)), false, 'the quest\'s history stays');
+        assert.ok(s.exists('quests/qa/live-trail.md'));
+        assert.equal(s.exists('quests/qa/history/mbp'), false);
     });
 
     test('FM-2: moved into the default session; idempotent', () => {
@@ -82,12 +85,18 @@ describe('ai format migration', () => {
         s.write('trail/anthropic/qa/20261001_1_request.json', '{}');
         s.write('memory/qa/facts.md', 'f');
         run(s, true);
-        for (const rel of ['history.json', 'compacted_history.md', 'qa.anthropic.prompts.md', 'live-trail.md', 'trail/20261001_1_request.json']) {
-            assert.ok(s.exists(`quests/qa/history/sessions/default/${rel}`), rel);
+        for (const rel of ['live-trail.md', 'trail/20261001_1_request.json']) {
+            assert.ok(s.exists(`quests/qa/history/mbp/sessions/default@default/${rel}`), rel);
         }
-        assert.ok(s.exists('memory/qa/default/facts.md'));
+        for (const rel of ['history.json', 'compacted_history.md']) {
+            assert.equal(s.read(`quests/qa/history/${rel}`), rel === 'history.json' ? '{}' : 'c', `${rel}: the quest's history, in place`);
+        }
+        assert.equal(s.exists('quests/qa/history/sessions'), false);
+        assert.equal(s.exists(`quests/qa/history/mbp/sessions/default@default/qa.anthropic.prompts.md`), false, 'the pair is converted into the host trail');
+        assert.equal(s.read('quests/qa/memory/facts.md'), 'f', 'flat quest memory: the quest\'s curated memory (format version 11)');
+        assert.equal(s.exists('memory'), false);
         assert.equal(s.exists('quests/qa/live-trail.md'), false);
-        assert.ok(s.exists('quests/qa/history/sessions/.storage-version'));
+        assert.ok(s.exists('quests/qa/history/mbp/sessions/.storage-version'));
         assert.deepEqual(run(s, false).changes, [], 'nothing left to migrate');
     });
 
@@ -98,46 +107,51 @@ describe('ai format migration', () => {
         }).join('');
         const setup = () => {
             const s = sandbox();
-            s.write('quests/qa/history/sessions/default/qa.anthropic.prompts.md', entries(101, 6));
+            s.write('quests/qa/history/mbp/sessions/default@default/qa.anthropic.prompts.md', entries(101, 6));
             s.write('quests/qa/history/qa.anthropic.prompts.md', entries(1, 6));
             return s;
         };
-        const merged = 'quests/qa/history/sessions/default/qa.anthropic.prompts.md';
+        const turns = (s: ReturnType<typeof sandbox>) => parseHostTrail(s.read('quests/qa/history/trail.mbp.md'));
         let s = setup();
         migrateAiFormats({ aiRoot: s.ai, hostSlug: 'mbp', apply: true, merge, compactTrailMaxEntries: 4 });
-        assert.equal(countCompactTrailTurns(s.read(merged)), 4, 'the option');
-        assert.match(s.read(merged), /^=== PROMPT r106 /, 'the newest kept');
+        assert.equal(turns(s).length, 4, 'the option');
+        assert.ok(turns(s).some((t) => t.id === 'r106'), 'the newest kept');
         assert.equal(s.exists('quests/qa/history/qa.anthropic.prompts.md'), false);
 
         s = setup();
         const config = s.write('../.tom/tom_vscode_extension.json', JSON.stringify({ trail: { compact: { maxEntries: 9 } } }));
         run(s, true, { workspaceConfigPath: config });
-        assert.equal(countCompactTrailTurns(s.read(merged)), 9, 'the workspace config');
+        assert.equal(turns(s).length, 9, 'the workspace config');
 
         s = setup();
         run(s, true);
-        assert.equal(countCompactTrailTurns(s.read(merged)), 12, 'within the default 2000: the whole union');
+        assert.equal(turns(s).length, 12, 'within the default 2000: the whole union');
     });
 
     test('FM-3: merged with the reconcile drivers; failure kept as a problem', () => {
         merges.length = 0;
         const s = sandbox();
-        s.write('quests/qa/history/sessions/default/live-trail.md', 'NEW ');
+        s.write('quests/qa/history/mbp/sessions/default@default/live-trail.md', 'NEW ');
         s.write('quests/qa/live-trail.md', 'OLD');
-        s.write('quests/qa/history/sessions/default/history.json', '{"a":1}');
-        s.write('quests/qa/history/history.json', 'UNMERGEABLE');
-        s.write('quests/qa/history/sessions/default/rawTurns.json', '[1]');
+        s.write('quests/qa/history/mbp/sessions/default@default/rawTurns.json', '[1]');
         const old = s.write('quests/qa/history/rawTurns.json', '[0]');
         const past = new Date(Date.now() - 60_000);
         fs.utimesSync(old, past, past);
         const r = run(s, true);
-        assert.equal(s.read('quests/qa/history/sessions/default/live-trail.md'), 'NEW OLD');
+        assert.equal(s.read('quests/qa/history/mbp/sessions/default@default/live-trail.md'), 'NEW OLD');
         assert.equal(s.exists('quests/qa/live-trail.md'), false);
-        assert.deepEqual(merges.map((m) => m[0]), ['ai-history-json', 'ai-trail']);
-        assert.ok(s.exists('quests/qa/history/history.json'), 'a failed merge keeps the legacy file');
-        assert.ok(r.problems.some((p) => /history\.json/.test(p.detail)));
-        assert.equal(s.read('quests/qa/history/sessions/default/rawTurns.json'), '[1]');
+        assert.deepEqual(merges.map((m) => m[0]), ['ai-trail']);
+        assert.deepEqual(r.problems, []);
+        assert.equal(s.read('quests/qa/history/mbp/sessions/default@default/rawTurns.json'), '[1]');
         assert.equal(s.exists('quests/qa/history/rawTurns.json'), false);
+
+        const f = sandbox();
+        f.write('quests/qa/history/mbp/sessions/default@default/live-trail.md', 'NEW ');
+        f.write('quests/qa/live-trail.md', 'UNMERGEABLE');
+        const failed = run(f, true);
+        assert.ok(f.exists('quests/qa/live-trail.md'), 'a failed merge keeps the legacy file');
+        assert.equal(f.read('quests/qa/history/mbp/sessions/default@default/live-trail.md'), 'NEW ');
+        assert.ok(failed.problems.some((p) => /live-trail\.md/.test(p.detail)));
     });
 
     test('FM-4: the raw trail', () => {
@@ -145,20 +159,20 @@ describe('ai format migration', () => {
         s.write('trail/anthropic/qa/current_prompt.queue.user.md', 'p');
         s.write('trail/anthropic/qa/last_request.json', '{}');
         s.write('trail/anthropic/qa/tool_results/t1.json', '"legacy"');
-        s.write('quests/qa/history/sessions/default/trail/tool_results/t1.json', '"session"');
-        s.write('quests/qa/history/sessions/default/trail/tool_results/t2.json', '"session2"');
+        s.write('quests/qa/history/mbp/sessions/default@default/trail/tool_results/t1.json', '"session"');
+        s.write('quests/qa/history/mbp/sessions/default@default/trail/tool_results/t2.json', '"session2"');
         run(s, true);
         assert.equal(s.exists('trail/anthropic/qa/current_prompt.queue.user.md'), false);
         assert.ok(s.exists('trail/anthropic/qa/last_request.json'));
-        assert.equal(s.read('quests/qa/history/sessions/default/trail/tool_results/t3.json'), '"legacy"');
-        assert.equal(s.read('quests/qa/history/sessions/default/trail/tool_results/t1.json'), '"session"');
+        assert.equal(s.read('quests/qa/history/mbp/sessions/default@default/trail/tool_results/t3.json'), '"legacy"');
+        assert.equal(s.read('quests/qa/history/mbp/sessions/default@default/trail/tool_results/t1.json'), '"session"');
     });
 
     test('FM-5: fork-from-base becomes per-prompt', () => {
         const s = sandbox();
         s.write('quests/qa/history/f.session.json', JSON.stringify({ basedOn: 'b', mode: 'fork-from-base' }, null, 2));
         run(s, true);
-        assert.equal(JSON.parse(s.read('quests/qa/history/f.session.json')).mode, 'per-prompt');
+        assert.equal(JSON.parse(s.read('quests/qa/history/mbp/f.session.json')).mode, 'per-prompt', 'and moved to this host (format version 11)');
     });
 
     test('FM-6: legacy quest-refresh files folded and removed', () => {
@@ -167,8 +181,8 @@ describe('ai format migration', () => {
         s.write('quests/qa/quest-refresh.big.qa.yaml', 'panels:\n  anthropic:\n    count: 5\n');
         s.write('quests/qa/extension_config.big.qa.yaml', 'questRefresh:\n  panels:\n    anthropic:\n      count: 9\n');
         run(s, true);
-        assert.equal(parse(s.read('quests/qa/extension_config.mbp.qa.yaml')).questRefresh.panels.anthropic.count, 2);
-        assert.equal(parse(s.read('quests/qa/extension_config.big.qa.yaml')).questRefresh.panels.anthropic.count, 9, 'an existing section wins');
+        assert.equal(parse(s.read('quests/qa/config/extension_config.mbp.qa.yaml')).questRefresh.panels.anthropic.count, 2);
+        assert.equal(parse(s.read('quests/qa/config/extension_config.big.qa.yaml')).questRefresh.panels.anthropic.count, 9, 'an existing section wins');
         assert.equal(s.exists('quests/qa/quest-refresh.yaml'), false);
         assert.equal(s.exists('quests/qa/quest-refresh.big.qa.yaml'), false);
     });
@@ -181,9 +195,9 @@ describe('ai format migration', () => {
         const cfg = path.join(s.root, 'tom_vscode_extension.json');
         fs.writeFileSync(cfg, JSON.stringify({ a: 1, mcpServer: { enabled: true, basePort: 19920, autoStart: true } }, null, 4) + '\n');
         run(s, true, { workspaceConfigPath: cfg });
-        assert.deepEqual(parse(s.read('quests/qa/extension_config.qa.yaml')).mcpServer, { enabled: true, basePort: 19920 });
-        assert.equal(s.exists('quests/qb/extension_config.qb.yaml'), false, 'no config file is created');
-        assert.deepEqual(parse(s.read('quests/qc/extension_config.qc.yaml')).mcpServer, { enabled: false });
+        assert.deepEqual(parse(s.read('quests/qa/config/extension_config.qa.yaml')).mcpServer, { enabled: true, basePort: 19920 });
+        assert.equal(s.exists('quests/qb/config/extension_config.qb.yaml'), false, 'no config file is created');
+        assert.deepEqual(parse(s.read('quests/qc/config/extension_config.qc.yaml')).mcpServer, { enabled: false });
         const after = JSON.parse(fs.readFileSync(cfg, 'utf8'));
         assert.deepEqual(after, { a: 1 });
         assert.match(fs.readFileSync(cfg, 'utf8'), /^\{\n {4}"a"/, 'indentation kept');

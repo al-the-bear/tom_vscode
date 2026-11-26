@@ -45,14 +45,17 @@ telegram:
 function sandbox() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-settings-migration-'));
     const ai = path.join(root, '_ai');
-    const questFile = (quest: string) => path.join(ai, 'quests', quest, `extension_config.${quest}.yaml`);
+    // The files where an `_ai` of format version 10 has them (the quest folder's top); the migration moves them
+    // into config/ first (format version 11).
+    const v10QuestFile = (quest: string) => path.join(ai, 'quests', quest, `extension_config.${quest}.yaml`);
+    const questFile = (quest: string) => path.join(ai, 'quests', quest, 'config', `extension_config.${quest}.yaml`);
     for (const quest of ['qa', 'qb', 'qc']) { fs.mkdirSync(path.join(ai, 'quests', quest), { recursive: true }); }
-    fs.writeFileSync(questFile('qa'), QUEST_FILE);
-    fs.writeFileSync(questFile('qb'), 'telegram:\n  defaultChatId: 1\n');
-    const hostFile = path.join(ai, 'quests', 'qa', 'extension_config.mbp.qa.yaml');
-    fs.writeFileSync(hostFile, 'telegram:\n  enabled: true\n  notifyOnTurn: true\n');
+    fs.writeFileSync(v10QuestFile('qa'), QUEST_FILE);
+    fs.writeFileSync(v10QuestFile('qb'), 'telegram:\n  defaultChatId: 1\n');
+    fs.writeFileSync(path.join(ai, 'quests', 'qa', 'extension_config.mbp.qa.yaml'), 'telegram:\n  enabled: true\n  notifyOnTurn: true\n');
+    const hostFile = path.join(ai, 'quests', 'qa', 'config', 'extension_config.mbp.qa.yaml');
     const run = (apply: boolean) => migrateAiFormats({ aiRoot: ai, hostSlug: 'mbp', apply, merge: () => undefined, today: '2026-11-06' });
-    return { questFile, hostFile, run };
+    return { questFile, v10QuestFile, hostFile, run };
 }
 
 describe('removed Telegram settings', () => {
@@ -70,7 +73,8 @@ describe('removed Telegram settings', () => {
         const listed = s.run(false).changes.filter((c) => c.step === 'telegram-settings');
         assert.deepEqual(listed.map((c) => c.quest), ['qa'], 'only the quest that has them');
         assert.match(listed[0].detail, /notifyOnTurn, notifyOnStart, notifyOnEnd, includeResponseText, maxResponseChars/);
-        assert.equal(fs.readFileSync(s.questFile('qa'), 'utf8'), QUEST_FILE, 'a dry run writes nothing');
+        assert.equal(fs.readFileSync(s.v10QuestFile('qa'), 'utf8'), QUEST_FILE, 'a dry run writes nothing');
+        assert.match(listed[0].detail, /^quests\/qa\/config\/extension_config\.qa\.yaml: /, 'named where the run puts it');
         s.run(true);
         assert.deepEqual(s.run(false).changes.filter((c) => c.step === 'telegram-settings'), []);
     });

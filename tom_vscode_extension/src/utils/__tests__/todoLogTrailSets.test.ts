@@ -1,13 +1,12 @@
 /**
- * Where the TODO Log view reads its trail pairs (src/utils/todoLogTrailSets.ts).
+ * Where the answers that report todos are read (src/utils/todoLogTrailSets.ts).
  *
- *   TL-1 the summary pairs of every Anthropic session (history/sessions/<session>/) are read, keyed
- *        `<session>/<name>` with their own folder, beside the history folder's own pairs (`<name>`);
- *        the view was empty because it read only the history folder, where no session writes
+ *   TL-1 the summary pairs of the history folder itself are read, keyed `<name>`; a session storage's
+ *        files are not (an Anthropic session's turns are the host trail's)
  *   TL-2 a missing history folder or one without sessions: what there is, no error
- *   TL-3 the host trail: its turns whose answers carry TODO response values, with their session and refs; an
- *        older pair's answer counts only when the trail does not have it and it is older than the trail's oldest
- *        turn; the TODO LOG reads the host trail first and opens a trail turn at its block
+ *   TL-3 the host trail: its turns whose answers carry TODO response values, with their session and refs, also as
+ *        answer entries of a trail set (`variables` as ` - TODO = <ref>` lines); the TODO LOG reads the host trail
+ *        first and opens a trail turn at its block
  */
 
 import test, { describe } from 'node:test';
@@ -16,7 +15,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { hostTrailTodoEntries, keepOlderPairAnswer, todoLogTrailSets } from '../todoLogTrailSets.js';
+import { hostTrailAnswerEntries, hostTrailTodoEntries, todoLogTrailSets } from '../todoLogTrailSets.js';
+import { extractTodoRefsFromVariables } from '../todoLogRefs.js';
 import type { HostTrailTurn } from '../../services/hostTrail.js';
 /** The trail editor's discoverTrailSets (which needs vscode), as it pairs the files. */
 function discoverTrailSets(folder: string): Map<string, { prompts?: string; answers?: string }> {
@@ -38,20 +38,18 @@ function put(root: string, rel: string): void {
 }
 
 describe('TODO Log trail sets', () => {
-    test('TL-1: the sessions\' pairs and the folder\'s own', () => {
+    test('TL-1: the folder\'s own pairs', () => {
         const h = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-log-'));
         put(h, 'q.copilot.prompts.md');
         put(h, 'q.copilot.answers.md');
-        put(h, 'sessions/default/q.anthropic.prompts.md');
-        put(h, 'sessions/default/q.anthropic.answers.md');
-        put(h, 'sessions/chat/q.anthropic.answers.md');
-        put(h, 'sessions/chat/live-trail.md');
+        put(h, 'q.localllm-x.answers.md');
+        put(h, 'mbp/sessions/chat/q.anthropic.answers.md');
+        put(h, 'mbp/sessions/chat/live-trail.md');
         const sets = todoLogTrailSets(h, discoverTrailSets);
-        assert.deepEqual([...sets.keys()].sort(), ['chat/q.anthropic', 'default/q.anthropic', 'q.copilot']);
-        assert.equal(sets.get('default/q.anthropic')?.directory, path.join(h, 'sessions', 'default'));
-        assert.equal(sets.get('default/q.anthropic')?.answers, 'q.anthropic.answers.md');
+        assert.deepEqual([...sets.keys()].sort(), ['q.copilot', 'q.localllm-x']);
         assert.equal(sets.get('q.copilot')?.directory, h);
-        assert.equal(sets.get('chat/q.anthropic')?.prompts, undefined, 'an answers file alone is a set too');
+        assert.equal(sets.get('q.copilot')?.answers, 'q.copilot.answers.md');
+        assert.equal(sets.get('q.localllm-x')?.prompts, undefined, 'an answers file alone is a set too');
         fs.rmSync(h, { recursive: true, force: true });
     });
 
@@ -73,14 +71,15 @@ describe('TODO Log trail sets', () => {
             { requestId: 'a', timestamp: '2026-11-25T10:00:00.000Z', session: 'walk', refs: ['_ai/quests/q/todos.q.todo.yaml/q1', '_ai/quests/q/todos.q.todo.yaml/q2'] },
             { requestId: 'c', timestamp: '2026-11-25T12:00:00.000Z', session: 'walk', refs: ['_ai/quests/q/todos.q.todo.yaml/q3'] },
         ]);
-        assert.equal(keepOlderPairAnswer('old', '2026-11-24T10:00:00.000Z', turns), true, 'older than the trail');
-        assert.equal(keepOlderPairAnswer('a', '2026-11-24T10:00:00.000Z', turns), false, 'the trail has it');
-        assert.equal(keepOlderPairAnswer('late', '2026-11-25T10:30:00.000Z', turns), false, 'after the trail began');
-        assert.equal(keepOlderPairAnswer('any', '2026-11-25T10:30:00.000Z', []), true, 'no trail yet: every answer');
+        const entries = hostTrailAnswerEntries(turns);
+        assert.deepEqual(entries.map((e) => [e.type, e.requestId, e.session, e.timestamp]), [
+            ['ANSWER', 'a', 'walk', '2026-11-25T10:00:00.000Z'], ['ANSWER', 'c', 'walk', '2026-11-25T12:00:00.000Z'],
+        ]);
+        assert.deepEqual(extractTodoRefsFromVariables(entries[0].variables), ['_ai/quests/q/todos.q.todo.yaml/q1', '_ai/quests/q/todos.q.todo.yaml/q2']);
+        assert.equal(entries[0].content, turns[0].answer);
         const handler = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'handlers', 'todoLogPanel-handler.ts'), 'utf8');
         const load = handler.slice(handler.indexOf('private _loadTodoExchanges('));
         assert.ok(load.indexOf('hostTrailTodoEntries(turns)') < load.indexOf('todoLogTrailSets(folder, discoverTrailSets)'), 'the host trail first');
-        assert.match(load, /if \(!keepOlderPairAnswer\(entry\.requestId, entry\.timestamp, turns\)\) \{ continue; \}/);
         const open = handler.slice(handler.indexOf('private async _openAnswerInTrailEditor('));
         assert.ok(open.indexOf('hostTrailFile(') < open.indexOf('todoLogTrailSets('), 'a trail turn opens in the trail file');
     });

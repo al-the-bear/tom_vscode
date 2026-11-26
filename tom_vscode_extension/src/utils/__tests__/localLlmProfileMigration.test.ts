@@ -100,9 +100,9 @@ describe('removed panels: Local LLM profiles and files', () => {
         const gone = ['quests/qa/live-trail-localLLM.md', 'quests/qa/history/history-gemma4.json', 'quests/qa/history/history-gemma4.md',
             'quests/qa/history/qa.localllm-mac.prompts.md', 'quests/qa/history/qa.localllm-mac.answers.md',
             'trail/localllm/qa/last_request.json', 'trail/local_llm/qa.trail.md', 'ai_conversation/current.result.md', 'trail/ai_conversation/log.md'];
-        // (The per-quest history.json of the older layout is moved into the default session by the storage step.)
-        const kept = ['quests/qa/history/sessions/default/history.json', 'quests/qa/history/sessions/default/live-trail.md',
-            'trail/anthropic/qa/last_request.json', 'quests/qa/history/qa.copilot.prompts.md'];
+        // (A session's old history stays in history/sessions/; its live trail is at this host's place.)
+        const kept = ['quests/qa/history/sessions/default/history.json', 'quests/qa/history/mbp/sessions/default@default/live-trail.md',
+            'trail/anthropic/qa/last_request.json'];
         for (const rel of [...gone, ...kept]) { s.write(rel, 'x'); }
         writeAiFormatStamp(s.ai, { version: 4, date: '2026-11-05' });
         const dry = s.run(false);

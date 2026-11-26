@@ -69,7 +69,7 @@ describe('getCombinedTodosImpl', () => {
                 { id: 'b', description: 'Item B', status: 'in-progress', priority: 'high', sourceFile: 'todos.q1.todo.yaml' },
             ],
             [
-                { id: 'wt-1', title: 'session 1', status: 'pending', priority: 'medium', tags: [], source: 'copilot' },
+                { id: 'wt-1', title: 'session 1', status: 'pending', priority: 'medium', tags: [], source: 'agent' },
             ],
         );
         const raw = await withTiming('tomAi_getCombinedTodos:typical', () =>

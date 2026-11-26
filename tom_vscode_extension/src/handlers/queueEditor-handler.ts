@@ -48,7 +48,10 @@ import type { UserWaitKind } from '../services/userWaits';
 import { clockLabel, waitForLine, waitForUntilLabel } from '../utils/waitFor';
 import { extractTodoRefsFromVariables, parseTodoRef } from '../utils/todoLogRefs';
 import { questTrailFolder } from '../utils/questPaths';
-import { todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { hostTrailAnswerEntries, todoLogTrailSets } from '../utils/todoLogTrailSets';
+import { readHostTrail } from '../services/hostTrail';
+import * as path from 'path';
+import { hostSlugOf } from '../utils/hostSlug';
 import { discoverTrailSets, loadTrailSet } from './trailEditor-handler';
 import { runQueueRemovalDialog, runQueueRemovalPlan, runQueueRemovalRefused } from '../utils/runQueueRemoval';
 import { runChatSessionAction } from './chatPanel-handler';
@@ -1608,10 +1611,11 @@ function backfillSentWalkAnswers(qm: PromptQueueManager): void {
     const quest = WsPaths.getWorkspaceQuestId();
     const folder = quest ? questTrailFolder(WsPaths.ai('quests', quest) || '') : '';
     if (!folder || !fs.existsSync(folder)) { return; }
-    let entries: ReturnType<typeof loadTrailSet> = [];
+    let entries: Array<{ type: string; timestamp: string; content: string; variables?: string }> = [];
     try {
+        // This host's trail, and the summary pairs of the other subsystems.
         const sets = todoLogTrailSets(folder, discoverTrailSets);
-        entries = [...sets.keys()].flatMap((name) => loadTrailSet(name, sets));
+        entries = [...hostTrailAnswerEntries(readHostTrail(path.dirname(folder), hostSlugOf())), ...[...sets.keys()].flatMap((name) => loadTrailSet(name, sets))];
     } catch { return; }
     for (const item of due) {
         // No time bound: `sentAt` is the last repetition's dispatch, before its answer arrived.

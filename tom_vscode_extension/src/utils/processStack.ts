@@ -1,6 +1,6 @@
 /**
  * Nested processes: subprocesses and branches on a quest's process stack
- * (process-state.<quest>.yaml holds the levels, bottom first; the top level
+ * (config/process-state.<quest>.yaml holds the levels, bottom first; the top level
  * runs).
  *
  * - A step (or sub-step) lists the processes that may start from it:

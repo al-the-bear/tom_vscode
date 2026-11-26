@@ -110,10 +110,9 @@
         },
         "questRefresh": {
             "type": "object",
-            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, maintain the deferred list). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here. Copilot is wired into the UI but its auto-trigger is deferred.",
+            "description": "Quest Refresh (quest_refresh_implementation_plan.md). An automatic 'refresh prompt' that fires every N prompts to run maintenance work off the recent trail (update overview, prune todos, maintain the deferred list). These settings are GLOBAL (shared across quests); the per-quest activation flag + the prompt counter live in _ai/quests/{questId}/quest-refresh.{hostname}.{questId}.yaml (QuestRefreshStore, host-specific so the shared _ai clone doesn't collide state across machines), not here.",
             "properties": {
                 "anthropic": { "$ref": "#/definitions/questRefreshPanel" },
-                "copilot": { "deprecated": true, "description": "Not read." },
                 "localLlm": { "$ref": "#/definitions/questRefreshPanel" }
             },
             "additionalProperties": false
@@ -183,7 +182,7 @@
                 },
                 "userMessageTemplates": {
                     "type": "array",
-                    "description": "The prompt templates, the one template store: Anthropic and Copilot sends both take their templates from here (template editor category Anthropic — User Message).",
+                    "description": "The prompt templates, the one template store: every send and queue item takes its template from here (template editor category Anthropic — User Message).",
                     "items": { "$ref": "#/definitions/userMessageTemplate" }
                 },
                 "todoButtonTemplates": {
@@ -377,11 +376,6 @@
                     "default": true,
                     "description": "Master switch for the memory subsystem."
                 },
-                "path": {
-                    "type": "string",
-                    "default": "_ai/memory",
-                    "description": "Not read: the quest memory is always _ai/quests/<quest>/memory/."
-                },
                 "maxInjectedTokens": {
                     "type": "integer",
                     "minimum": 0,
@@ -429,7 +423,6 @@
                     "type": "object",
                     "properties": {
                         "localLlm": { "type": "string", "default": "${ai}/trail/localllm/${quest}" },
-                        "copilot": { "type": "string", "deprecated": true, "description": "Not read." },
                         "lmApi": { "type": "string", "default": "${ai}/trail/lm-api/${quest}" },
                         "anthropic": { "type": "string", "default": "${ai}/trail/anthropic/${quest}" }
                     },

@@ -16,8 +16,6 @@
  *         and shown; a dismissed box and a refused name create nothing
  *   QNP-9 the choice is kept per quest in the workspaceState: a new view opens on it; when its file is gone
  *         the default is shown; another quest has its own choice
- *   QNP-10 a quest whose notes are at the old place: the old file is shown and saved as quest-notes.md, and
- *         nothing is created in notes/; a new notes file goes into notes/ beside it
  */
 
 import { describe, test, after } from 'node:test';
@@ -286,40 +284,5 @@ describe('QUEST NOTES side panel (host)', () => {
         const state = after.of('notesState')[0];
         assert.deepEqual([state.notesFile, state.content, state.notesFiles.map((f: Msg) => f.name)], ['quest-notes.md', '# Notes\n', ['quest-notes.md', 'Meeting.md', 'zeta.md']], 'the file is gone: the default');
         assert.equal(fs.existsSync(path.join(NOTES_DIR, 'Alpha.md')), false, 'the gone file is not created again');
-    });
-
-    test('QNP-10: notes at the old place', async () => {
-        const old = 'q_old';
-        const folder = path.join(WS, '_ai', 'quests', old);
-        fs.mkdirSync(folder, { recursive: true });
-        fs.writeFileSync(path.join(folder, `quest-notes.${old}.md`), '# Old notes\n');
-        setQuest(old);
-        const p = open();
-        await p.send({ type: 'ready' });
-        const state = p.of('notesState')[0];
-        assert.deepEqual([state.notesFiles, state.notesFile, state.content, state.filePath],
-            [[{ name: 'quest-notes.md', isDefault: true }], 'quest-notes.md', '# Old notes\n', path.join(folder, `quest-notes.${old}.md`)]);
-        assert.equal(fs.existsSync(path.join(folder, 'notes')), false, 'nothing is created, copied or moved');
-        await p.send({ type: 'save', content: '# Old notes\n\nmore\n' });
-        assert.equal(fs.readFileSync(path.join(folder, `quest-notes.${old}.md`), 'utf8'), '# Old notes\n\nmore\n', 'saved into the old file');
-        assert.equal(fs.existsSync(path.join(folder, 'notes')), false);
-
-        inputAnswers.push('quest-notes', 'ideas');
-        warnings.length = 0;
-        await p.send({ type: 'newNotesFile' });
-        assert.match(warnings[0], /quest-notes\.md exists already/);
-        await p.send({ type: 'newNotesFile' });
-        assert.equal(fs.readFileSync(path.join(folder, 'notes', 'ideas.md'), 'utf8'), '# ideas\n\n');
-        assert.equal(fs.existsSync(path.join(folder, 'notes', 'quest-notes.md')), false);
-        await p.send({ type: 'selectNotesFile', name: 'quest-notes.md' });
-        const back = p.of('notesState').pop()!;
-        assert.deepEqual([back.notesFiles.map((f: Msg) => f.name), back.content], [['quest-notes.md', 'ideas.md'], '# Old notes\n\nmore\n'], 'the old file stays the default');
-
-        // Once notes/quest-notes.md exists it wins; the old file is not read.
-        fs.writeFileSync(path.join(folder, 'notes', 'quest-notes.md'), '# New place\n');
-        const next = open();
-        await next.send({ type: 'ready' });
-        assert.deepEqual([next.of('notesState')[0].content, next.of('notesState')[0].filePath], ['# New place\n', path.join(folder, 'notes', 'quest-notes.md')]);
-        setQuest(QUEST);
     });
 });

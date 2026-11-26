@@ -79,15 +79,16 @@ describe('User-message templates', () => {
         fs.mkdirSync(path.join(ai, 'quests', 'qa'), { recursive: true });
         const cfg = path.join(root, 'cfg.json');
         const overlay = path.join(root, 'user.yaml');
-        fs.writeFileSync(cfg, JSON.stringify({ copilot: { templates: { [ANSWER_WRAPPER_ID]: { template: 'MINE ${originalPrompt}' }, Review: { template: 'r' } }, defaultTemplate: 'Review' } }, null, 2) + '\n');
-        fs.writeFileSync(overlay, 'copilot:\n  templates:\n    Explain:\n      template: e\n');
+        fs.writeFileSync(cfg, JSON.stringify({ userName: 'me', copilot: { templates: { [ANSWER_WRAPPER_ID]: { template: 'MINE ${originalPrompt}' }, Review: { template: 'r' } }, defaultTemplate: 'Review' } }, null, 2) + '\n');
+        fs.writeFileSync(overlay, 'userName: me\ncopilot:\n  templates:\n    Explain:\n      template: e\n');
         const run = (apply: boolean) => migrateAiFormats({ aiRoot: ai, hostSlug: 'mbp', apply, merge: () => undefined, workspaceConfigPath: cfg, userConfigPath: overlay, today: '2026-11-05' });
         assert.ok(run(false).changes.filter((c) => c.step === 'copilot-templates').length >= 3);
         assert.match(fs.readFileSync(cfg, 'utf8'), /"templates"/, 'a dry run writes nothing');
         run(true);
-        assert.deepEqual(JSON.parse(fs.readFileSync(cfg, 'utf8')), { copilot: {} });
-        assert.match(fs.readFileSync(cfg, 'utf8'), /^\{\n {2}"copilot"/, 'indentation kept');
-        assert.deepEqual(parse(fs.readFileSync(overlay, 'utf8')), { copilot: {} });
+        // Format version 11 (copilot-leftovers) removes what is left of the section.
+        assert.deepEqual(JSON.parse(fs.readFileSync(cfg, 'utf8')), { userName: 'me' });
+        assert.match(fs.readFileSync(cfg, 'utf8'), /^\{\n {2}"userName"/, 'indentation kept');
+        assert.deepEqual(parse(fs.readFileSync(overlay, 'utf8')), { userName: 'me' });
         assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);
         assert.ok(AI_FORMAT_VERSION >= 6);
         assert.deepEqual(run(false).changes, []);

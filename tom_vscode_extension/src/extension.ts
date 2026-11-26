@@ -114,6 +114,7 @@ import {
     readEffectiveMcpServerSettings,
     questConfigPath,
 } from './managers/extensionConfigStore';
+import { QUEST_CONFIG_FOLDER } from './utils/questConfigFiles';
 import { registerChatVariableResolvers } from './tools/chatVariableResolvers';
 import { instrumentWebviewMessages } from './utils/webviewMessageInstrumentation';
 import { markShuttingDown, setOpenAskChatSender } from './services/openAskRecord';
@@ -721,7 +722,7 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (e: any) {
             bridgeLog(`Extension-config migration failed: ${e?.message ?? e}`, 'ERROR');
         }
-        // The quest's workspace folder, recorded in its extension_config.<quest>.yaml (02_wslayout-11): the
+        // The quest's workspace folder, recorded in its config/extension_config.<quest>.yaml (02_wslayout-11): the
         // workspace quests and tomAi_getWorkspaceInfo read it. Again when the layout changes.
         recordWindowQuestWorkspaceFolder();
         context.subscriptions.push(onDidChangeLayout(() => recordWindowQuestWorkspaceFolder()));
@@ -790,7 +791,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Reconcile the running server on external config edits (#7). The
         // file-based config has no `onDidChangeConfiguration`, so watch the
-        // per-quest MCP config file directly (`extension_config.{quest}.yaml`):
+        // per-quest MCP config file directly (`config/extension_config.{quest}.yaml`,
+        // watched from the quest folder, so a `config/` created later is seen):
         // an edit by hand or from another window reconciles the server
         // (disabled ⇒ stop; running ⇒ restart onto new host/port/tools), not
         // just on card save. The bursty write events for a single save collapse
@@ -799,8 +801,8 @@ export async function activate(context: vscode.ExtensionContext) {
         if (mcpQuestConfigPath) {
             const mcpConfigWatcher = vscode.workspace.createFileSystemWatcher(
                 new vscode.RelativePattern(
-                    vscode.Uri.file(path.dirname(mcpQuestConfigPath)),
-                    path.basename(mcpQuestConfigPath),
+                    vscode.Uri.file(path.dirname(path.dirname(mcpQuestConfigPath))),
+                    `${QUEST_CONFIG_FOLDER}/${path.basename(mcpQuestConfigPath)}`,
                 ),
             );
             const reconcileFromConfig = debounce(() => {
@@ -868,9 +870,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Memory service + panel (Phase 3 of anthropic_sdk_integration)
     stepStart = performance.now();
     TwoTierMemoryService.init(context);
-    // The window's quest moves to per-session storage, and the bare `default` session of an older build becomes
-    // `default@default` (vscimpb151): at window start, before anything sends in it.
-    try { TwoTierMemoryService.instance.ensureSessionStorage(WsPaths.getWorkspaceQuestId() || undefined); } catch { /* reported in the storage log */ }
     // A new run gets its default session, default@<run> based on default@default, when it is created (vscimpb151).
     ProcessStateStore.runCreatedHook = (quest, run) => {
         ensureRunDefaultSession(TwoTierMemoryService.instance.agentSdkSessionsFolder(quest), run);
@@ -1411,44 +1410,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // One-shot migration: legacy `history.json` + free-form memory
-    // bullets → block-format `compacted_history.md` + single-line
-    // memory entries. Idempotent — re-running after a partial pass is
-    // safe.
-    const migrateCompactionFormatCmd = vscode.commands.registerCommand(
-        'tomAi.migrate.compactionFormat',
-        async () => {
-            const { migrateCompactionFormat } = await import('./services/compaction-migration.js');
-            // Which sessions' histories and memory (named as the active quest's; applied in every quest).
-            const { pickSessionsOrAll } = await import('./handlers/sessionSelectionPicker.js');
-            const picked = await pickSessionsOrAll(WsPaths.getWorkspaceQuestId() || '', {
-                title: 'Compaction-format migration: which sessions (in every quest)',
-                current: 'default',
-            });
-            if (!picked) { return; }
-            const out = vscode.window.createOutputChannel('Tom AI: Compaction Migration');
-            out.show(true);
-            out.appendLine(`Tom AI: starting compaction-format migration for ${picked.all ? 'every session' : picked.sessions.join(', ')}…`);
-            const report = migrateCompactionFormat({
-                onProgress: (msg: string) => out.appendLine(msg),
-                sessions: picked.all ? 'all' : picked.sessions,
-            });
-            const summary =
-                `Tom AI migration complete — ` +
-                `${report.questsMigrated}/${report.questsScanned} quest(s) migrated, ` +
-                `${report.memoryFilesMigrated}/${report.memoryFilesScanned} memory file(s) migrated.`;
-            out.appendLine('---');
-            out.appendLine(summary);
-            if (report.questsFailed > 0 || report.memoryFilesFailed > 0) {
-                vscode.window.showWarningMessage(
-                    `${summary} ${report.questsFailed} quest + ${report.memoryFilesFailed} memory failure(s) — see "Tom AI: Compaction Migration" output channel.`,
-                );
-            } else {
-                vscode.window.showInformationMessage(summary);
-            }
-        }
-    );
-
     // Add all commands to subscriptions
     context.subscriptions.push(
         executeInTomAiBuildCmd,
@@ -1480,8 +1441,7 @@ function registerCommands(context: vscode.ExtensionContext) {
         focusNotesSidebarCmd,
         focusTomTodoSidebarCmd,
         openInMdViewerCmd,
-        openExtensionSettingsCmd,
-        migrateCompactionFormatCmd
+        openExtensionSettingsCmd
     );
 }
 

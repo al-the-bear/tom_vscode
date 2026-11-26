@@ -192,7 +192,7 @@ In configuration values, `${workspaceFolder}` is the workspace folder and
 
 When a window opens a quest, it records the quest's workspace folder (relative
 to the root, `.` standalone) as `workspaceFolder` in the quest's
-`extension_config.<quest>.yaml`. A workspace's quests are its list in
+`config/extension_config.<quest>.yaml`. A workspace's quests are its list in
 `_ai/workspaces/<workspace>.yaml`, else the quests recorded for its workspace
 folder, else every quest: the prompt variable `${workspaceQuests}` names them,
 and `tomAi_getWorkspaceInfo` with `include: ["layout", "workspaceFolders",

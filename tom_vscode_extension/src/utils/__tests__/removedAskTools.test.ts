@@ -67,14 +67,14 @@ describe('removed tools tomAi_askCopilot / tomAi_askBigBrother', () => {
             assert.equal(listed.length, 4, listed.join('\n'));
             assert.ok(listed.some((d) => /cfg\.json: remove localLlm\.tools/.test(d)));
             assert.ok(listed.some((d) => /overlay\.json: remove tomAi_askCopilot \/ tomAi_askBigBrother from the tool lists, 1 entry/.test(d)));
-            assert.ok(listed.includes('quests/qa/extension_config.qa.yaml: remove tomAi_askCopilot / tomAi_askBigBrother, 1 entry'));
+            assert.ok(listed.includes('quests/qa/config/extension_config.qa.yaml: remove tomAi_askCopilot / tomAi_askBigBrother, 1 entry'));
             assert.ok(listed.includes('role-types/coder/role-type.yaml: remove tomAi_askCopilot / tomAi_askBigBrother, 1 entry'));
             assert.match(fs.readFileSync(cfg, 'utf8'), /"tools"/, 'a listing writes nothing');
             const applied = run(true);
             assert.deepEqual(applied.problems, []);
             assert.deepEqual(JSON.parse(fs.readFileSync(cfg, 'utf8')), { localLlm: { configurations: [{ id: 'mac' }] } });
             assert.deepEqual(JSON.parse(fs.readFileSync(overlay, 'utf8')), { anthropic: { profiles: [{ id: 'x', enabledTools: ['tomAi_readFile'] }] } });
-            assert.equal(fs.readFileSync(path.join(ai, 'quests/qa/extension_config.qa.yaml'), 'utf8'), 'mcpServer:\n  enabledTools:\n    - tomAi_readFile\n');
+            assert.equal(fs.readFileSync(path.join(ai, 'quests/qa/config/extension_config.qa.yaml'), 'utf8'), 'mcpServer:\n  enabledTools:\n    - tomAi_readFile\n');
             assert.equal(fs.readFileSync(path.join(ai, 'role-types/coder/role-type.yaml'), 'utf8'), 'tools:\n  mode: select\n  selected:\n    - tomAi_applyEdit\n');
             assert.equal(readAiFormatStamp(ai)?.version, AI_FORMAT_VERSION);
             assert.deepEqual(run(false).changes.filter((c) => c.step === 'removed-ask-tools'), [], 'idempotent');

@@ -4,10 +4,10 @@
  *
  *   <processes>/<id>/<id>.process.yaml   the structure (processDefinition.ts)
  *   <processes>/<id>/<id>.md             the description
- *   <quests>/<quest>/process-state.<quest>.yaml   where that quest is: a stack of
- *                                                 levels, the top one its position
- *   <quests>/<quest>/process-state.<quest>.<run>.yaml   another run of the quest
- *                                                 (processRuns.ts): its own stack
+ *   <quests>/<quest>/config/process-state.<quest>.yaml   where that quest is: a stack
+ *                                                 of levels, the top one its position
+ *   <quests>/<quest>/config/process-state.<quest>.<run>.yaml   another run of the
+ *                                                 quest (processRuns.ts): its own stack
  *
  * `<processes>` is `_ai/processes`, `<quests>` is `_ai/quests`; both live in
  * the one shared `_ai` clone, so a quest's process state is the same on every
@@ -18,7 +18,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
 
-import { DEFAULT_RUN, runOfStateFile, runStateFileName } from './processRuns';
+import { DEFAULT_RUN, runOfStateFile } from './processRuns';
+import { processStateFile, questConfigFolder } from './questConfigFiles';
 
 import {
     EMPTY_PROCESS_STATE,
@@ -172,7 +173,7 @@ export class ProcessRepository {
 
     /** The state file of `run` of `quest` (the quest's own file for `default`). */
     stateFile(quest: string, run: string = DEFAULT_RUN): string {
-        return path.join(this.questsDir, quest, runStateFileName(quest, run));
+        return processStateFile(path.join(this.questsDir, quest), quest, run);
     }
 
     /** Where `run` of `quest` is: the top level of its stack; the empty state when it has no state file. */
@@ -210,7 +211,7 @@ export class ProcessRepository {
      */
     listRuns(quest: string): ProcessRunEntry[] {
         if (!quest) { return [{ run: DEFAULT_RUN, file: '', changed: null }]; }
-        const dir = path.join(this.questsDir, quest);
+        const dir = questConfigFolder(path.join(this.questsDir, quest));
         const names = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
         const runs: ProcessRunEntry[] = [];
         let hasDefault = false;

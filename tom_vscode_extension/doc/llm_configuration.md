@@ -790,17 +790,19 @@ of `runEveryNRounds` inputs is one compaction call with the template above
 the blocks, the snapshot and the watermark are written. Memory extraction in the
 same run reads the chunk's turns, one call per session, so a candidate names
 the session its turn came from. A failing compaction call ends the build; the
-next one goes on from the watermark. The first build on a machine deletes the
-old per-session `history/sessions/*/compacted_history.md` files once
-(`src/services/questHistory.ts`).
+next one goes on from the watermark. Until the quest has a history, a send
+reads its session's old history, `history/sessions/{session}/compacted_history.md`
+(and `history.json`); the first build on a machine deletes those old
+per-session histories (`compacted_history.md`, `history.json`, `history.md`)
+and the folders then empty, once (`src/services/questHistory.ts`).
 
 ---
 
-### Per-quest override (`extension_config.<quest>.yaml`, section `compaction`)
+### Per-quest override (`config/extension_config.<quest>.yaml`, section `compaction`)
 
 The `compaction` section above applies to every quest that reads this config
 file. A quest can override part of it in its own machine-independent
-`_ai/quests/<quest>/extension_config.<quest>.yaml`, so compaction runs for that
+`_ai/quests/<quest>/config/extension_config.<quest>.yaml`, so compaction runs for that
 quest only, or with other sizes or templates. The models are the workspace's
 alone: a quest cannot choose them.
 
@@ -965,8 +967,8 @@ across two consolidated per-quest files by whether the value is host-invariant:
 
 | File | Scope | Telegram keys |
 | --- | --- | --- |
-| `_ai/quests/{quest}/extension_config.{quest}.yaml` | machine-INDEPENDENT | `allowedUserIds`, `defaultChatId`, `pollIntervalMs` |
-| `_ai/quests/{quest}/extension_config.{hostSlug}.{quest}.yaml` | machine-SPECIFIC | `enabled`, `autostart`, `botTokenEnv` |
+| `_ai/quests/{quest}/config/extension_config.{quest}.yaml` | machine-INDEPENDENT | `allowedUserIds`, `defaultChatId`, `pollIntervalMs` |
+| `_ai/quests/{quest}/config/extension_config.{hostSlug}.{quest}.yaml` | machine-SPECIFIC | `enabled`, `autostart`, `botTokenEnv` |
 
 The raw bot token is **never persisted** — it is resolved at load time from
 `process.env[botTokenEnv]`. Telegram allows only **one `getUpdates` consumer per

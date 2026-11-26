@@ -256,9 +256,9 @@ export interface QueueItemWarning {
  */
 export type QueuedTransport = 'anthropic';
 
-/** A stored `transport` value as read: `anthropic`, and the former `copilot` read as `anthropic`; undefined for none. */
+/** A stored `transport` value as read: `anthropic`; undefined for none. */
 export function readStoredTransport(value: unknown): QueuedTransport | undefined {
-    return value === 'anthropic' || value === 'copilot' ? 'anthropic' : undefined;
+    return value === 'anthropic' ? 'anthropic' : undefined;
 }
 
 export interface QueuedFollowUpPrompt {
@@ -5842,8 +5842,7 @@ export class PromptQueueManager {
 
     /**
      * Delete a temporary session: its file and its whole storage — history,
-     * trails, live trail, tool results and its memory folder of the old
-     * place, `_ai/memory/<quest>/<name>/` (src/services/sessionStorage.ts).
+     * trails, live trail, tool results (src/services/sessionStorage.ts).
      */
     private _deleteTemporarySession(name: string): void {
         if (isRunDefaultSession(name) || name === 'chat') { return; }
@@ -5851,9 +5850,7 @@ export class PromptQueueManager {
             const folder = this.sessionsFolder();
             const result = deleteSession(folder, name);
             if (!result.ok) { logQueue(`Temporary session ${name} kept: ${result.error}`); return; }
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { TwoTierMemoryService } = require('../services/memory-service') as typeof import('../services/memory-service');
-            removeSessionStorage(folder, TwoTierMemoryService.instance.memoryRoot(), WsPaths.getWorkspaceQuestId() || 'default', name);
+            removeSessionStorage(folder, name);
             logQueue(`Temporary session ${name} deleted`);
         } catch (err) {
             logQueueError(`delete temporary session ${name}`, err);
@@ -7332,7 +7329,6 @@ export class PromptQueueManager {
                 ...(typeof main['turn-session-id'] === 'string' && main['turn-session-id'] ? { turnSessionId: main['turn-session-id'] } : {}),
                 ...(main['interrupt-note'] === true ? { interruptNote: true as const } : {}),
                 ...(typeof main['held-conversation-file'] === 'string' && main['held-conversation-file'] ? { heldConversationFile: main['held-conversation-file'] } : {}),
-                // A stored `copilot` (older files) is read as `anthropic`.
                 transport: readStoredTransport(main.transport),
                 anthropicProfileId: main['anthropic-profile-id'] || undefined,
                 anthropicConfigId: main['anthropic-config-id'] || undefined,

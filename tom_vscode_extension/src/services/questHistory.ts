@@ -28,8 +28,9 @@
  * chunk (the LLM calls are passed in), writes the blocks, the snapshot and
  * the watermark after each chunk, and extracts memory candidates from the
  * chunk's turns, one call per session (a candidate names the turn's session).
- * The first build on a host deletes the old tracked per-session
- * `compacted_history.md` files once ({@link deleteOldSessionHistories}).
+ * The first build on a host deletes the old tracked per-session histories
+ * (`history/sessions/<session>/`: `compacted_history.md`, `history.json`,
+ * `history.md`, the folders then empty) once ({@link deleteOldSessionHistories}).
  *
  * vscode-free.
  */
@@ -64,6 +65,16 @@ export function questHistoryFolder(questFolder: string): string {
 /** The quest's compacted history `history/compacted_history.md`. */
 export function questCompactedHistoryFile(questFolder: string): string {
     return path.join(questHistoryFolder(questFolder), COMPACTED_HISTORY_FILENAME);
+}
+
+/**
+ * The old history of session `session` (`history/sessions/<session>/`): its
+ * `compacted_history.md`, `history.json` and `history.md`, which the `_ai`
+ * format migration leaves there for the quest history's first build. Read
+ * only while the quest has no history ({@link loadQuestHistoryBlocks}).
+ */
+export function oldSessionHistoryFolder(questFolder: string, session: string): string {
+    return path.join(questHistoryFolder(questFolder), 'sessions', session);
 }
 
 /** The quest's todo archive `todos-archived.<quest>.todo.yaml`. */
@@ -353,15 +364,14 @@ export function advanceWatermark(wm: HistoryWatermark | undefined, inputs: reado
 
 /**
  * The compacted history a session's prompt gets: the quest's
- * `history/compacted_history.md`. OLD PLACE: while the quest has none, the
- * session's own `compacted_history.md` in `sessionFolder` (its storage
- * folder, the old place `history/sessions/<session>/` included) is read;
- * nothing writes it.
+ * `history/compacted_history.md`. While the quest has none, the session's
+ * old `compacted_history.md` in `oldFolder` ({@link oldSessionHistoryFolder})
+ * is read; nothing writes it, and the first build deletes it.
  */
-export function loadQuestHistoryBlocks(questFolder: string, sessionFolder?: string): Block[] {
+export function loadQuestHistoryBlocks(questFolder: string, oldFolder?: string): Block[] {
     if (fs.existsSync(questCompactedHistoryFile(questFolder))) { return loadBlocks(questHistoryFolder(questFolder)); }
-    // OLD PLACE: the per-session compacted history, until the quest's history exists.
-    return sessionFolder ? loadBlocks(sessionFolder) : [];
+    // The session's old compacted history, until the quest's history exists.
+    return oldFolder ? loadBlocks(oldFolder) : [];
 }
 
 /** Whether the quest has its own history yet. */
@@ -388,25 +398,38 @@ export function writeQuestHistorySnapshot(questFolder: string, quest: string, bl
     }
 }
 
+/** The files of an old session history ({@link oldSessionHistoryFolder}). */
+const OLD_SESSION_HISTORY_FILES = [COMPACTED_HISTORY_FILENAME, 'history.json', 'history.md'];
+
 /**
- * Delete the old per-session compacted histories of the quest: every
- * `history/sessions/*\/compacted_history.md` (OLD PLACE, tracked: every host
- * has them) and this host's `history/<host>/sessions/*\/compacted_history.md`.
- * Answers the files deleted.
+ * Delete the old per-session histories of the quest: in every
+ * `history/sessions/<session>/` (tracked: every host has them) its
+ * `compacted_history.md`, `history.json` and `history.md`, then the folders
+ * left empty, `history/sessions/` included; and this host's
+ * `history/<host>/sessions/*\/compacted_history.md`. Answers the files deleted.
  */
 export function deleteOldSessionHistories(questFolder: string, host: string): string[] {
     const deleted: string[] = [];
     const history = questHistoryFolder(questFolder);
-    for (const sessions of [path.join(history, 'sessions'), path.join(history, host, 'sessions')]) {
-        let names: string[] = [];
-        try { names = fs.readdirSync(sessions); } catch { continue; }
-        for (const name of names) {
-            const file = path.join(sessions, name, COMPACTED_HISTORY_FILENAME);
-            try {
-                if (fs.statSync(file).isFile()) { fs.rmSync(file); deleted.push(file); }
-            } catch { /* not there */ }
-        }
+    const remove = (file: string): void => {
+        try {
+            if (fs.statSync(file).isFile()) { fs.rmSync(file); deleted.push(file); }
+        } catch { /* not there */ }
+    };
+    const names = (folder: string): string[] => {
+        try { return fs.readdirSync(folder); } catch { return []; }
+    };
+    const removeIfEmpty = (folder: string): void => {
+        try { if (fs.readdirSync(folder).length === 0) { fs.rmdirSync(folder); } } catch { /* gone or not empty */ }
+    };
+    const old = path.join(history, 'sessions');
+    for (const name of names(old)) {
+        for (const f of OLD_SESSION_HISTORY_FILES) { remove(path.join(old, name, f)); }
+        removeIfEmpty(path.join(old, name));
     }
+    removeIfEmpty(old);
+    const own = path.join(history, host, 'sessions');
+    for (const name of names(own)) { remove(path.join(own, name, COMPACTED_HISTORY_FILENAME)); }
     return deleted;
 }
 

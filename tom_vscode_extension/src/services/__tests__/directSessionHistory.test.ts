@@ -90,13 +90,13 @@ describe('direct-transport session history', () => {
             fs.mkdirSync(folder, { recursive: true });
             fs.writeFileSync(path.join(folder, file), text);
         };
-        const session = (name: string, body: Record<string, unknown>): void => write(root, `${name}.session.json`, JSON.stringify(body));
+        const session = (name: string, body: Record<string, unknown>): void => write(path.join(root, HOST), `${name}.session.json`, JSON.stringify(body));
         session('prep', { mode: 'continue' });
         session('work', { mode: 'continue', basedOn: 'prep' });
         session('todo', { mode: 'per-prompt', basedOn: 'prep' });
         const prepFolder = path.join(root, HOST, 'sessions', 'prep');
         write(prepFolder, 'compaction_rounds.json', 'prep accumulator');
-        write(prepFolder, 'compacted_history.md', 'OLD PLACE: a session\'s own compacted history');
+        write(prepFolder, 'compacted_history.md', 'a session\'s own compacted history');
         write(prepFolder, 'rawTurns.json', '{"rounds":[["prep"]]}');
         const defaultFolder = path.join(root, HOST, 'sessions', 'default@default');
         write(defaultFolder, 'rawTurns.json', '{"rounds":[["queue"]]}');
@@ -133,14 +133,16 @@ describe('direct-transport session history', () => {
 
     test('DH-4: the scope key', () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'direct-keys-'));
-        fs.writeFileSync(path.join(root, 'todo.session.json'), JSON.stringify({ mode: 'per-prompt', basedOn: 'prep' }));
-        fs.writeFileSync(path.join(root, 'prep.session.json'), JSON.stringify({ mode: 'continue' }));
+        fs.mkdirSync(path.join(root, HOST), { recursive: true });
+        fs.writeFileSync(path.join(root, HOST, 'todo.session.json'), JSON.stringify({ mode: 'per-prompt', basedOn: 'prep' }));
+        fs.writeFileSync(path.join(root, HOST, 'prep.session.json'), JSON.stringify({ mode: 'continue' }));
         const key = (quest: string, name: string): string => resolveHistoryScope(quest, root, name).key;
         assert.notEqual(key('q1', 'default'), key('q1', 'chat'), 'the panel and the queue have separate histories');
         assert.notEqual(key('q1', 'default'), key('q2', 'default'), 'another quest: another history');
         assert.notEqual(key('q1', 'prep'), key('q1', 'default'));
         assert.notEqual(key('q1', 'todo'), key('q1', 'prep'), 'the same folder, but a fork does not persist: reloaded from its base each time');
-        fs.writeFileSync(path.join(root, 'walk.session.json'), JSON.stringify({ mode: 'per-iteration' }));
+        fs.mkdirSync(path.join(root, HOST), { recursive: true });
+        fs.writeFileSync(path.join(root, HOST, 'walk.session.json'), JSON.stringify({ mode: 'per-iteration' }));
         assert.notEqual(resolveHistoryScope('q1', root, 'walk', 'a').key, resolveHistoryScope('q1', root, 'walk', 'b').key, 'another iteration: another history');
     });
 
@@ -150,9 +152,9 @@ describe('direct-transport session history', () => {
             fs.mkdirSync(folder, { recursive: true });
             fs.writeFileSync(path.join(folder, file), text);
         };
-        write(root, 'prep.session.json', JSON.stringify({ mode: 'continue' }));
-        write(root, 'walk.session.json', JSON.stringify({ mode: 'per-iteration', basedOn: 'prep' }));
-        write(root, 'solo.session.json', JSON.stringify({ mode: 'per-prompt' }));
+        write(path.join(root, HOST), 'prep.session.json', JSON.stringify({ mode: 'continue' }));
+        write(path.join(root, HOST), 'walk.session.json', JSON.stringify({ mode: 'per-iteration', basedOn: 'prep' }));
+        write(path.join(root, HOST), 'solo.session.json', JSON.stringify({ mode: 'per-prompt' }));
         const prepFolder = path.join(root, HOST, 'sessions', 'prep');
         const walkFolder = path.join(root, HOST, 'sessions', 'walk');
         write(prepFolder, 'rawTurns.json', 'prep');

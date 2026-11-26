@@ -18,7 +18,7 @@ import { agentSdkAvailable } from '../services/providerRuntime';
 import { locateAgentSdkCli } from '../services/agentSdkCli';
 import { wireQuestHintMessages } from './questHint-handler';
 import { ApprovalRelay } from '../utils/approvalRelay';
-import { sessionLiveTrailFile, sessionRoot, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
+import { sessionLiveTrailFile, sessionsWithStorage, sessionTrailFolder } from '../services/sessionStorage';
 import { formatSessionTrailView, readHostTrail, sessionView } from '../services/hostTrail';
 import { hostSlugOf } from '../utils/hostSlug';
 import { pickSessions } from './sessionSelectionPicker';
@@ -51,7 +51,6 @@ import { ChatVariablesStore } from '../managers/chatVariablesStore';
 import { normalizeRepeatCountInput } from '../utils/queueStep3Utils';
 import { NO_QUEST_PROMPTS_MESSAGE, activeQuestPromptFolder, listQuestPromptFiles, onQuestPromptsChanged, questPromptFileName, questPromptFilePath, questPromptsListKey, writeQuestPrompt } from '../utils/questPrompts';
 import { inStoredOrder } from '../services/editorListOrder';
-import { TrailService } from '../services/trailService';
 import { TwoTierMemoryService } from '../services/memory-service';
 import { writeWindowState } from './windowStatusPanel-handler.js';
 import { AnthropicHandler, AnthropicProfile, AnthropicConfiguration, ANTHROPIC_CHAT_SESSION_KEY } from './anthropic-handler';
@@ -1554,8 +1553,7 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
      * Open the compact trail of `sessions` — each session's view of this
      * host's trail `history/trail.<host>.md` (src/services/hostTrail.ts), as a
      * Markdown document — or, without them, of the sessions the user picks
-     * (the panel's own button). OLD PLACE: a session without turns in the host
-     * trail opens its summary pair of an older build in the trail viewer.
+     * (the panel's own button).
      */
     private async _openAnthropicSummaryTrail(sessions?: string[]): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId();
@@ -1564,18 +1562,12 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
         const turns = readHostTrail(questFolder, hostSlugOf());
         for (const session of names ?? []) {
             const view = sessionView(turns, session);
-            if (view.length > 0) {
-                const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: formatSessionTrailView(session, view) });
-                await vscode.window.showTextDocument(doc, { preview: false });
-                continue;
-            }
-            // OLD PLACE: the session's summary pair of an older build.
-            const summaryPath = TrailService.instance.getSummaryFilePath('prompts', { type: 'anthropic', session }, questId);
-            if (!summaryPath || !fs.existsSync(summaryPath)) {
+            if (view.length === 0) {
                 vscode.window.showInformationMessage(`No trail yet for session "${session}" on this machine.`);
                 continue;
             }
-            await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(summaryPath), 'tomAi.trailViewer');
+            const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: formatSessionTrailView(session, view) });
+            await vscode.window.showTextDocument(doc, { preview: false });
         }
     }
 
@@ -1662,16 +1654,15 @@ class ChatPanelViewProvider implements vscode.WebviewViewProvider {
 
     /**
      * Open the quest's history (`_ai/quests/<quest>/history/history.md`, the
-     * snapshot the history build writes) in the MD Browser. OLD PLACE: while
-     * the quest has none, the session's own `history.md` (its storage folder).
-     * With neither, a notice names the quest's file.
+     * snapshot the history build writes) in the MD Browser; without it, a
+     * notice names the file. The history is the quest's: every session shows
+     * the same.
      */
-    private async _openSessionHistoryMarkdown(session: string = this._panelSession()): Promise<void> {
+    private async _openSessionHistoryMarkdown(_session: string = this._panelSession()): Promise<void> {
         const questId = WsPaths.getWorkspaceQuestId() ?? TwoTierMemoryService.instance.currentQuest() ?? '';
         const historyRoot = TwoTierMemoryService.instance.historyFolder(questId || undefined);
         const questFile = path.join(historyRoot, 'history.md');
-        // OLD PLACE: the session's own snapshot, until the quest's history exists.
-        const target = [questFile, path.join(sessionRoot(historyRoot, session), 'history.md')].find((f) => fs.existsSync(f));
+        const target = fs.existsSync(questFile) ? questFile : undefined;
         if (!target) {
             vscode.window.showInformationMessage(
                 `No history yet for quest "${questId || 'default'}". The quest history (${questFile}) is written by its first build: Rebuild history and memory, or the compaction every N rounds.`,

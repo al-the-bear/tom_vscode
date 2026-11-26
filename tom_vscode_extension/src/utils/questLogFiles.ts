@@ -181,8 +181,7 @@ export function questLogLocation(
         case 'overview':
             return { area: 'quest', fileName: `overview.${quest}.md` };
         case 'notes':
-            // The quest's default notes file (utils/notesFiles.ts); the host resolves a quest whose
-            // notes are still at the old place.
+            // The quest's default notes file (utils/notesFiles.ts).
             return { area: 'quest', fileName: `${QUEST_NOTES_FOLDER}/${DEFAULT_QUEST_NOTES_FILE}` };
         case 'refresh':
             return { area: 'quest', fileName: `quest_refresh.${quest}.md` };

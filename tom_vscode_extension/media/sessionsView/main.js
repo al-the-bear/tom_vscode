@@ -62,7 +62,7 @@
             var deleteTitle = r.dependents.length
                 ? 'Cannot delete: ' + r.dependents.join(', ') + (r.dependents.length === 1 ? ' is' : ' are') + ' based on it'
                 : r.usedBy ? 'The ' + r.name + ' session is ' + r.usedBy + '\'s: Reset clears its history'
-                : 'Delete the session with its whole storage: history, trails, tool results and its memory folder under _ai/memory/ (the quest memory stays)';
+                : 'Delete the session with its whole storage: history, trails and tool results (the quest memory stays)';
             return head + '<div class="session' + (x.run ? ' in-run' : '') + '" data-name="' + esc(r.name) + '">'
                 + '<div class="body"><span class="name" title="' + esc(r.name) + '">' + esc(shown) + '</span>'
                 + (x.run ? '<span class="tag run" title="The process run ' + esc(x.run) + '\'s session">@' + esc(x.run) + '</span>' : '')

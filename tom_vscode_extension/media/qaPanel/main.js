@@ -117,7 +117,6 @@
 
     function renderQuestion(a) {
         var html = '<h1 class="title">' + esc(a.title || 'Question') + '</h1>' + metaLine(a);
-        if (a.legacy) { html += '<div class="muted">From the old questions journal (host unknown).</div>'; }
         (a.questions || []).forEach(function (q, i) {
             html += '<div class="question"><b>' + (i + 1) + '.</b> ' + esc(q) + '</div>';
         });

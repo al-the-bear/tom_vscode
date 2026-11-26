@@ -48,7 +48,7 @@ sections:
         required: false
         description: >-
           The standalone MCP server accepts writing clients only with this token. The variable is the
-          one `mcpServer.apiKeyEnv` names in the quest's extension_config.<quest>.yaml; without it the
+          one `mcpServer.apiKeyEnv` names in the quest's config/extension_config.<quest>.yaml; without it the
           server serves only its read-only tools.
         obtain: Any long random string, e.g. `openssl rand -hex 32`; give the same value to the MCP client.
         options:
@@ -61,7 +61,7 @@ sections:
         required: false
         description: >-
           Telegram remote control and notifications. The variable is the one `botTokenEnv` names in the
-          quest's extension_config.<host>.<quest>.yaml (default TELEGRAM_BOT_TOKEN); one bot per quest,
+          quest's config/extension_config.<host>.<quest>.yaml (default TELEGRAM_BOT_TOKEN); one bot per quest,
           since a bot token has only one poller.
         obtain: Talk to @BotFather in Telegram, `/newbot`, and copy the token it gives.
         options:

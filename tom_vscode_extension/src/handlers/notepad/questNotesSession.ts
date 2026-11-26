@@ -92,7 +92,7 @@ function readChoices(context: vscode.ExtensionContext): Record<string, string> {
 export function activeQuestNotes(context: vscode.ExtensionContext): ActiveQuestNotes | null {
     const quest = activeQuestFolder();
     if (!quest) { return null; }
-    const defaultNotes = resolveDefaultQuestNotes(configuredDefaultNotesFile(quest.questId, quest.wsRoot), quest.questFolder, quest.questId);
+    const defaultNotes = resolveDefaultQuestNotes(configuredDefaultNotesFile(quest.questId, quest.wsRoot));
     const files = listQuestNotesFiles(defaultNotes);
     return { questId: quest.questId, defaultNotes, files, selected: pickQuestNotesFile(files, readChoices(context)[quest.questId]) };
 }

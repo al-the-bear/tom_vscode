@@ -5,7 +5,7 @@
  * itself while carrying out a quest todo, in the flow of that session (a
  * quest todo is a quest todo; this is not where they go). Each session keeps
  * its own file, `history/<host>/sessions/<session>/session-todos.todo.yaml`
- * (or its old place `history/sessions/<session>/`; services/sessionTodoFiles.ts), unversioned and deleted with the session.
+ * (services/sessionTodoFiles.ts), unversioned and deleted with the session.
  *
  * Every method takes the session it works on; without one it is the session
  * the current tool call runs in (the active tool trail's), else the session
@@ -142,7 +142,7 @@ export class SessionTodoStore {
             try {
                 for (const t of readTodoFile(file)) {
                     if (!t || t.status === 'cancelled' || t.status === 'completed') { continue; }
-                    this.add(String(t.title ?? t.description ?? t.id), 'copilot', {
+                    this.add(String(t.title ?? t.description ?? t.id), 'agent', {
                         details: t.description,
                         priority: t.priority,
                         tags: Array.isArray(t.tags) ? t.tags : [],
@@ -189,7 +189,7 @@ export class SessionTodoStore {
             status: SessionTodoStore.fromYamlStatus(todo.status),
             createdAt: createdIso,
             updatedAt: updatedIso,
-            source: 'copilot',
+            source: 'agent',
         };
     }
 

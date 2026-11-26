@@ -1,6 +1,6 @@
 /**
  * The host slug: the `<host>` of the per-machine files
- * (`extension_config.<host>.<quest>.yaml`, `session-todo.<host>.<quest>.todo.yaml`).
+ * (`config/extension_config.<host>.<quest>.yaml`, `session-todo.<host>.<quest>.todo.yaml`).
  * The machine's short host name, lower case, anything but letters, digits,
  * `_` and `-` replaced by `_`.
  *

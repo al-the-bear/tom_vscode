@@ -106,8 +106,8 @@ export const SESSIONS_PARAM_SCHEMA = {
 
 /** What Delete in the SESSIONS view removes, for its confirmation. */
 export function deleteSessionDetail(quest: string, name: string, openTodos = 0): string {
-    return `Removed: the session file (if any) and its whole storage — history/<host>/sessions/${name}/ or its old place history/sessions/${name}/ (history, `
-        + `live trail, raw trail, tool results, session todos) and its memory folder _ai/memory/${quest}/${name}/ (the quest memory, _ai/quests/${quest}/memory/, stays). `
+    return `Removed: the session file (if any) and its whole storage — history/<host>/sessions/${name}/ (history, `
+        + `live trail, raw trail, tool results, session todos); the quest memory, _ai/quests/${quest}/memory/, stays. `
         + (openTodos > 0 ? `Its ${openTodos} open session todo${openTodos === 1 ? '' : 's'} go${openTodos === 1 ? 'es' : ''} with it. ` : '')
         + 'This cannot be undone.';
 }

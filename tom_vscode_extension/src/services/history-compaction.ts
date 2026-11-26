@@ -116,8 +116,6 @@ export interface CompactionOptions {
     compactionTools?: string[];
     /** Upper bound on compaction tool rounds (default 1). */
     compactionMaxRounds?: number;
-    /** Root of the memory store (only used to seed placeholders). */
-    memoryPath?: string;
     /** Quest id: the quest whose memory folder the extraction's candidates go to. */
     questId?: string;
     /**

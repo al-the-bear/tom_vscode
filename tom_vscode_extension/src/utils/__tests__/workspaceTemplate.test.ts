@@ -9,7 +9,7 @@
  *        root's copy, its index kept, linking the root's index through the token); nothing else; `root/.tom/workspace_template.json` names version 2 and both
  *        parts; no `.github/copilot-instructions.md`; the same bytes twice
  *   WT-2 personal paths: in the introduction quest the files of its use on this machine are left out; anywhere else
- *        they are refused; the quest's own extension_config.<quest>.yaml is packed
+ *        they are refused; the quest's own config/extension_config.<quest>.yaml is packed
  *   WT-3 literal secrets are refused in either part; the command line exits 1 and writes nothing
  *   WT-4 a file outside the lists is refused; a missing required source is named with its part and stops the build;
  *        without a root the build is refused
@@ -94,7 +94,7 @@ function fixture(): { root: string; ws: string; put(rel: string, text: string): 
     put('_ai/prompt/p.md', 'prompt\n');
     put('_ai/format-version.yaml', 'version: 7\n');
     put('_ai/quests/tomai_introduction/overview.tomai_introduction.md', '# Introduction\n');
-    put('_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml', 'telegram: {}\n');
+    put('_ai/quests/tomai_introduction/config/extension_config.tomai_introduction.yaml', 'telegram: {}\n');
     put('_ai/quests/other/overview.other.md', '# not in the template\n');
     put('_ai/memory/x.md', 'not in the template\n');
     put('ws/.tom/tom_vscode_extension.json', '{}\n');
@@ -120,7 +120,7 @@ describe('the workspace template in two parts', () => {
             'root/.tom/workspace_template.json', 'root/AGENTS.md', 'root/CLAUDE.md',
             'root/_agent_guidelines/index.md', 'root/_agent_guidelines/quest_todos.md', 'root/_agent_guidelines/workspace_agents.md',
             'root/_ai/format-version.yaml', 'root/_ai/processes/README.md',
-            'root/_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml', 'root/_ai/quests/tomai_introduction/overview.tomai_introduction.md',
+            'root/_ai/quests/tomai_introduction/config/extension_config.tomai_introduction.yaml', 'root/_ai/quests/tomai_introduction/overview.tomai_introduction.md',
             'root/_ai/role-types/coder/role-type.yaml', 'root/_ai/roles/default/role.md', 'root/_ai/schemas/todo.schema.json',
             'workspace/.tom/', 'workspace/AGENTS.md', 'workspace/CLAUDE.md', 'workspace/_copilot_guidelines/dart/coding.md', 'workspace/_copilot_guidelines/index.md',
         ]);
@@ -146,17 +146,17 @@ describe('the workspace template in two parts', () => {
     test('WT-2: personal paths', () => {
         const { root, ws, put } = fixture();
         const usedFiles = [
-            '_ai/quests/tomai_introduction/extension_config.my-host.tomai_introduction.yaml',
+            '_ai/quests/tomai_introduction/config/extension_config.my-host.tomai_introduction.yaml',
             '_ai/quests/tomai_introduction/session-todo.my-host.tomai_introduction.todo.yaml',
             '_ai/quests/tomai_introduction/history/sessions/default/live-trail.md',
-            '_ai/quests/tomai_introduction/process-state.tomai_introduction.yaml',
+            '_ai/quests/tomai_introduction/config/process-state.tomai_introduction.yaml',
         ];
         for (const f of usedFiles) { put(f, 'x\n'); }
         const r = tpl.buildTemplate(root, ws);
         assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
         assert.deepEqual((r as { leftOut: string[] }).leftOut, [...usedFiles].sort());
         assert.ok(usedFiles.every((f) => !names(r).includes(`root/${f}`)), 'not in the zip');
-        assert.ok(names(r).includes('root/_ai/quests/tomai_introduction/extension_config.tomai_introduction.yaml'), 'the quest\'s own config is fine');
+        assert.ok(names(r).includes('root/_ai/quests/tomai_introduction/config/extension_config.tomai_introduction.yaml'), 'the quest\'s own config is fine');
         for (const [planted, why] of [
             ['_ai/processes/extension_config.my-host.tomai_introduction.yaml', /host-specific quest config/],
             ['_ai/roles/session-todo.my-host.x.todo.yaml', /session todo file/],

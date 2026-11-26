@@ -4,7 +4,7 @@
  *   QD-1 the tabs with their "N new" counters post `tab`; the shown tab's page is visible, the other hidden
  *   QD-2 the filter: the scope select posts `filter`; Selected quests shows a checkbox per quest, ticking posts the
  *        selection; the other scopes name the quests shown
- *   QD-3 the Questions list: newest first as given, the host (unknown for the old file), open questions and new entries
+ *   QD-3 the Questions list: newest first as given, the host (unknown when a block names none), open questions and new entries
  *        marked; a click posts `select` with the key; a question with its choices and answer; a process decision
  *   QD-4 a stored answer given: the rendered answer, its question, a suggested todo's record on demand (kept across a
  *        refresh), Add todo and Copy post, an added todo shows its id, mark unread / delete and the bar's delete
@@ -48,7 +48,7 @@ const STORED = {
 const ROWS = [
     { key: 'q1|g-2', kind: 'answerGiven', time: '2026-11-19T10:00:00Z', host: 'mbp', quest: 'q1', title: 'Why <slow>?', run: 'r2', open: false, isNew: true, stored: true, unread: true },
     { key: 'q1|q-1', kind: 'question', time: '2026-11-18T10:00:00Z', host: 'bomber', quest: 'q1', title: 'Which way?', open: true, isNew: false },
-    { key: 'q1|legacy-6', kind: 'question', time: '2026-11-01T10:00:00Z', host: '', quest: 'q1', title: 'Old one', open: false, isNew: false },
+    { key: 'q1|q-6', kind: 'question', time: '2026-11-01T10:00:00Z', host: '', quest: 'q1', title: 'Old one', open: false, isNew: false },
 ];
 const BASE = {
     tab: 'questions', filter: { scope: 'current', selected: [] }, currentQuest: 'q1', allQuests: ['q1', 'q2', 'q3'], quests: ['q1'],

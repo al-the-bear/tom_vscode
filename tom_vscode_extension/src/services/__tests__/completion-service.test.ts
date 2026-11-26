@@ -118,8 +118,8 @@ describe('completion-service.rankFiles', () => {
         q('overview.demo.md'),
         q('notes.demo.md'),
         q('history', 'sessions', 'default', 'live-trail.md'),
-        q('extension_config.demo.yaml'),
-        q('process-state.demo.yaml'),
+        q('config', 'extension_config.demo.yaml'),
+        q('config', 'process-state.demo.yaml'),
         q('todos-archived.demo.todo.yaml'),
         q('todos.demo.todo.yaml'),
         f('README.md'),
@@ -132,15 +132,15 @@ describe('completion-service.rankFiles', () => {
             [1, 'todos.demo.todo.yaml'],
             [2, 'notes.demo.md'],
             [2, 'overview.demo.md'],
-            [3, 'extension_config.demo.yaml'],
+            [3, 'config/extension_config.demo.yaml'],
             [3, 'history/sessions/default/live-trail.md'],
-            [3, 'process-state.demo.yaml'],
+            [3, 'config/process-state.demo.yaml'],
             [3, 'todos-archived.demo.todo.yaml'],
         ], 'no queue file, no other quest, no code — not even an open one');
     });
 
     test('technical quest files', () => {
-        for (const rel of ['history/x.md', 'a/history/b.json', 'extension_config.mbp.demo.yaml', 'process-state.demo.yaml', 'quest-refresh.yaml',
+        for (const rel of ['history/x.md', 'a/history/b.json', 'config/extension_config.mbp.demo.yaml', 'config/process-state.demo.yaml', 'quest-refresh.yaml',
             'telegram.demo.json', 'chat.session.json', 'tool_timings.md', 'last_request_agentsdk.json', 'todos-deleted.demo.todo.yaml', '.hidden.md']) {
             assert.equal(isTechnicalQuestFile(rel), true, rel);
         }

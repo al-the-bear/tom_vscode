@@ -4,9 +4,8 @@
  * quests, or quests the user selects):
  *
  * - **Questions** — every entry of the quests' Q&A journals
- *   (`qa.<host>.<quest>.md`, every host's; services/qaJournal.ts) and an old
- *   `questions.<quest>.md`: the questions asked of the user with their
- *   answers, the answers agents gave with tomAi_answerUser, the process
+ *   (`qa.<host>.<quest>.md`, every host's; services/qaJournal.ts): the
+ *   questions asked of the user with their answers, the answers agents gave with tomAi_answerUser, the process
  *   decisions; newest first, each with its host. The list on the left, the
  *   selected entry on the right. An answer given that this machine's answer
  *   store holds (utils/userAnswers.ts) shows its suggested todos (**Add todo**
@@ -143,7 +142,6 @@ export function questionDetail(e: QaQuestionEntry): Record<string, unknown> {
         ...base,
         questions: i.questions ?? [],
         choices: i.choices ?? [],
-        ...(i.legacy ? { legacy: true } : {}),
         reply: i.reply ? { text: i.reply.text, time: i.reply.time, host: i.reply.host, ...(i.reply.source ? { source: i.reply.source } : {}) } : null,
     };
 }
@@ -237,11 +235,11 @@ function soon(): void {
     debounce = setTimeout(() => { debounce = undefined; post(); }, 250);
 }
 
-/** A file whose change the page follows: a Q&A journal, a `questions.<quest>.md` (old place), a todo file. */
+/** A file whose change the page follows: a Q&A journal, a todo file. */
 function followed(name: string | null | undefined): boolean {
     if (!name) { return true; }
     const n = String(name);
-    return n.startsWith('qa.') || n.startsWith('questions.') || n.endsWith('.todo.yaml');
+    return n.startsWith('qa.') || n.endsWith('.todo.yaml');
 }
 
 function closeWatchers(): void {

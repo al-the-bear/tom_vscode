@@ -362,7 +362,7 @@ function renderEntry(item, idx) {
         '<span class="status-left">' +
           '<span class="codicon ' + (expanded ? 'codicon-chevron-down' : 'codicon-chevron-right') + '" style="cursor:pointer;color:#000;" onclick="toggleDetails(\'' + safeId + '\')" title="Toggle details"></span>' +
           statusLabel + repeatProgress + tplRepeatProgress + transportBadge + processBadge +
-          (!isChat && item.template && item.template !== '(None)' && item.template !== '__answer_file__' ? '  [' + escapeHtml(item.template) + ']' : '') +
+          (!isChat && item.template && item.template !== '(None)' ? '  [' + escapeHtml(item.template) + ']' : '') +
           (isChat ? chatSourceChip(item) : '') +
           '<span class="status-icons">' +
           (isChat ? '' : '<span class="codicon codicon-eye" style="cursor:pointer;color:#000;" onclick="previewItem(\'' + safeId + '\')" title="Preview"></span>') +

@@ -40,8 +40,6 @@ export interface DefaultQuestNotes {
     name: string;
     /** The notes folder: where the other notes files are, and where a new one is created. */
     folder: string;
-    /** `true`: {@link filePath} is the quest's notes file at the old place. */
-    oldPlace: boolean;
 }
 
 /** The default notes file of a quest folder as the setting's default names it. */
@@ -52,27 +50,10 @@ export function defaultQuestNotesPath(questFolder: string): string {
 /**
  * Which file a quest's default notes file is. `configured` is the default file
  * as `tomAi.notes.questNotesPattern` resolves it ({@link defaultQuestNotesPath}
- * for the setting's default).
- *
- * Interim rule for the old place, `_ai/quests/<quest>/quest-notes.<quest>.md`:
- * a quest that has that file and no configured default file keeps its notes
- * there — the old file is the default notes file, shown and saved under the
- * default's name; nothing is copied or moved. Once the configured file exists
- * it wins and the old file is not read. (Remove with the migration that moves
- * the old files into `notes/`.)
+ * for the setting's default); its folder is the notes folder.
  */
-export function resolveDefaultQuestNotes(
-    configured: string,
-    questFolder: string,
-    questId: string,
-    exists: (p: string) => boolean = fs.existsSync,
-): DefaultQuestNotes {
-    const base = { name: path.basename(configured), folder: path.dirname(configured) };
-    if (!exists(configured)) {
-        const old = path.join(questFolder, `quest-notes.${questId}.md`);
-        if (exists(old)) { return { ...base, filePath: old, oldPlace: true }; }
-    }
-    return { ...base, filePath: configured, oldPlace: false };
+export function resolveDefaultQuestNotes(configured: string): DefaultQuestNotes {
+    return { name: path.basename(configured), folder: path.dirname(configured), filePath: configured };
 }
 
 /** A notes file a picker offers. */

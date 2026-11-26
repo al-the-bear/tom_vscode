@@ -79,7 +79,7 @@ export interface QueueExecutionState {
         /** Zero-based index into `follow-up-refs` when kind === 'followUp'. */
         'follow-up-index'?: number;
         'expanded-text': string;
-        transport: 'copilot' | 'anthropic';
+        transport: 'anthropic';
         'anthropic-profile-id'?: string;
         'anthropic-config-id'?: string;
         /** The queue iteration the prompt ran in, so a resend runs in it again. */
@@ -150,8 +150,8 @@ export interface QueuePromptYaml {
     metadata?: Record<string, unknown>;
     execution?: QueueExecutionState;
     // Multi-transport fields — multi_transport_prompt_queue_revised.md
-    // §4.1 / §4.14. A stored `copilot` (older files) is read as `anthropic`.
-    transport?: 'copilot' | 'anthropic';
+    // §4.1 / §4.14.
+    transport?: 'anthropic';
     'anthropic-profile-id'?: string;
     'anthropic-config-id'?: string;
     /**
@@ -368,11 +368,6 @@ export interface QueueSettings {
     /** Continuations a walk iteration gets while its todo is not completed (utils/walkCompletionCheck.ts; default 2). */
     'walk-continuations'?: number;
     'reload-prompt-by-scope'?: Record<string, QueueReloadAfterReloadSetting>;
-    // Queue-level default transport for newly-staged items
-    // (multi_transport_prompt_queue_revised.md §4.10). Per-item and per-
-    // stage overrides win over this default; items with their own
-    // transport value ignore it at dispatch time.
-    'default-transport'?: 'copilot' | 'anthropic';
     'default-anthropic-profile-id'?: string;
     'default-anthropic-config-id'?: string;
     /** The queue-level default Agent SDK session. */

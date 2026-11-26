@@ -10,7 +10,7 @@
  *        back, so the engine still finds its item after a reload
  *   TT-4 an entry file of an earlier build (template `timed:<entry id>`) reads as a timed item of that entry with
  *        no template, and the engine finds it
- *   TT-5 queueItemKindFromYaml / isTimedItemOf: plain and timed items (a stored `reminder` type reads as plain); a meta entry id on a non-timed
+ *   TT-5 queueItemKindFromYaml / isTimedItemOf: plain and timed items; a meta entry id on a non-timed
  *        item is ignored
  */
 
@@ -174,7 +174,6 @@ describe('a timed request\'s template', () => {
     test('TT-5: the helpers', () => {
         assert.deepEqual(queueItemKindFromYaml({}, 'wrapT'), { type: 'normal', template: 'wrapT' });
         assert.deepEqual(queueItemKindFromYaml({}, undefined), { type: 'normal', template: '(None)' });
-        assert.deepEqual(queueItemKindFromYaml({ type: 'reminder' }, '(None)'), { type: 'normal', template: '(None)' }, 'a stored reminder item (removed) reads as a normal one');
         assert.deepEqual(queueItemKindFromYaml({ type: 'timed', 'timed-entry-id': 'e1' }, 'wrapT'), { type: 'timed', template: 'wrapT', timedEntryId: 'e1' });
         assert.deepEqual(queueItemKindFromYaml({}, 'timed:e2'), { type: 'timed', template: '(None)', timedEntryId: 'e2' });
         assert.deepEqual(queueItemKindFromYaml({ 'timed-entry-id': 'e3' }, 'x'), { type: 'normal', template: 'x' }, 'not timed: no entry id');

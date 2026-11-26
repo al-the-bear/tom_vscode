@@ -3,14 +3,13 @@
  *
  * Displays the answers that carry TODO response values: the turns of this
  * host's compact trail `history/trail.<host>.md` (src/services/hostTrail.ts),
- * labelled with their session, and — OLD PLACE — the answers of the summary
- * *.answers.md files of an older build (the quest's history folder and each
- * session's folder `history/sessions/<session>/`) older than the trail's
- * oldest turn (todoLogTrailSets.ts). Auto-refreshes when the host trail or an
+ * labelled with their session, and the answers of the other subsystems'
+ * summary *.answers.md files in the quest's history folder
+ * (todoLogTrailSets.ts). Auto-refreshes when the host trail or an
  * .answers.md file changes there.
  *
- * Opening an entry: a host trail turn opens the trail file at its block; an
- * older pair's answer opens in the trail custom editor (trailEditor-handler.ts).
+ * Opening an entry: a host trail turn opens the trail file at its block; a
+ * summary pair's answer opens in the trail custom editor (trailEditor-handler.ts).
  */
 
 import * as vscode from 'vscode';
@@ -26,7 +25,7 @@ import { WsPaths } from '../utils/workspacePaths';
 import { questTrailFolder } from '../utils/questPaths.js';
 import { readWorkspaceTodos } from '../managers/questTodoManager.js';
 import { parseTodoRef, dedupeTodoRefs, extractTodoRefsFromVariables } from '../utils/todoLogRefs.js';
-import { hostTrailTodoEntries, keepOlderPairAnswer, todoLogTrailSets } from '../utils/todoLogTrailSets.js';
+import { hostTrailTodoEntries, todoLogTrailSets } from '../utils/todoLogTrailSets.js';
 import { hostTrailFile, readHostTrail } from '../services/hostTrail.js';
 import { hostSlugOf } from '../utils/hostSlug.js';
 import { loadWebviewHtml } from '../utils/webviewLoader';
@@ -123,8 +122,8 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
         const folder = getTrailFolder();
         if (!folder || !fs.existsSync(folder)) { return; }
 
-        // Watch the host trails and (OLD PLACE) the summary *.answers.md files, the sessions' included
-        const pattern = new vscode.RelativePattern(folder, '{trail.*.md,**/*.answers.md}');
+        // Watch the host trails and the summary *.answers.md files
+        const pattern = new vscode.RelativePattern(folder, '{trail.*.md,*.answers.md}');
         this._watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
         const scheduleRefresh = debounce(() => this.refresh(), 800);
@@ -167,7 +166,7 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Data — the host trail and (OLD PLACE) the summary *.answers.md files
+    // Data — the host trail and the summary *.answers.md files
     // ──────────────────────────────────────────────────────────────────────
 
     /**
@@ -218,8 +217,8 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
 
     /**
      * Load the TODO-linked answers: this host's trail turns whose answers carry
-     * `TODO*` response values, and (OLD PLACE) the `variables:` blocks of the
-     * older *.answers.md files' answers the trail does not have.
+     * `TODO*` response values, and the `variables:` blocks of the summary
+     * *.answers.md files' answers.
      *
      * Each ref is deduplicated (a single answer often carries the same TODO
      * twice) and resolved to its todo title so the view can show what the TODO
@@ -238,13 +237,12 @@ export class TodoLogViewProvider implements vscode.WebviewViewProvider {
             });
         }
 
-        // OLD PLACE: the summary pairs of an older build, for the answers before the host trail's.
+        // The summary pairs of the other subsystems.
         const trailSets = todoLogTrailSets(folder, discoverTrailSets);
         for (const [setName, _set] of trailSets) {
             const entries = loadTrailSet(setName, trailSets);
             for (const entry of entries) {
                 if (entry.type !== 'ANSWER') { continue; }
-                if (!keepOlderPairAnswer(entry.requestId, entry.timestamp, turns)) { continue; }
                 const refs = dedupeTodoRefs(extractTodoRefsFromVariables(entry.variables));
                 if (refs.length === 0) { continue; }
                 staged.push({

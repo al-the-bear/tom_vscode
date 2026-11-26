@@ -80,10 +80,6 @@
               }
             }
           },
-          "reminderEnabled": { "type": "boolean" },
-          "reminderTemplateId": { "type": "string" },
-          "reminderTimeoutMinutes": { "type": "number", "minimum": 1 },
-          "reminderRepeat": { "type": "boolean" },
           "repeatCount": { "type": "number", "minimum": 0 },
           "repeatPrefix": { "type": "string" },
           "repeatSuffix": { "type": "string" },
