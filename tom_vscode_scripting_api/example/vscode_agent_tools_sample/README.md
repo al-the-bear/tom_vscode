@@ -202,7 +202,7 @@ First entry: <none>
 === documents ===
 62 guidelines across categories: cloud, d4rt, example, dart, pattern_prompts.
 Read "cloud_deployment.md": 3362 chars.
-Trail: 0 recent entries (latest quest: <none>).
+Trail of q1: 0 of 0 turns (latest: <none>).
   [PASS] documents
 
 === tools ===
@@ -493,12 +493,12 @@ Future<bool> runDocumentsExample(VSCodeAdapter adapter) async {
   }
 
   final trail = await TomDocumentApi.listTrail(limit: 5);
-  final latestQuest = trail.entries.isEmpty
+  final latest = trail.entries.isEmpty
       ? '<none>'
-      : (trail.entries.first.questId ?? '<unset>');
+      : '${trail.entries.first.time} in ${trail.entries.first.session}';
   print(
-    'Trail: ${trail.entries.length} recent entries '
-    '(latest quest: $latestQuest).',
+    'Trail of ${trail.questId}: ${trail.entries.length} of '
+    '${trail.totalCount} turns (latest: $latest).',
   );
 
   return true;
@@ -508,10 +508,11 @@ Future<bool> runDocumentsExample(VSCodeAdapter adapter) async {
 `listGuidelines()` returns both the documents and the set of categories
 (`dart`, `cloud`, `d4rt`, the root level, …); `readGuideline(name)` returns a
 `DocumentContent` whose `.content` is the file body. `listTrail(limit:)` reads
-the recent prompt/answer pairs — the same trail the live-trail and history files
-are built from. The API also has typed accessors for prompts, answers and
-quest documents, plus generic `read`/`write`/`delete` — the concept stays on the
-read side.
+this machine's latest prompt/answer turns of the window's quest — its host trail
+`_ai/quests/<quest>/history/trail.<host>.md`, the source of the quest's history
+and memory — newest first; `getTrailEntry(id)` finds one turn by its request id.
+The API also has typed accessors for prompts and quest documents, plus generic
+`read`/`write`/`delete` — the concept stays on the read side.
 
 ### `tools.dart` — the profile-gated LLM tool registry
 

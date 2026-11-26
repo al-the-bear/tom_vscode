@@ -38,12 +38,12 @@ Future<bool> runDocumentsExample(VSCodeAdapter adapter) async {
   }
 
   final trail = await TomDocumentApi.listTrail(limit: 5);
-  final latestQuest = trail.entries.isEmpty
+  final latest = trail.entries.isEmpty
       ? '<none>'
-      : (trail.entries.first.questId ?? '<unset>');
+      : '${trail.entries.first.time} in ${trail.entries.first.session}';
   print(
-    'Trail: ${trail.entries.length} recent entries '
-    '(latest quest: $latestQuest).',
+    'Trail of ${trail.questId}: ${trail.entries.length} of '
+    '${trail.totalCount} turns (latest: $latest).',
   );
 
   // Listing succeeds even on a sparse workspace; returning without throwing is
