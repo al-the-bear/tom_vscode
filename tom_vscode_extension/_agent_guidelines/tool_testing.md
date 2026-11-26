@@ -82,6 +82,18 @@ try {
 }
 ```
 
+**A sandbox is a root of its own.** Test sandboxes live under the container's
+`ztmp/` (`<quest>_<yymmdd>_<todo>[_what]`), inside the real Tom root's tree.
+Without a `.tom/tom_root.yaml` of their own, the layout's walk up from them
+reaches the real root, and the configuration, `_ai` and the guidelines resolve
+there. The stub therefore gives every workspace folder under a `ztmp/` directory
+whose walk up would reach the real root a marker of its own
+(`isolateSandboxWorkspace`); a sandbox that builds its own root above the
+workspace folder writes that marker **before** installing the stub. A test
+that runs vscode-free modules on explicit paths needs nothing.
+`sandboxIsolation.test.ts` fails when a sandbox save would reach the real
+configuration or a sandbox test run changes it.
+
 Covered surface: `workspace` (workspaceFolders, textDocuments, getConfiguration, fs,
 findFiles — a real search with Node's glob under the pattern's base, exclude applied —, asRelativePath,
 openTextDocument — the open fake document, else the file read from disk —, applyEdit, onDidChangeConfiguration, createFileSystemWatcher), `window`

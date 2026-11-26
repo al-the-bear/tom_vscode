@@ -305,7 +305,7 @@ Two mechanisms write to memory simultaneously:
 ```mermaid
 flowchart LR
     EX[Exchange completes]
-    EX --> A["Explicit: model calls\nmemory tool during conversation\ntomAi_memory_save / forget / update"]
+    EX --> A["Explicit: model calls\nmemory tool during conversation\ntomAi_saveMemory / forgetMemory / updateMemory"]
     EX --> B["Implicit: local LLM runs\nbackground extraction pass\n(when llm_extract mode active)"]
     EX --> C["Keyword shortcut:\nuser writes 'Remember: ...' or 'Forget: ...'"]
     A --> MEM["_ai/quests/{quest}/memory/\n(A, C: curated files; B: candidates.{host}.md)"]
@@ -313,7 +313,7 @@ flowchart LR
     C --> MEM
 ```
 
-**Explicit (model-driven):** The Anthropic model calls `tomAi_memory_save`, `tomAi_memory_forget`, `tomAi_memory_update` when it decides something is worth persisting. Enabled via `memoryToolsEnabled: true` in the configuration.
+**Explicit (model-driven):** The Anthropic model calls `tomAi_saveMemory`, `tomAi_forgetMemory`, `tomAi_updateMemory` when it decides something is worth persisting. Enabled via `memoryToolsEnabled: true` in the configuration.
 
 **Implicit (background extraction):** every build of the quest history (§6.6) with `runMemoryExtractionOnCompaction` on, and every **Rebuild history and memory**, runs the extraction prompt over the consolidated trail's new turns, one call per session, and writes the key facts as candidates to this host's `candidates.{host}.md`, each naming the session of its turns. With `historyMode: llm_extract` the latest exchange is extracted the same way. This is non-blocking and does not affect the response latency.
 
@@ -534,8 +534,7 @@ interface MemoryExtractionTemplate {
     name: string;
     description: string;
     template: string;      // see §7.3 for placeholders
-    targetFile: string;    // which memory file to write to (e.g. 'facts.md')
-    scope: 'quest' | 'shared' | 'both';
+    targetFile: string;    // the curated file the candidates are meant for (e.g. 'facts.md')
 }
 ```
 
@@ -547,8 +546,7 @@ Default entry:
   "name": "Default — background fact extraction",
   "description": "Extracts facts for quest memory after each exchange",
   "template": "From this conversation exchange, extract new facts worth remembering.\nDo NOT repeat facts already in the existing memory.\nOutput only new facts as a markdown bullet list. If nothing new, output nothing.\n\n### Existing memory:\n${existingMemory}\n\n### Exchange:\n${recentHistory}",
-  "targetFile": "facts.md",
-  "scope": "quest"
+  "targetFile": "facts.md"
 }
 ```
 
@@ -642,7 +640,7 @@ The existing placeholder system (`variableResolver.ts`) is rich but lacks compac
 | `${recentHistory}` | The completed exchange (user + assistant turn) |
 | `${existingMemory}` | Current content of the target memory file |
 | `${memoryFilePath}` | Absolute path of the target memory file |
-| `${memoryScope}` | `'quest'` or `'shared'` |
+| `${memoryScope}` | Always `'quest'`: the quest memory has no other scope |
 
 All standard placeholders (`${quest}`, `${git.branch}`, `${date}`, `${workspaceFolder}`, etc.) remain available in compaction and memory templates.
 
@@ -714,17 +712,17 @@ Individual tools can opt out of the approval gate by setting `requiresApproval: 
 
 ### 8.2 Memory tools
 
-New tools in `tool-executors.ts`, active when `memoryToolsEnabled: true`:
+The five tools of `tools/memory-tools.ts`, active when `memoryToolsEnabled: true`. They work on the quest memory, `_ai/quests/<quest>/memory/` (`services/memory-service.ts`): the curated files (`facts.md`, `facts-<suffix>.md`, …) and the candidates files `candidates.<host>.md`. There is no scope parameter: the quest memory is the only scope.
 
-| Tool | Scope param | readOnly | Purpose |
+| Tool | Parameters | readOnly | Purpose |
 | --- | --- | --- | --- |
-| `tomAi_memory_save` | `'quest'` / `'shared'` | No | Append fact to named memory file |
-| `tomAi_memory_update` | `'quest'` / `'shared'` | No | Replace section in memory file |
-| `tomAi_memory_forget` | `'quest'` / `'shared'` | No | Delete fact or section |
-| `tomAi_memory_read` | `'quest'` / `'shared'` / `'all'` | Yes | Read memory file contents |
-| `tomAi_memory_list` | `'quest'` / `'shared'` / `'all'` | Yes | List memory files |
+| `tomAi_saveMemory` | `content`, `file` (default `facts.md`), `heading` | No | Append a fact to a memory file, or replace the section under `heading` |
+| `tomAi_updateMemory` | `file`, `heading`, `content` | No | Replace the section under a heading (created when absent) |
+| `tomAi_forgetMemory` | `file`, `heading` | No | Delete a file, or clear one section's body |
+| `tomAi_readMemory` | `file`, `suffix` | Yes | Read one file, or every file (`suffix`: only `facts-<suffix>.md`) |
+| `tomAi_listMemory` | `suffix` | Yes | List the memory files |
 
-All memory write tools are subject to the approval gate (§8.1).
+The three write tools are subject to the approval gate (§8.1).
 
 ### 8.3 Missing tools for a complete coding companion
 
@@ -1116,7 +1114,7 @@ type AnthropicProfile = AnthropicProfileTemplate;
         "tomAi_readFile", "tomAi_listDirectory", "tomAi_findFiles",
         "tomAi_findTextInFiles", "tomAi_fetchWebpage", "tomAi_getErrors",
         "tomAi_chatvar_read",
-        "tomAi_memory_read", "tomAi_memory_list"
+        "tomAi_readMemory", "tomAi_listMemory"
       ],
       "memoryToolsEnabled": false,
       "historyMode": "last",
@@ -1139,8 +1137,8 @@ type AnthropicProfile = AnthropicProfileTemplate;
         "tomAi_multiEditFile", "tomAi_createFile", "tomAi_getErrors",
         "tomAi_fetchWebpage", "tomAi_git",
         "tomAi_chatvar_read", "tomAi_chatvar_write",
-        "tomAi_memory_read", "tomAi_memory_list",
-        "tomAi_memory_save", "tomAi_memory_update", "tomAi_memory_forget"
+        "tomAi_readMemory", "tomAi_listMemory",
+        "tomAi_saveMemory", "tomAi_updateMemory", "tomAi_forgetMemory"
       ],
       "memoryToolsEnabled": true,
       "historyMode": "trim_and_summary",
@@ -1480,16 +1478,16 @@ Delivers: quest memory read/write; memory tools; Memory Panel webview; history c
   - `replaceSection(scope, file, heading, newContent)` — replace a named markdown heading's content block
   - `delete(scope, file)`
   - `list(scope)` → `string[]` of filenames
-  - `readAll(scope: 'quest' | 'shared' | 'all')` → concatenated content for injection
+  - `readAll(scope)` → concatenated content (`scope` is always `'quest'`)
   - `injectForSystemPrompt(maxTokens)` → formatted block respecting token budget
 
 ---
 
 **Step 3.2 — [ ] `tools/tool-executors.ts`: memory tools**
 
-- **Spec:** §8.2 (tool table — names, scope param, readOnly, purpose)
+- **Spec:** §8.2 (tool table — names, parameters, readOnly, purpose)
 - **Read first:** `src/tools/tool-executors.ts` (two or three existing write-tool definitions for pattern); `src/services/memory-service.ts` (Step 3.1 — method signatures)
-- Add all five tools: `tomAi_memory_save`, `tomAi_memory_update`, `tomAi_memory_forget`, `tomAi_memory_read`, `tomAi_memory_list`
+- Add all five tools: `tomAi_saveMemory`, `tomAi_updateMemory`, `tomAi_forgetMemory`, `tomAi_readMemory`, `tomAi_listMemory`
 - Write tools (`save`, `update`, `forget`): `requiresApproval: true` (default gate)
 - Read tools: `requiresApproval: false`
 - All route through `TwoTierMemoryService.instance`
@@ -1691,7 +1689,7 @@ Delivers: per-configuration opt-in to route requests through `@anthropic-ai/clau
 - **Read first:** `src/tools/tool-executors.ts` (`SharedToolDefinition` shape, `execute()` signature) and the Agent SDK `tool()` / `createSdkMcpServer()` helpers in `sdk.d.ts`
 - Add `toMcpTools(tools: SharedToolDefinition[])` — maps each shared tool to `tool(name, description, inputSchema, handler)` where `handler` calls the shared tool's `execute()` and wraps the string result in the MCP content-block shape `{ content: [{ type: 'text', text: result }] }`
 - Tools keep running in-extension (same process, same workspace access) — the MCP layer is purely for transport to the agent
-- Memory tools (`tomAi_memory_*`) are included iff `configuration.memoryToolsEnabled === true` or the cross-config default enables them — identical filter to direct path
+- Memory tools (`tomAi_*Memory`) are included iff `configuration.memoryToolsEnabled === true` or the cross-config default enables them — identical filter to direct path
 
 ---
 
@@ -1806,7 +1804,7 @@ The following subsystems remain in-extension and apply to both transports unchan
 - **Placeholder resolution** — `resolveVariables()` expands `${userMessage}`, `${role-description}`, `${quest-description}`, `${{ }}` expressions, etc., before the user message is handed to the SDK.
 - **Profiles** (§7.2) — `profile.systemPrompt` becomes the SDK's `options.systemPrompt`: as the whole prompt with `systemPromptMode: 'replace'` (the default, so profiles made before the choice existed keep replacing), or appended to Claude Code's default prompt with `'append'` (`{ type: 'preset', preset: 'claude_code', append }`). A profile's `settingSources` (user / project / local) win over the configuration's `agentSdk.settingSources`; the CLAUDE.md auto-load still adds `project`. Pure mapping: `src/utils/agentSdkSystemPrompt.ts`; profile editor: *System Prompt (Agent SDK)*, *Setting Sources (Agent SDK)*. Tests PS-1..3.
 - **`anthropicUserMessage` template** — expanded before the SDK is invoked (same code path as direct).
-- **Memory tools** (§5 `tomAi_memory_*`) — exposed to the agent via MCP; the agent reads/writes memory through the same `TwoTierMemoryService`.
+- **Memory tools** (§5 `tomAi_*Memory`) — exposed to the agent via MCP; the agent reads/writes memory through the same `TwoTierMemoryService`.
 - **Approval gate UI** (§8.1) — intercepted via the SDK's `canUseTool` callback; emits the same `AnthropicToolApprovalRequest` to the panel and awaits the same `handleApprovalResponse`.
 - **Keyword triggers** (§5.4) — `Remember:` / `Forget:` are applied to the user text before either transport is invoked.
 - **Panel status line** (§11.3) — model, history mode (or `"SDK-managed"` on `agentSdk`), last N tool calls, session turns.
@@ -1817,7 +1815,7 @@ The following subsystems remain in-extension and apply to both transports unchan
 - **`history-compaction.ts` invocations** for this configuration — the SDK compacts.
 - **Prompt-caching segment logic** (`buildSystemSegments` / `buildSystemParam` cache_control path) — the SDK caches.
 - **Manual tool-use `while (turn < maxRounds)` loop** in `AnthropicHandler.send()` — replaced with `for await (const msg of query(...))`.
-- **System-prompt memory injection** (§5.2) — the agent pulls memory through `tomAi_memory_read` / `_list` on demand. The memory _tools_ remain; only the injection into the system prompt is dropped.
+- **System-prompt memory injection** (§5.2) — the agent pulls memory through `tomAi_readMemory` / `tomAi_listMemory` on demand. The memory _tools_ remain; only the injection into the system prompt is dropped.
 
 Cross-configuration memory writes and background memory extraction (§6 `llm_extract`) are likewise unnecessary on the `agentSdk` path — the SDK's own session handling covers the summarize-then-inject loop. They are not invoked when `transport === 'agentSdk'`.
 
@@ -1911,7 +1909,7 @@ Switching back to **Direct API** restores all previously set direct-only field v
 | Context compaction  | Our `history-compaction.ts` (§6)                   | SDK-managed                                   |
 | Prompt caching      | Our `cache_control` logic (§5.2)                   | SDK-managed                                   |
 | Memory injection    | Into system prompt at send time (§5.2)             | Pulled by agent via tools on demand           |
-| Memory writes       | Via `tomAi_memory_*` tools (same for both)         | Via `tomAi_memory_*` tools (same for both)    |
+| Memory writes       | Via `tomAi_*Memory` tools (same for both)         | Via `tomAi_*Memory` tools (same for both)    |
 | Trail entries       | `subsystem: 'anthropic'`                           | `subsystem: 'anthropic'` (same shape)         |
 | Approval gate       | In-handler intercept before `execute()`            | `canUseTool` callback before `execute()`      |
 | Model dropdown      | Live from `anthropic.models.list()` (§2)           | Live from `anthropic.models.list()` (same)    |

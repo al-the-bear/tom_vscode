@@ -113,7 +113,7 @@ Which tools a request carries — the core set, the `<!-- tools: … -->` line a
 
 ## 4. Enable memory tools
 
-The quest memory (`_ai/quests/<quest>/memory/`: the curated files such as `facts.md`, and one candidates file per host, `candidates.<host>.md` with the host slug, which the automatic memory extraction writes; the chat panel's **Promote memory** button, shown with `tomAi.memory.promoteMemoryButton`, queues a prompt that promotes the chosen candidates) is exposed via five tools (`tomAi_memory_read`, `_list`, `_save`, `_update`, `_forget`). To let the model write to memory, enable them either per-configuration:
+The quest memory (`_ai/quests/<quest>/memory/`: the curated files such as `facts.md`, and one candidates file per host, `candidates.<host>.md` with the host slug, which the automatic memory extraction writes; the chat panel's **Promote memory** button, shown with `tomAi.memory.promoteMemoryButton`, queues a prompt that promotes the chosen candidates) is exposed via five tools (`tomAi_readMemory`, `tomAi_listMemory`, `tomAi_saveMemory`, `tomAi_updateMemory`, `tomAi_forgetMemory`). To let the model write to memory, enable them either per-configuration:
 
 ```json
 "memoryToolsEnabled": true

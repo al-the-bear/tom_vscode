@@ -153,8 +153,8 @@ opens this machine's whole trail file.
 
 The Documentation section of @WS has its own sub-tabs:
 
-- **Documents** — the document editor: pick a group (Workspace, Projects,
-  Notes) and a file, edit it, open it in an editor or the MD viewer.
+- **Documents** — the document editor: pick a group (Workspace, Projects)
+  and a file, edit it, open it in an editor or the MD viewer.
 - The quest's documents, read-only like the Logs (the same toolbar, 7 s
   refresh and 256 KB window): **Quest Progress** (`progress.{quest}.md`),
   **Quest Overview** (`overview.{quest}.md`), **Quest Notes**
@@ -172,7 +172,7 @@ The Documentation section of @WS has its own sub-tabs:
 The Markdown Browser is a standalone webview panel for reading markdown documents with full navigation:
 
 - **Open via**: the `@T: Open in MD Browser` command, link clicks in the Guidelines panel, or the tools (`tomAi_openInMdBrowser`, with `live: true` for follow-tail mode)
-- **Document picker**: Grouped by Guidelines, Workspace Docs, Notes, Roles, Quests, Copilot Instructions, and Projects
+- **Document picker**: Grouped by Guidelines, Workspace Docs, Roles, Quests, Copilot Instructions, and Projects
 - **Quest dropdown**: Secondary dropdown to filter quest documents when in quest context
 - **Link resolver**: Clickable `.md` links navigate within the browser; special link types include `quest:`, `issue:`, `todo:`, and `test:` protocols; non-`.md` files open in the VS Code editor; external URLs open in the system browser; a link may be URL-encoded (`%20` for a space, as in `[the design](../my%20designs/design.md)`): the path as written is tried first, then the decoded one, so a file with `%` in its name opens too
 - **Links to files elsewhere**: when a link names no folder, or its file is not where it says, the browser looks for the file by its name — first in the document's folder and its subfolders, then in the current quest's folder, the workspace folder's guidelines, the root's guidelines (a nested workspace) and finally the whole workspace folder — and opens it from the first of these places that has it. When that place has several files of the name, a picker lists them with their folders; when the link names folders too (`dart/unit_tests.md`), the files whose path ends with them are kept. Tool and build folders (`node_modules`, `.git`, `.dart_tool`, `build`, `out`, `ztmp`, …) are not searched. Only when no place has it does the *File not found* warning show. The quest notes panel's View tab follows links the same way
@@ -624,7 +624,7 @@ The ANTHROPIC/LLM subpanel in `@CHAT` is the primary AI chat surface. Every turn
 The profiles are the workspace config's `anthropic.profiles` (`.tom/tom_vscode_extension.json`), edited in `@T: Open Prompt Template Editor`. Besides a few task profiles (read-only research, precise code edits, role + quest context) and the Local LLM profiles, the Anthropic models each come in three flavors:
 
 - **Direct** — raw Anthropic SDK. History injected via `trim_and_summary` compaction. Memory placeholders (`${memory}`, `${memory-quest}`) expanded before send.
-- **Agent SDK T&S** — routes through `@anthropic-ai/claude-agent-sdk` but still uses in-extension history compaction. Memory pulled via `tomAi_memory_*` tools on demand.
+- **Agent SDK T&S** — routes through `@anthropic-ai/claude-agent-sdk` but still uses in-extension history compaction. Memory pulled via the memory tools (`tomAi_readMemory`, `tomAi_listMemory`, …) on demand.
 - **Agent SDK SDK-MM** — Agent SDK with SDK-managed continuity. The session id persists in a `<name>.session.json` in `_ai/quests/<quest>/history/<host>/` (this machine's sessions; `chat` for the panel, `default@default` for the queue, or a named session) so the next turn resumes in place. Works with Claude Code's session selector.
 
 Around the prompt: the **Model** (the Anthropic profile) with its edit button and the user-message **Template**, then the reusable prompt's **Prompt file** with its buttons (below). Every choice of the action bar is a field in the Prompt Queue editor's style: its label above, its value a link below (its width limited; the tooltip names a long value whole); a click opens VS Code's picker. The action row, all icon buttons, reads left to right: Preview, the **Keep** and **Fresh** toggles and the **queue mode** toggle; **Save to Queue** and **Queue next** — they queue into the **default run** with the prompt queue's settings (below); then the **Session** and **Run** fields and the **Role**; then what uses them: **Send**, **Stop**, **Save to Queue with this panel's session, run, profile and template** and **Queue next with this panel's session and run**. The queue buttons are double icons, both of the same size (the Prompt Queue editor's double-icon buttons look the same): the second says where the item goes — the numbered list for the end of the queue, the arrow up in a circle for next — the first whose settings it takes: **+** the queue's, the person the panel's. Keep, Fresh and the queue mode are icon toggle buttons, pressed or not pressed, each with its tooltip; Tab reaches them and Enter or Space switches them.

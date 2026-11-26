@@ -605,8 +605,42 @@ function fakeUri(p: string): { fsPath: string; path: string; scheme: 'file'; toS
     };
 }
 
+/** The nearest folder at or above `start` holding `.tom/tom_root.yaml` (as utils/workspaceLayout.ts walks). */
+function nearestRoot(start: string): string | undefined {
+    let dir = path.resolve(start);
+    for (;;) {
+        if (fs.existsSync(path.join(dir, '.tom', 'tom_root.yaml'))) { return dir; }
+        const up = path.dirname(dir);
+        if (up === dir) { return undefined; }
+        dir = up;
+    }
+}
+
+/** The Tom root this checkout lives in (al_the_bear), when there is one. */
+const CHECKOUT_ROOT = nearestRoot(__dirname);
+
+/**
+ * A test sandbox is a folder under a `ztmp/` directory of this checkout's tree.
+ * Without a root marker of its own, the layout's walk up from it reaches the
+ * real root, and the configuration, `_ai` and the guidelines resolve there: a
+ * test could write the real `.tom/tom_vscode_extension.json` (it happened with
+ * `editorListOrder`). Such a sandbox gets `.tom/tom_root.yaml` as soon as it is
+ * a workspace folder, so it is a root of its own. A sandbox that has a root of
+ * its own inside (a marker at or above the folder, below the real root) is left
+ * as it is; folders outside a `ztmp/` directory are never touched.
+ */
+export function isolateSandboxWorkspace(folder: string): boolean {
+    const abs = path.resolve(folder);
+    if (!CHECKOUT_ROOT || !abs.split(path.sep).includes('ztmp') || !fs.existsSync(abs)) { return false; }
+    if (nearestRoot(abs) !== CHECKOUT_ROOT) { return false; }
+    fs.mkdirSync(path.join(abs, '.tom'), { recursive: true });
+    fs.writeFileSync(path.join(abs, '.tom', 'tom_root.yaml'), '# A test sandbox: its own Tom root (src/tools/__tests__/_vscode-stub.ts)\n');
+    return true;
+}
+
 function applyWorkspaceFolders(stub: Record<string, unknown>, paths: string[]): void {
     const ws = stub.workspace as Record<string, unknown>;
+    for (const p of paths) { isolateSandboxWorkspace(p); }
     if (paths.length === 0) {
         ws.workspaceFolders = undefined;
         return;
