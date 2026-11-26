@@ -5,11 +5,6 @@
 /// profile, its configuration, the default user-message template, the full
 /// tool loop). The answer is the transport's response text. A second
 /// concurrent send is **rejected** (see [SendToChatResult.rejected]).
-///
-/// The extension no longer has a configured "Send to Chat" target: its
-/// `sendToChatVce` request sends to Copilot only when the request names
-/// `target: 'copilot'` (the answer then read back via the answer-file
-/// round-trip, `tomAi_askCopilot`), which this API does not send.
 // ignore_for_file: avoid_classes_with_only_static_members
 library;
 
@@ -21,10 +16,11 @@ import 'vscode_adapter.dart';
 
 /// The outcome of a [TomChatApi.sendToChat] call.
 class SendToChatResult {
-  /// Which transport handled the prompt (`anthropic` or `copilot`).
+  /// Which transport handled the prompt, as the extension reports it
+  /// (`anthropic`: the ANTHROPIC/LLM panel's transport).
   final String target;
 
-  /// Whether the prompt was dispatched and (for anthropic) answered.
+  /// Whether the prompt was dispatched and answered.
   final bool success;
 
   /// The transport's answer text (empty when none was produced).

@@ -40,7 +40,7 @@ surface is testable against fakes.
 ```yaml
 # pubspec.yaml
 dependencies:
-  tom_vscode_scripting_api: ^7.0.0
+  tom_vscode_scripting_api: ^8.0.0
 ```
 
 ```bash
@@ -64,7 +64,7 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 | `extensions` (`VSCodeExtensions`) | Query, activate, and read exports of installed extensions. |
 | `lm` (`VSCodeLanguageModel`) | Select chat models (Copilot et al.), send requests, count tokens, register/invoke LM tools. |
 | `chat` (`VSCodeChat`) | Register a chat participant whose handler runs in your Dart process. |
-| `VsCodeHelper` | All-static convenience layer — Dart/Flutter tooling, Copilot prompts, editor edits, `VsProgress`, `FileBatch`. |
+| `VsCodeHelper` | All-static convenience layer — Dart/Flutter tooling, language-model prompts (`vscode.lm`), editor edits, `VsProgress`, `FileBatch`. |
 
 ### Anthropic Agent SDK
 
@@ -86,7 +86,7 @@ No native dependencies; pure Dart, SDK `^3.10.4`.
 | `TomDocumentApi` | Generic document store + typed Tom-folder accessors. |
 | `TomWorkspaceApi` | Workspace info, projects, quests, the active quest, chat variables. |
 | `TomToolsApi` | Invoke registered tools; fetch tools JSON for prompt injection. |
-| `TomChatApi` | Send a prompt to the active chat target (Anthropic or Copilot). |
+| `TomChatApi` | Send a prompt to the ANTHROPIC/LLM chat panel (its active profile). |
 
 ### Bridge transport
 

@@ -19,7 +19,7 @@
  *   3. $FLUTTER_ROOT/bin                 (Flutter ships its Dart there)
  *   4. the folder of `flutter` on PATH
  *   5. per-host locations: ~/Desktop/development/flutter/bin,
- *      ~/development/flutter/bin, ~/flutter/bin, /opt/homebrew/bin,
+ *      ~/development/flutter/bin, ~/flutter/bin, /opt/flutter/bin, /opt/homebrew/bin,
  *      /usr/local/bin, /usr/lib/dart/bin; on Windows ~\flutter\bin,
  *      ~\Desktop\development\flutter\bin, C:\src\flutter\bin,
  *      C:\tools\dart-sdk\bin, C:\tools\flutter\bin
@@ -56,6 +56,7 @@ function fixedDirs(platform, home) {
         path.posix.join(home, 'Desktop', 'development', 'flutter', 'bin'),
         path.posix.join(home, 'development', 'flutter', 'bin'),
         path.posix.join(home, 'flutter', 'bin'),
+        '/opt/flutter/bin',
         '/opt/homebrew/bin',
         '/usr/local/bin',
         '/usr/lib/dart/bin',

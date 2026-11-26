@@ -1,10 +1,11 @@
 /// Tom Document API for scripting access to workspace documents.
 ///
 /// Provides operations for accessing and manipulating:
-/// - Prompts (_ai/prompt/)
-/// - Answers (_ai/answers/)
+/// - Saved prompts: the active quest's `_ai/quests/{questId}/prompt/` folder
+///   (the prompt operations throw in a window without a quest)
 /// - Trail entries (_ai/trail/)
-/// - Guidelines (_copilot_guidelines/)
+/// - Guidelines: the root's and the workspace folder's guidelines folder
+///   (`_agent_guidelines/`, or the older `_copilot_guidelines/`)
 /// - Quest documents (_ai/quests/{questId}/)
 // ignore_for_file: avoid_classes_with_only_static_members
 library;
@@ -18,7 +19,6 @@ import 'vscode_adapter.dart';
 /// Type of document folder.
 enum DocumentFolder {
   prompt('prompt'),
-  answers('answers'),
   trail('trail'),
   guidelines('guidelines'),
   quest('quest'),
@@ -310,7 +310,7 @@ abstract class TomDocumentApi {
   // Prompt Operations
   // --------------------------------------------------------------------------
 
-  /// List prompt files.
+  /// List the saved prompts of the active quest (`_ai/quests/{questId}/prompt/`).
   static Future<DocumentListResult> listPrompts({String? pattern}) async {
     final result = await _requireAdapter.sendRequest('doc.listPromptsVce', {
       'pattern': ?pattern,
@@ -318,7 +318,7 @@ abstract class TomDocumentApi {
     return DocumentListResult.fromJson(result);
   }
 
-  /// Read a prompt file.
+  /// Read a saved prompt of the active quest by its file name.
   static Future<DocumentContent> readPrompt(String filename) async {
     final result = await _requireAdapter.sendRequest('doc.readPromptVce', {
       'filename': filename,
@@ -326,37 +326,13 @@ abstract class TomDocumentApi {
     return DocumentContent.fromJson(result);
   }
 
-  /// Create a new prompt file.
+  /// Save a new prompt in the active quest's `prompt/` folder; answers its path.
   static Future<String> createPrompt(String content, {String? filename}) async {
     final result = await _requireAdapter.sendRequest('doc.createPromptVce', {
       'content': content,
       'filename': ?filename,
     });
     return (result)['path'] as String? ?? '';
-  }
-
-  // --------------------------------------------------------------------------
-  // Answer Operations
-  // --------------------------------------------------------------------------
-
-  /// List answer files.
-  static Future<DocumentListResult> listAnswers({
-    String? subfolder,
-    String? pattern,
-  }) async {
-    final result = await _requireAdapter.sendRequest('doc.listAnswersVce', {
-      'subfolder': ?subfolder,
-      'pattern': ?pattern,
-    });
-    return DocumentListResult.fromJson(result);
-  }
-
-  /// Read an answer file.
-  static Future<DocumentContent> readAnswer(String path) async {
-    final result = await _requireAdapter.sendRequest('doc.readAnswerVce', {
-      'path': path,
-    });
-    return DocumentContent.fromJson(result);
   }
 
   // --------------------------------------------------------------------------

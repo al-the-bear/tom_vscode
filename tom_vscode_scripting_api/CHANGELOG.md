@@ -1,3 +1,31 @@
+## 8.0.0
+
+The Tom extension has one transport, the Anthropic handler: the Copilot
+transport, its answer wrapper and answer files, and the queue's reminders are
+gone. The API follows.
+
+- **Breaking:** the reminder operations are removed: `TomQueueApi.updateReminder`,
+  `QueuedPromptType.reminder`, and the reminder fields and parameters of the
+  queue and timed-request classes (`reminderEnabled`, `reminderTemplateId`,
+  `reminderTimeoutMinutes`, `reminderRepeat`, `reminderQueued`,
+  `reminderSentCount`, `lastReminderAt`).
+- **Breaking:** every `answerWrapper` field and parameter is removed
+  (`QueuedPrompt`, the queue input, `TimedRequest`, `TimedRequestInput`,
+  `TomTimedApi.update`).
+- **Breaking:** `VsCodeHelper.askCopilotChat` and its answer-file round trip
+  are removed; the answer files of `_ai/answers/` are gone, and with them
+  `TomDocumentApi.listAnswers`, `readAnswer` and `DocumentFolder.answers`.
+- `TomChatApi.sendToChat` sends to the ANTHROPIC/LLM panel only; the result's
+  `target` reports the transport as the extension answers it.
+- `TomToolsApi`: the tool set is the active Anthropic profile's; nothing is
+  said about a Copilot target any more.
+- `VsCodeHelper.askCopilot`, `askModel`, the code helpers built on them and the
+  `lm` API stay: they are VS Code's own language-model API (`vscode.lm`), not a
+  transport of the extension. Their documentation says so.
+- `TomDocumentApi`: the saved prompts are the active quest's
+  (`_ai/quests/<quest>/prompt/`; the prompt operations throw in a window
+  without a quest); the guidelines are the root's and the workspace folder's.
+
 ## 7.0.0
 
 - **Breaking:** `TomDocumentApi.listNotes`, `readNote` and `writeNote` and the

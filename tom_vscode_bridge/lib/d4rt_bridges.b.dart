@@ -1,4 +1,4 @@
-// Generated: 2026-11-25T17:15:26.888597 by tom_d4rt_generator 1.67.0
+// Generated: 2026-11-26T10:03:18.591973 by tom_d4rt_generator 1.67.0
 /// D4rt Bridges for tom_vscode_bridge
 library;
 

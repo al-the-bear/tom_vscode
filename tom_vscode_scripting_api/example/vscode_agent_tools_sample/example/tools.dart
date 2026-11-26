@@ -5,14 +5,13 @@
 /// `TomToolsApi` exposes the same LLM tools the Tom extension offers its chat
 /// transports. A script can list them (`getToolsJson` / `listAllowedToolNames`)
 /// and invoke any of them by name (`invokeTool`). The set is gated server-side
-/// by the **active Anthropic profile**: it is exactly that profile's tool set,
-/// and it is *empty* when the Send-to-Chat target is Copilot.
+/// by the **active Anthropic profile**: it is exactly that profile's tool set.
 ///
 /// This concept lists the allowed tools and prints the first few names. It does
 /// **not** invoke a tool — invocation has effects that depend on the tool, and
 /// the point here is to show the gated registry, not to run something. (When the
-/// list is empty — the Copilot target, or a profile with no tools — that is a
-/// valid configuration, not a failure.)
+/// list is empty — a profile with no tools — that is a valid configuration,
+/// not a failure.)
 ///
 /// Expected output:
 ///   18 tools available to the active profile.
@@ -29,9 +28,9 @@ Future<bool> runToolsExample(VSCodeAdapter adapter) async {
   print('${names.length} tools available to the active profile.');
 
   if (names.isEmpty) {
-    // Empty is a valid state: the Send-to-Chat target is Copilot, or the
-    // active profile enables no tools. The gate lives in the extension.
-    print('First 5: <none — Copilot target or no tools enabled>');
+    // Empty is a valid state: the active profile enables no tools. The gate
+    // lives in the extension.
+    print('First 5: <none — no tools enabled>');
   } else {
     final first = names.take(5).join(', ');
     print('First 5: $first${names.length > 5 ? ', …' : ''}');

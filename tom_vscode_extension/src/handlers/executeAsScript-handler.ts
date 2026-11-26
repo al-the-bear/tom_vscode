@@ -54,7 +54,7 @@ export async function executeAsScriptHandler(
         const fileName = path.basename(filePath);
 
         // Parse timeout from script's first line comment: // @timeout: <seconds>
-        // Default to 2 hours (7200 seconds) for long-running scripts like askCopilotChat
+        // Default to 2 hours (7200 seconds) for long-running scripts
         const timeoutMatch = script.match(/^\/\/\s*@timeout:\s*(\d+)/m);
         const timeoutSeconds = timeoutMatch ? parseInt(timeoutMatch[1], 10) : 7200;
         const timeoutMs = timeoutSeconds * 1000;

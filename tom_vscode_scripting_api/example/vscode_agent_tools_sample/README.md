@@ -103,8 +103,7 @@ safe to run headless or in CI — it reports "no window found" and stops.
 One concept has a *soft* prerequisite it degrades around rather than fails on:
 
 - **`tools`** lists the tools the active Anthropic profile permits. That list is
-  *empty* when the Send-to-Chat target is Copilot, or when the profile enables
-  no tools — a valid configuration, not a bug, so the concept reports the empty
+  *empty* when the profile enables no tools — a valid configuration, not a bug, so the concept reports the empty
   list and still passes.
 
 And one concept is **interactive** and skipped by the auto-run:
@@ -529,9 +528,9 @@ Future<bool> runToolsExample(VSCodeAdapter adapter) async {
   print('${names.length} tools available to the active profile.');
 
   if (names.isEmpty) {
-    // Empty is a valid state: the Send-to-Chat target is Copilot, or the
-    // active profile enables no tools. The gate lives in the extension.
-    print('First 5: <none — Copilot target or no tools enabled>');
+    // Empty is a valid state: the active profile enables no tools. The gate
+    // lives in the extension.
+    print('First 5: <none — no tools enabled>');
   } else {
     final first = names.take(5).join(', ');
     print('First 5: $first${names.length > 5 ? ', …' : ''}');
@@ -542,8 +541,7 @@ Future<bool> runToolsExample(VSCodeAdapter adapter) async {
 ```
 
 The list is **gated server-side by the active Anthropic profile** — see §9. An
-empty list is a legitimate configuration (the Copilot target, or a profile with
-no tools), so the concept treats it as a pass, not a failure.
+empty list is a legitimate configuration (a profile with no tools), so the concept treats it as a pass, not a failure.
 
 ### `send_to_chat.dart` — drive the chat transport (interactive)
 
@@ -616,8 +614,7 @@ Two of these APIs have behaviour worth understanding before you rely on them.
 **The tool registry is gated server-side by the active Anthropic profile.** Both
 the listing (`getToolsJson` / `listAllowedToolNames`) and the invocation
 (`invokeTool`) are scoped to the currently active profile's tool set
-(`toolsEnabled` / `enabledTools`), and when the Send-to-Chat target is Copilot
-the list is *empty* and every invoke is refused. The gate lives **inside the VS
+(`toolsEnabled` / `enabledTools`); a name outside it is refused. The gate lives **inside the VS
 Code extension**, not in this Dart API — the package is a thin pass-through that
 adds no checks of its own and does no client-side filtering. A tool the active
 profile hides cannot be invoked by passing its name to `invokeTool`: the
@@ -744,7 +741,7 @@ run.
 | ------- | ----------- |
 | `No VS Code CLI Integration Server found on 127.0.0.1:19900–19909` | No window has the server running. Run **`DS: Start Tom CLI Integration Server`** in the command palette. |
 | `StateError: <Class>: adapter not set. Call setAdapter() first.` | A concept used an extension API before `setAdapter`. Each concept must call `<Class>.setAdapter(adapter)` first — see §6. |
-| `tools` reports `0 tools available` | The active Send-to-Chat target is Copilot, or the active Anthropic profile enables no tools. That's the server-side gate (§9), not an error — switch the target/profile to see tools. |
+| `tools` reports `0 tools available` | The active Anthropic profile enables no tools. That's the server-side gate (§9), not an error — switch the profile to see tools. |
 | `send_to_chat` prints `Rejected: an Anthropic turn was already in flight` | An Anthropic turn was already running on that window. Wait for it to finish, or use the prompt **queue** (`TomQueueApi`) to enqueue instead of sending directly. |
 | `send_to_chat` never runs from the aggregator | It's skipped by the auto-run. Run it through the dispatcher: `dart run bin/run_example.dart send_to_chat`. |
 | `workspace_metadata` returns `false` | The connected window reports zero projects — it isn't a populated Tom workspace. Connect to a Tom workspace window. |

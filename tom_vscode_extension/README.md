@@ -122,9 +122,10 @@ Options (bash / PowerShell):
 
 It runs end to end:
 
-1. Checks Node: from `PATH`, else from nvm (its default, else Node 20; also
-   when the Node on `PATH` is below 20). Without one it stops before anything
-   is built, saying `node not found`. Then it looks for the Dart SDK
+1. Checks Node: from `PATH`, else from nvm (its default, else the newest Node
+   it has, else it installs Node 20; also when the Node on `PATH` is below
+   20). Without one it stops before anything is built, saying
+   `node not found`. Then it looks for the Dart SDK
    (`scripts/find-dart.cjs`). Only "not found" means a build without Dart; a
    lookup that could not run stops the install. It builds the TomSpecs SOM packages
    from ai_build's current state (`npm run som:pack`), installs npm deps, checks

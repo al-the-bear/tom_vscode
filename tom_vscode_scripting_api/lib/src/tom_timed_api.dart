@@ -72,15 +72,10 @@ class TimedRequest {
   final String id;
   final bool enabled;
   final String template;
-  final bool? answerWrapper;
   final String originalText;
   final ScheduleMode scheduleMode;
   final int? intervalMinutes;
   final List<ScheduledTime>? scheduledTimes;
-  final bool? reminderEnabled;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
   final String? lastSentAt;
   final TimedRequestStatus status;
 
@@ -88,15 +83,10 @@ class TimedRequest {
     required this.id,
     required this.enabled,
     required this.template,
-    this.answerWrapper,
     required this.originalText,
     required this.scheduleMode,
     this.intervalMinutes,
     this.scheduledTimes,
-    this.reminderEnabled,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
     this.lastSentAt,
     required this.status,
   });
@@ -106,7 +96,6 @@ class TimedRequest {
       id: json['id'] as String,
       enabled: json['enabled'] as bool? ?? true,
       template: json['template'] as String? ?? '(None)',
-      answerWrapper: json['answerWrapper'] as bool?,
       originalText: json['originalText'] as String? ?? '',
       scheduleMode: ScheduleMode.fromString(
         json['scheduleMode'] as String? ?? 'interval',
@@ -115,10 +104,6 @@ class TimedRequest {
       scheduledTimes: (json['scheduledTimes'] as List?)
           ?.map((e) => ScheduledTime.fromJson(e as Map<String, dynamic>))
           .toList(),
-      reminderEnabled: json['reminderEnabled'] as bool?,
-      reminderTemplateId: json['reminderTemplateId'] as String?,
-      reminderTimeoutMinutes: json['reminderTimeoutMinutes'] as int?,
-      reminderRepeat: json['reminderRepeat'] as bool?,
       lastSentAt: json['lastSentAt'] as String?,
       status: TimedRequestStatus.fromString(
         json['status'] as String? ?? 'active',
@@ -130,17 +115,11 @@ class TimedRequest {
     'id': id,
     'enabled': enabled,
     'template': template,
-    if (answerWrapper != null) 'answerWrapper': answerWrapper,
     'originalText': originalText,
     'scheduleMode': scheduleMode.value,
     if (intervalMinutes != null) 'intervalMinutes': intervalMinutes,
     if (scheduledTimes != null)
       'scheduledTimes': scheduledTimes!.map((t) => t.toJson()).toList(),
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
     if (lastSentAt != null) 'lastSentAt': lastSentAt,
     'status': status.value,
   };
@@ -181,41 +160,25 @@ class TimedRequestListResult {
 class TimedRequestInput {
   final String promptText;
   final String? template;
-  final bool? answerWrapper;
   final ScheduleMode scheduleMode;
   final int? intervalMinutes;
   final List<ScheduledTime>? scheduledTimes;
-  final bool? reminderEnabled;
-  final String? reminderTemplateId;
-  final int? reminderTimeoutMinutes;
-  final bool? reminderRepeat;
 
   TimedRequestInput({
     required this.promptText,
     this.template,
-    this.answerWrapper,
     required this.scheduleMode,
     this.intervalMinutes,
     this.scheduledTimes,
-    this.reminderEnabled,
-    this.reminderTemplateId,
-    this.reminderTimeoutMinutes,
-    this.reminderRepeat,
   });
 
   Map<String, dynamic> toJson() => {
     'promptText': promptText,
     if (template != null) 'template': template,
-    if (answerWrapper != null) 'answerWrapper': answerWrapper,
     'scheduleMode': scheduleMode.value,
     if (intervalMinutes != null) 'intervalMinutes': intervalMinutes,
     if (scheduledTimes != null)
       'scheduledTimes': scheduledTimes!.map((t) => t.toJson()).toList(),
-    if (reminderEnabled != null) 'reminderEnabled': reminderEnabled,
-    if (reminderTemplateId != null) 'reminderTemplateId': reminderTemplateId,
-    if (reminderTimeoutMinutes != null)
-      'reminderTimeoutMinutes': reminderTimeoutMinutes,
-    if (reminderRepeat != null) 'reminderRepeat': reminderRepeat,
   };
 }
 
@@ -278,29 +241,19 @@ abstract class TomTimedApi {
     String entryId, {
     String? promptText,
     String? template,
-    bool? answerWrapper,
     ScheduleMode? scheduleMode,
     int? intervalMinutes,
     List<ScheduledTime>? scheduledTimes,
-    bool? reminderEnabled,
-    String? reminderTemplateId,
-    int? reminderTimeoutMinutes,
-    bool? reminderRepeat,
     TimedRequestStatus? status,
   }) async {
     final result = await _requireAdapter.sendRequest('timed.updateVce', {
       'entryId': entryId,
       'promptText': ?promptText,
       'template': ?template,
-      'answerWrapper': ?answerWrapper,
       if (scheduleMode != null) 'scheduleMode': scheduleMode.value,
       'intervalMinutes': ?intervalMinutes,
       if (scheduledTimes != null)
         'scheduledTimes': scheduledTimes.map((t) => t.toJson()).toList(),
-      'reminderEnabled': ?reminderEnabled,
-      'reminderTemplateId': ?reminderTemplateId,
-      'reminderTimeoutMinutes': ?reminderTimeoutMinutes,
-      'reminderRepeat': ?reminderRepeat,
       if (status != null) 'status': status.value,
     });
     return TimedRequest.fromJson(result);
