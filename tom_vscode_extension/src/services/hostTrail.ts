@@ -210,6 +210,35 @@ export function formatSessionTrailView(session: string, turns: readonly HostTrai
     return out.join('\n');
 }
 
+/**
+ * `host`'s turns of the quest, newest first: those sent after `since` (an ISO
+ * time; all without it), at most `limit` (all without it). `total` counts
+ * every turn after `since`, before the limit.
+ */
+export function newestHostTrailTurns(questFolder: string, host: string, opts: { limit?: number; since?: string } = {}): { turns: HostTrailTurn[]; total: number } {
+    const after = opts.since !== undefined ? Date.parse(opts.since) : undefined;
+    const matching = readHostTrail(questFolder, host)
+        .filter((t) => after === undefined || Date.parse(t.time) > after)
+        .reverse();
+    return { turns: opts.limit !== undefined ? matching.slice(0, Math.max(0, opts.limit)) : matching, total: matching.length };
+}
+
+/**
+ * The turn with the request id `id` in the quest's host trails — `ownHost`'s
+ * trail first, then the others (a turn's id is unique) — with the file it is
+ * in; undefined when no trail holds it.
+ */
+export function findHostTrailTurn(questFolder: string, id: string, ownHost?: string): { turn: HostTrailTurn; file: string } | undefined {
+    const hosts = [...readHostTrails(questFolder).keys()];
+    const order = ownHost && hosts.includes(ownHost) ? [ownHost, ...hosts.filter((h) => h !== ownHost)] : hosts;
+    for (const host of order) {
+        const file = hostTrailFile(questFolder, host);
+        const turn = readHostTrailFile(file).find((t) => t.id === id);
+        if (turn) { return { turn, file }; }
+    }
+    return undefined;
+}
+
 /** The history watermark's time of each host; undefined when there is no (readable) watermark. */
 export function readWatermarkHosts(questFolder: string): Record<string, string> | undefined {
     try {

@@ -27,6 +27,8 @@ import {
     parseHostTrail,
     readHostTrail,
     readHostTrails,
+    findHostTrailTurn,
+    newestHostTrailTurns,
     sessionView,
     type HostTrailTurn,
 } from '../hostTrail.js';
@@ -136,6 +138,29 @@ describe('the host trail', () => {
         assert.equal(completeHostTrailTurn('never-begun', 'x', opts), false);
         const turns = readHostTrail(quest, 'mbp');
         assert.deepEqual(turns.map((t) => [t.id, t.session, t.prompt, t.answer]), [['a', 'work', 'the prompt of a', 'the answer of a']]);
+        fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    test('HT-7: newest turns and a turn by its id (the scripting API\'s trail operations)', () => {
+        const { root, quest } = sandbox();
+        for (let n = 1; n <= 4; n++) { appendHostTrailTurn(quest, turn(n), 2000); }
+        appendHostTrailTurn(quest, turn(9, { id: 'other-9', host: 'bomber' }), 2000);
+        const all = newestHostTrailTurns(quest, 'mbp');
+        assert.deepEqual(all.turns.map((t) => t.id), ['req-4', 'req-3', 'req-2', 'req-1'], 'newest first, this host only');
+        assert.equal(all.total, 4);
+        const limited = newestHostTrailTurns(quest, 'mbp', { limit: 2 });
+        assert.deepEqual([limited.turns.map((t) => t.id), limited.total], [['req-4', 'req-3'], 4], 'the limit cuts, total counts all');
+        const since = newestHostTrailTurns(quest, 'mbp', { since: turn(2).time });
+        assert.deepEqual([since.turns.map((t) => t.id), since.total], [['req-4', 'req-3'], 2], 'only after since');
+        assert.deepEqual(newestHostTrailTurns(quest, 'nohost'), { turns: [], total: 0 });
+
+        const own = findHostTrailTurn(quest, 'req-3', 'mbp');
+        assert.equal(own?.turn.prompt, 'prompt 3');
+        assert.equal(own?.file, hostTrailFile(quest, 'mbp'));
+        const other = findHostTrailTurn(quest, 'other-9', 'mbp');
+        assert.equal(other?.turn.host, 'bomber', 'another host\'s trail is searched too');
+        assert.equal(other?.file, hostTrailFile(quest, 'bomber'));
+        assert.equal(findHostTrailTurn(quest, 'nope', 'mbp'), undefined);
         fs.rmSync(root, { recursive: true, force: true });
     });
 });

@@ -22,6 +22,8 @@ import { PromptQueueManager } from '../managers/promptQueueManager';
 import { TimerEngine, TimedRequest } from '../managers/timerEngine';
 import { ChatVariablesStore } from '../managers/chatVariablesStore.js';
 import { listedProjects, scriptingProjectInfo, scriptingProjectType } from '../services/workspaceProjects';
+import { findHostTrailTurn, hostTrailFile, newestHostTrailTurns, type HostTrailTurn } from '../services/hostTrail';
+import { hostSlugOf } from '../utils/hostSlug';
 
 // ============================================================================
 // Singleton Manager
@@ -60,6 +62,33 @@ function deleteResult(result: questTodo.TodoMoveResult, todoId: string): { succe
 const REMOVED_AI_FOLDER_MESSAGE = (folder: string): string =>
     `_ai/${folder} is no longer part of the workspace: notes are the quest's (_ai/quests/<quest>/notes/, QUEST NOTES) ` +
     'or the workspace notes (_ai/workspaces/<workspace>.notes.md, WORKSPACE NOTES); a document belongs in its quest folder (doc.listQuestDocsVce).';
+
+/** The `_ai` folders a script may no longer name (`doc.listVce`), each with where its content went. */
+const REMOVED_DOC_FOLDERS: Readonly<Record<string, string>> = {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- folder names
+    bot_conversations: '_ai/bot_conversations is no longer part of the workspace: the bot conversation logs were machine-local and were removed with the _ai cleanup.',
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- folder names
+    send_to_chat: '_ai/send_to_chat is no longer part of the workspace: nothing writes it; send a prompt with TomChatApi.sendToChat (chat.sendToChatVce).',
+};
+
+/** The default number of turns `doc.listTrailVce` answers (a turn holds the whole prompt and answer). */
+const DEFAULT_TRAIL_LIMIT = 20;
+
+/**
+ * The trail wire contract (`doc.listTrailVce`, `doc.getTrailEntryVce`,
+ * `doc.findTrailByRequestIdVce`, read by tom_vscode_scripting_api's
+ * TomDocumentApi): the turns of the quest's host trail
+ * `_ai/quests/<quest>/history/trail.<host>.md` (services/hostTrail.ts). A turn
+ * is `{id, questId, file, time, host, session, profile, model, prompt,
+ * answer}`, `id` the request id it was sent with. The list answers this host's
+ * turns, newest first, after `since`, at most `limit` (default 20), with
+ * `totalCount` (every turn after `since`), `questId` and `host`; the lookups
+ * answer the turn with that id from any host's trail of the quest, or `null`.
+ * `questId` defaults to the window's quest; without one the call is refused.
+ */
+function trailEntryWire(turn: HostTrailTurn, questId: string, file: string): Record<string, string> {
+    return { id: turn.id, questId, file, time: turn.time, host: turn.host, session: turn.session, profile: turn.profile, model: turn.model, prompt: turn.prompt, answer: turn.answer };
+}
 
 /**
  * The todo wire contract (`todo.*Vce`, read by tom_vscode_scripting_api's
@@ -597,11 +626,11 @@ export class TomScriptingBridgeHandler {
             }
 
             case 'doc.getTrailEntryVce': {
-                return this.getTrailEntry(params.entryId);
+                return this.findTrailTurn(params.entryId, params.questId);
             }
 
             case 'doc.findTrailByRequestIdVce': {
-                return this.findTrailByRequestId(params.requestId);
+                return this.findTrailTurn(params.requestId, params.questId);
             }
 
             case 'doc.listGuidelinesVce': {
@@ -651,6 +680,7 @@ export class TomScriptingBridgeHandler {
         let basePath: string;
 
         if (folder === 'notes' || folder.startsWith('clarifications')) { throw new Error(REMOVED_AI_FOLDER_MESSAGE(folder)); }
+        if (Object.prototype.hasOwnProperty.call(REMOVED_DOC_FOLDERS, folder)) { throw new Error(REMOVED_DOC_FOLDERS[folder]); }
         switch (folder) {
             case 'prompt':
                 basePath = this.questPromptDir();
@@ -666,12 +696,6 @@ export class TomScriptingBridgeHandler {
                 break;
             case 'quest':
                 basePath = WsPaths.ai('quests') || path.join(wsRoot, '_ai', 'quests');
-                break;
-            case 'bot_conversations':
-                basePath = WsPaths.ai('bot_conversations') || path.join(wsRoot, '_ai', 'bot_conversations');
-                break;
-            case 'send_to_chat':
-                basePath = WsPaths.ai('send_to_chat') || path.join(wsRoot, '_ai', 'send_to_chat');
                 break;
             default:
                 basePath = path.join(wsRoot, '_ai', folder);
@@ -758,43 +782,33 @@ export class TomScriptingBridgeHandler {
         return { success: true };
     }
 
+    /** The quest a trail call works on and its folder: `questId`, else the window's quest; refused without one. */
+    private trailQuest(questId?: string): { questId: string; folder: string } {
+        const quest = questId || WsPaths.getWorkspaceQuestId();
+        if (!quest || quest === 'default') {
+            throw new Error('No quest: pass questId, or run the script in a quest\'s window (the trail is the quest\'s host trail, _ai/quests/<quest>/history/trail.<host>.md).');
+        }
+        const folder = WsPaths.ai('quests', quest) || path.join(layoutWorkspaceFolder() ?? '', '_ai', 'quests', quest);
+        return { questId: quest, folder };
+    }
+
+    /** This host's turns of the quest, newest first (the trail wire contract above). */
     private async listTrailEntries(questId?: string, limit?: number, since?: string): Promise<any> {
-        const wsRoot = layoutWorkspaceFolder() ?? '';
-        const trailDir = WsPaths.ai('trail') || path.join(wsRoot, '_ai', 'trail');
-        const entries: any[] = [];
-
-        if (!fs.existsSync(trailDir)) {
-            return { entries, totalCount: 0, questId };
+        if (since !== undefined && since !== null && Number.isNaN(Date.parse(since))) {
+            throw new Error(`since must be an ISO date-time: ${since}`);
         }
-
-        const files = fs.readdirSync(trailDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
-        
-        for (const file of files.slice(0, limit || 100)) {
-            const filePath = path.join(trailDir, file);
-            try {
-                const stat = fs.statSync(filePath);
-                if (!stat.isFile()) { continue; }
-                entries.push({
-                    id: path.basename(file, path.extname(file)),
-                    promptFile: file,
-                    timestamp: stat.mtime.toISOString(),
-                });
-            } catch (e) {
-                // Skip invalid files
-            }
-        }
-
-        return { entries, totalCount: entries.length, questId };
+        const quest = this.trailQuest(questId);
+        const host = hostSlugOf();
+        const { turns, total } = newestHostTrailTurns(quest.folder, host, { limit: limit ?? DEFAULT_TRAIL_LIMIT, since: since ?? undefined });
+        const file = hostTrailFile(quest.folder, host);
+        return { entries: turns.map((t) => trailEntryWire(t, quest.questId, file)), totalCount: total, questId: quest.questId, host };
     }
 
-    private async getTrailEntry(entryId: string): Promise<any> {
-        // Simplified - would search trail files for matching entry
-        return null;
-    }
-
-    private async findTrailByRequestId(requestId: string): Promise<any> {
-        // Simplified - would search trail files for matching request ID
-        return null;
+    /** The turn with request id `id` from any host's trail of the quest, or null. */
+    private async findTrailTurn(id: string, questId?: string): Promise<any> {
+        const quest = this.trailQuest(questId);
+        const found = findHostTrailTurn(quest.folder, String(id ?? ''), hostSlugOf());
+        return found ? trailEntryWire(found.turn, quest.questId, found.file) : null;
     }
 
     /** Every guideline of both levels (root, workspace folder; either folder name), each path once. */
